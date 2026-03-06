@@ -14,6 +14,9 @@ COMERCIAL_RIP_PET/
 scripts/
 public/racas/
 
+# Supabase migrations (gerenciado separadamente)
+supabase/
+
 # Templates referência
 chegamos e chegaram.html
 
