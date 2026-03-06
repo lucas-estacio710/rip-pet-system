@@ -1,0 +1,44 @@
+# Variáveis de ambiente
+.env*
+
+# Claude (contém credenciais)
+CLAUDE.md
+.claude/
+
+# Dados sensíveis
+Bases_legado/
+migracao/output/
+
+# Projetos/pastas separadas
+COMERCIAL_RIP_PET/
+scripts/
+public/racas/
+
+# Templates referência
+chegamos e chegaram.html
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Node
+node_modules/
+
+# Next.js build
+.next/
+
+# Arquivos temporários
+nul
+tmp_*.json
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
