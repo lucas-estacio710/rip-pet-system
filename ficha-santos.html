@@ -1,0 +1,2239 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Bloquear indexação -->
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="googlebot" content="noindex, nofollow">
+
+    <title>Ficha de Contrato e Translado - Santos | R.I.P. Pet</title>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="logo_rounded.png">
+
+    <!-- Supabase Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f0f4f8;
+            min-height: 100vh;
+            padding: 20px;
+            padding-bottom: 90px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        /* Header com logo */
+        .header {
+            background: linear-gradient(135deg, #1e5a96 0%, #2d7bb8 100%);
+            border-radius: 12px 12px 0 0;
+            padding: 24px 30px;
+            color: white;
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .header-logo {
+            height: 60px;
+            width: auto;
+        }
+
+        .header-content {
+            flex: 1;
+        }
+
+        .header h1 {
+            font-size: 22px;
+            margin-bottom: 6px;
+            font-weight: 700;
+        }
+
+        .header p {
+            font-size: 13px;
+            opacity: 0.95;
+        }
+
+        .header .unit-badge {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255,255,255,0.2);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+
+        /* Form container */
+        .form-container {
+            background: white;
+            border-radius: 0 0 12px 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            padding: 40px;
+        }
+
+        /* Progress Steps */
+        .progress-steps {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 40px;
+            position: relative;
+        }
+
+        .progress-steps::before {
+            content: '';
+            position: absolute;
+            top: 20px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: #e5e7eb;
+            z-index: 0;
+        }
+
+        .progress-line {
+            position: absolute;
+            top: 20px;
+            left: 0;
+            height: 2px;
+            background: linear-gradient(90deg, #1e5a96, #2d7bb8);
+            z-index: 1;
+            transition: width 0.3s ease;
+        }
+
+        .step {
+            flex: 1;
+            text-align: center;
+            position: relative;
+            z-index: 2;
+        }
+
+        .step-circle {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: white;
+            border: 3px solid #e5e7eb;
+            margin: 0 auto 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 16px;
+            color: #9ca3af;
+            transition: all 0.3s ease;
+        }
+
+        .step.active .step-circle {
+            border-color: #1e5a96;
+            background: #1e5a96;
+            color: white;
+        }
+
+        .step.completed .step-circle {
+            border-color: #10b981;
+            background: #10b981;
+            color: white;
+        }
+
+        .step-label {
+            font-size: 13px;
+            color: #6b7280;
+            font-weight: 500;
+        }
+
+        .step.active .step-label {
+            color: #1e5a96;
+            font-weight: 600;
+        }
+
+        /* Form sections */
+        .form-section {
+            display: none;
+        }
+
+        .form-section.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .section-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 24px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #e5e7eb;
+        }
+
+        /* Form groups */
+        .form-group {
+            margin-bottom: 20px !important;
+        }
+
+        .form-group-with-button {
+            display: flex;
+            gap: 8px;
+            align-items: flex-end;
+            margin-bottom: 20px !important;
+        }
+
+        .form-group-with-button .form-group {
+            flex: 1;
+            margin-bottom: 0 !important;
+        }
+
+        .form-group-with-button button {
+            padding: 10px 16px;
+            font-size: 13px;
+            white-space: nowrap;
+            flex: 0 0 auto;
+            margin-bottom: 0;
+        }
+
+        .btn-text-short {
+            display: none;
+        }
+
+        .btn-text-full {
+            display: inline;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px !important;
+        }
+
+        .form-row .form-group {
+            margin-bottom: 0 !important;
+        }
+
+        .form-row-3 {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px !important;
+        }
+
+        .form-row-3 .form-group {
+            margin-bottom: 0 !important;
+        }
+
+        @media (max-width: 640px) {
+            .form-row, .form-row-3 {
+                grid-template-columns: 1fr;
+            }
+
+            .form-group-with-button {
+                display: flex;
+                flex-direction: row;
+                align-items: flex-end;
+            }
+
+            .form-group-with-button .form-group {
+                flex: 2;
+            }
+
+            .form-group-with-button button {
+                flex: 1;
+                margin-top: 0;
+                font-size: 11px;
+                padding: 10px 6px;
+            }
+
+            .btn-text-full {
+                display: none;
+            }
+
+            .btn-text-short {
+                display: inline;
+            }
+
+            .fixed-footer {
+                gap: 8px;
+                padding: 10px 16px;
+            }
+
+            .autosave-status {
+                font-size: 12px;
+            }
+
+            .btn-clear-all {
+                font-size: 12px;
+                padding: 8px 12px;
+            }
+
+            .btn-clear-all svg {
+                width: 14px;
+                height: 14px;
+            }
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #374151;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        label .required {
+            color: #ef4444;
+            margin-left: 2px;
+        }
+
+        .help-text {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 4px;
+            font-style: italic;
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 15px;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #1e5a96;
+            box-shadow: 0 0 0 3px rgba(30, 90, 150, 0.1);
+        }
+
+        input.error, select.error {
+            border-color: #ef4444;
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .error-message {
+            color: #ef4444;
+            font-size: 12px;
+            margin-top: 6px;
+            display: none;
+        }
+
+        .error-message.show {
+            display: block;
+        }
+
+        /* Checkboxes e radios */
+        .checkbox-group, .radio-group {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .checkbox-item, .radio-item {
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .checkbox-item:hover, .radio-item:hover {
+            border-color: #1e5a96;
+            background: #f8fafc;
+        }
+
+        .checkbox-item input, .radio-item input {
+            width: auto;
+            margin-right: 12px;
+            cursor: pointer;
+        }
+
+        .checkbox-item label, .radio-item label {
+            margin: 0;
+            cursor: pointer;
+            flex: 1;
+        }
+
+        /* Conditional fields */
+        .conditional-field {
+            margin-top: 0 !important;
+            margin-bottom: 20px !important;
+            padding: 16px;
+            background: #f8fafc;
+            border-radius: 8px;
+            border-left: 4px solid #1e5a96;
+            display: none;
+        }
+
+        .conditional-field.show {
+            display: block;
+        }
+
+        .conditional-field-inline {
+            margin-left: 40px;
+            margin-top: 8px;
+            margin-bottom: 0 !important;
+            padding: 12px;
+            background: #f8fafc;
+            border-radius: 6px;
+            border-left: 3px solid #1e5a96;
+            display: none;
+        }
+
+        .conditional-field-inline.show {
+            display: block;
+        }
+
+        .conditional-field-inline input {
+            margin-top: 4px;
+        }
+
+        /* Outros tutores */
+        .outro-tutor-item {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px !important;
+            align-items: center;
+        }
+
+        .outro-tutor-item input {
+            flex: 1;
+        }
+
+        .outro-tutor-item button {
+            flex: 0 0 auto;
+            padding: 8px 12px;
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .outro-tutor-item button:hover {
+            background: #fecaca;
+        }
+
+        .btn-add-tutor {
+            margin-top: 12px;
+        }
+
+        /* Buttons */
+        .button-group {
+            display: flex;
+            gap: 12px;
+            margin-top: 24px;
+            padding-top: 20px;
+            border-top: 2px solid #e5e7eb;
+            flex-wrap: wrap;
+        }
+
+        .button-group button {
+            min-width: 140px;
+        }
+
+        button {
+            flex: 1;
+            padding: 14px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #1e5a96 0%, #2d7bb8 100%);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(30, 90, 150, 0.3);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        .btn-secondary:hover {
+            background: #e5e7eb;
+        }
+
+        .btn-danger {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
+        }
+
+        .btn-danger:hover {
+            background: #fecaca;
+            border-color: #f87171;
+        }
+
+        /* Footer fixo */
+        .fixed-footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            border-top: 2px solid #e5e7eb;
+            padding: 12px 20px;
+            box-shadow: 0 -4px 12px rgba(0,0,0,0.08);
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .autosave-status {
+            flex: 2;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: #6b7280;
+        }
+
+        .autosave-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #10b981;
+        }
+
+        .autosave-status.saving .autosave-dot {
+            background: #f59e0b;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .btn-clear-all {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 8px 16px;
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
+            border-radius: 6px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        .btn-clear-all:hover {
+            background: #fecaca;
+        }
+
+        .btn-clear-all svg {
+            width: 16px;
+            height: 16px;
+        }
+
+
+        /* Loading overlay */
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 10000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .loading-overlay.show {
+            display: flex;
+        }
+
+        .loading-content {
+            text-align: center;
+            color: white;
+        }
+
+        .loading-spinner {
+            width: 60px;
+            height: 60px;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        /* Success message */
+        .success-screen {
+            display: none !important;
+            text-align: center;
+            padding: 40px 20px;
+            animation: fadeInUp 0.5s ease;
+        }
+
+        .success-screen.show {
+            display: block !important;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .success-icon-wrapper {
+            margin: 0 auto 32px;
+            position: relative;
+        }
+
+        .success-icon {
+            width: 100px;
+            height: 100px;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto;
+            box-shadow: 0 10px 40px rgba(16, 185, 129, 0.3);
+            animation: scaleIn 0.5s ease 0.2s both;
+        }
+
+        @keyframes scaleIn {
+            from {
+                transform: scale(0);
+            }
+            to {
+                transform: scale(1);
+            }
+        }
+
+        .success-icon svg {
+            width: 50px;
+            height: 50px;
+            color: white;
+        }
+
+        .success-checkmark {
+            position: absolute;
+            top: -10px;
+            right: calc(50% - 60px);
+            width: 40px;
+            height: 40px;
+            background: #1e5a96;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: bounceIn 0.6s ease 0.4s both;
+        }
+
+        .success-checkmark svg {
+            width: 20px;
+            height: 20px;
+            color: white;
+        }
+
+        @keyframes bounceIn {
+            0% {
+                transform: scale(0);
+            }
+            50% {
+                transform: scale(1.2);
+            }
+            100% {
+                transform: scale(1);
+            }
+        }
+
+        .success-screen h2 {
+            color: #1f2937;
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            animation: fadeIn 0.5s ease 0.3s both;
+        }
+
+        .success-screen .subtitle {
+            color: #10b981;
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 24px;
+            animation: fadeIn 0.5s ease 0.4s both;
+        }
+
+        .success-info-box {
+            background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+            border: 2px solid #10b981;
+            border-radius: 12px;
+            padding: 24px;
+            margin: 0 auto 24px;
+            max-width: 500px;
+            animation: fadeIn 0.5s ease 0.5s both;
+        }
+
+        .success-info-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 16px;
+            text-align: left;
+        }
+
+        .success-info-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .success-info-item svg {
+            width: 24px;
+            height: 24px;
+            color: #10b981;
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+
+        .success-info-item p {
+            margin: 0;
+            color: #065f46;
+            font-size: 15px;
+            line-height: 1.6;
+        }
+
+        .success-info-item strong {
+            color: #047857;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        .success-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 32px;
+            animation: fadeIn 0.5s ease 0.6s both;
+        }
+
+        .success-actions button {
+            min-width: 160px;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .success-screen h2 {
+                font-size: 24px;
+            }
+
+            .success-screen .subtitle {
+                font-size: 16px;
+            }
+
+            .success-icon {
+                width: 80px;
+                height: 80px;
+            }
+
+            .success-icon svg {
+                width: 40px;
+                height: 40px;
+            }
+
+            .success-info-box {
+                padding: 20px;
+            }
+
+            .success-actions {
+                flex-direction: column;
+            }
+
+            .success-actions button {
+                width: 100%;
+            }
+        }
+
+        /* Mobile adjustments */
+        @media (max-width: 640px) {
+            .form-container {
+                padding: 24px;
+            }
+
+            .header {
+                flex-direction: column;
+                text-align: center;
+                padding: 20px;
+            }
+
+            .header-logo {
+                height: 50px;
+            }
+
+            .header h1 {
+                font-size: 20px;
+            }
+
+            .header .unit-badge {
+                position: static;
+                margin-top: 10px;
+            }
+
+            .step-label {
+                font-size: 11px;
+            }
+
+            .step-circle {
+                width: 36px;
+                height: 36px;
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="rippet_logo_horizontal_fundo_claro.png" alt="R.I.P. Pet Logo" class="header-logo">
+            <div class="header-content">
+                <h1>Ficha de Contrato e Translado</h1>
+            </div>
+            <div class="unit-badge">Unidade Santos - SP</div>
+        </div>
+
+        <div class="form-container">
+            <!-- Progress Steps -->
+            <div class="progress-steps">
+                <div class="progress-line" id="progressLine"></div>
+                <div class="step active" data-step="1">
+                    <div class="step-circle">1</div>
+                    <div class="step-label">Dados do Tutor</div>
+                </div>
+                <div class="step" data-step="2">
+                    <div class="step-circle">2</div>
+                    <div class="step-label">Dados do Pet</div>
+                </div>
+                <div class="step" data-step="3">
+                    <div class="step-circle">3</div>
+                    <div class="step-label">Confirmação</div>
+                </div>
+            </div>
+
+            <form id="fichaForm">
+                <!-- SECTION 1: DADOS DO TUTOR -->
+                <div class="form-section active" data-section="1">
+                    <h2 class="section-title">DADOS DO TUTOR</h2>
+
+                    <div class="form-group">
+                        <label for="nomeCompleto">Nome Completo para o Contrato e Certificado de Cremação <span class="required">*</span></label>
+                        <input type="text" id="nomeCompleto" name="nomeCompleto" required>
+                        <div class="error-message" id="nomeCompletoError">Nome completo é obrigatório</div>
+                    </div>
+
+                    <!-- Outros tutores no certificado -->
+                    <div class="form-group">
+                        <label>Outros Tutores no Certificado de Cremação</label>
+                        <p class="help-text">Adicione nomes de outros tutores que devem aparecer no certificado (opcional)</p>
+                        <div id="outrosTutoresContainer"></div>
+                        <button type="button" class="btn-secondary btn-add-tutor" onclick="adicionarOutroTutor()">+ Adicionar Outro Tutor</button>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="cpf">CPF <span class="required">*</span></label>
+                            <input type="text" id="cpf" name="cpf" placeholder="000.000.000-00" required>
+                            <p class="help-text">Com pontos e traço, exemplo: 012.345.678-90</p>
+                            <div class="error-message" id="cpfError">CPF inválido</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="telefone">Telefone Contato <span class="required">*</span></label>
+                            <input type="tel" id="telefone" name="telefone" placeholder="(11) 99999-9999" required>
+                            <p class="help-text">Somente números com DDD</p>
+                            <div class="error-message" id="telefoneError">Telefone é obrigatório</div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="email">E-mail</label>
+                        <input type="email" id="email" name="email">
+                        <div class="error-message" id="emailError">E-mail inválido</div>
+                    </div>
+
+                    <!-- CEP depois do email -->
+                    <div class="form-group-with-button">
+                        <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                            <label for="cep">CEP Residencial <span class="required">*</span></label>
+                            <input type="text" id="cep" name="cep" placeholder="00000-000" required>
+                            <div class="error-message" id="cepError">CEP é obrigatório</div>
+                        </div>
+                        <button type="button" class="btn-primary" onclick="buscarCEP()" id="btnBuscarCep">
+                            <span class="btn-text-full">Localizar Endereço</span>
+                            <span class="btn-text-short">Localizar End.</span>
+                        </button>
+                    </div>
+
+                    <div class="form-row-3">
+                        <div class="form-group">
+                            <label for="estado">Estado (UF) <span class="required">*</span></label>
+                            <select id="estado" name="estado" required>
+                                <option value="">Selecione</option>
+                                <option value="SP" selected>SP</option>
+                                <option value="AC">AC</option>
+                                <option value="AL">AL</option>
+                                <option value="AP">AP</option>
+                                <option value="AM">AM</option>
+                                <option value="BA">BA</option>
+                                <option value="CE">CE</option>
+                                <option value="DF">DF</option>
+                                <option value="ES">ES</option>
+                                <option value="GO">GO</option>
+                                <option value="MA">MA</option>
+                                <option value="MT">MT</option>
+                                <option value="MS">MS</option>
+                                <option value="MG">MG</option>
+                                <option value="PA">PA</option>
+                                <option value="PB">PB</option>
+                                <option value="PR">PR</option>
+                                <option value="PE">PE</option>
+                                <option value="PI">PI</option>
+                                <option value="RJ">RJ</option>
+                                <option value="RN">RN</option>
+                                <option value="RS">RS</option>
+                                <option value="RO">RO</option>
+                                <option value="RR">RR</option>
+                                <option value="SC">SC</option>
+                                <option value="SE">SE</option>
+                                <option value="TO">TO</option>
+                            </select>
+                            <div class="error-message" id="estadoError">Estado é obrigatório</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="cidade">Cidade <span class="required">*</span></label>
+                            <input type="text" id="cidade" name="cidade" required>
+                            <div class="error-message" id="cidadeError">Cidade é obrigatória</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="bairro">Bairro <span class="required">*</span></label>
+                            <input type="text" id="bairro" name="bairro" required>
+                            <div class="error-message" id="bairroError">Bairro é obrigatório</div>
+                        </div>
+                    </div>
+
+                    <div class="form-row-3">
+                        <div class="form-group">
+                            <label for="endereco">Endereço (Logradouro) <span class="required">*</span></label>
+                            <input type="text" id="endereco" name="endereco" placeholder="Av. Paulista" required>
+                            <div class="error-message" id="enderecoError">Endereço é obrigatório</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="numero">Número <span class="required">*</span></label>
+                            <input type="text" id="numero" name="numero" placeholder="1000" required>
+                            <div class="error-message" id="numeroError">Número é obrigatório</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="complemento">Complemento</label>
+                            <input type="text" id="complemento" name="complemento" placeholder="Apto 123, Bloco A">
+                        </div>
+                    </div>
+
+                    <div class="button-group">
+                        <button type="button" class="btn-primary" onclick="nextSection()" style="width: 100%;">Próximo →</button>
+                    </div>
+                </div>
+
+                <!-- SECTION 2: DADOS DO PET -->
+                <div class="form-section" data-section="2">
+                    <h2 class="section-title">DADOS DO PET</h2>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="nomePet">Nome do Pet <span class="required">*</span></label>
+                            <input type="text" id="nomePet" name="nomePet" required>
+                            <div class="error-message" id="nomePetError">Nome do pet é obrigatório</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="idade">Idade <span class="required">*</span></label>
+                            <input type="number" id="idade" name="idade" min="0" max="50" placeholder="Ex: 14" required>
+                            <p class="help-text">Apenas anos completos</p>
+                            <div class="error-message" id="idadeError">Idade é obrigatória</div>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Espécie <span class="required">*</span></label>
+                            <div class="radio-group">
+                                <div class="radio-item">
+                                    <input type="radio" id="especie_canina" name="especie" value="Canina" required>
+                                    <label for="especie_canina">Canina</label>
+                                </div>
+                                <div class="radio-item">
+                                    <input type="radio" id="especie_felina" name="especie" value="Felina">
+                                    <label for="especie_felina">Felina</label>
+                                </div>
+                                <div class="radio-item">
+                                    <input type="radio" id="especie_exotica" name="especie" value="Exótica">
+                                    <label for="especie_exotica">Exótica</label>
+                                </div>
+                            </div>
+                            <div class="error-message" id="especieError">Selecione a espécie</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Gênero <span class="required">*</span></label>
+                            <div class="radio-group">
+                                <div class="radio-item">
+                                    <input type="radio" id="genero_macho" name="genero" value="Macho" required>
+                                    <label for="genero_macho">Macho</label>
+                                </div>
+                                <div class="radio-item">
+                                    <input type="radio" id="genero_femea" name="genero" value="Fêmea">
+                                    <label for="genero_femea">Fêmea</label>
+                                </div>
+                            </div>
+                            <div class="error-message" id="generoError">Selecione o gênero</div>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="raca">Raça <span class="required">*</span></label>
+                            <input type="text" id="raca" name="raca" placeholder="Ex: Poodle, SRD" required>
+                            <div class="error-message" id="racaError">Raça é obrigatória</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="cor">Cor <span class="required">*</span></label>
+                            <input type="text" id="cor" name="cor" placeholder="Ex: Branco, Preto" required>
+                            <div class="error-message" id="corError">Cor é obrigatória</div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="peso">Peso Aproximado (kg) <span class="required">*</span></label>
+                        <input type="number" id="peso" name="peso" min="0.1" step="0.1" placeholder="Ex: 6" required>
+                        <p class="help-text">Peso aproximado em quilogramas</p>
+                        <div class="error-message" id="pesoError">Peso é obrigatório</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="localizacao">Localização do Pet <span class="required">*</span></label>
+                        <select id="localizacao" name="localizacao" required>
+                            <option value="">Selecione</option>
+                            <option value="Residência (Endereço de Cadastro)">Residência (Endereço de Cadastro)</option>
+                            <option value="Outro">Hospital/Clínica ou Outro Endereço</option>
+                        </select>
+                        <div class="error-message" id="localizacaoError">Localização é obrigatória</div>
+                    </div>
+
+                    <div class="conditional-field" id="localizacaoOutraField">
+                        <label for="localizacaoOutra">Especificar localização <span class="required">*</span></label>
+                        <input type="text" id="localizacaoOutra" name="localizacaoOutra" placeholder="Ex: Hospital Pet 24h ou Av. Paulista, 2000">
+                        <p class="help-text">Informe o hospital/clínica ou endereço completo</p>
+                        <div class="error-message" id="localizacaoOutraError">Especificação é obrigatória</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Cremação Escolhida <span class="required">*</span></label>
+                        <div class="radio-group">
+                            <div class="radio-item">
+                                <input type="radio" id="cremacao_individual" name="cremacao" value="Individual" required>
+                                <label for="cremacao_individual">
+                                    <strong>Individual</strong> - Com retorno das cinzas
+                                </label>
+                            </div>
+                            <div class="radio-item">
+                                <input type="radio" id="cremacao_coletiva" name="cremacao" value="Coletiva">
+                                <label for="cremacao_coletiva">
+                                    <strong>Coletiva</strong> - Sem retorno das cinzas
+                                </label>
+                            </div>
+                        </div>
+                        <div class="error-message" id="cremacaoError">Selecione o tipo de cremação</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="pagamento">Forma de Pagamento <span class="required">*</span></label>
+                        <select id="pagamento" name="pagamento" required>
+                            <option value="">Selecione</option>
+                            <option value="À Vista por Pix/Dinheiro">À Vista por Pix/Dinheiro</option>
+                            <option value="Cartão de Débito/Crédito">Cartão de Débito/Crédito</option>
+                        </select>
+                        <div class="error-message" id="pagamentoError">Forma de pagamento é obrigatória</div>
+                    </div>
+
+                    <div class="conditional-field" id="parcelasField">
+                        <label for="parcelas">Número de Parcelas <span class="required">*</span></label>
+                        <select id="parcelas" name="parcelas">
+                            <option value="">Selecione</option>
+                            <option value="Débito">Débito</option>
+                            <option value="Crédito à vista">Crédito à vista</option>
+                            <option value="2x">2x</option>
+                            <option value="3x">3x</option>
+                            <option value="4x">4x</option>
+                            <option value="5x">5x</option>
+                            <option value="6x">6x</option>
+                            <option value="7x">7x</option>
+                            <option value="8x">8x</option>
+                            <option value="9x">9x</option>
+                            <option value="10x">10x</option>
+                            <option value="11x">11x</option>
+                            <option value="12x">12x</option>
+                        </select>
+                        <div class="error-message" id="parcelasError">Número de parcelas é obrigatório</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Deseja realizar o Velório Presencial em nossa unidade Santos? <span class="required">*</span></label>
+                        <div class="radio-group">
+                            <div class="radio-item">
+                                <input type="radio" id="velorio_nao" name="velorio" value="Não" required>
+                                <label for="velorio_nao">Não</label>
+                            </div>
+                            <div class="radio-item">
+                                <input type="radio" id="velorio_sim" name="velorio" value="Sim">
+                                <label for="velorio_sim">Sim</label>
+                            </div>
+                        </div>
+                        <div class="error-message" id="velorioError">Selecione uma opção</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Acompanhamento da Cremação na Matriz (Pindamonhangaba-SP) <span class="required">*</span></label>
+                        <div class="radio-group">
+                            <div class="radio-item">
+                                <input type="radio" id="acomp_nao" name="acompanhamento" value="Não desejo" required>
+                                <label for="acomp_nao">Não desejo</label>
+                            </div>
+                            <div class="radio-item">
+                                <input type="radio" id="acomp_online" name="acompanhamento" value="On-line (tempo real)">
+                                <label for="acomp_online">On-line (tempo real)</label>
+                            </div>
+                            <div class="radio-item">
+                                <input type="radio" id="acomp_video" name="acompanhamento" value="Vídeo gravado">
+                                <label for="acomp_video">Vídeo gravado</label>
+                            </div>
+                            <div class="radio-item">
+                                <input type="radio" id="acomp_presencial" name="acompanhamento" value="Presencial em Pindamonhangaba-SP">
+                                <label for="acomp_presencial">Presencial em Pindamonhangaba-SP</label>
+                            </div>
+                            <div class="radio-item">
+                                <input type="radio" id="acomp_depois" name="acompanhamento" value="Decidirei depois">
+                                <label for="acomp_depois">Decidirei depois</label>
+                            </div>
+                        </div>
+                        <div class="error-message" id="acompanhamentoError">Selecione uma opção</div>
+                    </div>
+
+                    <div class="button-group">
+                        <button type="button" class="btn-secondary" onclick="prevSection()">← Voltar</button>
+                        <button type="button" class="btn-primary" onclick="nextSection()">Revisar →</button>
+                    </div>
+                </div>
+
+                <!-- SECTION 3: CONFIRMAÇÃO -->
+                <div class="form-section" data-section="3">
+                    <h2 class="section-title">CONFIRMAÇÃO E INFORMAÇÕES ADICIONAIS</h2>
+
+                    <!-- Resumo dos dados -->
+                    <div id="reviewContent" style="margin-bottom: 32px;">
+                        <!-- Será preenchido via JavaScript -->
+                    </div>
+
+                    <!-- Como nos conheceu -->
+                    <div class="form-group">
+                        <label>Como nos conheceu? <span class="required">*</span></label>
+                        <p class="help-text">Marque mais de uma opção, se for o caso</p>
+                        <div class="checkbox-group">
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="conheceu_google" name="comoConheceu" value="Google">
+                                <label for="conheceu_google">Google</label>
+                            </div>
+
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="conheceu_vet" name="comoConheceu" value="Veterinário/Panfleto/Recepção">
+                                <label for="conheceu_vet">Veterinário(a)/Panfleto/Recepção</label>
+                            </div>
+                            <div class="conditional-field-inline" id="veterinarioField">
+                                <label for="veterinarioEspecificar" style="font-size: 13px;">Especificar o profissional e/ou Hospital/Clínica <span class="required">*</span></label>
+                                <input type="text" id="veterinarioEspecificar" name="veterinarioEspecificar" placeholder="Ex: Dra. Maria da Silva no Hospital Pet 24h">
+                                <div class="error-message" id="veterinarioEspecificarError">Especificação é obrigatória</div>
+                            </div>
+
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="conheceu_amigo" name="comoConheceu" value="Parente/Amigo">
+                                <label for="conheceu_amigo">Parente/Amigo</label>
+                            </div>
+
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="conheceu_utilizou" name="comoConheceu" value="Já utilizei a R.I.P. Pet">
+                                <label for="conheceu_utilizou">Já utilizei a R.I.P. Pet</label>
+                            </div>
+
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="conheceu_social" name="comoConheceu" value="Instagram/Facebook">
+                                <label for="conheceu_social">Instagram/Facebook</label>
+                            </div>
+
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="conheceu_outro" name="comoConheceu" value="Outro">
+                                <label for="conheceu_outro">Outro</label>
+                            </div>
+                            <div class="conditional-field-inline" id="outroField">
+                                <label for="outroEspecificar" style="font-size: 13px;">Especificar <span class="required">*</span></label>
+                                <input type="text" id="outroEspecificar" name="outroEspecificar" placeholder="Como nos conheceu?">
+                                <div class="error-message" id="outroEspecificarError">Especificação é obrigatória</div>
+                            </div>
+                        </div>
+                        <div class="error-message" id="comoConheceuError">Selecione pelo menos uma opção</div>
+                    </div>
+
+                    <div class="button-group">
+                        <button type="button" class="btn-secondary" onclick="prevSection()">← Voltar</button>
+                        <button type="submit" class="btn-primary" id="submitBtn">Enviar Ficha</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">Enviando dados...</div>
+        </div>
+    </div>
+
+    <!-- Success Screen (FORA do form-container) -->
+    <div class="success-screen" id="successScreen">
+        <div class="success-icon-wrapper">
+            <div class="success-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+                </svg>
+            </div>
+        </div>
+
+        <h2>Ficha Enviada com Sucesso!</h2>
+        <p class="subtitle">Recebemos seus dados</p>
+
+        <div class="success-info-box">
+            <div class="success-info-item">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                </svg>
+                <p>
+                    <strong>Confirmação por WhatsApp</strong>
+                    Em alguns instantes enviaremos uma mensagem de confirmação.
+                </p>
+            </div>
+
+            <div class="success-info-item">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <p>
+                    <strong>Dados registrados</strong>
+                    Nossa unidade já está com todos os dados necessários. Já iniciamos a preparação para o atendimento.
+                </p>
+            </div>
+
+            <div class="success-info-item">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l3.75 3.75L21 7.5" />
+                </svg>
+                <p>
+                    <strong>Informações seguras</strong>
+                    Todas as informações estão seguras e protegidas. Você pode fechar esta janela.
+                </p>
+            </div>
+        </div>
+
+        <div class="success-actions">
+            <button class="btn-primary" onclick="window.close()">Fechar Página</button>
+        </div>
+    </div>
+
+    <!-- Botões de Debug Flutuantes -->
+    <div style="position: fixed; bottom: 100px; right: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 9999;">
+        <button onclick="fillSection1()" style="width: 50px; height: 50px; border-radius: 50%; background: #3b82f6; color: white; border: none; font-weight: bold; font-size: 18px; cursor: pointer; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);">1</button>
+        <button onclick="fillSection2()" style="width: 50px; height: 50px; border-radius: 50%; background: #10b981; color: white; border: none; font-weight: bold; font-size: 18px; cursor: pointer; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);">2</button>
+        <button onclick="fillSection3()" style="width: 50px; height: 50px; border-radius: 50%; background: #f59e0b; color: white; border: none; font-weight: bold; font-size: 18px; cursor: pointer; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);">3</button>
+    </div>
+
+    <!-- Footer Fixo -->
+    <div class="fixed-footer">
+        <button type="button" class="btn-clear-all" onclick="clearForm()">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+            Apagar tudo
+        </button>
+        <div class="autosave-status" id="autosaveStatus">
+            <div class="autosave-dot"></div>
+            <span id="autosaveText">Rascunho salvo</span>
+        </div>
+    </div>
+
+    <script>
+        // Configuração Supabase
+        const SUPABASE_URL = 'https://eniplfcuwvhovxybyuey.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVuaXBsZmN1d3Zob3Z4eWJ5dWV5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk5MDM1MjIsImV4cCI6MjA3NTQ3OTUyMn0.VFftjEVtd4_Vwa2KnrY0YizC_9xBATpe0z14X-7I6Is';
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        let currentSection = 1;
+        const totalSections = 3;
+        const storageKey = 'fichaRipPet_Santos';
+
+        // DEBUG: Funções para preencher automaticamente
+        function randomCPF() {
+            const num = () => Math.floor(Math.random() * 10);
+            let cpf = '';
+            for (let i = 0; i < 9; i++) cpf += num();
+
+            // Calcular dígitos verificadores
+            let soma = 0;
+            for (let i = 0; i < 9; i++) soma += parseInt(cpf[i]) * (10 - i);
+            let resto = 11 - (soma % 11);
+            cpf += resto >= 10 ? 0 : resto;
+
+            soma = 0;
+            for (let i = 0; i < 10; i++) soma += parseInt(cpf[i]) * (11 - i);
+            resto = 11 - (soma % 11);
+            cpf += resto >= 10 ? 0 : resto;
+
+            return cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+        }
+
+        function randomPhone() {
+            const ddd = Math.floor(Math.random() * 89) + 11;
+            const num = Math.floor(Math.random() * 900000000) + 900000000;
+            return `(${ddd}) ${num.toString().substring(0, 5)}-${num.toString().substring(5)}`;
+        }
+
+        function randomCEP() {
+            return `${Math.floor(Math.random() * 90000) + 10000}-${Math.floor(Math.random() * 900) + 100}`;
+        }
+
+        function randomName() {
+            const nomes = ['João Silva', 'Maria Santos', 'Pedro Oliveira', 'Ana Costa', 'Carlos Souza', 'Juliana Lima', 'Fernando Alves', 'Beatriz Rocha'];
+            return nomes[Math.floor(Math.random() * nomes.length)];
+        }
+
+        function randomPetName() {
+            const nomes = ['Rex', 'Bolinha', 'Mel', 'Thor', 'Luna', 'Simba', 'Nina', 'Bob', 'Bella', 'Max'];
+            return nomes[Math.floor(Math.random() * nomes.length)];
+        }
+
+        function fillSection1() {
+            const fields = {
+                'nomeCompleto': randomName(),
+                'cpf': randomCPF(),
+                'telefone': randomPhone(),
+                'email': 'teste' + Math.floor(Math.random() * 1000) + '@email.com',
+                'cep': '12345-678',
+                'estado': 'SP',
+                'cidade': 'Santos',
+                'endereco': 'Rua das Flores',
+                'numero': String(Math.floor(Math.random() * 9000) + 1000),
+                'complemento': 'Apto ' + Math.floor(Math.random() * 100),
+                'bairro': 'Centro'
+            };
+
+            // Preencher campos e disparar evento
+            Object.keys(fields).forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.value = fields[id];
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            });
+
+            console.log('Seção 1 preenchida!');
+        }
+
+        function fillSection2() {
+            const usarCartao = Math.random() > 0.5;
+            const fields = {
+                'nomePet': randomPetName(),
+                'idade': Math.floor(Math.random() * 15) + 1,
+                'raca': 'SRD',
+                'cor': 'Caramelo',
+                'peso': (Math.random() * 40 + 5).toFixed(1),
+                'localizacao': 'Residência (Endereço de Cadastro)',
+                'pagamento': usarCartao ? 'Cartão de Débito/Crédito' : 'À Vista por Pix/Dinheiro'
+            };
+
+            // Preencher campos de texto
+            Object.keys(fields).forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.value = fields[id];
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            });
+
+            // Se cartão, preencher parcelas
+            if (usarCartao) {
+                setTimeout(() => {
+                    const parcelas = document.getElementById('parcelas');
+                    const opcoes = ['Débito', 'Crédito à vista', '2x', '3x', '4x', '5x', '6x', '7x', '8x', '9x', '10x', '11x', '12x'];
+                    parcelas.value = opcoes[Math.floor(Math.random() * opcoes.length)];
+                    parcelas.dispatchEvent(new Event('change', { bubbles: true }));
+                }, 100);
+            }
+
+            // Marcar radio buttons
+            document.getElementById('especie_canina').checked = true;
+            document.getElementById('genero_macho').checked = true;
+            document.getElementById('cremacao_individual').checked = true;
+            document.getElementById('velorio_nao').checked = true;
+            document.getElementById('acomp_nao').checked = true;
+
+            console.log('Seção 2 preenchida!');
+        }
+
+        function fillSection3() {
+            document.getElementById('conheceu_google').checked = true;
+            console.log('Seção 3 preenchida!');
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            loadDraft();
+            updateProgressSteps();
+        });
+
+        // Máscaras
+        document.getElementById('cpf').addEventListener('input', function(e) {
+            let value = e.target.value.replace(/\D/g, '');
+            // Limitar a 11 dígitos
+            if (value.length > 11) {
+                value = value.substring(0, 11);
+            }
+            value = value.replace(/(\d{3})(\d)/, '$1.$2');
+            value = value.replace(/(\d{3})(\d)/, '$1.$2');
+            value = value.replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+            e.target.value = value;
+        });
+
+        document.getElementById('telefone').addEventListener('input', function(e) {
+            let value = e.target.value.replace(/\D/g, '');
+            // Limitar a 11 dígitos
+            if (value.length > 11) {
+                value = value.substring(0, 11);
+            }
+            value = value.replace(/^(\d{2})(\d)/g, '($1) $2');
+            value = value.replace(/(\d)(\d{4})$/, '$1-$2');
+            e.target.value = value;
+        });
+
+        document.getElementById('cep').addEventListener('input', function(e) {
+            let value = e.target.value.replace(/\D/g, '');
+            if (value.length <= 8) {
+                value = value.replace(/(\d{5})(\d)/, '$1-$2');
+                e.target.value = value;
+            }
+        });
+
+        // Buscar CEP via ViaCEP
+        // Função para atualizar texto do botão CEP
+        function setBtnCepText(fullText, shortText) {
+            const btnFull = document.querySelector('#btnBuscarCep .btn-text-full');
+            const btnShort = document.querySelector('#btnBuscarCep .btn-text-short');
+            if (btnFull) btnFull.textContent = fullText;
+            if (btnShort) btnShort.textContent = shortText;
+        }
+
+        async function buscarCEP() {
+            const cepInput = document.getElementById('cep');
+            const btnBuscar = document.getElementById('btnBuscarCep');
+            const cep = cepInput.value.replace(/\D/g, '');
+
+            if (cep.length !== 8) {
+                alert('Por favor, digite um CEP válido com 8 dígitos.');
+                cepInput.focus();
+                return;
+            }
+
+            try {
+                // Mostrar loading
+                btnBuscar.disabled = true;
+                setBtnCepText('Buscando...', 'Buscando...');
+                cepInput.style.borderColor = '#f59e0b';
+
+                const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+                const data = await response.json();
+
+                if (!data.erro) {
+                    // Preencher campos automaticamente
+                    document.getElementById('endereco').value = data.logradouro || '';
+                    document.getElementById('bairro').value = data.bairro || '';
+                    document.getElementById('cidade').value = data.localidade || '';
+                    document.getElementById('estado').value = data.uf || '';
+
+                    // Remover erros dos campos preenchidos
+                    ['endereco', 'bairro', 'cidade', 'estado'].forEach(field => {
+                        const input = document.getElementById(field);
+                        if (input && input.value) {
+                            input.classList.remove('error');
+                            const errorDiv = document.getElementById(field + 'Error');
+                            if (errorDiv) errorDiv.classList.remove('show');
+                        }
+                    });
+
+                    // Focar no campo número
+                    document.getElementById('numero').focus();
+
+                    cepInput.style.borderColor = '#10b981';
+                    setBtnCepText('Localizado!', 'OK!');
+
+                    setTimeout(() => {
+                        cepInput.style.borderColor = '#e5e7eb';
+                        setBtnCepText('Localizar Endereço', 'Localizar End.');
+                        btnBuscar.disabled = false;
+                    }, 2000);
+                } else {
+                    cepInput.style.borderColor = '#ef4444';
+                    alert('CEP não encontrado. Verifique o número digitado.');
+                    setBtnCepText('Localizar Endereço', 'Localizar End.');
+                    btnBuscar.disabled = false;
+                }
+            } catch (error) {
+                console.error('Erro ao buscar CEP:', error);
+                cepInput.style.borderColor = '#ef4444';
+                alert('Erro ao buscar CEP. Verifique sua conexão ou preencha manualmente.');
+                setBtnCepText('Localizar Endereço', 'Localizar End.');
+                btnBuscar.disabled = false;
+            }
+        }
+
+        // Permitir buscar CEP com Enter
+        document.getElementById('cep').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                buscarCEP();
+            }
+        });
+
+        // Campos condicionais
+        document.getElementById('conheceu_vet').addEventListener('change', function() {
+            document.getElementById('veterinarioField').classList.toggle('show', this.checked);
+        });
+
+        document.getElementById('conheceu_outro').addEventListener('change', function() {
+            document.getElementById('outroField').classList.toggle('show', this.checked);
+        });
+
+        document.getElementById('localizacao').addEventListener('change', function() {
+            document.getElementById('localizacaoOutraField').classList.toggle('show', this.value === 'Outro');
+        });
+
+        document.getElementById('pagamento').addEventListener('change', function() {
+            document.getElementById('parcelasField').classList.toggle('show', this.value === 'Cartão de Débito/Crédito');
+        });
+
+        // Outros tutores
+        let outrosTutoresCount = 0;
+        const maxOutrosTutores = 6;
+
+        function adicionarOutroTutor() {
+            if (outrosTutoresCount >= maxOutrosTutores) {
+                alert('Limite máximo de 6 outros tutores atingido.');
+                return;
+            }
+
+            outrosTutoresCount++;
+            const container = document.getElementById('outrosTutoresContainer');
+            const div = document.createElement('div');
+            div.className = 'outro-tutor-item';
+            div.id = `tutor-${outrosTutoresCount}`;
+            div.innerHTML = `
+                <input type="text"
+                       name="outroTutor${outrosTutoresCount}"
+                       id="outroTutor${outrosTutoresCount}"
+                       placeholder="Nome completo do tutor ${outrosTutoresCount}"
+                       class="outro-tutor-input"
+                       required>
+                <button type="button" onclick="removerOutroTutor(${outrosTutoresCount})">Remover</button>
+                <div class="error-message" id="outroTutor${outrosTutoresCount}Error">Nome é obrigatório</div>
+            `;
+            container.appendChild(div);
+        }
+
+        function removerOutroTutor(id) {
+            const element = document.getElementById(`tutor-${id}`);
+            if (element) {
+                element.remove();
+                outrosTutoresCount--;
+            }
+        }
+
+        // Validação de CPF
+        function validarCPF(cpf) {
+            cpf = cpf.replace(/\D/g, '');
+            if (cpf.length !== 11 || /^(\d)\1+$/.test(cpf)) return false;
+
+            let soma = 0;
+            for (let i = 0; i < 9; i++) {
+                soma += parseInt(cpf.charAt(i)) * (10 - i);
+            }
+            let resto = 11 - (soma % 11);
+            let digito1 = resto >= 10 ? 0 : resto;
+
+            soma = 0;
+            for (let i = 0; i < 10; i++) {
+                soma += parseInt(cpf.charAt(i)) * (11 - i);
+            }
+            resto = 11 - (soma % 11);
+            let digito2 = resto >= 10 ? 0 : resto;
+
+            return digito1 === parseInt(cpf.charAt(9)) && digito2 === parseInt(cpf.charAt(10));
+        }
+
+        // Validação de seção
+        function validateSection(sectionNum) {
+            const section = document.querySelector(`[data-section="${sectionNum}"]`);
+            const inputs = section.querySelectorAll('input[required], select[required]');
+            let isValid = true;
+            let camposFaltando = [];
+
+            inputs.forEach(input => {
+                const errorDiv = document.getElementById(input.id + 'Error');
+                const label = section.querySelector(`label[for="${input.id}"]`);
+                const fieldName = label ? label.textContent.replace('*', '').trim() : input.placeholder || input.name;
+
+                if (input.type === 'radio') {
+                    const radioGroup = section.querySelectorAll(`input[name="${input.name}"]`);
+                    const isChecked = Array.from(radioGroup).some(radio => radio.checked);
+                    if (!isChecked) {
+                        isValid = false;
+                        if (errorDiv) errorDiv.classList.add('show');
+                        camposFaltando.push(fieldName);
+                    } else {
+                        if (errorDiv) errorDiv.classList.remove('show');
+                    }
+                } else if (input.type === 'checkbox' && input.name === 'comoConheceu') {
+                    const checkboxes = section.querySelectorAll('input[name="comoConheceu"]');
+                    const isChecked = Array.from(checkboxes).some(cb => cb.checked);
+                    if (!isChecked) {
+                        isValid = false;
+                        document.getElementById('comoConheceuError').classList.add('show');
+                        camposFaltando.push('Como nos conheceu');
+                    } else {
+                        document.getElementById('comoConheceuError').classList.remove('show');
+                    }
+                } else {
+                    if (!input.value.trim()) {
+                        input.classList.add('error');
+                        if (errorDiv) errorDiv.classList.add('show');
+                        isValid = false;
+                        camposFaltando.push(fieldName);
+                    } else {
+                        input.classList.remove('error');
+                        if (errorDiv) errorDiv.classList.remove('show');
+
+                        // Validações específicas
+                        if (input.id === 'cpf' && !validarCPF(input.value)) {
+                            input.classList.add('error');
+                            if (errorDiv) {
+                                errorDiv.textContent = 'CPF inválido';
+                                errorDiv.classList.add('show');
+                            }
+                            isValid = false;
+                            camposFaltando.push(fieldName + ' (inválido)');
+                        }
+
+                        if (input.type === 'email' && input.value && !input.value.includes('@')) {
+                            input.classList.add('error');
+                            if (errorDiv) errorDiv.classList.add('show');
+                            isValid = false;
+                            camposFaltando.push(fieldName + ' (inválido)');
+                        }
+                    }
+                }
+            });
+
+            // Validações condicionais
+
+            // Seção 1: Validar outros tutores se foram adicionados
+            if (sectionNum === 1) {
+                const outrosTutoresInputs = document.querySelectorAll('.outro-tutor-input');
+                outrosTutoresInputs.forEach((input, index) => {
+                    const errorDiv = document.getElementById(input.id + 'Error');
+                    if (!input.value.trim()) {
+                        input.classList.add('error');
+                        if (errorDiv) errorDiv.classList.add('show');
+                        isValid = false;
+                        camposFaltando.push(`Outro tutor ${index + 1}`);
+                    } else {
+                        input.classList.remove('error');
+                        if (errorDiv) errorDiv.classList.remove('show');
+                    }
+                });
+            }
+
+            // Seção 2: Validar localização do pet se "Outro" selecionado
+            if (sectionNum === 2) {
+                const localizacao = document.getElementById('localizacao');
+                const localizacaoOutra = document.getElementById('localizacaoOutra');
+                const localizacaoOutraError = document.getElementById('localizacaoOutraError');
+
+                if (localizacao && localizacao.value === 'Outro') {
+                    if (!localizacaoOutra.value.trim()) {
+                        localizacaoOutra.classList.add('error');
+                        if (localizacaoOutraError) localizacaoOutraError.classList.add('show');
+                        isValid = false;
+                        camposFaltando.push('Especificar localização do pet');
+                    } else {
+                        localizacaoOutra.classList.remove('error');
+                        if (localizacaoOutraError) localizacaoOutraError.classList.remove('show');
+                    }
+                }
+
+                // Validar parcelas se Cartão de Débito/Crédito selecionado
+                const pagamento = document.getElementById('pagamento');
+                const parcelas = document.getElementById('parcelas');
+                const parcelasError = document.getElementById('parcelasError');
+
+                if (pagamento && pagamento.value === 'Cartão de Débito/Crédito') {
+                    if (!parcelas.value) {
+                        parcelas.classList.add('error');
+                        if (parcelasError) parcelasError.classList.add('show');
+                        isValid = false;
+                        camposFaltando.push('Número de Parcelas');
+                    } else {
+                        parcelas.classList.remove('error');
+                        if (parcelasError) parcelasError.classList.remove('show');
+                    }
+                }
+            }
+
+            // Seção 3: Validar campos condicionais de "Como nos conheceu"
+            if (sectionNum === 3) {
+                const checkboxes = section.querySelectorAll('input[name="comoConheceu"]');
+                const isChecked = Array.from(checkboxes).some(cb => cb.checked);
+                if (!isChecked) {
+                    isValid = false;
+                    document.getElementById('comoConheceuError').classList.add('show');
+                    if (!camposFaltando.includes('Como nos conheceu')) {
+                        camposFaltando.push('Como nos conheceu');
+                    }
+                } else {
+                    document.getElementById('comoConheceuError').classList.remove('show');
+                }
+
+                // Validar veterinário se marcado
+                const conheceuVet = document.getElementById('conheceu_vet');
+                const vetEspecificar = document.getElementById('veterinarioEspecificar');
+                const vetError = document.getElementById('veterinarioEspecificarError');
+
+                if (conheceuVet && conheceuVet.checked) {
+                    if (!vetEspecificar.value.trim()) {
+                        vetEspecificar.classList.add('error');
+                        if (vetError) vetError.classList.add('show');
+                        isValid = false;
+                        camposFaltando.push('Especificar veterinário/hospital');
+                    } else {
+                        vetEspecificar.classList.remove('error');
+                        if (vetError) vetError.classList.remove('show');
+                    }
+                }
+
+                // Validar "Outro" se marcado
+                const conheceuOutro = document.getElementById('conheceu_outro');
+                const outroEspecificar = document.getElementById('outroEspecificar');
+                const outroError = document.getElementById('outroEspecificarError');
+
+                if (conheceuOutro && conheceuOutro.checked) {
+                    if (!outroEspecificar.value.trim()) {
+                        outroEspecificar.classList.add('error');
+                        if (outroError) outroError.classList.add('show');
+                        isValid = false;
+                        camposFaltando.push('Especificar como nos conheceu (Outro)');
+                    } else {
+                        outroEspecificar.classList.remove('error');
+                        if (outroError) outroError.classList.remove('show');
+                    }
+                }
+            }
+
+            return { isValid, camposFaltando };
+        }
+
+        // Navegação
+        function nextSection() {
+            const validation = validateSection(currentSection);
+            if (!validation.isValid) {
+                let mensagem = 'Por favor, preencha os seguintes campos obrigatórios:\n\n';
+                mensagem += validation.camposFaltando.map(campo => `• ${campo}`).join('\n');
+                alert(mensagem);
+                return;
+            }
+
+            if (currentSection === 2) {
+                buildReview();
+            }
+
+            if (currentSection < totalSections) {
+                currentSection++;
+                showSection(currentSection);
+            }
+        }
+
+        function prevSection() {
+            if (currentSection > 1) {
+                currentSection--;
+                showSection(currentSection);
+            }
+        }
+
+        function showSection(sectionNum) {
+            document.querySelectorAll('.form-section').forEach(section => {
+                section.classList.remove('active');
+            });
+            document.querySelector(`[data-section="${sectionNum}"]`).classList.add('active');
+            updateProgressSteps();
+            window.scrollTo(0, 0);
+        }
+
+        function updateProgressSteps() {
+            document.querySelectorAll('.step').forEach((step, index) => {
+                const stepNum = index + 1;
+                step.classList.remove('active', 'completed');
+
+                if (stepNum < currentSection) {
+                    step.classList.add('completed');
+                } else if (stepNum === currentSection) {
+                    step.classList.add('active');
+                }
+            });
+
+            // Update progress line
+            const progress = ((currentSection - 1) / (totalSections - 1)) * 100;
+            document.getElementById('progressLine').style.width = progress + '%';
+        }
+
+        // Build review
+        function buildReview() {
+            const formData = getFormData();
+
+            // Construir seção de outros tutores se houver
+            let outrosTutoresHTML = '';
+            if (formData.outrosTutores.length > 0) {
+                outrosTutoresHTML = `
+                    <p style="margin: 6px 0; font-size: 14px;"><strong>Outros nomes para o certificado:</strong></p>
+                    <ul style="margin: 6px 0 6px 20px; font-size: 14px;">
+                        ${formData.outrosTutores.map(nome => `<li>${nome}</li>`).join('')}
+                    </ul>
+                `;
+            }
+
+            const reviewHTML = `
+                <div style="background: #f8fafc; padding: 20px; border-radius: 8px; margin-bottom: 16px;">
+                    <h3 style="color: #1e5a96; margin-bottom: 12px; font-size: 16px;">Dados do Tutor</h3>
+                    <p style="margin: 6px 0; font-size: 14px;"><strong>Nome:</strong> ${formData.nomeCompleto}</p>
+                    ${outrosTutoresHTML}
+                    <p style="margin: 6px 0; font-size: 14px;"><strong>CPF:</strong> ${formData.cpf}</p>
+                    <p style="margin: 6px 0; font-size: 14px;"><strong>Telefone:</strong> ${formData.telefone}</p>
+                    <p style="margin: 6px 0; font-size: 14px;"><strong>E-mail:</strong> ${formData.email}</p>
+                    <p style="margin: 6px 0; font-size: 14px;"><strong>Endereço:</strong> ${formData.endereco}, ${formData.numero}${formData.complemento ? ' - ' + formData.complemento : ''}</p>
+                    <p style="margin: 6px 0; font-size: 14px;"><strong>Bairro:</strong> ${formData.bairro}</p>
+                    <p style="margin: 6px 0; font-size: 14px;"><strong>Cidade/UF:</strong> ${formData.cidade} - ${formData.estado}</p>
+                    <p style="margin: 6px 0; font-size: 14px;"><strong>CEP:</strong> ${formData.cep}</p>
+                </div>
+
+                <div style="background: #f0f9ff; padding: 20px; border-radius: 8px;">
+                    <h3 style="color: #1e5a96; margin-bottom: 12px; font-size: 16px;">Dados do Pet</h3>
+                    <p style="margin: 6px 0; font-size: 14px;"><strong>Nome:</strong> ${formData.nomePet}</p>
+                    <p style="margin: 6px 0; font-size: 14px;"><strong>Idade:</strong> ${formData.idade} anos</p>
+                    <p style="margin: 6px 0; font-size: 14px;"><strong>Espécie:</strong> ${formData.especie}</p>
+                    <p style="margin: 6px 0; font-size: 14px;"><strong>Gênero:</strong> ${formData.genero}</p>
+                    <p style="margin: 6px 0; font-size: 14px;"><strong>Raça:</strong> ${formData.raca}</p>
+                    <p style="margin: 6px 0; font-size: 14px;"><strong>Cor:</strong> ${formData.cor}</p>
+                    <p style="margin: 6px 0; font-size: 14px;"><strong>Peso:</strong> ${formData.peso} kg</p>
+                    <p style="margin: 6px 0; font-size: 14px;"><strong>Localização:</strong> ${formData.localizacao}${formData.localizacaoOutra ? ` (${formData.localizacaoOutra})` : ''}</p>
+                    <p style="margin: 6px 0; font-size: 14px;"><strong>Cremação:</strong> ${formData.cremacao}</p>
+                    <p style="margin: 6px 0; font-size: 14px;"><strong>Pagamento:</strong> ${formData.pagamento}${formData.parcelas ? ` (${formData.parcelas})` : ''}</p>
+                    <p style="margin: 6px 0; font-size: 14px;"><strong>Velório Presencial em Santos:</strong> ${formData.velorio}</p>
+                    <p style="margin: 6px 0; font-size: 14px;"><strong>Acompanhamento:</strong> ${formData.acompanhamento}</p>
+                </div>
+            `;
+            document.getElementById('reviewContent').innerHTML = reviewHTML;
+        }
+
+        // Get form data
+        function getFormData() {
+            const checkboxes = Array.from(document.querySelectorAll('input[name="comoConheceu"]:checked'))
+                .map(cb => cb.value);
+
+            // Coletar outros tutores
+            const outrosTutores = [];
+            document.querySelectorAll('.outro-tutor-input').forEach(input => {
+                if (input.value.trim()) {
+                    outrosTutores.push(input.value.trim());
+                }
+            });
+
+            return {
+                nomeCompleto: document.getElementById('nomeCompleto').value,
+                cpf: document.getElementById('cpf').value,
+                telefone: document.getElementById('telefone').value,
+                email: document.getElementById('email').value,
+                cep: document.getElementById('cep').value,
+                estado: document.getElementById('estado').value,
+                cidade: document.getElementById('cidade').value,
+                endereco: document.getElementById('endereco').value,
+                numero: document.getElementById('numero').value,
+                complemento: document.getElementById('complemento').value,
+                bairro: document.getElementById('bairro').value,
+                nomePet: document.getElementById('nomePet').value,
+                idade: document.getElementById('idade').value,
+                especie: document.querySelector('input[name="especie"]:checked')?.value || '',
+                genero: document.querySelector('input[name="genero"]:checked')?.value || '',
+                raca: document.getElementById('raca').value,
+                cor: document.getElementById('cor').value,
+                peso: document.getElementById('peso').value,
+                localizacao: document.getElementById('localizacao').value,
+                localizacaoOutra: document.getElementById('localizacaoOutra').value,
+                cremacao: document.querySelector('input[name="cremacao"]:checked')?.value || '',
+                pagamento: document.getElementById('pagamento').value,
+                parcelas: document.getElementById('parcelas').value,
+                velorio: document.querySelector('input[name="velorio"]:checked')?.value || '',
+                acompanhamento: document.querySelector('input[name="acompanhamento"]:checked')?.value || '',
+                outrosTutores: outrosTutores,
+                comoConheceu: checkboxes,
+                veterinarioEspecificar: document.getElementById('veterinarioEspecificar').value,
+                outroEspecificar: document.getElementById('outroEspecificar').value
+            };
+        }
+
+        // Auto-save
+        let saveTimeout;
+        document.querySelectorAll('input, select, textarea').forEach(field => {
+            field.addEventListener('input', () => {
+                clearTimeout(saveTimeout);
+                document.getElementById('autosaveStatus').classList.add('saving');
+                document.getElementById('autosaveText').textContent = 'Salvando...';
+
+                saveTimeout = setTimeout(() => {
+                    saveDraft();
+                    document.getElementById('autosaveStatus').classList.remove('saving');
+                    document.getElementById('autosaveText').textContent = 'Rascunho salvo';
+                }, 1000);
+            });
+        });
+
+        function saveDraft() {
+            const data = getFormData();
+            data.currentSection = currentSection;
+            localStorage.setItem(storageKey, JSON.stringify(data));
+        }
+
+        function loadDraft() {
+            const draft = localStorage.getItem(storageKey);
+            if (!draft) return;
+
+            const data = JSON.parse(draft);
+
+            // Carregar campos text/email/number/select
+            Object.keys(data).forEach(key => {
+                const field = document.getElementById(key);
+                if (field && typeof data[key] === 'string') {
+                    field.value = data[key];
+                }
+            });
+
+            // Carregar checkboxes
+            if (data.comoConheceu && Array.isArray(data.comoConheceu)) {
+                data.comoConheceu.forEach(value => {
+                    const checkbox = Array.from(document.querySelectorAll('input[name="comoConheceu"]'))
+                        .find(cb => cb.value === value);
+                    if (checkbox) checkbox.checked = true;
+                });
+            }
+
+            // Carregar radio buttons
+            ['especie', 'genero', 'cremacao', 'acompanhamento'].forEach(name => {
+                if (data[name]) {
+                    const radio = Array.from(document.querySelectorAll(`input[name="${name}"]`))
+                        .find(r => r.value === data[name]);
+                    if (radio) radio.checked = true;
+                }
+            });
+
+            // Carregar outros tutores
+            if (data.outrosTutores && Array.isArray(data.outrosTutores)) {
+                data.outrosTutores.forEach(nome => {
+                    adicionarOutroTutor();
+                    const inputs = document.querySelectorAll('.outro-tutor-input');
+                    const lastInput = inputs[inputs.length - 1];
+                    if (lastInput) lastInput.value = nome;
+                });
+            }
+
+            // Restaurar seção
+            if (data.currentSection) {
+                currentSection = data.currentSection;
+                showSection(currentSection);
+            }
+        }
+
+        // Submit
+        document.getElementById('fichaForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            console.log('Submit iniciado...');
+
+            // Validar seção 3 antes de enviar
+            const validation = validateSection(3);
+            console.log('Validação seção 3:', validation);
+
+            if (!validation.isValid) {
+                let mensagem = 'Por favor, preencha os seguintes campos obrigatórios:\n\n';
+                mensagem += validation.camposFaltando.map(campo => `• ${campo}`).join('\n');
+                alert(mensagem);
+                return;
+            }
+
+            // Mostrar loading
+            const loadingOverlay = document.getElementById('loadingOverlay');
+            if (loadingOverlay) loadingOverlay.classList.add('show');
+
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Enviando...';
+
+            const formData = getFormData();
+            console.log('Form data:', formData);
+            formData.timestamp = new Date().toISOString();
+            formData.unidade = 'Santos - SP';
+
+            try {
+                // Preparar dados para Supabase
+                const supabaseData = {
+                    unidade: formData.unidade,
+                    // Seção 1
+                    nome_completo: formData.nomeCompleto,
+                    cpf: formData.cpf,
+                    telefone: formData.telefone,
+                    email: formData.email || null,
+                    cep: formData.cep,
+                    estado: formData.estado,
+                    cidade: formData.cidade,
+                    endereco: formData.endereco,
+                    numero: formData.numero,
+                    complemento: formData.complemento || null,
+                    bairro: formData.bairro,
+                    // Seção 2
+                    nome_pet: formData.nomePet,
+                    especie: formData.especie,
+                    raca: formData.raca || null,
+                    genero: formData.genero,
+                    cor: formData.cor,
+                    peso: parseFloat(formData.peso),
+                    localizacao: formData.localizacao,
+                    localizacao_outra: formData.localizacaoOutra || null,
+                    cremacao: formData.cremacao,
+                    pagamento: formData.pagamento,
+                    parcelas: formData.parcelas || null,
+                    velorio: formData.velorio,
+                    acompanhamento: formData.acompanhamento,
+                    // Seção 3
+                    outros_tutores: formData.outrosTutores || [],
+                    como_conheceu: formData.comoConheceu || {},
+                    veterinario_especificar: formData.veterinarioEspecificar || null,
+                    outro_especificar: formData.outroEspecificar || null,
+                    observacoes: formData.observacoes || null
+                };
+
+                console.log('Enviando para Supabase:', supabaseData);
+
+                // Enviar para Supabase
+                const { data, error } = await supabase
+                    .from('fichas')
+                    .insert([supabaseData])
+                    .select();
+
+                if (error) {
+                    console.error('Erro detalhado do Supabase:', error);
+                    console.error('Mensagem:', error.message);
+                    console.error('Detalhes:', error.details);
+                    console.error('Hint:', error.hint);
+                    throw error;
+                }
+
+                console.log('Ficha salva com sucesso no Supabase:', data);
+
+                // Ocultar loading
+                if (loadingOverlay) loadingOverlay.classList.remove('show');
+
+                // Mostrar sucesso
+                const formContainer = document.querySelector('.form-container');
+                const successScreen = document.getElementById('successScreen');
+                const footer = document.querySelector('.fixed-footer');
+
+                console.log('Mostrando tela de sucesso...');
+                console.log('Form container:', formContainer);
+                console.log('Success screen:', successScreen);
+                console.log('Footer:', footer);
+
+                // Ocultar formulário e footer
+                if (formContainer) {
+                    formContainer.style.display = 'none';
+                    formContainer.style.visibility = 'hidden';
+                }
+                if (footer) {
+                    footer.style.display = 'none';
+                }
+
+                // Remover padding do body
+                document.body.style.paddingBottom = '0';
+
+                // Mostrar tela de sucesso
+                if (successScreen) {
+                    successScreen.classList.add('show');
+                    successScreen.style.display = 'block';
+                    successScreen.style.visibility = 'visible';
+                }
+
+                // Limpar localStorage
+                localStorage.removeItem(storageKey);
+
+                // Scroll to top
+                window.scrollTo(0, 0);
+
+                console.log('Success screen classes:', successScreen.className);
+                console.log('Success screen display:', window.getComputedStyle(successScreen).display);
+
+            } catch (error) {
+                // Ocultar loading em caso de erro
+                if (loadingOverlay) loadingOverlay.classList.remove('show');
+
+                alert('Erro ao enviar ficha. Tente novamente.');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Enviar Ficha';
+            }
+        });
+
+        function clearForm() {
+            if (confirm('Tem certeza que deseja limpar todos os dados? Isso não pode ser desfeito.')) {
+                document.getElementById('fichaForm').reset();
+                localStorage.removeItem(storageKey);
+                currentSection = 1;
+
+                // Limpar outros tutores
+                document.getElementById('outrosTutoresContainer').innerHTML = '';
+                outrosTutoresCount = 0;
+
+                // Remover erros
+                document.querySelectorAll('.error').forEach(el => el.classList.remove('error'));
+                document.querySelectorAll('.error-message').forEach(el => el.classList.remove('show'));
+
+                showSection(1);
+            }
+        }
+
+        function newForm() {
+            document.getElementById('fichaForm').reset();
+            localStorage.removeItem(storageKey);
+            currentSection = 1;
+
+            // Limpar outros tutores
+            document.getElementById('outrosTutoresContainer').innerHTML = '';
+            outrosTutoresCount = 0;
+
+            document.querySelector('.form-container').style.display = 'block';
+            document.getElementById('successScreen').classList.remove('show');
+
+            // Mostrar footer novamente
+            document.querySelector('.fixed-footer').style.display = 'flex';
+
+            showSection(1);
+        }
+
+        // Prevenir perda de dados
+        window.addEventListener('beforeunload', (e) => {
+            const draft = localStorage.getItem(storageKey);
+            if (draft && document.getElementById('fichaForm').style.display !== 'none') {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        });
+    </script>
+</body>
+</html>
