@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
@@ -92,7 +92,7 @@ function validarCPF(cpf: string) {
 // ============================================
 // Component
 // ============================================
-export default function FichaSantos() {
+function FichaSantosContent() {
   const searchParams = useSearchParams()
   const [form, setForm] = useState<FormData>(INITIAL_FORM)
   const [step, setStep] = useState(1)
@@ -853,5 +853,13 @@ export default function FichaSantos() {
         )}
       </div>
     </div>
+  )
+}
+
+export default function FichaSantos() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center">Carregando...</div>}>
+      <FichaSantosContent />
+    </Suspense>
   )
 }
