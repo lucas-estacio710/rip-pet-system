@@ -29,6 +29,7 @@ type Lead = {
   dispositivo: string | null
   created_at: string
   convertido: boolean
+  convertido_em: string | null
   contrato_id: string | null
   protocolo: string | null
   tempo_pagina_seg: number | null
@@ -151,7 +152,7 @@ export default function LeadsPage() {
   }
 
   async function marcarConvertido(leadId: string) {
-    await supabase
+    await (supabase as any)
       .from('leads')
       .update({ convertido: true, convertido_em: new Date().toISOString() })
       .eq('id', leadId)
