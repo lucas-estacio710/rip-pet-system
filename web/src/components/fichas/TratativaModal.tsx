@@ -114,6 +114,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
   const [funcionarioId, setFuncionarioId] = useState('')
   const [codigo, setCodigo] = useState('')
   const [codigoManual, setCodigoManual] = useState(false)
+  const [valorPlano, setValorPlano] = useState('')
   const [lacre, setLacre] = useState('')
   const [semLacre, setSemLacre] = useState(false)
   const [dataContrato, setDataContrato] = useState(new Date().toISOString().split('T')[0])
@@ -164,11 +165,14 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
     checkTutor()
   }, [isOpen, ficha?.cpf])
 
-  // Pre-populate estabelecimento search from veterinario_especificar
+  // Pre-populate fields from ficha
   useEffect(() => {
     if (!isOpen || !ficha) return
     if (ficha.veterinario_especificar) {
       setEstabBusca(ficha.veterinario_especificar)
+    }
+    if (ficha.valor != null) {
+      setValorPlano(String(ficha.valor))
     }
   }, [isOpen, ficha])
 
@@ -200,6 +204,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
       setFuncionarioId('')
       setCodigo('')
       setCodigoManual(false)
+      setValorPlano('')
       setLacre('')
       setSemLacre(false)
       setDataContrato(new Date().toISOString().split('T')[0])
@@ -386,7 +391,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
         velorio_deseja: ficha.velorio === 'Sim' ? true : ficha.velorio === 'Não' ? false : null,
         acompanhamento_online: ficha.acompanhamento?.includes('On-line') || false,
         acompanhamento_presencial: ficha.acompanhamento?.includes('Presencial') || false,
-        valor_plano: ficha.valor || null,
+        valor_plano: valorPlano ? parseFloat(valorPlano) : null,
         local_coleta: localColeta,
         numero_lacre: lacre || null,
         observacoes: obsPartes.length > 0 ? obsPartes.join('\n') : null,
@@ -780,6 +785,24 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
               onChange={(e) => setCodigo(e.target.value)}
               readOnly={!codigoManual}
               className={`input text-mono ${!codigoManual ? 'bg-[var(--surface-50)]' : ''}`}
+            />
+          </div>
+
+          {/* Valor */}
+          <div>
+            <label className="block text-sm font-medium text-[var(--surface-600)] mb-1">
+              Valor do Plano (R$)
+            </label>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={valorPlano}
+              onChange={(e) => {
+                const v = e.target.value.replace(/[^\d.,]/g, '').replace(',', '.')
+                setValorPlano(v)
+              }}
+              placeholder="0.00"
+              className="input text-mono"
             />
           </div>
 

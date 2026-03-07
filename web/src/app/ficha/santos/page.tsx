@@ -212,7 +212,7 @@ function FichaSantosContent() {
       if (!form.cor.trim()) errs.cor = 'Obrigatório'
       if (!form.peso.trim()) errs.peso = 'Obrigatório'
       if (!form.localizacao) errs.localizacao = 'Obrigatório'
-      if (form.localizacao === 'Outro' && !form.localizacaoOutra.trim()) errs.localizacaoOutra = 'Especifique'
+      if ((form.localizacao === 'Outro' || form.localizacao === 'Hospital/Clínica Veterinária') && !form.localizacaoOutra.trim()) errs.localizacaoOutra = 'Especifique'
       if (!form.cremacao) errs.cremacao = 'Selecione o tipo'
       if (!form.pagamento) errs.pagamento = 'Obrigatório'
       if (form.pagamento === 'cartao' && !form.parcelas) errs.parcelas = 'Obrigatório'
@@ -675,9 +675,9 @@ function FichaSantosContent() {
                   <option value="Outro">Outro</option>
                 </select>
                 {errors.localizacao && <p className={errorClass}>{errors.localizacao}</p>}
-                {form.localizacao === 'Outro' && (
+                {(form.localizacao === 'Hospital/Clínica Veterinária' || form.localizacao === 'Outro') && (
                   <div className="mt-2">
-                    <input className={inputClass('localizacaoOutra')} value={form.localizacaoOutra} onChange={e => updateField('localizacaoOutra', e.target.value)} placeholder="Especifique o endereco" />
+                    <input className={inputClass('localizacaoOutra')} value={form.localizacaoOutra} onChange={e => updateField('localizacaoOutra', e.target.value)} placeholder={form.localizacao === 'Outro' ? 'Especifique o endereco' : 'Nome do hospital/clinica'} />
                     {errors.localizacaoOutra && <p className={errorClass}>{errors.localizacaoOutra}</p>}
                   </div>
                 )}
