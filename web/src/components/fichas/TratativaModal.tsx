@@ -98,9 +98,10 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
   const [estabAberto, setEstabAberto] = useState(false)
   const [estabId, setEstabId] = useState<string | null>(null)
   const [estabNome, setEstabNome] = useState('')
+  const [autonomo, setAutonomo] = useState(false)
   const estabRef = useRef<HTMLDivElement>(null)
 
-  // Indicador (pessoa) autocomplete
+  // Contato (pessoa que indicou) autocomplete
   const [indicBusca, setIndicBusca] = useState('')
   const [indicAberto, setIndicAberto] = useState(false)
   const [indicId, setIndicId] = useState<string | null>(null)
@@ -175,15 +176,13 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
   useEffect(() => {
     if (!isOpen || !ficha || codigoManual) return
     const now = new Date(dataContrato + 'T12:00:00')
-    const aa = String(now.getFullYear()).slice(-2)
-    const mesesCurtos = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
-    const mes = mesesCurtos[now.getMonth()]
+    const yy = String(now.getFullYear()).slice(-2)
+    const mm = String(now.getMonth() + 1).padStart(2, '0')
     const dd = String(now.getDate()).padStart(2, '0')
-    const siglaPlano = tipoPlano === 'emergencial' ? 'EM' : 'PV'
     const siglaCremacao = ficha.cremacao?.toLowerCase() === 'individual' ? 'IND' : 'COL'
-    const nomeTutor = getPrimeiroNome(ficha.nome_completo)
-    const nomePet = ficha.nome_pet || ''
-    setCodigo(`${aa}${mes}${dd} ${nomeTutor} ${siglaPlano} ${nomePet} ${siglaCremacao}`.trim())
+    const tutor3 = (ficha.nome_completo || '').trim().slice(0, 3).toUpperCase()
+    const pet3 = (ficha.nome_pet || '').trim().slice(0, 3).toUpperCase()
+    setCodigo(`${yy}${mm}${dd}${siglaCremacao}${tutor3}${pet3}`)
   }, [isOpen, ficha, tipoPlano, dataContrato, codigoManual])
 
   // Reset form on close
@@ -193,6 +192,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
       setEstabId(null)
       setEstabNome('')
       setEstabBusca('')
+      setAutonomo(false)
       setIndicId(null)
       setIndicNome('')
       setIndicBusca('')
@@ -285,85 +285,51 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
       }
 
       // Step 3: Resolve estabelecimento
-      let resolvedEstabId = estabId
-      if (!resolvedEstabId && estabNome.trim()) {
-        // Create new estabelecimento
-        const { data: novoEstab } = await supabase
-          .from('estabelecimentos')
-          .insert({ nome: estabNome.trim(), tipo: 'clinica' } as never)
-          .select('id')
-          .single() as { data: { id: string } | null }
-        if (novoEstab) resolvedEstabId = novoEstab.id
+      const AUTONOMOS_ESTAB_ID = 'b4eedcff-7ccf-4cfb-bf3a-1978eeec6382'
+      let resolvedEstabId: string | null = null
+      if (autonomo) {
+        resolvedEstabId = AUTONOMOS_ESTAB_ID
+      } else {
+        resolvedEstabId = estabId
+        if (!resolvedEstabId && estabNome.trim()) {
+          const { data: novoEstab } = await supabase
+            .from('estabelecimentos')
+            .insert({ nome: estabNome.trim(), tipo: 'clinica' } as never)
+            .select('id')
+            .single() as { data: { id: string } | null }
+          if (novoEstab) resolvedEstabId = novoEstab.id
+        }
       }
 
-      // Step 4: Resolve indicador (pessoa)
-      // Create/find in indicadores (legacy FK) AND create contato linked to estabelecimento
-      let resolvedIndicadorId: string | null = null
+      // Step 4: Resolve contato (quem indicou)
+      let resolvedContatoId: string | null = indicId
 
-      if (indicNome.trim()) {
-        // Build the indicador name: "CLINICA - PESSOA" format for legacy compat
-        const indicadorLegacyNome = resolvedEstabId && estabNome.trim()
-          ? `${estabNome.trim().toUpperCase()} - ${indicNome.trim().toUpperCase()}`
-          : indicNome.trim().toUpperCase()
-
-        // Check if indicador with this name already exists
-        const { data: indExist } = await supabase
-          .from('indicadores')
+      if (!resolvedContatoId && indicNome.trim()) {
+        // Busca contato existente pelo nome (+ estabelecimento se tiver)
+        let query = supabase
+          .from('contatos')
           .select('id')
-          .ilike('nome', indicadorLegacyNome)
+          .ilike('nome', indicNome.trim())
           .limit(1)
-          .maybeSingle() as { data: { id: string } | null }
-
-        if (indExist) {
-          resolvedIndicadorId = indExist.id
-        } else {
-          const { data: novoInd } = await supabase
-            .from('indicadores')
-            .insert({ nome: indicadorLegacyNome } as never)
-            .select('id')
-            .single() as { data: { id: string } | null }
-          if (novoInd) resolvedIndicadorId = novoInd.id
+        if (resolvedEstabId) {
+          query = query.eq('estabelecimento_id', resolvedEstabId)
         }
+        const { data: contatoExist } = await query.maybeSingle() as { data: { id: string } | null }
 
-        // Also create contato (CRM Comercial) if we have an establishment and the contact doesn't exist
-        if (resolvedEstabId && !indicId) {
-          const { data: contatoExist } = await supabase
+        if (contatoExist) {
+          resolvedContatoId = contatoExist.id
+        } else {
+          // Cria novo contato
+          const { data: novoContato } = await supabase
             .from('contatos')
-            .select('id')
-            .eq('estabelecimento_id', resolvedEstabId)
-            .ilike('nome', indicNome.trim())
-            .limit(1)
-            .maybeSingle() as { data: { id: string } | null }
-
-          if (!contatoExist) {
-            await supabase
-              .from('contatos')
-              .insert({
-                nome: indicNome.trim(),
-                cargo: indicCargo.trim() || null,
-                estabelecimento_id: resolvedEstabId,
-              } as never)
-          }
-        }
-      } else if (resolvedEstabId) {
-        // No specific person, just the clinic — find/create indicador with clinic name only
-        const clinicaUpper = estabNome.trim().toUpperCase()
-        const { data: indExist } = await supabase
-          .from('indicadores')
-          .select('id')
-          .ilike('nome', clinicaUpper)
-          .limit(1)
-          .maybeSingle() as { data: { id: string } | null }
-
-        if (indExist) {
-          resolvedIndicadorId = indExist.id
-        } else {
-          const { data: novoInd } = await supabase
-            .from('indicadores')
-            .insert({ nome: clinicaUpper } as never)
+            .insert({
+              nome: indicNome.trim(),
+              cargo: indicCargo.trim() || null,
+              estabelecimento_id: resolvedEstabId,
+            } as never)
             .select('id')
             .single() as { data: { id: string } | null }
-          if (novoInd) resolvedIndicadorId = novoInd.id
+          if (novoContato) resolvedContatoId = novoContato.id
         }
       }
 
@@ -393,7 +359,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
         status,
         tipo_plano: tipoPlano,
         tipo_cremacao: ficha.cremacao.toLowerCase() as 'individual' | 'coletiva',
-        pet_nome: ficha.nome_pet,
+        pet_nome: ficha.nome_pet?.toUpperCase() || '',
         pet_especie: ficha.especie.toLowerCase(),
         pet_raca: ficha.raca || null,
         pet_genero: ficha.genero ? ficha.genero.toLowerCase() : null,
@@ -401,15 +367,15 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
         pet_peso: ficha.peso ? parseFloat(ficha.peso) || null : null,
         pet_idade_anos: ficha.idade ? parseInt(ficha.idade) || null : null,
         tutor_id: tutorId,
-        tutor_nome: ficha.nome_completo,
+        tutor_nome: ficha.nome_completo?.toUpperCase() || '',
         tutor_cpf: ficha.cpf,
         tutor_telefone: ficha.telefone,
         tutor_email: ficha.email || null,
         tutor_cidade: ficha.cidade || null,
         tutor_bairro: ficha.bairro || null,
-        tutor_endereco: ficha.endereco || null,
+        tutor_endereco: ficha.endereco ? `${ficha.endereco}, ${ficha.numero}${ficha.complemento ? ` - ${ficha.complemento}` : ''}` : null,
         tutor_cep: ficha.cep || null,
-        indicador_id: resolvedIndicadorId || null,
+        contato_id: resolvedContatoId || null,
         estabelecimento_id: resolvedEstabId || null,
         funcionario_id: funcionarioId || null,
         fonte_conhecimento_id: fonteConhecimentoId,
@@ -611,10 +577,34 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
 
           {/* Estabelecimento (clinica) */}
           <div ref={estabRef} className="relative">
-            <label className="block text-sm font-medium text-[var(--surface-600)] mb-1">
-              <Building2 className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
-              Estabelecimento (clinica)
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-sm font-medium text-[var(--surface-600)]">
+                <Building2 className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
+                Estabelecimento (clinica)
+              </label>
+              <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={autonomo}
+                  onChange={(e) => {
+                    setAutonomo(e.target.checked)
+                    if (e.target.checked) {
+                      setEstabId(null)
+                      setEstabNome('')
+                      setEstabBusca('')
+                    }
+                  }}
+                  className="h-3.5 w-3.5 rounded accent-blue-500"
+                />
+                <span className="text-xs text-blue-400">Autonomo</span>
+              </label>
+            </div>
+            {autonomo ? (
+              <div className="px-3 py-2.5 rounded-lg border-2 border-dashed border-blue-500/30 bg-blue-900/10 text-sm text-blue-400">
+                Profissional autonomo (sem vinculo com estabelecimento)
+              </div>
+            ) : (
+            <>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--surface-400)]" />
               <input
@@ -670,13 +660,15 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
             )}
             {estabId && <p className="mt-1 text-xs text-green-500 flex items-center gap-1"><Check className="h-3 w-3" />Estabelecimento selecionado</p>}
             {!estabId && estabNome.trim() && !estabAberto && <p className="mt-1 text-xs text-amber-500">Novo estabelecimento sera criado</p>}
+            </>
+            )}
           </div>
 
-          {/* Indicador (pessoa que indicou) */}
+          {/* Contato (pessoa que indicou) */}
           <div ref={indicRef} className="relative">
             <label className="block text-sm font-medium text-[var(--surface-600)] mb-1">
               <UserCheck className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
-              Indicador (quem indicou)
+              Contato (quem indicou)
             </label>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--surface-400)]" />

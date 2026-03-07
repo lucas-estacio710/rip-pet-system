@@ -12,6 +12,7 @@ type FormData = {
   nomeCompleto: string
   outrosTutores: string[]
   cpf: string
+  codigoPais: string
   telefone: string
   email: string
   cep: string
@@ -45,7 +46,7 @@ type FormData = {
 }
 
 const INITIAL_FORM: FormData = {
-  nomeCompleto: '', outrosTutores: [], cpf: '', telefone: '', email: '',
+  nomeCompleto: '', outrosTutores: [], cpf: '', codigoPais: '55', telefone: '', email: '',
   cep: '', estado: '', cidade: '', bairro: '', endereco: '', numero: '', complemento: '',
   nomePet: '', idade: '', especie: '', genero: '', raca: '', cor: '', peso: '',
   localizacao: '', localizacaoOutra: '', cremacao: '', pagamento: '', parcelas: '',
@@ -268,7 +269,7 @@ function FichaSantosContent() {
       // Tutor
       nome_completo: form.nomeCompleto,
       cpf: form.cpf,
-      telefone: form.telefone,
+      telefone: form.codigoPais + form.telefone.replace(/\D/g, ''),
       email: form.email || null,
       cep: form.cep,
       estado: form.estado,
@@ -516,7 +517,26 @@ function FichaSantosContent() {
                 </div>
                 <div>
                   <label className={labelClass}>Telefone <span className="text-red-400">*</span></label>
-                  <input className={inputClass('telefone')} value={form.telefone} onChange={e => updateField('telefone', maskPhone(e.target.value))} placeholder="(11) 99999-9999" inputMode="tel" />
+                  <div className="flex gap-1.5">
+                    <select
+                      value={form.codigoPais}
+                      onChange={e => updateField('codigoPais', e.target.value)}
+                      className="w-[90px] px-2 py-2 rounded-lg border-2 border-slate-200 text-sm outline-none focus:border-blue-500 bg-white"
+                    >
+                      <option value="55">🇧🇷 +55</option>
+                      <option value="1">🇺🇸 +1</option>
+                      <option value="351">🇵🇹 +351</option>
+                      <option value="54">🇦🇷 +54</option>
+                      <option value="598">🇺🇾 +598</option>
+                      <option value="595">🇵🇾 +595</option>
+                      <option value="56">🇨🇱 +56</option>
+                      <option value="57">🇨🇴 +57</option>
+                      <option value="34">🇪🇸 +34</option>
+                      <option value="39">🇮🇹 +39</option>
+                      <option value="81">🇯🇵 +81</option>
+                    </select>
+                    <input className={`flex-1 ${inputClass('telefone')}`} value={form.telefone} onChange={e => updateField('telefone', maskPhone(e.target.value))} placeholder="(11) 99999-9999" inputMode="tel" />
+                  </div>
                   {errors.telefone && <p className={errorClass}>{errors.telefone}</p>}
                 </div>
               </div>
