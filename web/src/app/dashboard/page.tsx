@@ -11,45 +11,15 @@ import Link from 'next/link'
 import { Skeleton } from '@/components/ui/Skeleton'
 import ChartCard from '@/components/dashboard/ChartCard'
 import MiniKPI from '@/components/dashboard/MiniKPI'
+import DashboardInsights, { type ContratoFull, type PagamentoFull, type ContratoProduto, type Produto, type Funcionario } from '@/components/dashboard/DashboardInsights'
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, CartesianGrid, Legend
 } from 'recharts'
 
 // ============================================
-// Types
+// Types (ContratoFull, PagamentoFull, ContratoProduto, Produto, Funcionario imported from DashboardInsights)
 // ============================================
-type Contrato = {
-  id: string
-  status: string
-  tipo_cremacao: string | null
-  tipo_plano: string | null
-  data_contrato: string | null
-  created_at: string
-  valor_plano: number | null
-  custo_cremacao: number | null
-  pet_especie: string | null
-  pet_peso: number | null
-  tutor_cidade: string | null
-  tutor_bairro: string | null
-  fonte_conhecimento_id: string | null
-  estabelecimento_id: string | null
-  seguradora: string | null
-  velorio_deseja: boolean | null
-}
-
-type Pagamento = {
-  id: string
-  contrato_id: string
-  tipo: string
-  metodo: string
-  valor: number
-  valor_liquido: number | null
-  data_pagamento: string | null
-  is_seguradora: boolean | null
-  parcelas: number | null
-}
-
 type FonteConhecimento = { id: string; nome: string }
 type Estabelecimento = { id: string; nome: string }
 
@@ -179,7 +149,7 @@ function getPrevPeriodRange(periodo: Periodo): { min: string; max: string } | nu
   }
 }
 
-function getContratoDate(c: Contrato): string {
+function getContratoDate(c: ContratoFull): string {
   return c.data_contrato || c.created_at?.split('T')[0] || ''
 }
 
@@ -230,10 +200,13 @@ export default function DashboardPage() {
   const supabase = createClient()
 
   // Raw data
-  const [contratos, setContratos] = useState<Contrato[]>([])
-  const [pagamentos, setPagamentos] = useState<Pagamento[]>([])
+  const [contratos, setContratos] = useState<ContratoFull[]>([])
+  const [pagamentos, setPagamentos] = useState<PagamentoFull[]>([])
   const [fontes, setFontes] = useState<FonteConhecimento[]>([])
   const [estabelecimentos, setEstabelecimentos] = useState<Estabelecimento[]>([])
+  const [contratoProdutos, setContratoProdutos] = useState<ContratoProduto[]>([])
+  const [produtos, setProdutos] = useState<Produto[]>([])
+  const [funcionarios, setFuncionarios] = useState<Funcionario[]>([])
   const [loading, setLoading] = useState(true)
 
   // Filters
@@ -263,17 +236,23 @@ export default function DashboardPage() {
     }
 
     async function loadAll() {
-      const [contratosData, pagamentosData, fontesData, estabsData] = await Promise.all([
-        fetchAll<Contrato>('contratos', 'id,status,tipo_cremacao,tipo_plano,data_contrato,created_at,valor_plano,custo_cremacao,pet_especie,pet_peso,tutor_cidade,tutor_bairro,fonte_conhecimento_id,estabelecimento_id,seguradora,velorio_deseja'),
-        fetchAll<Pagamento>('pagamentos', 'id,contrato_id,tipo,metodo,valor,valor_liquido,data_pagamento,is_seguradora,parcelas'),
+      const [contratosData, pagamentosData, fontesData, estabsData, cpData, prodData, funcData] = await Promise.all([
+        fetchAll<ContratoFull>('contratos', 'id,status,tipo_cremacao,tipo_plano,data_contrato,data_acolhimento,created_at,valor_plano,custo_cremacao,pet_especie,pet_peso,tutor_cidade,tutor_bairro,fonte_conhecimento_id,estabelecimento_id,funcionario_id,seguradora,velorio_deseja,pelinho_quer,pelinho_feito,acompanhamento_online,acompanhamento_presencial'),
+        fetchAll<PagamentoFull>('pagamentos', 'id,contrato_id,tipo,metodo,valor,valor_liquido,data_pagamento,is_seguradora,parcelas'),
         fetchAll<FonteConhecimento>('fontes_conhecimento', 'id,nome'),
         fetchAll<Estabelecimento>('estabelecimentos', 'id,nome'),
+        fetchAll<ContratoProduto>('contrato_produtos', 'id,contrato_id,produto_id,valor,desconto,rescaldo_feito'),
+        fetchAll<Produto>('produtos', 'id,nome,tipo,preco'),
+        fetchAll<Funcionario>('funcionarios', 'id,nome'),
       ])
 
       setContratos(contratosData)
       setPagamentos(pagamentosData)
       setFontes(fontesData)
       setEstabelecimentos(estabsData)
+      setContratoProdutos(cpData)
+      setProdutos(prodData)
+      setFuncionarios(funcData)
       setLoading(false)
     }
     loadAll()
@@ -1158,6 +1137,17 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
+
+          {/* ========== INSIGHTS DE INTELIGENCIA ========== */}
+          <DashboardInsights
+            contratos={filteredContratos}
+            pagamentos={filteredPagamentos}
+            contratoProdutos={contratoProdutos}
+            produtos={produtos}
+            funcionarios={funcionarios}
+            fontes={fontes}
+            estabelecimentos={estabelecimentos}
+          />
         </>
       )}
     </div>
