@@ -148,15 +148,16 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
     }
     async function checkTutor() {
       const cpfLimpo = ficha!.cpf.replace(/\D/g, '')
-      if (cpfLimpo.length < 11) {
+      if (cpfLimpo.length !== 11 || !/^\d{11}$/.test(cpfLimpo)) {
         setTutorExistente(null)
         setTutorChecked(true)
         return
       }
+      // Use ilike with % to match both formatted (123.456.789-00) and clean (12345678900)
       const { data } = await supabase
         .from('tutores')
         .select('id, nome')
-        .or(`cpf.eq.${ficha!.cpf},cpf.eq.${cpfLimpo}`)
+        .ilike('cpf', `%${cpfLimpo}%`)
         .limit(1)
         .maybeSingle()
       setTutorExistente(data)

@@ -7,6 +7,33 @@ const resend = new Resend(process.env.RESEND_API_KEY)
 // TODO: trocar para 'rippetsantos@gmail.com' quando domínio rippet.com.br verificar no Resend
 const OPERADOR_EMAIL = 'lucasmestacio@gmail.com'
 
+// Rate limiting: max submissions per IP
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>()
+const RATE_LIMIT_MAX = 5
+const RATE_LIMIT_WINDOW = 60 * 60 * 1000 // 1 hour
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now()
+  const entry = rateLimitMap.get(ip)
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW })
+    return true
+  }
+  if (entry.count >= RATE_LIMIT_MAX) return false
+  entry.count++
+  return true
+}
+
+function escapeHtml(str: string | null | undefined): string {
+  if (!str) return ''
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 type FichaPayload = {
   unidade: string
   nome_completo: string
@@ -47,14 +74,14 @@ function buildEmailHTML(data: FichaPayload): string {
   const isFallback = data.fallback === true
 
   const row = (label: string, value: string | null | undefined) =>
-    value ? `<tr><td style="padding:6px 12px;font-weight:600;color:#475569;white-space:nowrap;vertical-align:top;font-size:14px;">${label}</td><td style="padding:6px 12px;color:#1e293b;font-size:14px;">${value}</td></tr>` : ''
+    value ? `<tr><td style="padding:6px 12px;font-weight:600;color:#475569;white-space:nowrap;vertical-align:top;font-size:14px;">${escapeHtml(label)}</td><td style="padding:6px 12px;color:#1e293b;font-size:14px;">${escapeHtml(value)}</td></tr>` : ''
 
   const sectionHeader = (title: string, emoji: string) =>
     `<tr><td colspan="2" style="padding:16px 12px 8px;font-size:16px;font-weight:700;color:#1e5a96;border-bottom:2px solid #e2e8f0;">${emoji} ${title}</td></tr>`
 
-  const conheceuText = data.como_conheceu.join(', ')
-    + (data.veterinario_especificar ? ` (Vet: ${data.veterinario_especificar})` : '')
-    + (data.outro_especificar ? ` (Outro: ${data.outro_especificar})` : '')
+  const conheceuText = data.como_conheceu.map(c => escapeHtml(c)).join(', ')
+    + (data.veterinario_especificar ? ` (Vet: ${escapeHtml(data.veterinario_especificar)})` : '')
+    + (data.outro_especificar ? ` (Outro: ${escapeHtml(data.outro_especificar)})` : '')
 
   return `<!DOCTYPE html>
 <html>
@@ -126,7 +153,22 @@ function buildEmailHTML(data: FichaPayload): string {
 
 export async function POST(request: NextRequest) {
   try {
-    const data: FichaPayload = await request.json()
+    // Rate limiting by IP
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+    if (!checkRateLimit(ip)) {
+      return NextResponse.json(
+        { error: 'Muitas requisicoes. Tente novamente mais tarde.' },
+        { status: 429 }
+      )
+    }
+
+    const data: FichaPayload & { _hp?: string } = await request.json()
+
+    // Honeypot: if hidden field is filled, it's a bot
+    if (data._hp) {
+      // Silently accept to not reveal detection
+      return NextResponse.json({ ok: true })
+    }
 
     // Validacao basica
     if (!data.nome_completo || !data.cpf || !data.nome_pet) {

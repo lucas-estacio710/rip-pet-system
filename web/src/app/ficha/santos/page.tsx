@@ -8,6 +8,8 @@ import { createClient } from '@/lib/supabase/client'
 // Types
 // ============================================
 type FormData = {
+  // Honeypot (anti-bot)
+  _hp: string
   // Tutor
   nomeCompleto: string
   outrosTutores: string[]
@@ -46,6 +48,7 @@ type FormData = {
 }
 
 const INITIAL_FORM: FormData = {
+  _hp: '',
   nomeCompleto: '', outrosTutores: [], cpf: '', codigoPais: '55', telefone: '', email: '',
   cep: '', estado: '', cidade: '', bairro: '', endereco: '', numero: '', complemento: '',
   nomePet: '', idade: '', especie: '', genero: '', raca: '', cor: '', peso: '',
@@ -256,6 +259,13 @@ function FichaSantosContent() {
     if (!validateStep(3)) return
     setSubmitting(true)
 
+    // Honeypot check: if filled, silently "succeed" without doing anything
+    if (form._hp) {
+      setSubmitted(true)
+      setSubmitting(false)
+      return
+    }
+
     // Map camelCase form fields to snake_case DB columns
     // Values must match exactly what DB stores (capitalized, full text)
     const capitalize = (s: string) => s ? s.charAt(0).toUpperCase() + s.slice(1) : ''
@@ -319,7 +329,7 @@ function FichaSantosContent() {
 
     // 2. Envia email (sempre - notificacao se Supabase OK, fallback se falhou)
     try {
-      await sendEmail(payload, !supabaseOk)
+      await sendEmail({ ...payload, _hp: form._hp }, !supabaseOk)
     } catch (emailErr) {
       console.error('Email tambem falhou:', emailErr)
 
@@ -481,6 +491,11 @@ function FichaSantosContent() {
       {/* Form */}
       <div className="max-w-lg mx-auto px-4">
         <div className="bg-white rounded-2xl shadow-sm p-5 space-y-5">
+          {/* Honeypot - invisible to humans, bots will fill it */}
+          <div style={{ position: 'absolute', left: '-9999px', opacity: 0, height: 0, overflow: 'hidden' }} aria-hidden="true" tabIndex={-1}>
+            <label>Deixe em branco</label>
+            <input type="text" name="website" value={form._hp} onChange={e => updateField('_hp', e.target.value)} autoComplete="off" tabIndex={-1} />
+          </div>
 
           {/* ========== STEP 1: TUTOR ========== */}
           {step === 1 && (

@@ -136,8 +136,10 @@ export default function LeadsPage() {
     }
 
     if (buscaDebounced.trim()) {
-      const termo = buscaDebounced.trim()
-      query = query.or(`nome.ilike.%${termo}%,cidade.ilike.%${termo}%`)
+      const termo = buscaDebounced.trim().replace(/[,.()"'\\]/g, '')
+      if (termo) {
+        query = query.or(`nome.ilike.%${termo}%,cidade.ilike.%${termo}%`)
+      }
     }
 
     const { data, error } = await query

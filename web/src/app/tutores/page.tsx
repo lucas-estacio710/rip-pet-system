@@ -77,11 +77,17 @@ export default function TutoresPage() {
 
     setLoading(true)
 
+    const termoSafe = termoBusca.trim().replace(/[,.()"'\\]/g, '')
+    if (!termoSafe) {
+      carregarTutores()
+      return
+    }
+
     const { data, error, count } = await supabase
       .from('tutores')
       .select('*', { count: 'exact' })
       .eq('ativo', true)
-      .or(`nome.ilike.%${termoBusca}%,telefone.ilike.%${termoBusca}%,cpf.ilike.%${termoBusca}%,email.ilike.%${termoBusca}%,cidade.ilike.%${termoBusca}%`)
+      .or(`nome.ilike.%${termoSafe}%,telefone.ilike.%${termoSafe}%,cpf.ilike.%${termoSafe}%,email.ilike.%${termoSafe}%,cidade.ilike.%${termoSafe}%`)
       .order('nome', { ascending: true })
       .limit(50)
 

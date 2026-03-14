@@ -147,10 +147,12 @@ export default function FichasPage() {
       query = query.eq('processada', true)
     }
 
-    // Search
+    // Search (sanitize to prevent PostgREST filter injection)
     if (buscaDebounced.trim()) {
-      const termo = buscaDebounced.trim()
-      query = query.or(`nome_completo.ilike.%${termo}%,nome_pet.ilike.%${termo}%,cpf.ilike.%${termo}%,telefone.ilike.%${termo}%`)
+      const termo = buscaDebounced.trim().replace(/[,.()"'\\]/g, '')
+      if (termo) {
+        query = query.or(`nome_completo.ilike.%${termo}%,nome_pet.ilike.%${termo}%,cpf.ilike.%${termo}%,telefone.ilike.%${termo}%`)
+      }
     }
 
     const { data, error } = await query
