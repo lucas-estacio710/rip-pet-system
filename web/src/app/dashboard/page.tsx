@@ -53,7 +53,7 @@ type Pagamento = {
 type FonteConhecimento = { id: string; nome: string }
 type Estabelecimento = { id: string; nome: string }
 
-type Periodo = '7d' | '30d' | '90d' | '12m' | 'all'
+type Periodo = '7d' | 'mes_atual' | 'mes_anterior' | '1q' | '2q' | '3q' | '4q' | 'semestre' | 'ano' | 'all'
 type DrillView = null | 'cremacao' | 'plano' | 'clinicas' | 'fontes' | 'pagamentos' | 'cidades' | 'especies'
 
 // ============================================
@@ -83,9 +83,14 @@ const PIE_COLORS = ['#8b5cf6', '#06b6d4', '#f59e0b', '#ef4444', '#10b981', '#ec4
 
 const PERIODOS: { key: Periodo; label: string }[] = [
   { key: '7d', label: '7 dias' },
-  { key: '30d', label: '30 dias' },
-  { key: '90d', label: '90 dias' },
-  { key: '12m', label: '12 meses' },
+  { key: 'mes_atual', label: 'Mes atual' },
+  { key: 'mes_anterior', label: 'Mes anterior' },
+  { key: '1q', label: '1T' },
+  { key: '2q', label: '2T' },
+  { key: '3q', label: '3T' },
+  { key: '4q', label: '4T' },
+  { key: 'semestre', label: 'Semestre' },
+  { key: 'ano', label: 'Ano' },
   { key: 'all', label: 'Tudo' },
 ]
 
@@ -104,14 +109,73 @@ function formatCurrencyFull(value: number): string {
   return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
-function getDateFromPeriod(periodo: Periodo): Date | null {
+function getPeriodRange(periodo: Periodo): { min: string | null; max: string | null } {
   const now = new Date()
+  const y = now.getFullYear()
+  const m = now.getMonth()
+
+  function fmt(d: Date): string {
+    return d.toISOString().split('T')[0]
+  }
+
   switch (periodo) {
-    case '7d': return new Date(now.getTime() - 7 * 86400000)
-    case '30d': return new Date(now.getTime() - 30 * 86400000)
-    case '90d': return new Date(now.getTime() - 90 * 86400000)
-    case '12m': return new Date(now.getFullYear() - 1, now.getMonth(), now.getDate())
-    case 'all': return null
+    case '7d':
+      return { min: fmt(new Date(now.getTime() - 7 * 86400000)), max: null }
+    case 'mes_atual':
+      return { min: fmt(new Date(y, m, 1)), max: null }
+    case 'mes_anterior':
+      return { min: fmt(new Date(y, m - 1, 1)), max: fmt(new Date(y, m, 0)) }
+    case '1q':
+      return { min: fmt(new Date(y, 0, 1)), max: fmt(new Date(y, 2, 31)) }
+    case '2q':
+      return { min: fmt(new Date(y, 3, 1)), max: fmt(new Date(y, 5, 30)) }
+    case '3q':
+      return { min: fmt(new Date(y, 6, 1)), max: fmt(new Date(y, 8, 30)) }
+    case '4q':
+      return { min: fmt(new Date(y, 9, 1)), max: fmt(new Date(y, 11, 31)) }
+    case 'semestre': {
+      const semStart = m < 6 ? new Date(y, 0, 1) : new Date(y, 6, 1)
+      return { min: fmt(semStart), max: null }
+    }
+    case 'ano':
+      return { min: fmt(new Date(y, 0, 1)), max: null }
+    case 'all':
+      return { min: null, max: null }
+  }
+}
+
+function getPrevPeriodRange(periodo: Periodo): { min: string; max: string } | null {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = now.getMonth()
+
+  function fmt(d: Date): string {
+    return d.toISOString().split('T')[0]
+  }
+
+  switch (periodo) {
+    case '7d':
+      return { min: fmt(new Date(now.getTime() - 14 * 86400000)), max: fmt(new Date(now.getTime() - 7 * 86400000)) }
+    case 'mes_atual':
+      return { min: fmt(new Date(y, m - 1, 1)), max: fmt(new Date(y, m, 0)) }
+    case 'mes_anterior':
+      return { min: fmt(new Date(y, m - 2, 1)), max: fmt(new Date(y, m - 1, 0)) }
+    case '1q':
+      return { min: fmt(new Date(y - 1, 9, 1)), max: fmt(new Date(y - 1, 11, 31)) }
+    case '2q':
+      return { min: fmt(new Date(y, 0, 1)), max: fmt(new Date(y, 2, 31)) }
+    case '3q':
+      return { min: fmt(new Date(y, 3, 1)), max: fmt(new Date(y, 5, 30)) }
+    case '4q':
+      return { min: fmt(new Date(y, 6, 1)), max: fmt(new Date(y, 8, 30)) }
+    case 'semestre': {
+      if (m < 6) return { min: fmt(new Date(y - 1, 6, 1)), max: fmt(new Date(y - 1, 11, 31)) }
+      return { min: fmt(new Date(y, 0, 1)), max: fmt(new Date(y, 5, 30)) }
+    }
+    case 'ano':
+      return { min: fmt(new Date(y - 1, 0, 1)), max: fmt(new Date(y - 1, 11, 31)) }
+    case 'all':
+      return null
   }
 }
 
@@ -173,31 +237,43 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
 
   // Filters
-  const [periodo, setPeriodo] = useState<Periodo>('12m')
+  const [periodo, setPeriodo] = useState<Periodo>('mes_atual')
   const [drillView, setDrillView] = useState<DrillView>(null)
   const [periodoOpen, setPeriodoOpen] = useState(false)
 
   // ============================================
-  // Data Loading
+  // Data Loading (paginated to bypass 1000 row limit)
   // ============================================
   useEffect(() => {
+    // Fetch all rows from a table in batches of 1000
+    async function fetchAll<T>(table: string, select: string): Promise<T[]> {
+      const all: T[] = []
+      const PAGE = 1000
+      let from = 0
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { data, error } = await supabase.from(table).select(select).range(from, from + PAGE - 1)
+        if (error) { console.error(`Erro ao carregar ${table}:`, error); break }
+        if (!data || data.length === 0) break
+        all.push(...(data as T[]))
+        if (data.length < PAGE) break
+        from += PAGE
+      }
+      return all
+    }
+
     async function loadAll() {
-      const [
-        { data: contratosData },
-        { data: pagamentosData },
-        { data: fontesData },
-        { data: estabsData },
-      ] = await Promise.all([
-        supabase.from('contratos').select('id,status,tipo_cremacao,tipo_plano,data_contrato,created_at,valor_plano,custo_cremacao,pet_especie,pet_peso,tutor_cidade,tutor_bairro,fonte_conhecimento_id,estabelecimento_id,seguradora,velorio_deseja'),
-        supabase.from('pagamentos').select('id,contrato_id,tipo,metodo,valor,valor_liquido,data_pagamento,is_seguradora,parcelas'),
-        supabase.from('fontes_conhecimento').select('id,nome'),
-        supabase.from('estabelecimentos').select('id,nome'),
+      const [contratosData, pagamentosData, fontesData, estabsData] = await Promise.all([
+        fetchAll<Contrato>('contratos', 'id,status,tipo_cremacao,tipo_plano,data_contrato,created_at,valor_plano,custo_cremacao,pet_especie,pet_peso,tutor_cidade,tutor_bairro,fonte_conhecimento_id,estabelecimento_id,seguradora,velorio_deseja'),
+        fetchAll<Pagamento>('pagamentos', 'id,contrato_id,tipo,metodo,valor,valor_liquido,data_pagamento,is_seguradora,parcelas'),
+        fetchAll<FonteConhecimento>('fontes_conhecimento', 'id,nome'),
+        fetchAll<Estabelecimento>('estabelecimentos', 'id,nome'),
       ])
 
-      setContratos((contratosData || []) as Contrato[])
-      setPagamentos((pagamentosData || []) as Pagamento[])
-      setFontes((fontesData || []) as FonteConhecimento[])
-      setEstabelecimentos((estabsData || []) as Estabelecimento[])
+      setContratos(contratosData)
+      setPagamentos(pagamentosData)
+      setFontes(fontesData)
+      setEstabelecimentos(estabsData)
       setLoading(false)
     }
     loadAll()
@@ -207,47 +283,43 @@ export default function DashboardPage() {
   // Filtered Data
   // ============================================
   const filteredContratos = useMemo(() => {
-    const minDate = getDateFromPeriod(periodo)
-    if (!minDate) return contratos
-    const minStr = minDate.toISOString().split('T')[0]
+    const range = getPeriodRange(periodo)
     return contratos.filter(c => {
       const d = getContratoDate(c)
-      return d >= minStr
+      if (!d) return false
+      if (range.min && d < range.min) return false
+      if (range.max && d > range.max) return false
+      return true
     })
   }, [contratos, periodo])
 
   const filteredPagamentos = useMemo(() => {
-    const minDate = getDateFromPeriod(periodo)
-    if (!minDate) return pagamentos
-    const minStr = minDate.toISOString().split('T')[0]
+    const range = getPeriodRange(periodo)
     return pagamentos.filter(p => {
       const d = p.data_pagamento || ''
-      return d >= minStr
+      if (!d) return false
+      if (range.min && d < range.min) return false
+      if (range.max && d > range.max) return false
+      return true
     })
   }, [pagamentos, periodo])
 
   // Previous period for trend calculation
   const prevContratos = useMemo(() => {
-    const minDate = getDateFromPeriod(periodo)
-    if (!minDate) return []
-    const periodMs = Date.now() - minDate.getTime()
-    const prevMin = new Date(minDate.getTime() - periodMs).toISOString().split('T')[0]
-    const prevMax = minDate.toISOString().split('T')[0]
+    const prev = getPrevPeriodRange(periodo)
+    if (!prev) return []
     return contratos.filter(c => {
       const d = getContratoDate(c)
-      return d >= prevMin && d < prevMax
+      return d >= prev.min && d <= prev.max
     })
   }, [contratos, periodo])
 
   const prevPagamentos = useMemo(() => {
-    const minDate = getDateFromPeriod(periodo)
-    if (!minDate) return []
-    const periodMs = Date.now() - minDate.getTime()
-    const prevMin = new Date(minDate.getTime() - periodMs).toISOString().split('T')[0]
-    const prevMax = minDate.toISOString().split('T')[0]
+    const prev = getPrevPeriodRange(periodo)
+    if (!prev) return []
     return pagamentos.filter(p => {
       const d = p.data_pagamento || ''
-      return d >= prevMin && d < prevMax
+      return d >= prev.min && d <= prev.max
     })
   }, [pagamentos, periodo])
 
@@ -263,7 +335,7 @@ export default function DashboardPage() {
   }, [contratos])
 
   const calcTrend = useCallback((current: number, previous: number): number | null => {
-    if (periodo === 'all') return null
+    if (!getPrevPeriodRange(periodo)) return null
     if (previous === 0) return current > 0 ? 100 : 0
     return Math.round(((current - previous) / previous) * 100)
   }, [periodo])
@@ -526,22 +598,40 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Desktop: pill buttons */}
-          <div className="hidden sm:flex items-center gap-1 bg-[var(--surface-0)] border border-[var(--surface-200)] rounded-lg p-1">
+          {/* Desktop: pill buttons with grouped quarters */}
+          <div className="hidden sm:flex items-center gap-0.5 bg-[var(--surface-0)] border border-[var(--surface-200)] rounded-lg p-1">
             <Filter className="h-3.5 w-3.5 text-[var(--surface-400)] ml-2 mr-1" />
-            {PERIODOS.map(p => (
-              <button
-                key={p.key}
-                onClick={() => setPeriodo(p.key)}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                  periodo === p.key
-                    ? 'bg-[var(--brand-500)] text-white shadow-sm'
-                    : 'text-[var(--surface-500)] hover:text-[var(--surface-700)] hover:bg-[var(--surface-50)]'
-                }`}
-              >
-                {p.label}
-              </button>
-            ))}
+            {/* Quick filters */}
+            {(['7d', 'mes_atual', 'mes_anterior'] as Periodo[]).map(key => {
+              const p = PERIODOS.find(x => x.key === key)!
+              return (
+                <button key={key} onClick={() => setPeriodo(key)} className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${periodo === key ? 'bg-[var(--brand-500)] text-white shadow-sm' : 'text-[var(--surface-500)] hover:text-[var(--surface-700)] hover:bg-[var(--surface-50)]'}`}>
+                  {p.label}
+                </button>
+              )
+            })}
+            {/* Separator */}
+            <div className="w-px h-5 bg-[var(--surface-200)] mx-0.5" />
+            {/* Quarters */}
+            {(['1q', '2q', '3q', '4q'] as Periodo[]).map(key => {
+              const p = PERIODOS.find(x => x.key === key)!
+              return (
+                <button key={key} onClick={() => setPeriodo(key)} className={`px-2 py-1.5 rounded-md text-xs font-medium transition-all ${periodo === key ? 'bg-[var(--brand-500)] text-white shadow-sm' : 'text-[var(--surface-500)] hover:text-[var(--surface-700)] hover:bg-[var(--surface-50)]'}`}>
+                  {p.label}
+                </button>
+              )
+            })}
+            {/* Separator */}
+            <div className="w-px h-5 bg-[var(--surface-200)] mx-0.5" />
+            {/* Longer periods */}
+            {(['semestre', 'ano', 'all'] as Periodo[]).map(key => {
+              const p = PERIODOS.find(x => x.key === key)!
+              return (
+                <button key={key} onClick={() => setPeriodo(key)} className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${periodo === key ? 'bg-[var(--brand-500)] text-white shadow-sm' : 'text-[var(--surface-500)] hover:text-[var(--surface-700)] hover:bg-[var(--surface-50)]'}`}>
+                  {p.label}
+                </button>
+              )
+            })}
           </div>
         </div>
       </div>
