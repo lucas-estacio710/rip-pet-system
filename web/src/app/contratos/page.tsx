@@ -246,7 +246,7 @@ function ContratosContent() {
   const [pagina, setPagina] = useState(parseInt(searchParams.get('pagina') || '0', 10))
   const [total, setTotal] = useState(0)
   const [totalGeral, setTotalGeral] = useState(0)
-  const [ordenacao, setOrdenacao] = useState<'data' | 'nome'>((searchParams.get('ordenacao') as 'data' | 'nome') || 'data')
+  const [ordenacao, setOrdenacao] = useState<'data' | 'nome' | 'supinda'>((searchParams.get('ordenacao') as 'data' | 'nome' | 'supinda') || 'data')
   const [ordemAsc, setOrdemAsc] = useState(searchParams.get('ordemAsc') !== 'false') // true = antigo→novo / A→Z
   const [agruparCidade, setAgruparCidade] = useState(searchParams.get('cidade') === 'true')
   const [agruparBairro, setAgruparBairro] = useState(searchParams.get('bairro') === 'true')
@@ -577,8 +577,8 @@ function ContratosContent() {
     setLoading(true)
 
     // Definir campo e direção da ordenação
-    const campoOrdem = ordenacao === 'data' ? 'data_acolhimento' : 'pet_nome'
-    const ascending = ordemAsc
+    const campoOrdem = ordenacao === 'nome' ? 'pet_nome' : 'data_acolhimento'
+    const ascending = ordenacao === 'supinda' ? true : ordemAsc
 
     let query = supabase
       .from('contratos')
@@ -620,8 +620,8 @@ function ContratosContent() {
     setLoading(true)
 
     // Usar mesma ordenação da listagem
-    const campoOrdem = ordenacao === 'data' ? 'data_acolhimento' : 'pet_nome'
-    const ascending = ordemAsc
+    const campoOrdem = ordenacao === 'nome' ? 'pet_nome' : 'data_acolhimento'
+    const ascending = ordenacao === 'supinda' ? true : ordemAsc
 
     let query = supabase
       .from('contratos')
@@ -2674,6 +2674,20 @@ ${petNome}`
             >
               {ordemAsc || ordenacao !== 'nome' ? 'A→Z' : 'Z→A'} {ordenacao === 'nome' && (ordemAsc ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
             </button>
+            {statusFiltro !== 'preventivo' && (
+              <button
+                onClick={() => {
+                  if (ordenacao === 'supinda') { setOrdemAsc(!ordemAsc) } else { setOrdenacao('supinda'); setOrdemAsc(false) }
+                  setPagina(0)
+                }}
+                className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+                  ordenacao === 'supinda' ? 'bg-slate-700 text-orange-300' : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title={ordenacao === 'supinda' ? (ordemAsc ? 'Antiga → Nova' : 'Nova → Antiga') : 'Ordenar por supinda'}
+              >
+                🚐 {ordenacao === 'supinda' && (ordemAsc ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
+              </button>
+            )}
           </div>
           {!(statusFiltro === 'retorno' && montagemInline) && (
             <button
@@ -2915,6 +2929,27 @@ ${petNome}`
             >
               {ordemAsc || ordenacao !== 'nome' ? 'A→Z' : 'Z→A'} {ordenacao === 'nome' && (ordemAsc ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
             </button>
+            {statusFiltro !== 'preventivo' && (
+              <button
+                onClick={() => {
+                  if (ordenacao === 'supinda') {
+                    setOrdemAsc(!ordemAsc)
+                  } else {
+                    setOrdenacao('supinda')
+                    setOrdemAsc(false)
+                  }
+                  setPagina(0)
+                }}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  ordenacao === 'supinda'
+                    ? 'bg-slate-700 text-orange-300 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title={ordenacao === 'supinda' ? (ordemAsc ? 'Antiga → Nova' : 'Nova → Antiga') : 'Ordenar por supinda'}
+              >
+                🚐 {ordenacao === 'supinda' && (ordemAsc ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
+              </button>
+            )}
           </div>
 
           {/* Agrupar por cidade (esconde quando inline ativo) */}
@@ -3167,6 +3202,59 @@ ${petNome}`
 
             const cidades = Object.keys(contratosAgrupados).sort()
 
+            // Agrupar contratos por supinda (para todos os status exceto preventivo)
+            const deveAgruparSupinda = statusFiltro !== 'preventivo'
+
+            function renderSupindaGroup(lista: Contrato[], renderFn: (c: Contrato) => React.ReactNode) {
+              if (!deveAgruparSupinda) {
+                return <div className="space-y-2">{lista.map(renderFn)}</div>
+              }
+              // Agrupar por numero da supinda
+              const grupos: { numero: number | null; contratos: Contrato[] }[] = []
+              const mapaGrupos = new Map<number | null, Contrato[]>()
+              for (const c of lista) {
+                const num = c.supinda?.numero ?? null
+                if (!mapaGrupos.has(num)) {
+                  const arr: Contrato[] = []
+                  mapaGrupos.set(num, arr)
+                  grupos.push({ numero: num, contratos: arr })
+                }
+                mapaGrupos.get(num)!.push(c)
+              }
+              // Ordenar: sem supinda sempre por último, depois por número
+              const supindaAsc = ordenacao === 'supinda' ? ordemAsc : false // default: desc (recente primeiro)
+              grupos.sort((a, b) => {
+                if (a.numero === null && b.numero === null) return 0
+                if (a.numero === null) return 1
+                if (b.numero === null) return -1
+                return supindaAsc ? a.numero - b.numero : b.numero - a.numero
+              })
+
+              return (
+                <div className="space-y-1">
+                  {grupos.map((grupo) => (
+                    <div key={grupo.numero ?? 'sem'}>
+                      {/* Separador visual da supinda */}
+                      <div className="flex items-center gap-2 py-1.5 px-1">
+                        <div className="flex-1 h-px" style={{ background: 'linear-gradient(90deg, transparent 0%, #ea580c 30%, #ea580c 70%, transparent 100%)' }} />
+                        <span className="text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0" style={{
+                          background: grupo.numero !== null ? 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)' : '#475569',
+                          color: 'white',
+                        }}>
+                          {grupo.numero !== null ? `Supinda #${grupo.numero}` : 'Sem supinda'}
+                        </span>
+                        <span className="text-[10px] text-slate-400 flex-shrink-0">{grupo.contratos.length} pet{grupo.contratos.length !== 1 ? 's' : ''}</span>
+                        <div className="flex-1 h-px" style={{ background: 'linear-gradient(90deg, #ea580c 0%, #ea580c 30%, transparent 70%, transparent 100%)' }} />
+                      </div>
+                      <div className="space-y-2">
+                        {grupo.contratos.map(renderFn)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
+            }
+
             // Função para renderizar um card de contrato
             const renderContrato = (contrato: Contrato) => {
               const dataBox = getDataBox(contrato.data_acolhimento || contrato.data_contrato)
@@ -3234,15 +3322,12 @@ ${petNome}`
                       </div>
                     )}
 
-                    {/* Data + Supinda */}
+                    {/* Data */}
                     {dataBox && (
-                      <div className={`flex-shrink-0 w-12 rounded-lg flex flex-col items-center justify-center ${contrato.supinda ? 'h-14' : 'h-12'}`} style={{ background: 'linear-gradient(135deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', color: '#334155' }}>
+                      <div className="flex-shrink-0 w-12 h-12 rounded-lg flex flex-col items-center justify-center" style={{ background: 'linear-gradient(135deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', color: '#334155' }}>
                         <span className="text-[10px] font-bold leading-none">{dataBox.linha1}</span>
                         <span className="text-[10px] leading-tight" style={{ color: '#94a3b8' }}>{dataBox.linha2}</span>
                         <span className="text-[9px] leading-none" style={{ color: '#64748b' }}>{dataBox.hora}</span>
-                        {contrato.supinda && (
-                          <span className="text-[9px] font-bold leading-none" style={{ color: '#ea580c' }}>#{contrato.supinda.numero}</span>
-                        )}
                       </div>
                     )}
 
@@ -3490,9 +3575,6 @@ ${petNome}`
                           <span className="text-[11px] font-bold leading-none">{dataBox.linha1}</span>
                           <span className="text-[11px] leading-none" style={{ color: '#94a3b8' }}>{dataBox.linha2}</span>
                           <span className="text-[10px] leading-none" style={{ color: '#64748b' }}>{dataBox.hora}</span>
-                          {contrato.supinda && (
-                            <span className="text-[10px] font-bold leading-none" style={{ color: '#ea580c' }}>#{contrato.supinda.numero}</span>
-                          )}
                         </div>
                       )}
                       {/* Coluna: Lacre+Fonte+Local+IND / Tutor */}
@@ -3750,17 +3832,15 @@ ${petNome}`
                             🏘️ {bairro} <span className="text-amber-200 text-xs font-normal">({contratosPorBairro[bairro].length})</span>
                           </div>
                           {/* Contratos do bairro */}
-                          <div className="bg-amber-900/30 p-2 rounded-b-md space-y-2">
-                            {contratosPorBairro[bairro].map(renderContrato)}
+                          <div className="bg-amber-900/30 p-2 rounded-b-md">
+                            {renderSupindaGroup(contratosPorBairro[bairro], renderContrato)}
                           </div>
                         </div>
                       ))
                     })()
                   ) : (
                     // Sem sub-agrupamento por bairro
-                    <div className="space-y-2">
-                      {contratosAgrupados[cidade].map(renderContrato)}
-                    </div>
+                    renderSupindaGroup(contratosAgrupados[cidade], renderContrato)
                   )}
                 </div>
               </div>
