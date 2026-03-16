@@ -198,6 +198,20 @@ function FichaSantosContent() {
     setBuscandoCep(false)
   }
 
+  // Labels legíveis para campos obrigatórios
+  const FIELD_LABELS: Record<string, string> = {
+    nomeCompleto: 'Nome Completo', cpf: 'CPF', telefone: 'Telefone',
+    cep: 'CEP', estado: 'UF', cidade: 'Cidade', bairro: 'Bairro',
+    endereco: 'Endereço', numero: 'Número',
+    nomePet: 'Nome do Pet', idade: 'Idade', especie: 'Espécie',
+    genero: 'Gênero', raca: 'Raça', cor: 'Cor', peso: 'Peso',
+    localizacao: 'Localização do Pet', localizacaoOutra: 'Especificar local',
+    cremacao: 'Cremação', pagamento: 'Forma de Pagamento', parcelas: 'Parcelas',
+    velorio: 'Velório', acompanhamento: 'Acompanhamento',
+    comoConheceu: 'Como nos conheceu', veterinarioEspecificar: 'Veterinário/Clínica',
+    outroEspecificar: 'Outro (especificar)',
+  }
+
   // Validation
   function validateStep(s: number): boolean {
     const errs: Record<string, string> = {}
@@ -632,6 +646,16 @@ function FichaSantosContent() {
               <button type="button" onClick={nextStep} className="w-full py-3.5 bg-blue-600 text-white rounded-xl text-base font-semibold hover:bg-blue-700 transition-colors">
                 Continuar →
               </button>
+              {Object.keys(errors).length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-3 mt-2">
+                  <p className="text-xs font-semibold text-red-600 mb-1">Preencha os campos obrigatórios:</p>
+                  <ul className="text-xs text-red-500 space-y-0.5">
+                    {Object.keys(errors).map(k => (
+                      <li key={k}>• {FIELD_LABELS[k] || k}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </>
           )}
 
@@ -795,6 +819,16 @@ function FichaSantosContent() {
                   Continuar →
                 </button>
               </div>
+              {Object.keys(errors).length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-3 mt-2">
+                  <p className="text-xs font-semibold text-red-600 mb-1">Preencha os campos obrigatórios:</p>
+                  <ul className="text-xs text-red-500 space-y-0.5">
+                    {Object.keys(errors).map(k => (
+                      <li key={k}>• {FIELD_LABELS[k] || k}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </>
           )}
 
@@ -889,6 +923,16 @@ function FichaSantosContent() {
                   {submitting ? 'Enviando...' : 'Enviar Ficha ✓'}
                 </button>
               </div>
+              {Object.keys(errors).length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-3 mt-2">
+                  <p className="text-xs font-semibold text-red-600 mb-1">Preencha os campos obrigatórios:</p>
+                  <ul className="text-xs text-red-500 space-y-0.5">
+                    {Object.keys(errors).map(k => (
+                      <li key={k}>• {FIELD_LABELS[k] || k}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </>
           )}
         </div>
