@@ -227,7 +227,7 @@ function FichaSantosContent() {
       if ((form.localizacao === 'Outro' || form.localizacao === 'Hospital/Clínica Veterinária') && !form.localizacaoOutra.trim()) errs.localizacaoOutra = 'Especifique'
       if (!form.cremacao) errs.cremacao = 'Selecione o tipo'
       if (!form.pagamento) errs.pagamento = 'Obrigatório'
-      if (form.pagamento === 'cartao' && !form.parcelas) errs.parcelas = 'Obrigatório'
+      if (form.pagamento === 'credito' && !form.parcelas) errs.parcelas = 'Obrigatório'
       if (!form.velorio) errs.velorio = 'Obrigatório'
       if (!form.acompanhamento) errs.acompanhamento = 'Obrigatório'
     }
@@ -648,7 +648,7 @@ function FichaSantosContent() {
                 </div>
                 <div>
                   <label className={labelClass}>Idade <span className="text-red-400">*</span></label>
-                  <input className={inputClass('idade')} type="number" min="0" max="50" value={form.idade} onChange={e => updateField('idade', e.target.value)} placeholder="14" inputMode="numeric" />
+                  <input className={inputClass('idade')} value={form.idade} onChange={e => updateField('idade', e.target.value.replace(/\D/g, '').slice(0, 2))} placeholder="Ex: 14" inputMode="numeric" />
                   {errors.idade && <p className={errorClass}>{errors.idade}</p>}
                 </div>
               </div>
@@ -679,7 +679,7 @@ function FichaSantosContent() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className={labelClass}>Raça <span className="text-red-400">*</span></label>
-                  <input className={inputClass('raca')} value={form.raca} onChange={e => updateField('raca', e.target.value)} placeholder="Ex: Poodle, SRD" />
+                  <input className={inputClass('raca')} value={form.raca} onChange={e => updateField('raca', e.target.value)} placeholder="Ex: Shihtzu, SRD" />
                   {errors.raca && <p className={errorClass}>{errors.raca}</p>}
                 </div>
                 <div>
@@ -691,7 +691,7 @@ function FichaSantosContent() {
 
               <div>
                 <label className={labelClass}>Peso aproximado (kg) <span className="text-red-400">*</span></label>
-                <input className={inputClass('peso')} type="number" min="0.1" step="0.1" value={form.peso} onChange={e => updateField('peso', e.target.value)} placeholder="6" inputMode="decimal" />
+                <input className={inputClass('peso')} value={form.peso} onChange={e => updateField('peso', e.target.value.replace(/\D/g, '').slice(0, 3))} placeholder="Ex: 8" inputMode="numeric" />
                 {errors.peso && <p className={errorClass}>{errors.peso}</p>}
               </div>
 
@@ -720,11 +720,11 @@ function FichaSantosContent() {
                 <div className="flex gap-2">
                   <div onClick={() => updateField('cremacao', 'individual')} className={radioClass(form.cremacao === 'individual')}>
                     <div className="font-bold">Individual</div>
-                    <div className="text-xs opacity-70 mt-0.5">Cinzas retornam</div>
+                    <div className="text-xs opacity-70 mt-0.5"><em>Com</em> retorno das cinzas</div>
                   </div>
                   <div onClick={() => updateField('cremacao', 'coletiva')} className={radioClass(form.cremacao === 'coletiva')}>
                     <div className="font-bold">Coletiva</div>
-                    <div className="text-xs opacity-70 mt-0.5">Sem retorno</div>
+                    <div className="text-xs opacity-70 mt-0.5"><em>Sem</em> retorno das cinzas</div>
                   </div>
                 </div>
                 {errors.cremacao && <p className={errorClass}>{errors.cremacao}</p>}
@@ -733,18 +733,24 @@ function FichaSantosContent() {
               {/* Pagamento */}
               <div>
                 <label className={labelClass}>Forma de Pagamento <span className="text-red-400">*</span></label>
-                <select className={inputClass('pagamento')} value={form.pagamento} onChange={e => updateField('pagamento', e.target.value)}>
-                  <option value="">Selecione...</option>
-                  <option value="pix">Pix / Dinheiro</option>
-                  <option value="cartao">Cartão de Débito/Crédito</option>
-                </select>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { v: 'pix', l: 'Pix' },
+                    { v: 'dinheiro', l: 'Dinheiro' },
+                    { v: 'debito', l: 'Cartão de Débito' },
+                    { v: 'credito', l: 'Cartão de Crédito' },
+                  ].map(opt => (
+                    <div key={opt.v} onClick={() => { updateField('pagamento', opt.v); if (opt.v !== 'credito') updateField('parcelas', '') }} className={radioClass(form.pagamento === opt.v)}>
+                      {opt.l}
+                    </div>
+                  ))}
+                </div>
                 {errors.pagamento && <p className={errorClass}>{errors.pagamento}</p>}
-                {form.pagamento === 'cartao' && (
+                {form.pagamento === 'credito' && (
                   <div className="mt-2">
                     <select className={inputClass('parcelas')} value={form.parcelas} onChange={e => updateField('parcelas', e.target.value)}>
                       <option value="">Parcelas...</option>
-                      <option value="debito">Débito</option>
-                      <option value="1x">Crédito à vista</option>
+                      <option value="1x">À vista</option>
                       {[2,3,4,5,6,7,8,9,10,11,12].map(n => <option key={n} value={`${n}x`}>{n}x</option>)}
                     </select>
                     {errors.parcelas && <p className={errorClass}>{errors.parcelas}</p>}
@@ -768,10 +774,10 @@ function FichaSantosContent() {
                 <div className="grid grid-cols-2 gap-2">
                   {[
                     { v: 'Não desejo', l: 'Não desejo' },
-                    { v: 'On-line (tempo real)', l: 'On-line' },
+                    { v: 'Vídeo-chamada ao vivo', l: 'Vídeo-chamada Ao-vivo' },
                     { v: 'Vídeo gravado', l: 'Vídeo gravado' },
-                    { v: 'Presencial em Pindamonhangaba-SP', l: 'Presencial' },
-                    { v: 'Decidirei depois', l: 'Depois' },
+                    { v: 'Presencial na Matriz', l: 'Presencial na Matriz' },
+                    { v: 'Decidirei depois', l: 'Decidirei depois' },
                   ].map(opt => (
                     <div key={opt.v} onClick={() => updateField('acompanhamento', opt.v)} className={radioClass(form.acompanhamento === opt.v)}>
                       {opt.l}
@@ -824,7 +830,7 @@ function FichaSantosContent() {
                   <p className="text-sm"><span className="font-medium text-slate-600">Peso:</span> <span className="text-slate-800">{form.peso} kg</span></p>
                   <p className="text-sm"><span className="font-medium text-slate-600">Local:</span> <span className="text-slate-800">{form.localizacao}{form.localizacaoOutra ? ` (${form.localizacaoOutra})` : ''}</span></p>
                   <p className="text-sm"><span className="font-medium text-slate-600">Cremação:</span> <span className="text-slate-800 capitalize">{form.cremacao}</span></p>
-                  <p className="text-sm"><span className="font-medium text-slate-600">Pagamento:</span> <span className="text-slate-800">{form.pagamento === 'pix' ? 'Pix/Dinheiro' : `Cartão ${form.parcelas}`}</span></p>
+                  <p className="text-sm"><span className="font-medium text-slate-600">Pagamento:</span> <span className="text-slate-800">{form.pagamento === 'pix' ? 'Pix' : form.pagamento === 'dinheiro' ? 'Dinheiro' : form.pagamento === 'debito' ? 'Cartão de Débito' : `Cartão de Crédito ${form.parcelas}`}</span></p>
                   <p className="text-sm"><span className="font-medium text-slate-600">Velório:</span> <span className="text-slate-800">{form.velorio}</span></p>
                   <p className="text-sm"><span className="font-medium text-slate-600">Acompanhamento:</span> <span className="text-slate-800">{form.acompanhamento}</span></p>
                 </div>
