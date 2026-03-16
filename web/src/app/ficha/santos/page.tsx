@@ -107,6 +107,15 @@ function FichaSantosContent() {
   const [autosaveMsg, setAutosaveMsg] = useState('')
   const autosaveTimer = useRef<NodeJS.Timeout | null>(null)
 
+  // Forçar tema claro nesta página pública
+  useEffect(() => {
+    const prev = document.documentElement.getAttribute('data-theme')
+    document.documentElement.setAttribute('data-theme', 'white')
+    return () => {
+      if (prev) document.documentElement.setAttribute('data-theme', prev)
+    }
+  }, [])
+
   // Load draft + URL params on mount
   useEffect(() => {
     // 1. Load draft from localStorage
@@ -405,22 +414,22 @@ function FichaSantosContent() {
             <div className="flex gap-3">
               <span className="text-2xl">💬</span>
               <div>
-                <p className="font-semibold text-slate-700 text-sm">Confirmacao por WhatsApp</p>
-                <p className="text-slate-500 text-xs">Em alguns instantes enviaremos uma mensagem de confirmacao.</p>
+                <p className="font-semibold text-slate-700 text-sm">Confirmação por WhatsApp</p>
+                <p className="text-slate-500 text-xs">Em alguns instantes enviaremos uma mensagem de confirmação.</p>
               </div>
             </div>
             <div className="flex gap-3">
               <span className="text-2xl">📋</span>
               <div>
                 <p className="font-semibold text-slate-700 text-sm">Dados registrados</p>
-                <p className="text-slate-500 text-xs">Nossa unidade ja esta com todos os dados necessarios.</p>
+                <p className="text-slate-500 text-xs">Nossa unidade já está com todos os dados necessários.</p>
               </div>
             </div>
             <div className="flex gap-3">
               <span className="text-2xl">🔒</span>
               <div>
-                <p className="font-semibold text-slate-700 text-sm">Informacoes seguras</p>
-                <p className="text-slate-500 text-xs">Todas as informacoes estao protegidas. Voce pode fechar esta janela.</p>
+                <p className="font-semibold text-slate-700 text-sm">Informações seguras</p>
+                <p className="text-slate-500 text-xs">Todas as informações estão protegidas. Você pode fechar esta janela.</p>
               </div>
             </div>
           </div>
@@ -510,50 +519,57 @@ function FichaSantosContent() {
 
               {/* Outros tutores */}
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-slate-600">Outros nomes no certificado</label>
-                  {form.outrosTutores.length < 6 && (
-                    <button type="button" onClick={addOutroTutor} className="text-xs text-blue-600 font-medium hover:text-blue-800">+ Adicionar</button>
-                  )}
-                </div>
-                {form.outrosTutores.map((t, i) => (
-                  <div key={i} className="flex gap-2 mb-2">
-                    <input className="flex-1 px-3 py-2 rounded-lg border-2 border-slate-200 text-sm outline-none focus:border-blue-500" value={t} onChange={e => updateOutroTutor(i, e.target.value)} placeholder={`Tutor ${i + 1}`} />
-                    <button type="button" onClick={() => removeOutroTutor(i)} className="text-red-400 hover:text-red-600 text-sm px-2">Remover</button>
-                  </div>
-                ))}
+                {form.outrosTutores.length === 0 ? (
+                  <button type="button" onClick={addOutroTutor} className="text-sm text-blue-600 font-medium hover:text-blue-800 hover:underline">
+                    + Adicionar outros nomes de tutores ao certificado
+                  </button>
+                ) : (
+                  <>
+                    <label className="text-sm font-medium text-slate-600 mb-2 block">Outros nomes no certificado</label>
+                    {form.outrosTutores.map((t, i) => (
+                      <div key={i} className="flex gap-2 mb-2">
+                        <input className="flex-1 px-3 py-2 rounded-lg border-2 border-slate-200 text-sm outline-none focus:border-blue-500 bg-white" value={t} onChange={e => updateOutroTutor(i, e.target.value)} placeholder={`Nome do tutor ${i + 2}`} />
+                        <button type="button" onClick={() => removeOutroTutor(i)} className="text-red-400 hover:text-red-600 text-sm px-2">Remover</button>
+                      </div>
+                    ))}
+                    {form.outrosTutores.length < 6 && (
+                      <button type="button" onClick={addOutroTutor} className="text-xs text-blue-600 font-medium hover:text-blue-800 hover:underline">
+                        + Adicionar mais um nome
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className={labelClass}>CPF <span className="text-red-400">*</span></label>
-                  <input className={inputClass('cpf')} value={form.cpf} onChange={e => updateField('cpf', maskCPF(e.target.value))} placeholder="000.000.000-00" inputMode="numeric" />
-                  {errors.cpf && <p className={errorClass}>{errors.cpf}</p>}
+              <div>
+                <label className={labelClass}>CPF <span className="text-red-400">*</span></label>
+                <input className={inputClass('cpf')} value={form.cpf} onChange={e => updateField('cpf', maskCPF(e.target.value))} placeholder="000.000.000-00" inputMode="numeric" />
+                {errors.cpf && <p className={errorClass}>{errors.cpf}</p>}
+              </div>
+
+              <div>
+                <label className={labelClass}>Telefone <span className="text-red-400">*</span></label>
+                <div className="flex gap-2">
+                  <select
+                    value={form.codigoPais}
+                    onChange={e => updateField('codigoPais', e.target.value)}
+                    className="w-[100px] px-2 py-3 rounded-xl border-2 border-slate-200 text-base outline-none focus:border-blue-500 bg-white"
+                  >
+                    <option value="55">🇧🇷 +55</option>
+                    <option value="1">🇺🇸 +1</option>
+                    <option value="351">🇵🇹 +351</option>
+                    <option value="54">🇦🇷 +54</option>
+                    <option value="598">🇺🇾 +598</option>
+                    <option value="595">🇵🇾 +595</option>
+                    <option value="56">🇨🇱 +56</option>
+                    <option value="57">🇨🇴 +57</option>
+                    <option value="34">🇪🇸 +34</option>
+                    <option value="39">🇮🇹 +39</option>
+                    <option value="81">🇯🇵 +81</option>
+                  </select>
+                  <input className={`flex-1 ${inputClass('telefone')}`} value={form.telefone} onChange={e => updateField('telefone', maskPhone(e.target.value))} placeholder="(11) 99999-9999" inputMode="tel" />
                 </div>
-                <div>
-                  <label className={labelClass}>Telefone <span className="text-red-400">*</span></label>
-                  <div className="flex gap-1.5">
-                    <select
-                      value={form.codigoPais}
-                      onChange={e => updateField('codigoPais', e.target.value)}
-                      className="w-[90px] px-2 py-2 rounded-lg border-2 border-slate-200 text-sm outline-none focus:border-blue-500 bg-white"
-                    >
-                      <option value="55">🇧🇷 +55</option>
-                      <option value="1">🇺🇸 +1</option>
-                      <option value="351">🇵🇹 +351</option>
-                      <option value="54">🇦🇷 +54</option>
-                      <option value="598">🇺🇾 +598</option>
-                      <option value="595">🇵🇾 +595</option>
-                      <option value="56">🇨🇱 +56</option>
-                      <option value="57">🇨🇴 +57</option>
-                      <option value="34">🇪🇸 +34</option>
-                      <option value="39">🇮🇹 +39</option>
-                      <option value="81">🇯🇵 +81</option>
-                    </select>
-                    <input className={`flex-1 ${inputClass('telefone')}`} value={form.telefone} onChange={e => updateField('telefone', maskPhone(e.target.value))} placeholder="(11) 99999-9999" inputMode="tel" />
-                  </div>
-                  {errors.telefone && <p className={errorClass}>{errors.telefone}</p>}
-                </div>
+                {errors.telefone && <p className={errorClass}>{errors.telefone}</p>}
               </div>
 
               <div>
@@ -561,20 +577,19 @@ function FichaSantosContent() {
                 <input className={inputClass('email')} type="email" value={form.email} onChange={e => updateField('email', e.target.value)} placeholder="email@exemplo.com" />
               </div>
 
-              {/* CEP + busca */}
-              <div>
-                <label className={labelClass}>CEP <span className="text-red-400">*</span></label>
-                <div className="flex gap-2">
-                  <input className={`flex-1 ${inputClass('cep')}`} value={form.cep} onChange={e => updateField('cep', maskCEP(e.target.value))} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), buscarCEP())} placeholder="00000-000" inputMode="numeric" />
-                  <button type="button" onClick={buscarCEP} disabled={buscandoCep} className="px-4 py-3 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors whitespace-nowrap">
-                    {buscandoCep ? 'Buscando...' : 'Buscar'}
-                  </button>
+              {/* CEP + UF */}
+              <div className="grid grid-cols-5 gap-3">
+                <div className="col-span-3">
+                  <label className={labelClass}>CEP <span className="text-red-400">*</span></label>
+                  <div className="flex gap-2">
+                    <input className={`flex-1 ${inputClass('cep')}`} value={form.cep} onChange={e => updateField('cep', maskCEP(e.target.value))} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), buscarCEP())} placeholder="00000-000" inputMode="numeric" />
+                    <button type="button" onClick={buscarCEP} disabled={buscandoCep} className="px-3 py-3 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors whitespace-nowrap">
+                      {buscandoCep ? 'Buscando...' : 'Buscar Endereço'}
+                    </button>
+                  </div>
+                  {errors.cep && <p className={errorClass}>{errors.cep}</p>}
                 </div>
-                {errors.cep && <p className={errorClass}>{errors.cep}</p>}
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <div>
+                <div className="col-span-2">
                   <label className={labelClass}>UF <span className="text-red-400">*</span></label>
                   <select className={inputClass('estado')} value={form.estado} onChange={e => updateField('estado', e.target.value)}>
                     <option value="">-</option>
@@ -582,11 +597,12 @@ function FichaSantosContent() {
                   </select>
                   {errors.estado && <p className={errorClass}>{errors.estado}</p>}
                 </div>
-                <div className="col-span-2">
-                  <label className={labelClass}>Cidade <span className="text-red-400">*</span></label>
-                  <input className={inputClass('cidade')} value={form.cidade} onChange={e => updateField('cidade', e.target.value)} />
-                  {errors.cidade && <p className={errorClass}>{errors.cidade}</p>}
-                </div>
+              </div>
+
+              <div>
+                <label className={labelClass}>Endereço <span className="text-red-400">*</span></label>
+                <input className={inputClass('endereco')} value={form.endereco} onChange={e => updateField('endereco', e.target.value)} placeholder="Av. Paulista" />
+                {errors.endereco && <p className={errorClass}>{errors.endereco}</p>}
               </div>
 
               <div>
@@ -595,22 +611,22 @@ function FichaSantosContent() {
                 {errors.bairro && <p className={errorClass}>{errors.bairro}</p>}
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-2">
-                  <label className={labelClass}>Endereco <span className="text-red-400">*</span></label>
-                  <input className={inputClass('endereco')} value={form.endereco} onChange={e => updateField('endereco', e.target.value)} placeholder="Av. Paulista" />
-                  {errors.endereco && <p className={errorClass}>{errors.endereco}</p>}
-                </div>
+              <div>
+                <label className={labelClass}>Cidade <span className="text-red-400">*</span></label>
+                <input className={inputClass('cidade')} value={form.cidade} onChange={e => updateField('cidade', e.target.value)} />
+                {errors.cidade && <p className={errorClass}>{errors.cidade}</p>}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className={labelClass}>Numero <span className="text-red-400">*</span></label>
+                  <label className={labelClass}>Número <span className="text-red-400">*</span></label>
                   <input className={inputClass('numero')} value={form.numero} onChange={e => updateField('numero', e.target.value)} placeholder="1000" />
                   {errors.numero && <p className={errorClass}>{errors.numero}</p>}
                 </div>
-              </div>
-
-              <div>
-                <label className={labelClass}>Complemento</label>
-                <input className={inputClass('complemento')} value={form.complemento} onChange={e => updateField('complemento', e.target.value)} placeholder="Apto 123, Bloco A" />
+                <div>
+                  <label className={labelClass}>Complemento</label>
+                  <input className={inputClass('complemento')} value={form.complemento} onChange={e => updateField('complemento', e.target.value)} placeholder="Apto 123, Bloco A" />
+                </div>
               </div>
 
               <button type="button" onClick={nextStep} className="w-full py-3.5 bg-blue-600 text-white rounded-xl text-base font-semibold hover:bg-blue-700 transition-colors">
@@ -637,32 +653,32 @@ function FichaSantosContent() {
                 </div>
               </div>
 
-              {/* Especie */}
+              {/* Espécie */}
               <div>
-                <label className={labelClass}>Especie <span className="text-red-400">*</span></label>
+                <label className={labelClass}>Espécie <span className="text-red-400">*</span></label>
                 <div className="flex gap-2">
                   {(['canina', 'felina', 'exotica'] as const).map(e => (
                     <div key={e} onClick={() => updateField('especie', e)} className={radioClass(form.especie === e)}>
-                      {e === 'canina' ? '🐕 Canina' : e === 'felina' ? '🐱 Felina' : '🦎 Exotica'}
+                      {e === 'canina' ? '🐕 Canina' : e === 'felina' ? '🐱 Felina' : '🦎 Exótica'}
                     </div>
                   ))}
                 </div>
                 {errors.especie && <p className={errorClass}>{errors.especie}</p>}
               </div>
 
-              {/* Genero */}
+              {/* Gênero */}
               <div>
-                <label className={labelClass}>Genero <span className="text-red-400">*</span></label>
+                <label className={labelClass}>Gênero <span className="text-red-400">*</span></label>
                 <div className="flex gap-2">
                   <div onClick={() => updateField('genero', 'macho')} className={radioClass(form.genero === 'macho')}>♂ Macho</div>
-                  <div onClick={() => updateField('genero', 'femea')} className={radioClass(form.genero === 'femea')}>♀ Femea</div>
+                  <div onClick={() => updateField('genero', 'femea')} className={radioClass(form.genero === 'femea')}>♀ Fêmea</div>
                 </div>
                 {errors.genero && <p className={errorClass}>{errors.genero}</p>}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className={labelClass}>Raca <span className="text-red-400">*</span></label>
+                  <label className={labelClass}>Raça <span className="text-red-400">*</span></label>
                   <input className={inputClass('raca')} value={form.raca} onChange={e => updateField('raca', e.target.value)} placeholder="Ex: Poodle, SRD" />
                   {errors.raca && <p className={errorClass}>{errors.raca}</p>}
                 </div>
@@ -679,28 +695,28 @@ function FichaSantosContent() {
                 {errors.peso && <p className={errorClass}>{errors.peso}</p>}
               </div>
 
-              {/* Localizacao */}
+              {/* Localização */}
               <div>
-                <label className={labelClass}>Localizacao do Pet <span className="text-red-400">*</span></label>
+                <label className={labelClass}>Localização do Pet <span className="text-red-400">*</span></label>
                 <select className={inputClass('localizacao')} value={form.localizacao} onChange={e => updateField('localizacao', e.target.value)}>
                   <option value="">Selecione...</option>
-                  <option value="Residência (Endereço de Cadastro)">Residencia (Endereco de Cadastro)</option>
-                  <option value="Hospital/Clínica Veterinária">Hospital/Clinica Veterinaria</option>
+                  <option value="Residência (Endereço de Cadastro)">Residência (Endereço de Cadastro)</option>
+                  <option value="Hospital/Clínica Veterinária">Hospital/Clínica Veterinária</option>
                   <option value="Unidade R.I.P. Pet">Unidade R.I.P. Pet</option>
                   <option value="Outro">Outro</option>
                 </select>
                 {errors.localizacao && <p className={errorClass}>{errors.localizacao}</p>}
                 {(form.localizacao === 'Hospital/Clínica Veterinária' || form.localizacao === 'Outro') && (
                   <div className="mt-2">
-                    <input className={inputClass('localizacaoOutra')} value={form.localizacaoOutra} onChange={e => updateField('localizacaoOutra', e.target.value)} placeholder={form.localizacao === 'Outro' ? 'Especifique o endereco' : 'Nome do hospital/clinica'} />
+                    <input className={inputClass('localizacaoOutra')} value={form.localizacaoOutra} onChange={e => updateField('localizacaoOutra', e.target.value)} placeholder={form.localizacao === 'Outro' ? 'Especifique o endereço' : 'Nome do hospital/clínica'} />
                     {errors.localizacaoOutra && <p className={errorClass}>{errors.localizacaoOutra}</p>}
                   </div>
                 )}
               </div>
 
-              {/* Cremacao */}
+              {/* Cremação */}
               <div>
-                <label className={labelClass}>Cremacao <span className="text-red-400">*</span></label>
+                <label className={labelClass}>Cremação <span className="text-red-400">*</span></label>
                 <div className="flex gap-2">
                   <div onClick={() => updateField('cremacao', 'individual')} className={radioClass(form.cremacao === 'individual')}>
                     <div className="font-bold">Individual</div>
@@ -720,15 +736,15 @@ function FichaSantosContent() {
                 <select className={inputClass('pagamento')} value={form.pagamento} onChange={e => updateField('pagamento', e.target.value)}>
                   <option value="">Selecione...</option>
                   <option value="pix">Pix / Dinheiro</option>
-                  <option value="cartao">Cartao de Debito/Credito</option>
+                  <option value="cartao">Cartão de Débito/Crédito</option>
                 </select>
                 {errors.pagamento && <p className={errorClass}>{errors.pagamento}</p>}
                 {form.pagamento === 'cartao' && (
                   <div className="mt-2">
                     <select className={inputClass('parcelas')} value={form.parcelas} onChange={e => updateField('parcelas', e.target.value)}>
                       <option value="">Parcelas...</option>
-                      <option value="debito">Debito</option>
-                      <option value="1x">Credito a vista</option>
+                      <option value="debito">Débito</option>
+                      <option value="1x">Crédito à vista</option>
                       {[2,3,4,5,6,7,8,9,10,11,12].map(n => <option key={n} value={`${n}x`}>{n}x</option>)}
                     </select>
                     {errors.parcelas && <p className={errorClass}>{errors.parcelas}</p>}
@@ -736,11 +752,11 @@ function FichaSantosContent() {
                 )}
               </div>
 
-              {/* Velorio */}
+              {/* Velório */}
               <div>
-                <label className={labelClass}>Velorio presencial em Santos? <span className="text-red-400">*</span></label>
+                <label className={labelClass}>Velório presencial em Santos? <span className="text-red-400">*</span></label>
                 <div className="flex gap-2">
-                  <div onClick={() => updateField('velorio', 'Não')} className={radioClass(form.velorio === 'Não')}>Nao</div>
+                  <div onClick={() => updateField('velorio', 'Não')} className={radioClass(form.velorio === 'Não')}>Não</div>
                   <div onClick={() => updateField('velorio', 'Sim')} className={radioClass(form.velorio === 'Sim')}>Sim</div>
                 </div>
                 {errors.velorio && <p className={errorClass}>{errors.velorio}</p>}
@@ -748,12 +764,12 @@ function FichaSantosContent() {
 
               {/* Acompanhamento */}
               <div>
-                <label className={labelClass}>Acompanhamento da cremacao <span className="text-red-400">*</span></label>
+                <label className={labelClass}>Acompanhamento da cremação <span className="text-red-400">*</span></label>
                 <div className="grid grid-cols-2 gap-2">
                   {[
-                    { v: 'Não desejo', l: 'Nao desejo' },
+                    { v: 'Não desejo', l: 'Não desejo' },
                     { v: 'On-line (tempo real)', l: 'On-line' },
-                    { v: 'Vídeo gravado', l: 'Video gravado' },
+                    { v: 'Vídeo gravado', l: 'Vídeo gravado' },
                     { v: 'Presencial em Pindamonhangaba-SP', l: 'Presencial' },
                     { v: 'Decidirei depois', l: 'Depois' },
                   ].map(opt => (
@@ -779,7 +795,7 @@ function FichaSantosContent() {
           {/* ========== STEP 3: CONFIRMACAO ========== */}
           {step === 3 && (
             <>
-              <h2 className="text-lg font-bold text-slate-800 pb-3 border-b-2 border-slate-100">Confirmacao</h2>
+              <h2 className="text-lg font-bold text-slate-800 pb-3 border-b-2 border-slate-100">Confirmação</h2>
 
               {/* Review */}
               <div className="space-y-4">
@@ -792,7 +808,7 @@ function FichaSantosContent() {
                   <p className="text-sm"><span className="font-medium text-slate-600">CPF:</span> <span className="text-slate-800">{form.cpf}</span></p>
                   <p className="text-sm"><span className="font-medium text-slate-600">Telefone:</span> <span className="text-slate-800">{form.telefone}</span></p>
                   {form.email && <p className="text-sm"><span className="font-medium text-slate-600">E-mail:</span> <span className="text-slate-800">{form.email}</span></p>}
-                  <p className="text-sm"><span className="font-medium text-slate-600">Endereco:</span> <span className="text-slate-800">{form.endereco}, {form.numero}{form.complemento ? ` - ${form.complemento}` : ''}</span></p>
+                  <p className="text-sm"><span className="font-medium text-slate-600">Endereço:</span> <span className="text-slate-800">{form.endereco}, {form.numero}{form.complemento ? ` - ${form.complemento}` : ''}</span></p>
                   <p className="text-sm"><span className="font-medium text-slate-600">Bairro:</span> <span className="text-slate-800">{form.bairro}</span></p>
                   <p className="text-sm"><span className="font-medium text-slate-600">Cidade/UF:</span> <span className="text-slate-800">{form.cidade} - {form.estado}</span></p>
                 </div>
@@ -801,15 +817,15 @@ function FichaSantosContent() {
                   <h3 className="text-sm font-bold text-blue-700 mb-2">Dados do Pet</h3>
                   <p className="text-sm"><span className="font-medium text-slate-600">Nome:</span> <span className="text-slate-800">{form.nomePet}</span></p>
                   <p className="text-sm"><span className="font-medium text-slate-600">Idade:</span> <span className="text-slate-800">{form.idade} anos</span></p>
-                  <p className="text-sm"><span className="font-medium text-slate-600">Especie:</span> <span className="text-slate-800 capitalize">{form.especie}</span></p>
-                  <p className="text-sm"><span className="font-medium text-slate-600">Genero:</span> <span className="text-slate-800 capitalize">{form.genero === 'macho' ? 'Macho' : 'Femea'}</span></p>
-                  <p className="text-sm"><span className="font-medium text-slate-600">Raca:</span> <span className="text-slate-800">{form.raca}</span></p>
+                  <p className="text-sm"><span className="font-medium text-slate-600">Espécie:</span> <span className="text-slate-800 capitalize">{form.especie}</span></p>
+                  <p className="text-sm"><span className="font-medium text-slate-600">Gênero:</span> <span className="text-slate-800 capitalize">{form.genero === 'macho' ? 'Macho' : 'Fêmea'}</span></p>
+                  <p className="text-sm"><span className="font-medium text-slate-600">Raça:</span> <span className="text-slate-800">{form.raca}</span></p>
                   <p className="text-sm"><span className="font-medium text-slate-600">Cor:</span> <span className="text-slate-800">{form.cor}</span></p>
                   <p className="text-sm"><span className="font-medium text-slate-600">Peso:</span> <span className="text-slate-800">{form.peso} kg</span></p>
                   <p className="text-sm"><span className="font-medium text-slate-600">Local:</span> <span className="text-slate-800">{form.localizacao}{form.localizacaoOutra ? ` (${form.localizacaoOutra})` : ''}</span></p>
-                  <p className="text-sm"><span className="font-medium text-slate-600">Cremacao:</span> <span className="text-slate-800 capitalize">{form.cremacao}</span></p>
-                  <p className="text-sm"><span className="font-medium text-slate-600">Pagamento:</span> <span className="text-slate-800">{form.pagamento === 'pix' ? 'Pix/Dinheiro' : `Cartao ${form.parcelas}`}</span></p>
-                  <p className="text-sm"><span className="font-medium text-slate-600">Velorio:</span> <span className="text-slate-800">{form.velorio}</span></p>
+                  <p className="text-sm"><span className="font-medium text-slate-600">Cremação:</span> <span className="text-slate-800 capitalize">{form.cremacao}</span></p>
+                  <p className="text-sm"><span className="font-medium text-slate-600">Pagamento:</span> <span className="text-slate-800">{form.pagamento === 'pix' ? 'Pix/Dinheiro' : `Cartão ${form.parcelas}`}</span></p>
+                  <p className="text-sm"><span className="font-medium text-slate-600">Velório:</span> <span className="text-slate-800">{form.velorio}</span></p>
                   <p className="text-sm"><span className="font-medium text-slate-600">Acompanhamento:</span> <span className="text-slate-800">{form.acompanhamento}</span></p>
                 </div>
               </div>
@@ -832,7 +848,7 @@ function FichaSantosContent() {
                           </svg>
                         )}
                       </div>
-                      <span className="text-sm text-slate-700">{opt === 'Veterinário' ? 'Veterinario/Clinica' : opt}</span>
+                      <span className="text-sm text-slate-700">{opt === 'Veterinário' ? 'Veterinário/Clínica' : opt}</span>
                     </label>
                   ))}
                 </div>
@@ -840,7 +856,7 @@ function FichaSantosContent() {
 
                 {form.comoConheceu.includes('Veterinário') && (
                   <div className="mt-3 ml-8">
-                    <input className={inputClass('veterinarioEspecificar')} value={form.veterinarioEspecificar} onChange={e => updateField('veterinarioEspecificar', e.target.value)} placeholder="Nome do profissional e/ou clinica" />
+                    <input className={inputClass('veterinarioEspecificar')} value={form.veterinarioEspecificar} onChange={e => updateField('veterinarioEspecificar', e.target.value)} placeholder="Nome do profissional e/ou clínica" />
                     {errors.veterinarioEspecificar && <p className={errorClass}>{errors.veterinarioEspecificar}</p>}
                   </div>
                 )}
@@ -853,10 +869,10 @@ function FichaSantosContent() {
                 )}
               </div>
 
-              {/* Observacoes */}
+              {/* Observações */}
               <div>
-                <label className={labelClass}>Observacoes</label>
-                <textarea className={`${inputClass('observacoes')} resize-none`} rows={3} value={form.observacoes} onChange={e => updateField('observacoes', e.target.value)} placeholder="Alguma informacao adicional?" />
+                <label className={labelClass}>Observações</label>
+                <textarea className={`${inputClass('observacoes')} resize-none`} rows={3} value={form.observacoes} onChange={e => updateField('observacoes', e.target.value)} placeholder="Alguma informação adicional?" />
               </div>
 
               <div className="flex gap-3">

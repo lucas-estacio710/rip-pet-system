@@ -18,11 +18,11 @@ const THEME_ICONS: Record<Theme, string> = {
   'half-dark': '◑',
 }
 
-const AUTH_ROUTES = ['/login']
+const STANDALONE_ROUTES = ['/login', '/ficha']
 
 export function LayoutWrapper({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const isAuthRoute = AUTH_ROUTES.some(route => pathname?.startsWith(route))
+  const isAuthRoute = STANDALONE_ROUTES.some(route => pathname?.startsWith(route))
   const drawer = useSidebarState()
   const [sidebarExpanded, setSidebarExpanded] = useState(false)
   const { theme, setTheme } = useTheme()
