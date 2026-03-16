@@ -206,7 +206,11 @@ const styles = {
   },
 }
 
-export default function ProtocoloEntrega({ data }: { data: ProtocoloData }) {
+export default function ProtocoloEntrega({ data, blank }: { data?: ProtocoloData; blank?: boolean }) {
+  if (blank) return <ProtocoloEmBranco />
+
+  if (!data) return null
+
   const MAX_LINHAS_PRODUTOS = 8
   const linhasVazias = Math.max(0, MAX_LINHAS_PRODUTOS - data.produtos.length)
 
@@ -389,6 +393,109 @@ export default function ProtocoloEntrega({ data }: { data: ProtocoloData }) {
           </div>
         </div>
       )}
+
+      {/* Checklist de entrega */}
+      <div style={styles.entregue}>
+        <div style={{ fontSize: '9px', fontWeight: 'bold', color: '#555', marginBottom: '3px', textTransform: 'uppercase' as const, textAlign: 'center' as const }}>
+          Entregue:
+        </div>
+        <div style={styles.checkRow}>
+          <div style={styles.checkItem}>
+            <span style={styles.checkbox}></span>
+            <span>Certificado</span>
+          </div>
+          <div style={styles.checkItem}>
+            <span style={styles.checkbox}></span>
+            <span>Pelinho</span>
+          </div>
+          <div style={styles.checkItem}>
+            <span style={styles.checkbox}></span>
+            <span>Urna c/ Cinzas</span>
+          </div>
+          <div style={styles.checkItem}>
+            <span style={styles.checkbox}></span>
+            <span>Recordações</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Assinatura */}
+      <div style={styles.assinatura}>
+        <div style={styles.textoConfirmacao}>
+          Confirmo que recebi os itens assinalados acima.
+        </div>
+        <div style={styles.linhaAssinatura as React.CSSProperties}>
+          Assinatura
+        </div>
+        <div style={styles.dataAssinatura as React.CSSProperties}>
+          Data: ____/____/________
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Protocolo em branco para preencher à mão */
+function ProtocoloEmBranco() {
+  const linhaVazia = { height: '16px', borderBottom: '1px dotted #bbb', marginBottom: '2px' }
+  const labelLinha = (label: string) => (
+    <div style={{ display: 'flex', alignItems: 'flex-end', marginBottom: '6px' }}>
+      <span style={{ ...styles.label, fontSize: '11px', whiteSpace: 'nowrap' as const, marginRight: '4px' }}>{label}:</span>
+      <div style={{ flex: 1, ...linhaVazia }} />
+    </div>
+  )
+
+  return (
+    <div style={styles.container}>
+      {/* Header */}
+      <div style={styles.header}>
+        <img src="/rippet_logo_horizontal.png" style={styles.headerLogo} alt="R.I.P. Pet" />
+        <span>PROTOCOLO DE ENTREGA</span>
+      </div>
+
+      {/* Campos em branco */}
+      <div style={{ ...styles.section, padding: '6px 10px' }}>
+        {labelLinha('Tutor')}
+        {labelLinha('Pet')}
+        {labelLinha('Endereço')}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ flex: 2 }}>{labelLinha('Cidade')}</div>
+          <div style={{ flex: 1 }}>{labelLinha('CEP')}</div>
+        </div>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ flex: 1 }}>{labelLinha('Data')}</div>
+          <div style={{ flex: 1 }}>{labelLinha('Tipo')}</div>
+          <div style={{ flex: 1 }}>{labelLinha('Código')}</div>
+        </div>
+      </div>
+
+      {/* Tabela de Produtos vazia */}
+      <div style={{ padding: '0', flex: 1, display: 'flex', flexDirection: 'column' as const }}>
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={{ ...styles.thCenter, width: '40px' }}>Sit.</th>
+              <th style={styles.thCenter}>Produto</th>
+              <th style={{ ...styles.thRight, width: '70px' }}>Valor</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: 8 }).map((_, idx) => (
+              <tr key={idx}>
+                <td style={styles.emptyRow}></td>
+                <td style={styles.emptyRow}></td>
+                <td style={styles.emptyRow}></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Totais em branco */}
+      <div style={styles.totais}>
+        <div>Total: ____________</div>
+        <div>Saldo: ____________</div>
+      </div>
 
       {/* Checklist de entrega */}
       <div style={styles.entregue}>

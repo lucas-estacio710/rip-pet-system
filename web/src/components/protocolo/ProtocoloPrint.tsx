@@ -16,11 +16,20 @@ export function printProtocolos(protocolos: ProtocoloData[]) {
     chunks.push(protocolos.slice(i, i + 4))
   }
 
+  // Preencher último chunk com protocolos em branco até completar 4
+  const lastChunk = chunks[chunks.length - 1]
+  while (lastChunk && lastChunk.length < 4) {
+    lastChunk.push(null as unknown as ProtocoloData)
+  }
+
   // Renderizar cada chunk como uma página 2x2
   const pagesHtml = chunks.map((chunk) => {
     const cards = chunk.map((data, idx) => {
+      const isBlank = data === null
       const html = ReactDOMServer.renderToStaticMarkup(
-        React.createElement(ProtocoloEntrega, { data })
+        isBlank
+          ? React.createElement(ProtocoloEntrega, { blank: true })
+          : React.createElement(ProtocoloEntrega, { data })
       )
       return `<div class="protocolo-cell" key="${idx}">${html}</div>`
     }).join('')
