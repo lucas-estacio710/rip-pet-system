@@ -192,7 +192,6 @@ function FunnelBar({ data }: { data: FunnelData }) {
     { label: 'Clicaram CTA', value: data.ctaClicks, icon: MousePointerClick, color: 'text-cyan-400', bg: 'bg-cyan-900/30' },
     { label: 'Abriram Popup', value: data.popupOpened, icon: Users, color: 'text-blue-400', bg: 'bg-blue-900/30' },
     { label: 'Completaram', value: data.completed, icon: CheckCircle2, color: 'text-emerald-400', bg: 'bg-emerald-900/30' },
-    { label: 'Abandonaram', value: data.abandoned, icon: TrendingDown, color: 'text-red-400', bg: 'bg-red-900/30' },
   ]
 
   const maxVal = Math.max(...steps.map(s => s.value), 1)
@@ -200,26 +199,16 @@ function FunnelBar({ data }: { data: FunnelData }) {
   return (
     <div className="card p-4 mb-6">
       <h3 className="text-sm font-semibold text-[var(--surface-500)] mb-4 uppercase tracking-wider">Funil de Conversão</h3>
+
+      {/* Barras do funil */}
       <div className="flex items-end gap-2 md:gap-4">
         {steps.map((step, i) => {
-          const prev = i > 0 && i < 4 ? steps[i - 1].value : null
-          const dropRate = prev && prev > 0 ? Math.round(((prev - step.value) / prev) * 100) : null
+          const prev = i > 0 ? steps[i - 1].value : null
+          const convRate = prev && prev > 0 ? pct(step.value, prev) : null
           const barHeight = Math.max((step.value / maxVal) * 100, 8)
 
           return (
             <div key={step.label} className="flex-1 flex flex-col items-center gap-1">
-              {/* Percentual de queda */}
-              {dropRate !== null && i < 4 && (
-                <span className="text-[10px] text-red-400 font-medium">
-                  -{dropRate}%
-                </span>
-              )}
-              {i === 4 && (
-                <span className="text-[10px] text-red-400 font-medium">
-                  {data.popupOpened > 0 ? pct(data.abandoned, data.popupOpened) : '0%'}
-                </span>
-              )}
-
               {/* Barra */}
               <div className="w-full relative" style={{ height: '100px' }}>
                 <div
@@ -241,15 +230,36 @@ function FunnelBar({ data }: { data: FunnelData }) {
                 </span>
               </div>
 
-              {/* Taxa de conversão entre steps */}
-              {prev !== null && i < 4 && prev > 0 && (
-                <span className="text-[10px] text-[var(--surface-400)]">
-                  {pct(step.value, prev)}
+              {/* Taxa de conversão do step anterior → este */}
+              {convRate !== null && (
+                <span className="text-[10px] text-emerald-400 font-medium">
+                  {convRate}
                 </span>
               )}
             </div>
           )
         })}
+      </div>
+
+      {/* Resumo abaixo: abandonos + taxa geral */}
+      <div className="flex items-center justify-between mt-4 pt-3 border-t border-[var(--surface-200)]">
+        <div className="flex items-center gap-4">
+          <span className="flex items-center gap-1.5 text-sm">
+            <TrendingDown className="h-4 w-4 text-red-400" />
+            <span className="text-red-400 font-semibold">{data.abandoned}</span>
+            <span className="text-[var(--surface-500)]">abandonaram</span>
+            {data.popupOpened > 0 && (
+              <span className="text-xs text-[var(--surface-400)]">
+                ({pct(data.abandoned, data.popupOpened)} dos popups)
+              </span>
+            )}
+          </span>
+        </div>
+        {data.sessions > 0 && (
+          <span className="text-sm text-[var(--surface-400)]">
+            Conversão geral: <strong className="text-emerald-400">{pct(data.completed, data.sessions)}</strong>
+          </span>
+        )}
       </div>
     </div>
   )
