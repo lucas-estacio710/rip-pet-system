@@ -829,7 +829,7 @@ function FichaSantosContent() {
                 <div className="grid grid-cols-2 gap-2">
                   {[
                     { v: 'Não desejo', l: 'Não desejo' },
-                    { v: 'Vídeo-chamada ao vivo', l: 'Vídeo-chamada Ao-vivo' },
+                    { v: 'Vídeo-chamada ao vivo', l: 'Vídeo-chamada ao vivo' },
                     { v: 'Vídeo gravado', l: 'Vídeo gravado' },
                     { v: 'Presencial na Matriz', l: 'Presencial na Matriz' },
                     { v: 'Decidirei depois', l: 'Decidirei depois' },
