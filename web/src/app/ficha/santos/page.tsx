@@ -15,6 +15,7 @@ type FormData = {
   outrosTutores: string[]
   cpf: string
   codigoPais: string
+  codigoPaisCustom: string
   telefone: string
   email: string
   cep: string
@@ -49,7 +50,7 @@ type FormData = {
 
 const INITIAL_FORM: FormData = {
   _hp: '',
-  nomeCompleto: '', outrosTutores: [], cpf: '', codigoPais: '55', telefone: '', email: '',
+  nomeCompleto: '', outrosTutores: [], cpf: '', codigoPais: '55', codigoPaisCustom: '', telefone: '', email: '',
   cep: '', estado: '', cidade: '', bairro: '', endereco: '', numero: '', complemento: '',
   nomePet: '', idade: '', especie: '', genero: '', raca: '', cor: '', peso: '',
   localizacao: '', localizacaoOutra: '', cremacao: '', pagamento: '', parcelas: '',
@@ -564,37 +565,52 @@ function FichaSantosContent() {
               <div>
                 <label className={labelClass}>Telefone <span className="text-red-400">*</span></label>
                 <div className="flex gap-2">
-                  <select
-                    value={form.codigoPais}
-                    onChange={e => updateField('codigoPais', e.target.value)}
-                    className="w-[100px] px-2 py-3 rounded-xl border-2 border-slate-200 text-base outline-none focus:border-blue-500 bg-white"
-                  >
-                    <option value="55">🇧🇷 +55</option>
-                    <option value="1">🇺🇸 +1</option>
-                    <option value="351">🇵🇹 +351</option>
-                    <option value="54">🇦🇷 +54</option>
-                    <option value="598">🇺🇾 +598</option>
-                    <option value="595">🇵🇾 +595</option>
-                    <option value="56">🇨🇱 +56</option>
-                    <option value="57">🇨🇴 +57</option>
-                    <option value="51">🇵🇪 +51</option>
-                    <option value="591">🇧🇴 +591</option>
-                    <option value="593">🇪🇨 +593</option>
-                    <option value="58">🇻🇪 +58</option>
-                    <option value="52">🇲🇽 +52</option>
-                    <option value="34">🇪🇸 +34</option>
-                    <option value="39">🇮🇹 +39</option>
-                    <option value="33">🇫🇷 +33</option>
-                    <option value="49">🇩🇪 +49</option>
-                    <option value="44">🇬🇧 +44</option>
-                    <option value="81">🇯🇵 +81</option>
-                    <option value="86">🇨🇳 +86</option>
-                    <option value="82">🇰🇷 +82</option>
-                    <option value="61">🇦🇺 +61</option>
-                    <option value="27">🇿🇦 +27</option>
-                    <option value="972">🇮🇱 +972</option>
-                    <option value="91">🇮🇳 +91</option>
-                  </select>
+                  {form.codigoPais === 'outro' ? (
+                    <div className="flex gap-1">
+                      <span className="flex items-center text-slate-400 text-sm pl-1">+</span>
+                      <input
+                        value={form.codigoPaisCustom || ''}
+                        onChange={e => updateField('codigoPaisCustom' as keyof FormData, e.target.value.replace(/\D/g, '').slice(0, 4))}
+                        className="w-[60px] px-2 py-3 rounded-xl border-2 border-slate-200 text-base outline-none focus:border-blue-500 bg-white text-center"
+                        placeholder="DDI"
+                        inputMode="numeric"
+                      />
+                      <button type="button" onClick={() => updateField('codigoPais', '55')} className="text-xs text-slate-400 hover:text-slate-600 px-1">✕</button>
+                    </div>
+                  ) : (
+                    <select
+                      value={form.codigoPais}
+                      onChange={e => updateField('codigoPais', e.target.value)}
+                      className="w-[100px] px-2 py-3 rounded-xl border-2 border-slate-200 text-base outline-none focus:border-blue-500 bg-white"
+                    >
+                      <option value="55">🇧🇷 +55</option>
+                      <option value="1">🇺🇸 +1</option>
+                      <option value="351">🇵🇹 +351</option>
+                      <option value="54">🇦🇷 +54</option>
+                      <option value="598">🇺🇾 +598</option>
+                      <option value="595">🇵🇾 +595</option>
+                      <option value="56">🇨🇱 +56</option>
+                      <option value="57">🇨🇴 +57</option>
+                      <option value="51">🇵🇪 +51</option>
+                      <option value="591">🇧🇴 +591</option>
+                      <option value="593">🇪🇨 +593</option>
+                      <option value="58">🇻🇪 +58</option>
+                      <option value="52">🇲🇽 +52</option>
+                      <option value="34">🇪🇸 +34</option>
+                      <option value="39">🇮🇹 +39</option>
+                      <option value="33">🇫🇷 +33</option>
+                      <option value="49">🇩🇪 +49</option>
+                      <option value="44">🇬🇧 +44</option>
+                      <option value="81">🇯🇵 +81</option>
+                      <option value="86">🇨🇳 +86</option>
+                      <option value="82">🇰🇷 +82</option>
+                      <option value="61">🇦🇺 +61</option>
+                      <option value="27">🇿🇦 +27</option>
+                      <option value="972">🇮🇱 +972</option>
+                      <option value="91">🇮🇳 +91</option>
+                      <option value="outro">Outro...</option>
+                    </select>
+                  )}
                   <input className={`flex-1 ${inputClass('telefone')}`} value={form.telefone} onChange={e => updateField('telefone', maskPhone(e.target.value))} placeholder="(11) 99999-9999" inputMode="tel" />
                 </div>
                 {errors.telefone && <p className={errorClass}>{errors.telefone}</p>}
