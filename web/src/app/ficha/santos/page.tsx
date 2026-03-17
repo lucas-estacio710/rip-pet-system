@@ -209,7 +209,7 @@ function FichaSantosContent() {
     localizacao: 'Localização do Pet', localizacaoOutra: 'Especificar local',
     cremacao: 'Cremação', pagamento: 'Forma de Pagamento', parcelas: 'Parcelas',
     velorio: 'Velório', acompanhamento: 'Acompanhamento',
-    comoConheceu: 'Como nos conheceu', veterinarioEspecificar: 'Veterinário/Clínica',
+    comoConheceu: 'Como nos conheceu', veterinarioEspecificar: 'Veterinário(a)/Panfleto/Recepção',
     outroEspecificar: 'Outro (especificar)',
   }
 
@@ -919,7 +919,7 @@ function FichaSantosContent() {
                           </svg>
                         )}
                       </div>
-                      <span className="text-sm text-slate-700">{opt === 'Veterinário' ? 'Veterinário/Clínica' : opt}</span>
+                      <span className="text-sm text-slate-700">{opt === 'Veterinário' ? 'Veterinário(a)/Panfleto/Recepção' : opt}</span>
                     </label>
                   ))}
                 </div>
@@ -927,7 +927,8 @@ function FichaSantosContent() {
 
                 {form.comoConheceu.includes('Veterinário') && (
                   <div className="mt-3 ml-8">
-                    <input className={inputClass('veterinarioEspecificar')} value={form.veterinarioEspecificar} onChange={e => updateField('veterinarioEspecificar', e.target.value)} placeholder="Ex: Dra. Maria ou Panfleto no Hospital Pet 24h" />
+                    <p className="text-sm text-slate-600 mb-1">Especificar o(a) profissional e/ou Hospital/Clínica:</p>
+                    <input className={inputClass('veterinarioEspecificar')} value={form.veterinarioEspecificar} onChange={e => updateField('veterinarioEspecificar', e.target.value)} placeholder="Dra. Maria no Hospital Pet 24h ou Panfleto na Clínica Pet" />
                     {errors.veterinarioEspecificar && <p className={errorClass}>{errors.veterinarioEspecificar}</p>}
                   </div>
                 )}
