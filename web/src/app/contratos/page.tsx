@@ -2683,7 +2683,7 @@ ${petNome}`
                 className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
                   ordenacao === 'supinda' ? 'bg-slate-700 text-orange-300' : 'text-slate-400 hover:text-slate-200'
                 }`}
-                title={ordenacao === 'supinda' ? (ordemAsc ? 'Antiga → Nova' : 'Nova → Antiga') : 'Ordenar por supinda'}
+                title={ordenacao === 'supinda' ? (ordemAsc ? 'Antiga → Nova' : 'Nova → Antiga') : 'Ordenar por encaminhamento'}
               >
                 🚐 {ordenacao === 'supinda' && (ordemAsc ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
               </button>
@@ -2945,7 +2945,7 @@ ${petNome}`
                     ? 'bg-slate-700 text-orange-300 shadow-sm'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
-                title={ordenacao === 'supinda' ? (ordemAsc ? 'Antiga → Nova' : 'Nova → Antiga') : 'Ordenar por supinda'}
+                title={ordenacao === 'supinda' ? (ordemAsc ? 'Antiga → Nova' : 'Nova → Antiga') : 'Ordenar por encaminhamento'}
               >
                 🚐 {ordenacao === 'supinda' && (ordemAsc ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
               </button>
@@ -3241,7 +3241,7 @@ ${petNome}`
                           background: grupo.numero !== null ? 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)' : '#475569',
                           color: 'white',
                         }}>
-                          {grupo.numero !== null ? `Supinda #${grupo.numero}` : 'Sem supinda'}
+                          {grupo.numero !== null ? `Encaminhamento #${grupo.numero}` : 'Sem encaminhamento'}
                         </span>
                         <span className="text-[10px] text-slate-400 flex-shrink-0">{grupo.contratos.length} pet{grupo.contratos.length !== 1 ? 's' : ''}</span>
                         <div className="flex-1 h-px" style={{ background: 'linear-gradient(90deg, #ea580c 0%, #ea580c 30%, transparent 70%, transparent 100%)' }} />
@@ -5372,7 +5372,7 @@ ${petNome}`
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setSupindaModal(false)}>
           <div className="bg-slate-800 rounded-xl shadow-xl max-w-lg w-full mx-4 p-6" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-slate-200">🚐 Selecionar Supinda</h3>
+              <h3 className="text-lg font-semibold text-slate-200">🚐 Selecionar Encaminhamento</h3>
               <button onClick={() => setSupindaModal(false)} className="text-slate-400 hover:text-slate-400">
                 ✕
               </button>
@@ -5407,7 +5407,7 @@ ${petNome}`
               /* Lista de supindas disponíveis */
               <div className="space-y-2 max-h-64 overflow-y-auto mb-4">
                 {supindasDisponiveis.length === 0 ? (
-                  <p className="text-center text-slate-400 py-4">Nenhuma supinda planejada</p>
+                  <p className="text-center text-slate-400 py-4">Nenhum encaminhamento planejado</p>
                 ) : (
                   supindasDisponiveis.map(s => (
                     <button
@@ -5440,7 +5440,7 @@ ${petNome}`
               /* Formulário para criar nova supinda */
               <div className="space-y-4 mb-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Data da Supinda</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Data do Encaminhamento</label>
                   <div className="flex gap-2 mb-2">
                     {(() => {
                       const { sabado, domingo, hoje } = getProximoFimDeSemana()

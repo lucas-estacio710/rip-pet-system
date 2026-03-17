@@ -22,7 +22,7 @@ const navItems = [
   { href: '/leads', label: 'Leads', icon: Zap, countKey: 'leads' as const },
   { href: '/fichas', label: 'Fichas', icon: TextSelect, countKey: 'fichas' as const },
   { href: '/contratos?status=ativo', label: 'Contratos', icon: FileCheck, countKey: 'contratos' as const },
-  { href: '/supindas', label: 'Supindas', icon: Route, countKey: null },
+  { href: '/supindas', label: 'Encaminhamentos', icon: Route, countKey: null },
   { href: '/estoque', label: 'Estoque', icon: ShelvingUnit, countKey: null },
   { href: '/tutores', label: 'Tutores', icon: Users, countKey: null },
   { href: '/configuracoes', label: 'Configurações', icon: Settings, countKey: null },

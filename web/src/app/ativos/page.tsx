@@ -225,12 +225,12 @@ export default function AtivosPage() {
         </div>
       </div>
 
-      {/* Próximas Supindas */}
+      {/* Próximos Encaminhamentos */}
       {supindas.length > 0 && (
         <div className="bg-orange-900/30 border border-orange-700 rounded-xl p-4 mb-6">
           <h3 className="font-medium text-orange-300 mb-2 flex items-center gap-2">
             <Truck className="h-4 w-4" />
-            Próximas Supindas
+            Próximos Encaminhamentos
           </h3>
           <div className="flex gap-4 flex-wrap">
             {supindas.map(s => (
@@ -265,7 +265,7 @@ export default function AtivosPage() {
           <option value="">Todos</option>
           <option value="sem_urna">Sem urna definida</option>
           <option value="pagamento_pendente">Pagamento pendente</option>
-          <option value="sem_supinda">Sem Supinda</option>
+          <option value="sem_supinda">Sem Encaminhamento</option>
         </select>
         <button
           onClick={carregarDados}
@@ -397,12 +397,12 @@ export default function AtivosPage() {
                         <DollarSign className="h-3 w-3" />
                       </div>
 
-                      {/* Supinda */}
+                      {/* Encaminhamento */}
                       <div className={`flex items-center gap-1 px-1.5 py-1 rounded text-xs ${
                         contrato.numero_supinda
                           ? 'bg-orange-900/30 text-orange-400'
                           : 'bg-slate-700/50 text-slate-400'
-                      }`} title={contrato.numero_supinda ? `Supinda #${contrato.numero_supinda}` : 'Sem Supinda'}>
+                      }`} title={contrato.numero_supinda ? `Encaminhamento #${contrato.numero_supinda}` : 'Sem Encaminhamento'}>
                         <Truck className="h-3 w-3" />
                         {contrato.numero_supinda && <span>#{contrato.numero_supinda}</span>}
                       </div>

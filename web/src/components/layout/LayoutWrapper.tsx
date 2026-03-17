@@ -18,7 +18,7 @@ const THEME_ICONS: Record<Theme, string> = {
   'half-dark': '◑',
 }
 
-const STANDALONE_ROUTES = ['/login', '/ficha']
+const STANDALONE_ROUTES = ['/login', '/ficha/']
 
 export function LayoutWrapper({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()

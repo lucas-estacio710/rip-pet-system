@@ -250,7 +250,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
             )}
           </div>
 
-          {/* Funcionario e Supinda */}
+          {/* Funcionario e Encaminhamento */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-1">
@@ -269,7 +269,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-1">
-                Supinda
+                Encaminhamento
               </label>
               <select
                 value={form.supinda_id}

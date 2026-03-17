@@ -53,7 +53,7 @@ export default function FichasBatchModal({ supindaId, supindaNumero, onClose }: 
 
     if (error) {
       console.error('Erro ao carregar contratos:', error)
-      setErro('Erro ao carregar contratos da supinda')
+      setErro('Erro ao carregar contratos do encaminhamento')
     } else {
       setContratos((data || []) as FichaContratoData[])
     }
@@ -124,7 +124,7 @@ export default function FichasBatchModal({ supindaId, supindaNumero, onClose }: 
       })
 
       try {
-        const storagePath = `supinda_${supindaNumero}/${ficha.filename}`
+        const storagePath = `encaminhamento_${supindaNumero}/${ficha.filename}`
         const { error } = await supabase.storage
           .from('fichas')
           .upload(storagePath, ficha.blob, {
@@ -159,14 +159,14 @@ export default function FichasBatchModal({ supindaId, supindaNumero, onClose }: 
     if (fichas.length === 0) return
 
     const zip = new JSZip()
-    const pasta = zip.folder(`fichas_supinda_${supindaNumero}`)!
+    const pasta = zip.folder(`fichas_encaminhamento_${supindaNumero}`)!
 
     for (const ficha of fichas) {
       pasta.file(ficha.filename, ficha.blob)
     }
 
     const zipBlob = await zip.generateAsync({ type: 'blob' })
-    saveAs(zipBlob, `fichas_supinda_${supindaNumero}.zip`)
+    saveAs(zipBlob, `fichas_encaminhamento_${supindaNumero}.zip`)
   }
 
   async function compartilharFicha(ficha: FichaResult) {
@@ -203,7 +203,7 @@ export default function FichasBatchModal({ supindaId, supindaNumero, onClose }: 
           <div>
             <h3 className="text-lg font-semibold text-slate-200">
               <FileImage className="h-5 w-5 inline mr-2 text-orange-400" />
-              Fichas de Remocao - Supinda #{supindaNumero}
+              Fichas de Remoção - Encaminhamento #{supindaNumero}
             </h3>
             {contratos.length > 0 && (
               <p className="text-sm text-slate-400 mt-0.5">{contratos.length} contrato(s)</p>
@@ -226,7 +226,7 @@ export default function FichasBatchModal({ supindaId, supindaNumero, onClose }: 
           {!loading && contratos.length === 0 && (
             <div className="text-center py-12 text-slate-400">
               <FileImage className="h-12 w-12 mx-auto mb-3 text-slate-500" />
-              <p>Nenhum contrato vinculado a esta supinda</p>
+              <p>Nenhum contrato vinculado a este encaminhamento</p>
             </div>
           )}
 

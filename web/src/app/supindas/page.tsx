@@ -371,7 +371,7 @@ export default function SupindasPage() {
             <Route className="h-5 w-5 text-orange-500" />
           </div>
           <div>
-            <h1 className="text-title text-[var(--shell-text)]">Supindas</h1>
+            <h1 className="text-title text-[var(--shell-text)]">Encaminhamentos</h1>
             <p className="text-small text-[var(--shell-text-muted)]">Viagens para o crematório</p>
           </div>
         </div>
@@ -381,7 +381,7 @@ export default function SupindasPage() {
           style={{ background: '#ea580c' }}
         >
           <Plus className="h-4 w-4" />
-          <span className="hidden sm:inline">Nova Supinda</span>
+          <span className="hidden sm:inline">Novo Encaminhamento</span>
           <span className="sm:hidden">Nova</span>
         </button>
       </div>
@@ -444,7 +444,7 @@ export default function SupindasPage() {
         ) : supindas.length === 0 ? (
           <div className="text-center py-12 text-slate-400">
             <Route className="h-12 w-12 mx-auto mb-3 text-slate-500" />
-            <p>Nenhuma supinda encontrada</p>
+            <p>Nenhum encaminhamento encontrado</p>
           </div>
         ) : (
           <div className="divide-y">
@@ -745,7 +745,7 @@ export default function SupindasPage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setCriarModal(false)}>
           <div className="bg-slate-800 rounded-xl shadow-xl max-w-md w-full mx-4 p-6" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-slate-200">🚐 Nova Supinda</h3>
+              <h3 className="text-lg font-semibold text-slate-200">🚐 Novo Encaminhamento</h3>
               <button onClick={() => setCriarModal(false)} className="text-slate-400 hover:text-slate-400">
                 <X className="h-5 w-5" />
               </button>
@@ -754,7 +754,7 @@ export default function SupindasPage() {
             <div className="space-y-4">
               {/* Data */}
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">Data da Supinda</label>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Data do Encaminhamento</label>
                 <div className="flex gap-2 mb-2">
                   {(() => {
                     const { sabado, domingo, hoje } = getProximoFimDeSemana()
@@ -846,7 +846,7 @@ export default function SupindasPage() {
                 disabled={salvando || !novaSupindaForm.data}
                 className="flex-1 py-2 px-4 bg-orange-900/300 text-white rounded-lg hover:bg-orange-600 disabled:opacity-50"
               >
-                {salvando ? 'Criando...' : 'Criar Supinda'}
+                {salvando ? 'Criando...' : 'Criar Encaminhamento'}
               </button>
             </div>
           </div>

@@ -1120,7 +1120,7 @@ export default function DashboardPage() {
                   { href: '/tutores', icon: Users, label: 'Tutores', count: null, color: 'text-blue-400' },
                   { href: '/estoque', icon: Boxes, label: 'Estoque', count: null, color: 'text-amber-400' },
                   { href: '/fichas', icon: PawPrint, label: 'Fichas', count: null, color: 'text-green-400' },
-                  { href: '/supindas', icon: Flame, label: 'Supindas', count: null, color: 'text-orange-400' },
+                  { href: '/supindas', icon: Flame, label: 'Encaminhamentos', count: null, color: 'text-orange-400' },
                 ].map(item => (
                   <Link
                     key={item.href}
