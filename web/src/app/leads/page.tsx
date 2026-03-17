@@ -281,19 +281,10 @@ function FunnelBar({ data }: { data: FunnelData }) {
       {/* ── Linhas tracejadas conectando CTA → drilldown ── */}
       {data.clicaramCTA > 0 && (
         <>
-          <div className="relative h-5 mb-1" style={{ marginLeft: `${ctaOffset}%` }}>
-            <div
-              className="absolute top-0 left-0 h-full border-l-2 border-dashed border-cyan-500/40"
-            />
-            <div
-              className="absolute top-0 h-full border-r-2 border-dashed border-cyan-500/40"
-              style={{ right: `${100 - pCTA}%`, left: 'auto', width: 0, marginLeft: 'auto', position: 'absolute', left: `${pCTA}%` } as any}
-            />
-            {/* Linha horizontal tracejada */}
-            <div
-              className="absolute bottom-0 border-b-2 border-dashed border-cyan-500/40"
-              style={{ left: 0, width: `${pCTA}%` }}
-            />
+          <div className="relative h-5 mb-1" style={{ marginLeft: `${ctaOffset}%`, width: `${pCTA}%` }}>
+            <div className="absolute top-0 left-0 h-full border-l-2 border-dashed border-cyan-500/40" />
+            <div className="absolute top-0 right-0 h-full border-r-2 border-dashed border-cyan-500/40" />
+            <div className="absolute bottom-0 left-0 w-full border-b-2 border-dashed border-cyan-500/40" />
           </div>
 
           {/* ── Nível 2: CTA se decompondo ── */}
