@@ -775,11 +775,11 @@ function FichaSantosContent() {
                 <div className="flex gap-2">
                   <div onClick={() => updateField('cremacao', 'individual')} className={radioClass(form.cremacao === 'individual')}>
                     <div className="font-bold">Individual</div>
-                    <div className="text-xs opacity-70 mt-0.5"><em>Com</em> retorno das cinzas</div>
+                    <div className="text-xs opacity-70 mt-0.5"><strong>Com</strong> retorno das cinzas</div>
                   </div>
                   <div onClick={() => updateField('cremacao', 'coletiva')} className={radioClass(form.cremacao === 'coletiva')}>
                     <div className="font-bold">Coletiva</div>
-                    <div className="text-xs opacity-70 mt-0.5"><em>Sem</em> retorno das cinzas</div>
+                    <div className="text-xs opacity-70 mt-0.5"><strong>Sem</strong> retorno das cinzas</div>
                   </div>
                 </div>
                 {errors.cremacao && <p className={errorClass}>{errors.cremacao}</p>}
