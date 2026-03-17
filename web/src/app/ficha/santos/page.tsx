@@ -896,14 +896,14 @@ function FichaSantosContent() {
 
                 {form.comoConheceu.includes('Veterinário') && (
                   <div className="mt-3 ml-8">
-                    <input className={inputClass('veterinarioEspecificar')} value={form.veterinarioEspecificar} onChange={e => updateField('veterinarioEspecificar', e.target.value)} placeholder="Nome do profissional e/ou clínica" />
+                    <input className={inputClass('veterinarioEspecificar')} value={form.veterinarioEspecificar} onChange={e => updateField('veterinarioEspecificar', e.target.value)} placeholder="Ex: Dra. Maria ou Panfleto no Hospital Pet 24h" />
                     {errors.veterinarioEspecificar && <p className={errorClass}>{errors.veterinarioEspecificar}</p>}
                   </div>
                 )}
 
                 {form.comoConheceu.includes('Outro') && (
                   <div className="mt-3 ml-8">
-                    <input className={inputClass('outroEspecificar')} value={form.outroEspecificar} onChange={e => updateField('outroEspecificar', e.target.value)} placeholder="Como nos conheceu?" />
+                    <input className={inputClass('outroEspecificar')} value={form.outroEspecificar} onChange={e => updateField('outroEspecificar', e.target.value)} placeholder="Ex: Seguro do Banco X" />
                     {errors.outroEspecificar && <p className={errorClass}>{errors.outroEspecificar}</p>}
                   </div>
                 )}
