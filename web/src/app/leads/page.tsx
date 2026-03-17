@@ -701,41 +701,66 @@ export default function LeadsPage() {
                 <div className="flex items-start justify-between gap-3">
                   {/* Content */}
                   <div className="min-w-0 flex-1">
-                    {/* Nome + badges */}
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                    {/* Nome + protocolo */}
+                    <div className="flex items-center gap-2 flex-wrap mb-1.5">
                       <span className="text-base font-semibold text-[var(--surface-800)]">
                         {lead.nome || '(sem nome)'}
                       </span>
                       {lead.protocolo && (
                         <span className="text-xs font-mono text-[var(--surface-400)]">{lead.protocolo}</span>
                       )}
-                      {/* Status badge */}
+                    </div>
+
+                    {/* Badges: Origem → Tipo → Canal → ··· Status */}
+                    <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+                      {/* 1. Origem (tracejado) */}
+                      <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border border-dashed ${
+                        lead.gclid ? 'border-amber-500/60 text-amber-400' :
+                        (lead.utm_source === 'facebook' || lead.utm_source === 'meta') ? 'border-blue-500/60 text-blue-400' :
+                        lead.utm_source ? 'border-purple-500/60 text-purple-400' :
+                        'border-[var(--surface-400)]/40 text-[var(--surface-500)]'
+                      }`}>
+                        <Globe className="h-3 w-3" />
+                        {origemLabel(lead)}
+                      </span>
+
+                      {/* 2. Tipo atendimento (preenchido forte) */}
+                      {lead.tipo_atendimento && (
+                        <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                          lead.tipo_atendimento === 'emergencial'
+                            ? 'bg-red-500/20 text-red-400'
+                            : 'bg-blue-500/20 text-blue-400'
+                        }`}>
+                          {lead.tipo_atendimento === 'emergencial' ? (
+                            <><AlertTriangle className="h-3 w-3" />Emergencial</>
+                          ) : (
+                            <><Shield className="h-3 w-3" />Preventivo</>
+                          )}
+                        </span>
+                      )}
+
+                      {/* 3. Canal (outline sólido) */}
+                      <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
+                        lead.canal === 'whatsapp' ? 'border-emerald-500/60 text-emerald-400' :
+                        lead.canal === 'telefone' ? 'border-sky-500/60 text-sky-400' :
+                        'border-[var(--surface-300)] text-[var(--surface-500)]'
+                      }`}>
+                        {lead.canal === 'whatsapp' ? (
+                          <><MessageSquare className="h-3 w-3" />WhatsApp</>
+                        ) : lead.canal === 'telefone' ? (
+                          <><Phone className="h-3 w-3" />Telefone</>
+                        ) : (
+                          <>Sem canal</>
+                        )}
+                      </span>
+
+                      {/* Separador visual */}
+                      <span className="text-[var(--surface-300)] mx-0.5">·</span>
+
+                      {/* 4. Status (preenchido suave, deslocado) */}
                       <Badge variant={statusBadgeVariant(status)}>
                         {statusLabel(status)}
                       </Badge>
-                      {/* Canal badge */}
-                      <Badge variant={lead.canal === 'whatsapp' ? 'success' : 'info'}>
-                        {lead.canal === 'whatsapp' ? (
-                          <><MessageSquare className="h-3 w-3 mr-1" />WhatsApp</>
-                        ) : (
-                          <><Phone className="h-3 w-3 mr-1" />Telefone</>
-                        )}
-                      </Badge>
-                      {/* Origem badge */}
-                      <Badge variant={lead.gclid ? 'warning' : 'default'}>
-                        <Globe className="h-3 w-3 mr-1" />
-                        {origemLabel(lead)}
-                      </Badge>
-                      {/* Tipo atendimento */}
-                      {lead.tipo_atendimento && (
-                        <Badge variant={lead.tipo_atendimento === 'emergencial' ? 'error' : 'info'}>
-                          {lead.tipo_atendimento === 'emergencial' ? (
-                            <><AlertTriangle className="h-3 w-3 mr-1" />Emergencial</>
-                          ) : (
-                            <><Shield className="h-3 w-3 mr-1" />Preventivo</>
-                          )}
-                        </Badge>
-                      )}
                     </div>
 
                     {/* Cidade + pet + dispositivo */}
