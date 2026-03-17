@@ -186,83 +186,159 @@ function pct(a: number, b: number): string {
 }
 
 // ============================================
-// Funnel Bar Component
+// Funnel Drilldown Chart
 // ============================================
 function FunnelBar({ data }: { data: FunnelData }) {
+  const s = data.sessoes || 1
+  const cta = data.clicaramCTA || 1
+
+  // Percentuais para larguras das barras
+  const pBounce = (data.bouncePrecoce / s) * 100
+  const pMaduro = (data.abandonoMaduro / s) * 100
+  const pCTA = (data.clicaramCTA / s) * 100
+  const pAbandPopup = (data.abandonaramPopup / cta) * 100
+  const pCompletaram = (data.completaram / cta) * 100
+
+  // Offset left do CTA dentro da barra de sessões (para alinhar drilldown)
+  const ctaOffset = pBounce + pMaduro
+
   return (
-    <div className="card p-4 mb-6">
-      <h3 className="text-sm font-semibold text-[var(--surface-500)] mb-4 uppercase tracking-wider">Funil de Conversão</h3>
-
-      {/* Linha 1: Visitantes e Sessões */}
-      <div className="flex gap-3 mb-4">
-        <div className="flex-1 rounded-lg bg-purple-900/20 p-3 text-center">
-          <Eye className="h-4 w-4 text-purple-400 mx-auto mb-1" />
-          <p className="text-xl md:text-2xl font-bold text-purple-400">{data.visitantesUnicos}</p>
-          <p className="text-[10px] md:text-xs text-[var(--surface-500)]">Visitantes únicos</p>
-        </div>
-        <div className="flex items-center">
-          <ArrowRight className="h-4 w-4 text-[var(--surface-400)]" />
-        </div>
-        <div className="flex-1 rounded-lg bg-blue-900/20 p-3 text-center">
-          <Users className="h-4 w-4 text-blue-400 mx-auto mb-1" />
-          <p className="text-xl md:text-2xl font-bold text-blue-400">{data.sessoes}</p>
-          <p className="text-[10px] md:text-xs text-[var(--surface-500)]">Sessões</p>
-        </div>
-      </div>
-
-      {/* Linha 2: Destino das sessões (soma = sessões) */}
-      <p className="text-[10px] text-[var(--surface-400)] mb-1.5 uppercase tracking-wider">Sessões →</p>
-      <div className="grid grid-cols-3 gap-2 mb-4">
-        <div className="rounded-lg bg-orange-900/15 p-2.5 text-center">
-          <p className="text-lg font-bold text-orange-400">{data.bouncePrecoce}</p>
-          <p className="text-[10px] text-[var(--surface-500)] leading-tight">Bounce</p>
-          <p className="text-[9px] text-[var(--surface-400)]">&lt;15s</p>
-          {data.sessoes > 0 && <p className="text-[10px] text-orange-400 font-medium mt-0.5">{pct(data.bouncePrecoce, data.sessoes)}</p>}
-        </div>
-
-        <div className="rounded-lg bg-amber-900/15 p-2.5 text-center">
-          <p className="text-lg font-bold text-amber-400">{data.abandonoMaduro}</p>
-          <p className="text-[10px] text-[var(--surface-500)] leading-tight">Saíram sem clicar</p>
-          <p className="text-[9px] text-[var(--surface-400)]">&ge;15s</p>
-          {data.sessoes > 0 && <p className="text-[10px] text-amber-400 font-medium mt-0.5">{pct(data.abandonoMaduro, data.sessoes)}</p>}
-        </div>
-
-        <div className="rounded-lg bg-cyan-900/15 p-2.5 text-center">
-          <p className="text-lg font-bold text-cyan-400">{data.clicaramCTA}</p>
-          <p className="text-[10px] text-[var(--surface-500)] leading-tight">Clicaram CTA</p>
-          <p className="text-[9px] text-[var(--surface-400)]">zap/tel</p>
-          {data.sessoes > 0 && <p className="text-[10px] text-cyan-400 font-medium mt-0.5">{pct(data.clicaramCTA, data.sessoes)}</p>}
-        </div>
-      </div>
-
-      {/* Linha 3: Destino dos cliques CTA (soma = clicaram CTA) */}
-      <p className="text-[10px] text-[var(--surface-400)] mb-1.5 uppercase tracking-wider">Clicaram CTA →</p>
-      <div className="grid grid-cols-2 gap-2 mb-4">
-        <div className="rounded-lg bg-red-900/15 p-2.5 text-center">
-          <p className="text-lg font-bold text-red-400">{data.abandonaramPopup}</p>
-          <p className="text-[10px] text-[var(--surface-500)] leading-tight">Abandonaram popup</p>
-          {data.clicaramCTA > 0 && <p className="text-[10px] text-red-400 font-medium mt-0.5">{pct(data.abandonaramPopup, data.clicaramCTA)}</p>}
-        </div>
-
-        <div className="rounded-lg bg-emerald-900/15 p-2.5 text-center">
-          <p className="text-lg font-bold text-emerald-400">{data.completaram}</p>
-          <p className="text-[10px] text-[var(--surface-500)] leading-tight">Enviaram form</p>
-          {data.clicaramCTA > 0 && <p className="text-[10px] text-emerald-400 font-medium mt-0.5">{pct(data.completaram, data.clicaramCTA)}</p>}
-        </div>
-      </div>
-
-      {/* Rodapé: taxas principais */}
-      <div className="flex items-center justify-between pt-3 border-t border-[var(--surface-200)]">
-        <span className="text-sm text-[var(--surface-400)]">
-          CTA: <strong className="text-cyan-400">{data.clicaramCTA}</strong> clicaram
-          {data.sessoes > 0 && <span className="text-[var(--surface-400)]"> ({pct(data.clicaramCTA, data.sessoes)} das sessões)</span>}
-        </span>
+    <div className="card p-4 md:p-5 mb-6">
+      <div className="flex items-center justify-between mb-5">
+        <h3 className="text-sm font-semibold text-[var(--surface-500)] uppercase tracking-wider">Funil de Conversão</h3>
         {data.sessoes > 0 && (
           <span className="text-sm text-[var(--surface-400)]">
             Conversão: <strong className="text-emerald-400">{pct(data.completaram, data.sessoes)}</strong>
           </span>
         )}
       </div>
+
+      {/* ── Nível 0: Visitantes únicos → Sessões ── */}
+      <div className="flex items-center gap-3 mb-2">
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Eye className="h-3.5 w-3.5 text-purple-400" />
+          <span className="text-sm font-semibold text-purple-400">{data.visitantesUnicos}</span>
+          <span className="text-xs text-[var(--surface-500)]">únicos</span>
+        </div>
+        <ArrowRight className="h-3.5 w-3.5 text-[var(--surface-400)] shrink-0" />
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Users className="h-3.5 w-3.5 text-blue-400" />
+          <span className="text-sm font-semibold text-blue-400">{data.sessoes}</span>
+          <span className="text-xs text-[var(--surface-500)]">sessões</span>
+        </div>
+      </div>
+
+      {/* ── Nível 1: Barra sessões se decompondo ── */}
+      <div className="w-full h-10 rounded-lg overflow-hidden flex mb-1" style={{ minWidth: 0 }}>
+        {data.bouncePrecoce > 0 && (
+          <div
+            className="h-full bg-orange-500/30 flex items-center justify-center border-r border-[var(--surface-100)]"
+            style={{ width: `${pBounce}%` }}
+            title={`Bounce <15s: ${data.bouncePrecoce}`}
+          >
+            {pBounce > 8 && <span className="text-xs font-bold text-orange-400">{data.bouncePrecoce}</span>}
+          </div>
+        )}
+        {data.abandonoMaduro > 0 && (
+          <div
+            className="h-full bg-amber-500/30 flex items-center justify-center border-r border-[var(--surface-100)]"
+            style={{ width: `${pMaduro}%` }}
+            title={`Saíram sem clicar ≥15s: ${data.abandonoMaduro}`}
+          >
+            {pMaduro > 8 && <span className="text-xs font-bold text-amber-400">{data.abandonoMaduro}</span>}
+          </div>
+        )}
+        {data.clicaramCTA > 0 && (
+          <div
+            className="h-full bg-cyan-500/30 flex items-center justify-center"
+            style={{ width: `${pCTA}%` }}
+            title={`Clicaram CTA: ${data.clicaramCTA}`}
+          >
+            {pCTA > 8 && <span className="text-xs font-bold text-cyan-400">{data.clicaramCTA}</span>}
+          </div>
+        )}
+      </div>
+
+      {/* Legenda nível 1 */}
+      <div className="flex mb-3 text-[10px]" style={{ minWidth: 0 }}>
+        {data.bouncePrecoce > 0 && (
+          <div style={{ width: `${pBounce}%` }} className="text-center text-orange-400 truncate px-0.5">
+            Bounce {pct(data.bouncePrecoce, s)}
+          </div>
+        )}
+        {data.abandonoMaduro > 0 && (
+          <div style={{ width: `${pMaduro}%` }} className="text-center text-amber-400 truncate px-0.5">
+            Saíram {pct(data.abandonoMaduro, s)}
+          </div>
+        )}
+        {data.clicaramCTA > 0 && (
+          <div style={{ width: `${pCTA}%` }} className="text-center text-cyan-400 truncate px-0.5">
+            CTA {pct(data.clicaramCTA, s)}
+          </div>
+        )}
+      </div>
+
+      {/* ── Linhas tracejadas conectando CTA → drilldown ── */}
+      {data.clicaramCTA > 0 && (
+        <>
+          <div className="relative h-5 mb-1" style={{ marginLeft: `${ctaOffset}%` }}>
+            <div
+              className="absolute top-0 left-0 h-full border-l-2 border-dashed border-cyan-500/40"
+            />
+            <div
+              className="absolute top-0 h-full border-r-2 border-dashed border-cyan-500/40"
+              style={{ right: `${100 - pCTA}%`, left: 'auto', width: 0, marginLeft: 'auto', position: 'absolute', left: `${pCTA}%` } as any}
+            />
+            {/* Linha horizontal tracejada */}
+            <div
+              className="absolute bottom-0 border-b-2 border-dashed border-cyan-500/40"
+              style={{ left: 0, width: `${pCTA}%` }}
+            />
+          </div>
+
+          {/* ── Nível 2: CTA se decompondo ── */}
+          <div
+            className="flex mb-1 overflow-hidden rounded-lg"
+            style={{ marginLeft: `${ctaOffset}%`, width: `${pCTA}%` }}
+          >
+            {data.abandonaramPopup > 0 && (
+              <div
+                className="h-8 bg-red-500/30 flex items-center justify-center border-r border-[var(--surface-100)]"
+                style={{ width: `${pAbandPopup}%` }}
+                title={`Abandonaram popup: ${data.abandonaramPopup}`}
+              >
+                {pAbandPopup > 15 && <span className="text-xs font-bold text-red-400">{data.abandonaramPopup}</span>}
+              </div>
+            )}
+            {data.completaram > 0 && (
+              <div
+                className="h-8 bg-emerald-500/30 flex items-center justify-center"
+                style={{ width: `${pCompletaram}%` }}
+                title={`Enviaram form: ${data.completaram}`}
+              >
+                {pCompletaram > 15 && <span className="text-xs font-bold text-emerald-400">{data.completaram}</span>}
+              </div>
+            )}
+          </div>
+
+          {/* Legenda nível 2 */}
+          <div
+            className="flex text-[10px] mb-3"
+            style={{ marginLeft: `${ctaOffset}%`, width: `${pCTA}%` }}
+          >
+            {data.abandonaramPopup > 0 && (
+              <div style={{ width: `${pAbandPopup}%` }} className="text-center text-red-400 truncate px-0.5">
+                Abandon. {pct(data.abandonaramPopup, data.clicaramCTA)}
+              </div>
+            )}
+            {data.completaram > 0 && (
+              <div style={{ width: `${pCompletaram}%` }} className="text-center text-emerald-400 truncate px-0.5">
+                Leads {pct(data.completaram, data.clicaramCTA)}
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   )
 }
