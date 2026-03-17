@@ -81,11 +81,13 @@ type StatusFilter = 'todos' | 'completo' | 'abandonado' | 'contatado' | 'convert
 type Periodo = 'hoje' | 'ontem' | '7d' | '4w'
 
 type FunnelData = {
-  sessions: number
-  ctaClicks: number
-  popupOpened: number
-  completed: number
-  abandoned: number
+  visitantesUnicos: number
+  sessoes: number
+  bouncePrecoce: number    // <15s sem clicar CTA
+  abandonoMaduro: number   // ≥15s sem clicar CTA
+  clicaramCTA: number
+  abandonaramPopup: number
+  completaram: number
 }
 
 // ============================================
@@ -187,77 +189,71 @@ function pct(a: number, b: number): string {
 // Funnel Bar Component
 // ============================================
 function FunnelBar({ data }: { data: FunnelData }) {
-  const steps = [
-    { label: 'Visitantes', value: data.sessions, icon: Eye, color: 'text-purple-400', bg: 'bg-purple-900/30' },
-    { label: 'Clicaram CTA', value: data.ctaClicks, icon: MousePointerClick, color: 'text-cyan-400', bg: 'bg-cyan-900/30' },
-    { label: 'Abriram Popup', value: data.popupOpened, icon: Users, color: 'text-blue-400', bg: 'bg-blue-900/30' },
-    { label: 'Completaram', value: data.completed, icon: CheckCircle2, color: 'text-emerald-400', bg: 'bg-emerald-900/30' },
-  ]
-
-  const maxVal = Math.max(...steps.map(s => s.value), 1)
-
   return (
     <div className="card p-4 mb-6">
       <h3 className="text-sm font-semibold text-[var(--surface-500)] mb-4 uppercase tracking-wider">Funil de Conversão</h3>
 
-      {/* Barras do funil */}
-      <div className="flex items-end gap-2 md:gap-4">
-        {steps.map((step, i) => {
-          const prev = i > 0 ? steps[i - 1].value : null
-          const convRate = prev && prev > 0 ? pct(step.value, prev) : null
-          const barHeight = Math.max((step.value / maxVal) * 100, 8)
-
-          return (
-            <div key={step.label} className="flex-1 flex flex-col items-center gap-1">
-              {/* Barra */}
-              <div className="w-full relative" style={{ height: '100px' }}>
-                <div
-                  className={`absolute bottom-0 w-full rounded-t-md ${step.bg} transition-all duration-500`}
-                  style={{ height: `${barHeight}%` }}
-                />
-              </div>
-
-              {/* Valor */}
-              <span className={`text-lg md:text-xl font-bold ${step.color}`}>
-                {step.value}
-              </span>
-
-              {/* Label */}
-              <div className="flex flex-col items-center gap-0.5">
-                <step.icon className={`h-4 w-4 ${step.color}`} />
-                <span className="text-[10px] md:text-xs text-[var(--surface-500)] text-center leading-tight">
-                  {step.label}
-                </span>
-              </div>
-
-              {/* Taxa de conversão do step anterior → este */}
-              {convRate !== null && (
-                <span className="text-[10px] text-emerald-400 font-medium">
-                  {convRate}
-                </span>
-              )}
-            </div>
-          )
-        })}
+      {/* Linha 1: Visitantes e Sessões */}
+      <div className="flex gap-3 mb-4">
+        <div className="flex-1 rounded-lg bg-purple-900/20 p-3 text-center">
+          <Eye className="h-4 w-4 text-purple-400 mx-auto mb-1" />
+          <p className="text-xl md:text-2xl font-bold text-purple-400">{data.visitantesUnicos}</p>
+          <p className="text-[10px] md:text-xs text-[var(--surface-500)]">Visitantes únicos</p>
+        </div>
+        <div className="flex items-center">
+          <ArrowRight className="h-4 w-4 text-[var(--surface-400)]" />
+        </div>
+        <div className="flex-1 rounded-lg bg-blue-900/20 p-3 text-center">
+          <Users className="h-4 w-4 text-blue-400 mx-auto mb-1" />
+          <p className="text-xl md:text-2xl font-bold text-blue-400">{data.sessoes}</p>
+          <p className="text-[10px] md:text-xs text-[var(--surface-500)]">Sessões</p>
+        </div>
       </div>
 
-      {/* Resumo abaixo: abandonos + taxa geral */}
-      <div className="flex items-center justify-between mt-4 pt-3 border-t border-[var(--surface-200)]">
-        <div className="flex items-center gap-4">
-          <span className="flex items-center gap-1.5 text-sm">
-            <TrendingDown className="h-4 w-4 text-red-400" />
-            <span className="text-red-400 font-semibold">{data.abandoned}</span>
-            <span className="text-[var(--surface-500)]">abandonaram</span>
-            {data.popupOpened > 0 && (
-              <span className="text-xs text-[var(--surface-400)]">
-                ({pct(data.abandoned, data.popupOpened)} dos popups)
-              </span>
-            )}
-          </span>
+      {/* Linha 2: De-para das sessões */}
+      <div className="grid grid-cols-4 gap-2 mb-4">
+        {/* Bounce */}
+        <div className="rounded-lg bg-orange-900/15 p-2.5 text-center">
+          <p className="text-lg font-bold text-orange-400">{data.bouncePrecoce}</p>
+          <p className="text-[10px] text-[var(--surface-500)] leading-tight">Bounce</p>
+          <p className="text-[9px] text-[var(--surface-400)]">&lt;15s</p>
+          {data.sessoes > 0 && <p className="text-[10px] text-orange-400 font-medium mt-0.5">{pct(data.bouncePrecoce, data.sessoes)}</p>}
         </div>
-        {data.sessions > 0 && (
+
+        {/* Abandono maduro */}
+        <div className="rounded-lg bg-amber-900/15 p-2.5 text-center">
+          <p className="text-lg font-bold text-amber-400">{data.abandonoMaduro}</p>
+          <p className="text-[10px] text-[var(--surface-500)] leading-tight">Saíram sem clicar</p>
+          <p className="text-[9px] text-[var(--surface-400)]">&ge;15s</p>
+          {data.sessoes > 0 && <p className="text-[10px] text-amber-400 font-medium mt-0.5">{pct(data.abandonoMaduro, data.sessoes)}</p>}
+        </div>
+
+        {/* Abandonaram popup */}
+        <div className="rounded-lg bg-red-900/15 p-2.5 text-center">
+          <p className="text-lg font-bold text-red-400">{data.abandonaramPopup}</p>
+          <p className="text-[10px] text-[var(--surface-500)] leading-tight">Abandonaram popup</p>
+          <p className="text-[9px] text-[var(--surface-400)]">sem enviar</p>
+          {data.clicaramCTA > 0 && <p className="text-[10px] text-red-400 font-medium mt-0.5">{pct(data.abandonaramPopup, data.clicaramCTA)}</p>}
+        </div>
+
+        {/* Completaram */}
+        <div className="rounded-lg bg-emerald-900/15 p-2.5 text-center">
+          <p className="text-lg font-bold text-emerald-400">{data.completaram}</p>
+          <p className="text-[10px] text-[var(--surface-500)] leading-tight">Enviaram form</p>
+          <p className="text-[9px] text-[var(--surface-400)]">leads</p>
+          {data.clicaramCTA > 0 && <p className="text-[10px] text-emerald-400 font-medium mt-0.5">{pct(data.completaram, data.clicaramCTA)}</p>}
+        </div>
+      </div>
+
+      {/* Rodapé: taxas principais */}
+      <div className="flex items-center justify-between pt-3 border-t border-[var(--surface-200)]">
+        <span className="text-sm text-[var(--surface-400)]">
+          CTA: <strong className="text-cyan-400">{data.clicaramCTA}</strong> clicaram
+          {data.sessoes > 0 && <span className="text-[var(--surface-400)]"> ({pct(data.clicaramCTA, data.sessoes)} das sessões)</span>}
+        </span>
+        {data.sessoes > 0 && (
           <span className="text-sm text-[var(--surface-400)]">
-            Conversão geral: <strong className="text-emerald-400">{pct(data.completed, data.sessions)}</strong>
+            Conversão: <strong className="text-emerald-400">{pct(data.completaram, data.sessoes)}</strong>
           </span>
         )}
       </div>
@@ -334,7 +330,7 @@ export default function LeadsPage() {
   const buscaDebounced = useDebounce(busca, 300)
 
   // Funnel
-  const [funnel, setFunnel] = useState<FunnelData>({ sessions: 0, ctaClicks: 0, popupOpened: 0, completed: 0, abandoned: 0 })
+  const [funnel, setFunnel] = useState<FunnelData>({ visitantesUnicos: 0, sessoes: 0, bouncePrecoce: 0, abandonoMaduro: 0, clicaramCTA: 0, abandonaramPopup: 0, completaram: 0 })
   const [showFunnel, setShowFunnel] = useState(true)
 
   // Status counts
@@ -345,23 +341,38 @@ export default function LeadsPage() {
 
   const carregarFunil = useCallback(async () => {
     const { from, to } = periodoRange(periodo)
-    const [sessionsRes, ctaRes, leadsRes] = await Promise.all([
-      supabase.from('sessions').select('*', { count: 'exact', head: true }).gte('created_at', from).lt('created_at', to),
-      supabase.from('sessions').select('*', { count: 'exact', head: true }).eq('cta_clicked', true).gte('created_at', from).lt('created_at', to),
+    const [sessionsRes, leadsRes] = await Promise.all([
+      supabase.from('sessions').select('visitor_id, time_on_page_sec, cta_clicked').gte('created_at', from).lt('created_at', to),
       supabase.from('leads').select('status').gte('created_at', from).lt('created_at', to),
     ])
 
+    const sessionsData = sessionsRes.data || []
     const allLeadsData = leadsRes.data || []
+
+    // Visitantes únicos (distinct visitor_id)
+    const uniqueVisitors = new Set(sessionsData.map((s: any) => s.visitor_id)).size
+    const totalSessoes = sessionsData.length
+
+    // Sessões sem CTA
+    const semCTA = sessionsData.filter((s: any) => !s.cta_clicked)
+    const bouncePrecoce = semCTA.filter((s: any) => (s.time_on_page_sec || 0) < 15).length
+    const abandonoMaduro = semCTA.filter((s: any) => (s.time_on_page_sec || 0) >= 15).length
+
+    // Sessões com CTA
+    const clicaramCTA = sessionsData.filter((s: any) => s.cta_clicked).length
+
+    // Leads
     const completed = allLeadsData.filter((l: any) => l.status === 'completo' || l.status === 'contatado' || l.status === 'convertido').length
     const abandoned = allLeadsData.filter((l: any) => l.status === 'abandonado').length
-    const popupTotal = allLeadsData.length
 
     setFunnel({
-      sessions: sessionsRes.count || 0,
-      ctaClicks: ctaRes.count || 0,
-      popupOpened: popupTotal,
-      completed,
-      abandoned,
+      visitantesUnicos: uniqueVisitors,
+      sessoes: totalSessoes,
+      bouncePrecoce,
+      abandonoMaduro,
+      clicaramCTA,
+      abandonaramPopup: abandoned,
+      completaram: completed,
     })
   }, [periodo])
 
