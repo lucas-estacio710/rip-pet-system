@@ -395,7 +395,7 @@ export default function LeadsPage() {
       updates.convertido_em = new Date().toISOString()
     }
 
-    await supabase.from('leads').update(updates).eq('id', leadId)
+    await (supabase as any).from('leads').update(updates).eq('id', leadId)
     carregarLeads()
     carregarContagens()
     carregarFunil()
