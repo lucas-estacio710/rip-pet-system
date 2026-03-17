@@ -577,9 +577,23 @@ function FichaSantosContent() {
                     <option value="595">🇵🇾 +595</option>
                     <option value="56">🇨🇱 +56</option>
                     <option value="57">🇨🇴 +57</option>
+                    <option value="51">🇵🇪 +51</option>
+                    <option value="591">🇧🇴 +591</option>
+                    <option value="593">🇪🇨 +593</option>
+                    <option value="58">🇻🇪 +58</option>
+                    <option value="52">🇲🇽 +52</option>
                     <option value="34">🇪🇸 +34</option>
                     <option value="39">🇮🇹 +39</option>
+                    <option value="33">🇫🇷 +33</option>
+                    <option value="49">🇩🇪 +49</option>
+                    <option value="44">🇬🇧 +44</option>
                     <option value="81">🇯🇵 +81</option>
+                    <option value="86">🇨🇳 +86</option>
+                    <option value="82">🇰🇷 +82</option>
+                    <option value="61">🇦🇺 +61</option>
+                    <option value="27">🇿🇦 +27</option>
+                    <option value="972">🇮🇱 +972</option>
+                    <option value="91">🇮🇳 +91</option>
                   </select>
                   <input className={`flex-1 ${inputClass('telefone')}`} value={form.telefone} onChange={e => updateField('telefone', maskPhone(e.target.value))} placeholder="(11) 99999-9999" inputMode="tel" />
                 </div>
@@ -591,26 +605,16 @@ function FichaSantosContent() {
                 <input className={inputClass('email')} type="email" value={form.email} onChange={e => updateField('email', e.target.value)} placeholder="email@exemplo.com" />
               </div>
 
-              {/* CEP + UF */}
-              <div className="grid grid-cols-5 gap-3">
-                <div className="col-span-3">
-                  <label className={labelClass}>CEP <span className="text-red-400">*</span></label>
-                  <div className="flex gap-2">
-                    <input className={`flex-1 ${inputClass('cep')}`} value={form.cep} onChange={e => updateField('cep', maskCEP(e.target.value))} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), buscarCEP())} placeholder="00000-000" inputMode="numeric" />
-                    <button type="button" onClick={buscarCEP} disabled={buscandoCep} className="px-3 py-3 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors whitespace-nowrap">
-                      {buscandoCep ? 'Buscando...' : 'Buscar Endereço'}
-                    </button>
-                  </div>
-                  {errors.cep && <p className={errorClass}>{errors.cep}</p>}
+              {/* CEP + Buscar */}
+              <div>
+                <label className={labelClass}>CEP <span className="text-red-400">*</span></label>
+                <div className="flex gap-2">
+                  <input className={`flex-1 ${inputClass('cep')}`} value={form.cep} onChange={e => updateField('cep', maskCEP(e.target.value))} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), buscarCEP())} placeholder="00000-000" inputMode="numeric" />
+                  <button type="button" onClick={buscarCEP} disabled={buscandoCep} className="px-4 py-3 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors text-center leading-tight min-w-[80px]">
+                    {buscandoCep ? 'Buscando...' : <>Buscar<br/>Endereço</>}
+                  </button>
                 </div>
-                <div className="col-span-2">
-                  <label className={labelClass}>UF <span className="text-red-400">*</span></label>
-                  <select className={inputClass('estado')} value={form.estado} onChange={e => updateField('estado', e.target.value)}>
-                    <option value="">-</option>
-                    {UF_LIST.map(uf => <option key={uf} value={uf}>{uf}</option>)}
-                  </select>
-                  {errors.estado && <p className={errorClass}>{errors.estado}</p>}
-                </div>
+                {errors.cep && <p className={errorClass}>{errors.cep}</p>}
               </div>
 
               <div>
@@ -625,10 +629,21 @@ function FichaSantosContent() {
                 {errors.bairro && <p className={errorClass}>{errors.bairro}</p>}
               </div>
 
-              <div>
-                <label className={labelClass}>Cidade <span className="text-red-400">*</span></label>
-                <input className={inputClass('cidade')} value={form.cidade} onChange={e => updateField('cidade', e.target.value)} />
-                {errors.cidade && <p className={errorClass}>{errors.cidade}</p>}
+              {/* Cidade + UF */}
+              <div className="grid grid-cols-4 gap-3">
+                <div className="col-span-3">
+                  <label className={labelClass}>Cidade <span className="text-red-400">*</span></label>
+                  <input className={inputClass('cidade')} value={form.cidade} onChange={e => updateField('cidade', e.target.value)} />
+                  {errors.cidade && <p className={errorClass}>{errors.cidade}</p>}
+                </div>
+                <div>
+                  <label className={labelClass}>UF <span className="text-red-400">*</span></label>
+                  <select className={inputClass('estado')} value={form.estado} onChange={e => updateField('estado', e.target.value)}>
+                    <option value="">-</option>
+                    {UF_LIST.map(uf => <option key={uf} value={uf}>{uf}</option>)}
+                  </select>
+                  {errors.estado && <p className={errorClass}>{errors.estado}</p>}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
