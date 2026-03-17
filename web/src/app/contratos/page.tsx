@@ -161,7 +161,6 @@ type StatusCount = {
 
 // Configuração do flow de status
 const STATUS_FLOW = [
-  { key: 'preventivo', label: 'Preventivo', short: 'PRV', color: 'yellow', icon: '⏳' },
   { key: 'ativo', label: 'Ativo', short: 'ATV', color: 'red', icon: '✝️' },
   { key: 'pinda', label: 'Pinda', short: 'PIN', color: 'orange', icon: '💛' },
   { key: 'retorno', label: 'Retorno', short: 'RET', color: 'blue', icon: '🛍️' },
@@ -537,7 +536,7 @@ function ContratosContent() {
 
   async function carregarContagens() {
     // Carregar contagem por status usando count do Supabase (sem limite de 1000)
-    const statusList = ['preventivo', 'ativo', 'pinda', 'retorno', 'pendente', 'finalizado']
+    const statusList = ['ativo', 'pinda', 'retorno', 'pendente', 'finalizado']
     const counts: Record<string, number> = {}
     let totalCount = 0
 

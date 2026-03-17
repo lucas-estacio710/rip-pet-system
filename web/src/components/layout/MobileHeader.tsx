@@ -15,6 +15,7 @@ const THEME_ICONS: Record<Theme, string> = {
 const PAGE_TITLES: Record<string, string> = {
   '/dashboard': 'Dashboard',
   '/contratos': 'Contratos',
+  '/preventivos': 'Preventivos',
   '/supindas': 'Encaminhamentos',
   '/estoque': 'Estoque',
   '/tutores': 'Tutores',

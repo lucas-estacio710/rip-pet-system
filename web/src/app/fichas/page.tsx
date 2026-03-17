@@ -206,8 +206,8 @@ export default function FichasPage() {
               <Clock className="h-5 w-5" />
             </div>
             <div className="text-left">
-              <p className="text-sm font-medium text-[var(--surface-500)]">Pendentes</p>
-              <p className="text-2xl font-bold text-[var(--surface-800)]">{pendentesCount}</p>
+              <p className={`text-sm font-medium ${filtro === 'pendentes' ? 'text-amber-400' : 'text-[var(--shell-text-muted)]'}`}>Pendentes</p>
+              <p className="text-2xl font-bold text-[var(--shell-text)]">{pendentesCount}</p>
             </div>
           </div>
         </button>
@@ -225,8 +225,8 @@ export default function FichasPage() {
               <CheckCircle2 className="h-5 w-5" />
             </div>
             <div className="text-left">
-              <p className="text-sm font-medium text-[var(--surface-500)]">Processadas</p>
-              <p className="text-2xl font-bold text-[var(--surface-800)]">{processadasCount}</p>
+              <p className={`text-sm font-medium ${filtro === 'processadas' ? 'text-green-400' : 'text-[var(--shell-text-muted)]'}`}>Processadas</p>
+              <p className="text-2xl font-bold text-[var(--shell-text)]">{processadasCount}</p>
             </div>
           </div>
         </button>
