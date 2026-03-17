@@ -107,6 +107,8 @@ function FichaSantosContent() {
   const [buscandoCep, setBuscandoCep] = useState(false)
   const [autosaveMsg, setAutosaveMsg] = useState('')
   const autosaveTimer = useRef<NodeJS.Timeout | null>(null)
+  const easterEggSeq = useRef<string[]>([])
+  const easterEggTimer = useRef<NodeJS.Timeout | null>(null)
 
   // Forçar tema claro nesta página pública
   useEffect(() => {
@@ -163,6 +165,87 @@ function FichaSantosContent() {
       } catch { /* ignore */ }
     }, 1000)
   }, [])
+
+  // 🥚 Easter egg: clica "Unidade Santos" → logo → "Unidade Santos"
+  function handleEasterEgg(element: 'santos' | 'logo') {
+    if (easterEggTimer.current) clearTimeout(easterEggTimer.current)
+    easterEggSeq.current.push(element)
+    easterEggTimer.current = setTimeout(() => { easterEggSeq.current = [] }, 3000)
+    const seq = easterEggSeq.current
+    if (seq.length >= 3 && seq[seq.length - 3] === 'santos' && seq[seq.length - 2] === 'logo' && seq[seq.length - 1] === 'santos') {
+      easterEggSeq.current = []
+      fillRandom()
+    }
+  }
+
+  function fillRandom() {
+    const pick = <T,>(arr: T[]) => arr[Math.floor(Math.random() * arr.length)]
+    const randDigits = (n: number) => Array.from({ length: n }, () => Math.floor(Math.random() * 10)).join('')
+    const nomes = ['Maria Silva', 'João Santos', 'Ana Oliveira', 'Pedro Costa', 'Carla Souza', 'Lucas Ferreira', 'Juliana Lima', 'Rafael Almeida']
+    const pets = ['Rex', 'Luna', 'Thor', 'Mel', 'Bob', 'Nina', 'Max', 'Lola', 'Simba', 'Pipoca', 'Amora', 'Zeus']
+    const racas = ['SRD', 'Shih Tzu', 'Golden Retriever', 'Poodle', 'Labrador', 'Bulldog', 'Persa', 'Siamês', 'Vira-lata']
+    const cores = ['Branco', 'Preto', 'Caramelo', 'Cinza', 'Marrom', 'Malhado', 'Tricolor', 'Dourado']
+    const bairros = ['Gonzaga', 'Boqueirão', 'Embaré', 'Aparecida', 'Ponta da Praia', 'Vila Mathias', 'José Menino', 'Campo Grande']
+    const ruas = ['Rua das Flores', 'Av. Ana Costa', 'Rua Oswaldo Cruz', 'Av. Conselheiro Nébias', 'Rua Carvalho de Mendonça']
+    const especie = pick(['canina', 'felina'] as const)
+    const genero = pick(['macho', 'femea'] as const)
+    const cremacao = pick(['individual', 'coletiva'] as const)
+    const pagamento = pick(['pix', 'dinheiro', 'debito', 'credito'])
+    const velorio = pick(['Sim', 'Decidirei depois', 'Não'])
+    const acomp = pick(['Vídeo-chamada ao vivo', 'Vídeo gravado', 'Presencial na Matriz', 'Decidirei depois', 'Não desejo'])
+    const conheceu = pick([['Google'], ['Veterinário'], ['Parente/Amigo'], ['Instagram/Facebook'], ['Já utilizei a R.I.P. Pet']])
+
+    // Gerar CPF válido
+    const cpfDigits = Array.from({ length: 9 }, () => Math.floor(Math.random() * 10))
+    let s = 0
+    for (let i = 0; i < 9; i++) s += cpfDigits[i] * (10 - i)
+    let r = 11 - (s % 11); cpfDigits.push(r >= 10 ? 0 : r)
+    s = 0
+    for (let i = 0; i < 10; i++) s += cpfDigits[i] * (11 - i)
+    r = 11 - (s % 11); cpfDigits.push(r >= 10 ? 0 : r)
+    const cpfRaw = cpfDigits.join('')
+
+    const randomForm: FormData = {
+      _hp: '',
+      nomeCompleto: pick(nomes),
+      outrosTutores: [],
+      cpf: maskCPF(cpfRaw),
+      codigoPais: '55',
+      codigoPaisCustom: '',
+      telefone: maskPhone(`13${randDigits(9)}`),
+      email: `teste${randDigits(4)}@email.com`,
+      cep: maskCEP('11060001'),
+      estado: 'SP',
+      cidade: 'Santos',
+      bairro: pick(bairros),
+      endereco: pick(ruas),
+      numero: String(Math.floor(Math.random() * 2000) + 1),
+      complemento: pick(['', '', 'Apto 42', 'Casa 2', 'Bloco B']),
+      nomePet: pick(pets),
+      idade: String(Math.floor(Math.random() * 18) + 1),
+      especie,
+      genero,
+      raca: pick(racas),
+      cor: pick(cores),
+      peso: String(Math.floor(Math.random() * 40) + 1),
+      localizacao: pick(['Residência', 'Hospital/Clínica', 'Unidade Canal 6']),
+      localizacaoOutra: '',
+      cremacao,
+      pagamento,
+      parcelas: pagamento === 'credito' ? pick(['2', '3', '4', '5']) : '',
+      velorio,
+      acompanhamento: acomp,
+      comoConheceu: conheceu,
+      veterinarioEspecificar: conheceu.includes('Veterinário') ? 'Dra. Ana no Pet Care' : '',
+      outroEspecificar: '',
+      observacoes: pick(['', '', 'Teste dev - ignorar', 'Pet muito dócil']),
+    }
+
+    setForm(randomForm)
+    setErrors({})
+    setStep(1)
+    console.log('🥚 Easter egg ativado! Campos preenchidos com dados aleatórios.')
+  }
 
   function updateField<K extends keyof FormData>(key: K, value: FormData[K]) {
     setForm(prev => {
@@ -477,12 +560,12 @@ function FichaSantosContent() {
       {/* Header */}
       <div className="bg-gradient-to-r from-[#1e5a96] to-[#2d7bb8] px-4 py-5 text-white">
         <div className="max-w-lg mx-auto flex items-center gap-4">
-          <img src="/logo_rounded.png" alt="R.I.P. Pet" className="w-12 h-12 rounded-full" />
+          <img src="/logo_rounded.png" alt="R.I.P. Pet" className="w-12 h-12 rounded-full cursor-pointer" onClick={() => handleEasterEgg('logo')} />
           <div>
             <h1 className="text-xl font-bold">R.I.P. Pet</h1>
             <p className="text-sm opacity-90">Ficha de Contrato e Translado</p>
           </div>
-          <span className="ml-auto text-xs bg-white/20 px-3 py-1 rounded-full font-semibold">Unidade Santos</span>
+          <span className="ml-auto text-xs bg-white/20 px-3 py-1 rounded-full font-semibold cursor-pointer select-none" onClick={() => handleEasterEgg('santos')}>Unidade Santos</span>
         </div>
       </div>
 
