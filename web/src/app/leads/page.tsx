@@ -210,9 +210,9 @@ function FunnelBar({ data }: { data: FunnelData }) {
         </div>
       </div>
 
-      {/* Linha 2: De-para das sessões */}
-      <div className="grid grid-cols-4 gap-2 mb-4">
-        {/* Bounce */}
+      {/* Linha 2: Destino das sessões (soma = sessões) */}
+      <p className="text-[10px] text-[var(--surface-400)] mb-1.5 uppercase tracking-wider">Sessões →</p>
+      <div className="grid grid-cols-3 gap-2 mb-4">
         <div className="rounded-lg bg-orange-900/15 p-2.5 text-center">
           <p className="text-lg font-bold text-orange-400">{data.bouncePrecoce}</p>
           <p className="text-[10px] text-[var(--surface-500)] leading-tight">Bounce</p>
@@ -220,7 +220,6 @@ function FunnelBar({ data }: { data: FunnelData }) {
           {data.sessoes > 0 && <p className="text-[10px] text-orange-400 font-medium mt-0.5">{pct(data.bouncePrecoce, data.sessoes)}</p>}
         </div>
 
-        {/* Abandono maduro */}
         <div className="rounded-lg bg-amber-900/15 p-2.5 text-center">
           <p className="text-lg font-bold text-amber-400">{data.abandonoMaduro}</p>
           <p className="text-[10px] text-[var(--surface-500)] leading-tight">Saíram sem clicar</p>
@@ -228,19 +227,26 @@ function FunnelBar({ data }: { data: FunnelData }) {
           {data.sessoes > 0 && <p className="text-[10px] text-amber-400 font-medium mt-0.5">{pct(data.abandonoMaduro, data.sessoes)}</p>}
         </div>
 
-        {/* Abandonaram popup */}
+        <div className="rounded-lg bg-cyan-900/15 p-2.5 text-center">
+          <p className="text-lg font-bold text-cyan-400">{data.clicaramCTA}</p>
+          <p className="text-[10px] text-[var(--surface-500)] leading-tight">Clicaram CTA</p>
+          <p className="text-[9px] text-[var(--surface-400)]">zap/tel</p>
+          {data.sessoes > 0 && <p className="text-[10px] text-cyan-400 font-medium mt-0.5">{pct(data.clicaramCTA, data.sessoes)}</p>}
+        </div>
+      </div>
+
+      {/* Linha 3: Destino dos cliques CTA (soma = clicaram CTA) */}
+      <p className="text-[10px] text-[var(--surface-400)] mb-1.5 uppercase tracking-wider">Clicaram CTA →</p>
+      <div className="grid grid-cols-2 gap-2 mb-4">
         <div className="rounded-lg bg-red-900/15 p-2.5 text-center">
           <p className="text-lg font-bold text-red-400">{data.abandonaramPopup}</p>
           <p className="text-[10px] text-[var(--surface-500)] leading-tight">Abandonaram popup</p>
-          <p className="text-[9px] text-[var(--surface-400)]">sem enviar</p>
           {data.clicaramCTA > 0 && <p className="text-[10px] text-red-400 font-medium mt-0.5">{pct(data.abandonaramPopup, data.clicaramCTA)}</p>}
         </div>
 
-        {/* Completaram */}
         <div className="rounded-lg bg-emerald-900/15 p-2.5 text-center">
           <p className="text-lg font-bold text-emerald-400">{data.completaram}</p>
           <p className="text-[10px] text-[var(--surface-500)] leading-tight">Enviaram form</p>
-          <p className="text-[9px] text-[var(--surface-400)]">leads</p>
           {data.clicaramCTA > 0 && <p className="text-[10px] text-emerald-400 font-medium mt-0.5">{pct(data.completaram, data.clicaramCTA)}</p>}
         </div>
       </div>
