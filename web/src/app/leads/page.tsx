@@ -78,6 +78,7 @@ type Session = {
 }
 
 type StatusFilter = 'todos' | 'completo' | 'abandonado' | 'contatado' | 'convertido'
+type Periodo = 'hoje' | 'ontem' | '7d' | '4w'
 
 type FunnelData = {
   sessions: number
@@ -140,6 +141,40 @@ function stepLabel(step: string | null): string {
     case 'grande_porte': return 'Grande porte'
     case 'nome': return 'Nome'
     default: return step || '-'
+  }
+}
+
+const PERIODOS: { key: Periodo; label: string }[] = [
+  { key: 'hoje', label: 'Hoje' },
+  { key: 'ontem', label: 'Ontem' },
+  { key: '7d', label: '7 dias' },
+  { key: '4w', label: '4 semanas' },
+]
+
+function periodoRange(periodo: Periodo): { from: string; to: string } {
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const tomorrow = new Date(today)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+
+  switch (periodo) {
+    case 'hoje':
+      return { from: today.toISOString(), to: tomorrow.toISOString() }
+    case 'ontem': {
+      const ontem = new Date(today)
+      ontem.setDate(ontem.getDate() - 1)
+      return { from: ontem.toISOString(), to: today.toISOString() }
+    }
+    case '7d': {
+      const d7 = new Date(today)
+      d7.setDate(d7.getDate() - 7)
+      return { from: d7.toISOString(), to: tomorrow.toISOString() }
+    }
+    case '4w': {
+      const d28 = new Date(today)
+      d28.setDate(d28.getDate() - 28)
+      return { from: d28.toISOString(), to: tomorrow.toISOString() }
+    }
   }
 }
 
@@ -284,6 +319,7 @@ export default function LeadsPage() {
   const [leads, setLeads] = useState<Lead[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('todos')
+  const [periodo, setPeriodo] = useState<Periodo>('hoje')
   const [busca, setBusca] = useState('')
   const buscaDebounced = useDebounce(busca, 300)
 
@@ -298,10 +334,11 @@ export default function LeadsPage() {
   const [allLeads, setAllLeads] = useState<Lead[]>([])
 
   const carregarFunil = useCallback(async () => {
+    const { from, to } = periodoRange(periodo)
     const [sessionsRes, ctaRes, leadsRes] = await Promise.all([
-      supabase.from('sessions').select('*', { count: 'exact', head: true }),
-      supabase.from('sessions').select('*', { count: 'exact', head: true }).eq('cta_clicked', true),
-      supabase.from('leads').select('status', { count: 'exact' }),
+      supabase.from('sessions').select('*', { count: 'exact', head: true }).gte('created_at', from).lt('created_at', to),
+      supabase.from('sessions').select('*', { count: 'exact', head: true }).eq('cta_clicked', true).gte('created_at', from).lt('created_at', to),
+      supabase.from('leads').select('status').gte('created_at', from).lt('created_at', to),
     ])
 
     const allLeadsData = leadsRes.data || []
@@ -316,10 +353,11 @@ export default function LeadsPage() {
       completed,
       abandoned,
     })
-  }, [])
+  }, [periodo])
 
   const carregarContagens = useCallback(async () => {
-    const { data } = await supabase.from('leads').select('status')
+    const { from, to } = periodoRange(periodo)
+    const { data } = await supabase.from('leads').select('status').gte('created_at', from).lt('created_at', to)
     if (!data) return
 
     const c: Record<string, number> = { todos: data.length }
@@ -329,14 +367,17 @@ export default function LeadsPage() {
     })
     setCounts(c)
     setAllLeads(data as any)
-  }, [])
+  }, [periodo])
 
   const carregarLeads = useCallback(async () => {
     setLoading(true)
+    const { from, to } = periodoRange(periodo)
 
     let query = supabase
       .from('leads')
       .select('*')
+      .gte('created_at', from)
+      .lt('created_at', to)
       .order('created_at', { ascending: false })
       .limit(200)
 
@@ -365,12 +406,13 @@ export default function LeadsPage() {
     }
 
     setLoading(false)
-  }, [statusFilter, buscaDebounced])
+  }, [statusFilter, buscaDebounced, periodo])
 
   // Load data + realtime
   useEffect(() => {
     carregarFunil()
     carregarContagens()
+    carregarLeads()
 
     const channel = supabase
       .channel('leads-realtime-v3')
@@ -382,7 +424,7 @@ export default function LeadsPage() {
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [])
+  }, [periodo])
 
   useEffect(() => {
     carregarLeads()
@@ -454,6 +496,23 @@ export default function LeadsPage() {
           {showFunnel ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           {showFunnel ? 'Esconder' : 'Funil'}
         </button>
+      </div>
+
+      {/* Filtros temporais */}
+      <div className="flex gap-1 mb-4">
+        {PERIODOS.map(p => (
+          <button
+            key={p.key}
+            onClick={() => setPeriodo(p.key)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+              periodo === p.key
+                ? 'bg-[var(--brand-600)] text-white shadow-sm'
+                : 'text-[var(--surface-500)] hover:text-[var(--surface-700)] hover:bg-[var(--surface-50)]'
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
       </div>
 
       {/* Funil de Conversão */}
