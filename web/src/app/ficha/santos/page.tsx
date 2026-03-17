@@ -476,7 +476,7 @@ function FichaSantosContent() {
       {/* Header */}
       <div className="bg-gradient-to-r from-[#1e5a96] to-[#2d7bb8] px-4 py-5 text-white">
         <div className="max-w-lg mx-auto flex items-center gap-4">
-          <span className="text-4xl">🐾</span>
+          <img src="/logo_rounded.png" alt="R.I.P. Pet" className="w-12 h-12 rounded-full" />
           <div>
             <h1 className="text-xl font-bold">R.I.P. Pet</h1>
             <p className="text-sm opacity-90">Ficha de Contrato e Translado</p>
