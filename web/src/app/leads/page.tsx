@@ -188,7 +188,7 @@ function pct(a: number, b: number): string {
 // ============================================
 // Funnel Drilldown Chart
 // ============================================
-function FunnelBar({ data }: { data: FunnelData }) {
+function FunnelBar({ data, leads }: { data: FunnelData; leads: Lead[] }) {
   const s = data.sessoes || 1
   const cta = data.clicaramCTA || 1
 
@@ -330,50 +330,50 @@ function FunnelBar({ data }: { data: FunnelData }) {
           </div>
         </>
       )}
-    </div>
-  )
-}
 
-// ============================================
-// Abandonment Breakdown
-// ============================================
-function AbandonmentBreakdown({ leads }: { leads: Lead[] }) {
-  const abandoned = leads.filter(l => l.status === 'abandonado' || (l.abandoned_at_step && l.status !== 'completo'))
-  if (abandoned.length === 0) return null
+      {/* Abandonos por step (dentro do funil) */}
+      {(() => {
+        const abandoned = leads.filter(l => l.status === 'abandonado' || (l.abandoned_at_step && l.status !== 'completo'))
+        if (abandoned.length === 0) return null
 
-  const byStep: Record<string, number> = {}
-  abandoned.forEach(l => {
-    const step = l.abandoned_at_step || 'desconhecido'
-    byStep[step] = (byStep[step] || 0) + 1
-  })
+        const byStep: Record<string, number> = {}
+        abandoned.forEach(l => {
+          const step = l.abandoned_at_step || 'desconhecido'
+          byStep[step] = (byStep[step] || 0) + 1
+        })
 
-  const total = abandoned.length
-  const sorted = Object.entries(byStep).sort((a, b) => b[1] - a[1])
+        const total = abandoned.length
+        const sorted = Object.entries(byStep)
+          .filter(([step]) => step !== 'desconhecido')
+          .sort((a, b) => b[1] - a[1])
 
-  return (
-    <div className="card p-4 mb-6">
-      <h3 className="text-sm font-semibold text-[var(--surface-500)] mb-3 uppercase tracking-wider">
-        Abandonos por Step
-      </h3>
-      <div className="space-y-2">
-        {sorted.map(([step, count]) => {
-          const width = Math.max((count / total) * 100, 5)
-          return (
-            <div key={step} className="flex items-center gap-3">
-              <span className="text-sm text-[var(--surface-600)] w-28 shrink-0">{stepLabel(step)}</span>
-              <div className="flex-1 h-6 bg-[var(--surface-100)] rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-red-500/30 rounded-full flex items-center px-2"
-                  style={{ width: `${width}%` }}
-                >
-                  <span className="text-xs font-semibold text-red-400">{count}</span>
-                </div>
-              </div>
-              <span className="text-xs text-[var(--surface-400)] w-10 text-right">{pct(count, total)}</span>
+        if (sorted.length === 0) return null
+
+        return (
+          <div className="mt-4 pt-3 border-t border-[var(--surface-200)]">
+            <p className="text-[10px] text-[var(--surface-400)] mb-2 uppercase tracking-wider">Abandonos por step</p>
+            <div className="space-y-1.5">
+              {sorted.map(([step, count]) => {
+                const width = Math.max((count / total) * 100, 8)
+                return (
+                  <div key={step} className="flex items-center gap-2">
+                    <span className="text-xs text-[var(--surface-600)] w-24 shrink-0 truncate">{stepLabel(step)}</span>
+                    <div className="flex-1 h-5 bg-[var(--surface-100)] rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-red-500/25 rounded-full flex items-center px-2"
+                        style={{ width: `${width}%` }}
+                      >
+                        <span className="text-[10px] font-semibold text-red-400">{count}</span>
+                      </div>
+                    </div>
+                    <span className="text-[10px] text-[var(--surface-400)] w-8 text-right">{pct(count, total)}</span>
+                  </div>
+                )
+              })}
             </div>
-          )
-        })}
-      </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
@@ -611,10 +611,7 @@ export default function LeadsPage() {
 
       {/* Funil de Conversão */}
       {showFunnel && (
-        <>
-          <FunnelBar data={funnel} />
-          <AbandonmentBreakdown leads={allLeads as Lead[]} />
-        </>
+        <FunnelBar data={funnel} leads={allLeads as Lead[]} />
       )}
 
       {/* Status Tabs */}
