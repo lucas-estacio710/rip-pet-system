@@ -52,6 +52,7 @@ type Lead = {
   abandoned_at_step: string | null
   popup_duration_sec: number | null
   funnel_duration_sec: number | null
+  unidade_code: string | null
 }
 
 type Session = {
@@ -79,6 +80,13 @@ type Session = {
 
 type StatusFilter = 'todos' | 'completo' | 'abandonado' | 'contatado' | 'convertido'
 type Periodo = 'hoje' | 'ontem' | '7d' | '4w'
+type UnidadeFilter = 'todas' | 'ST' | 'SP'
+
+const UNIDADES: { key: UnidadeFilter; label: string }[] = [
+  { key: 'todas', label: 'Todas' },
+  { key: 'ST', label: 'Santos' },
+  { key: 'SP', label: 'São Paulo' },
+]
 
 type FunnelData = {
   visitantesUnicos: number
@@ -401,6 +409,7 @@ export default function LeadsPage() {
   const [periodo, setPeriodo] = useState<Periodo>('hoje')
   const [busca, setBusca] = useState('')
   const buscaDebounced = useDebounce(busca, 300)
+  const [unidade, setUnidade] = useState<UnidadeFilter>('todas')
 
   // Funnel
   const [funnel, setFunnel] = useState<FunnelData>({ visitantesUnicos: 0, sessoes: 0, bouncePrecoce: 0, abandonoMaduro: 0, clicaramCTA: 0, abandonaramPopup: 0, completaram: 0 })
@@ -414,10 +423,18 @@ export default function LeadsPage() {
 
   const carregarFunil = useCallback(async () => {
     const { from, to } = periodoRange(periodo)
-    const [sessionsRes, leadsRes] = await Promise.all([
-      supabase.from('sessions').select('visitor_id, time_on_page_sec, cta_clicked').gte('created_at', from).lt('created_at', to),
-      supabase.from('leads').select('status').gte('created_at', from).lt('created_at', to),
-    ])
+
+    let sessionsQuery = supabase.from('sessions').select('visitor_id, time_on_page_sec, cta_clicked, landing_page').gte('created_at', from).lt('created_at', to)
+    let leadsQuery = supabase.from('leads').select('status').gte('created_at', from).lt('created_at', to)
+
+    if (unidade !== 'todas') {
+      leadsQuery = leadsQuery.eq('unidade_code', unidade)
+      // Sessions não têm unidade_code, filtrar por landing_page
+      const path = unidade === 'ST' ? '/santos' : '/sao-paulo'
+      sessionsQuery = sessionsQuery.like('landing_page', `${path}%`)
+    }
+
+    const [sessionsRes, leadsRes] = await Promise.all([sessionsQuery, leadsQuery])
 
     const sessionsData = sessionsRes.data || []
     const allLeadsData = leadsRes.data || []
@@ -447,11 +464,13 @@ export default function LeadsPage() {
       abandonaramPopup: abandoned,
       completaram: completed,
     })
-  }, [periodo])
+  }, [periodo, unidade])
 
   const carregarContagens = useCallback(async () => {
     const { from, to } = periodoRange(periodo)
-    const { data } = await supabase.from('leads').select('status').gte('created_at', from).lt('created_at', to)
+    let query = supabase.from('leads').select('status').gte('created_at', from).lt('created_at', to)
+    if (unidade !== 'todas') query = query.eq('unidade_code', unidade)
+    const { data } = await query
     if (!data) return
 
     const c: Record<string, number> = { todos: data.length }
@@ -461,7 +480,7 @@ export default function LeadsPage() {
     })
     setCounts(c)
     setAllLeads(data as any)
-  }, [periodo])
+  }, [periodo, unidade])
 
   const carregarLeads = useCallback(async () => {
     setLoading(true)
@@ -474,6 +493,10 @@ export default function LeadsPage() {
       .lt('created_at', to)
       .order('created_at', { ascending: false })
       .limit(200)
+
+    if (unidade !== 'todas') {
+      query = query.eq('unidade_code', unidade)
+    }
 
     if (statusFilter !== 'todos') {
       // 'convertido' também inclui o campo boolean legado
@@ -500,7 +523,7 @@ export default function LeadsPage() {
     }
 
     setLoading(false)
-  }, [statusFilter, buscaDebounced, periodo])
+  }, [statusFilter, buscaDebounced, periodo, unidade])
 
   // Load data + realtime
   useEffect(() => {
@@ -518,7 +541,7 @@ export default function LeadsPage() {
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [periodo])
+  }, [periodo, unidade])
 
   useEffect(() => {
     carregarLeads()
@@ -592,21 +615,41 @@ export default function LeadsPage() {
         </button>
       </div>
 
-      {/* Filtros temporais */}
-      <div className="flex gap-1 mb-4">
-        {PERIODOS.map(p => (
-          <button
-            key={p.key}
-            onClick={() => setPeriodo(p.key)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-              periodo === p.key
-                ? 'bg-[var(--brand-600)] text-white shadow-sm'
-                : 'text-[var(--surface-500)] hover:text-[var(--surface-700)] hover:bg-[var(--surface-50)]'
-            }`}
-          >
-            {p.label}
-          </button>
-        ))}
+      {/* Filtros temporais + unidade */}
+      <div className="flex items-center gap-4 mb-4 flex-wrap">
+        <div className="flex gap-1">
+          {PERIODOS.map(p => (
+            <button
+              key={p.key}
+              onClick={() => setPeriodo(p.key)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                periodo === p.key
+                  ? 'bg-[var(--brand-600)] text-white shadow-sm'
+                  : 'text-[var(--surface-500)] hover:text-[var(--surface-700)] hover:bg-[var(--surface-50)]'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        <span className="text-[var(--surface-300)]">|</span>
+
+        <div className="flex gap-1">
+          {UNIDADES.map(u => (
+            <button
+              key={u.key}
+              onClick={() => setUnidade(u.key)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                unidade === u.key
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-[var(--surface-500)] hover:text-[var(--surface-700)] hover:bg-[var(--surface-50)]'
+              }`}
+            >
+              {u.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Funil de Conversão */}
