@@ -88,14 +88,24 @@ const UNIDADES: { key: UnidadeFilter; label: string }[] = [
   { key: 'SP', label: 'São Paulo' },
 ]
 
+type VisitorGroup = {
+  visitor_id: string
+  leads: Lead[]
+  main: Lead              // lead principal (completo > abandonado)
+  status: string          // status final do visitante
+  tentativas: number      // total de leads (abandonos + completo)
+  abandonos: number
+  completou: boolean
+}
+
 type FunnelData = {
   visitantesUnicos: number
   sessoes: number
   bouncePrecoce: number    // <15s sem clicar CTA
   abandonoMaduro: number   // ≥15s sem clicar CTA
   clicaramCTA: number
-  abandonaramPopup: number
-  completaram: number
+  abandonaramPopup: number  // visitantes únicos que abandonaram (sem completar)
+  completaram: number       // visitantes únicos que completaram
 }
 
 // ============================================
@@ -191,6 +201,71 @@ function periodoRange(periodo: Periodo): { from: string; to: string } {
 function pct(a: number, b: number): string {
   if (b === 0) return '0%'
   return Math.round((a / b) * 100) + '%'
+}
+
+// Prioridade de status (maior = mais avançado)
+const STATUS_PRIORITY: Record<string, number> = {
+  popup_aberto: 0,
+  em_andamento: 1,
+  abandonado: 2,
+  completo: 3,
+  contatado: 4,
+  convertido: 5,
+}
+
+function groupByVisitor(leads: Lead[]): VisitorGroup[] {
+  const map = new Map<string, Lead[]>()
+
+  leads.forEach(l => {
+    const vid = l.visitor_id || l.id // fallback pra leads sem visitor_id
+    const arr = map.get(vid) || []
+    arr.push(l)
+    map.set(vid, arr)
+  })
+
+  const groups: VisitorGroup[] = []
+
+  map.forEach((vLeads, visitor_id) => {
+    // Ordenar por created_at
+    vLeads.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+
+    // Lead principal = o com status mais avançado
+    const main = vLeads.reduce((best, l) => {
+      const bestPriority = STATUS_PRIORITY[best.status || 'completo'] ?? 3
+      const lPriority = STATUS_PRIORITY[l.status || 'completo'] ?? 3
+      return lPriority > bestPriority ? l : best
+    }, vLeads[0])
+
+    const completou = vLeads.some(l => {
+      const s = l.status || (l.convertido ? 'convertido' : 'completo')
+      return s === 'completo' || s === 'contatado' || s === 'convertido'
+    })
+
+    const abandonos = vLeads.filter(l => l.status === 'abandonado').length
+
+    // Status do visitante: se completou, usa o status do main. Se não, 'abandonado'
+    let status = main.status || (main.convertido ? 'convertido' : 'completo')
+    if (!completou && abandonos > 0) status = 'abandonado'
+
+    groups.push({
+      visitor_id,
+      leads: vLeads,
+      main,
+      status,
+      tentativas: vLeads.length,
+      abandonos,
+      completou,
+    })
+  })
+
+  // Ordenar por data do lead mais recente
+  groups.sort((a, b) => {
+    const aDate = new Date(a.leads[a.leads.length - 1].created_at).getTime()
+    const bDate = new Date(b.leads[b.leads.length - 1].created_at).getTime()
+    return bDate - aDate
+  })
+
+  return groups
 }
 
 // ============================================
@@ -403,7 +478,7 @@ const STATUS_TABS: { key: StatusFilter; label: string; color: string; icon: type
 export default function LeadsPage() {
   const supabase = createClient()
 
-  const [leads, setLeads] = useState<Lead[]>([])
+  const [visitors, setVisitors] = useState<VisitorGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('todos')
   const [periodo, setPeriodo] = useState<Periodo>('hoje')
@@ -451,9 +526,23 @@ export default function LeadsPage() {
     // Sessões com CTA
     const clicaramCTA = sessionsData.filter((s: any) => s.cta_clicked).length
 
-    // Leads
-    const completed = allLeadsData.filter((l: any) => l.status === 'completo' || l.status === 'contatado' || l.status === 'convertido').length
-    const abandoned = allLeadsData.filter((l: any) => l.status === 'abandonado').length
+    // Leads — contar por visitante único (não por registro)
+    const byVisitor = new Map<string, string[]>()
+    allLeadsData.forEach((l: any) => {
+      const vid = l.visitor_id || l.id
+      const statuses = byVisitor.get(vid) || []
+      statuses.push(l.status || 'completo')
+      byVisitor.set(vid, statuses)
+    })
+
+    let completedVisitors = 0
+    let abandonedOnlyVisitors = 0
+    byVisitor.forEach((statuses) => {
+      const hasComplete = statuses.some(s => s === 'completo' || s === 'contatado' || s === 'convertido')
+      const hasAbandoned = statuses.some(s => s === 'abandonado')
+      if (hasComplete) completedVisitors++
+      else if (hasAbandoned) abandonedOnlyVisitors++
+    })
 
     setFunnel({
       visitantesUnicos: uniqueVisitors,
@@ -461,8 +550,8 @@ export default function LeadsPage() {
       bouncePrecoce,
       abandonoMaduro,
       clicaramCTA,
-      abandonaramPopup: abandoned,
-      completaram: completed,
+      abandonaramPopup: abandonedOnlyVisitors,
+      completaram: completedVisitors,
     })
   }, [periodo, unidade])
 
@@ -473,10 +562,11 @@ export default function LeadsPage() {
     const { data } = await query
     if (!data) return
 
-    const c: Record<string, number> = { todos: data.length }
-    data.forEach((l: any) => {
-      const s = l.status || 'completo'
-      c[s] = (c[s] || 0) + 1
+    // Contar por visitante único
+    const groups = groupByVisitor(data as Lead[])
+    const c: Record<string, number> = { todos: groups.length }
+    groups.forEach(g => {
+      c[g.status] = (c[g.status] || 0) + 1
     })
     setCounts(c)
     setAllLeads(data as any)
@@ -498,14 +588,7 @@ export default function LeadsPage() {
       query = query.eq('unidade_code', unidade)
     }
 
-    if (statusFilter !== 'todos') {
-      // 'convertido' também inclui o campo boolean legado
-      if (statusFilter === 'convertido') {
-        query = query.or('status.eq.convertido,convertido.eq.true')
-      } else {
-        query = query.eq('status', statusFilter)
-      }
-    }
+    // Status é filtrado client-side após agrupar por visitante
 
     if (buscaDebounced.trim()) {
       const termo = buscaDebounced.trim().replace(/[,.()"'\\]/g, '')
@@ -518,8 +601,22 @@ export default function LeadsPage() {
 
     if (error) {
       console.error('Erro ao carregar leads:', error)
+      setVisitors([])
     } else {
-      setLeads((data || []) as Lead[])
+      const allData = (data || []) as Lead[]
+      const groups = groupByVisitor(allData)
+
+      // Filtrar por status do visitante (não do lead individual)
+      const filtered = statusFilter === 'todos'
+        ? groups
+        : groups.filter(g => {
+            if (statusFilter === 'convertido') {
+              return g.status === 'convertido' || g.main.convertido
+            }
+            return g.status === statusFilter
+          })
+
+      setVisitors(filtered)
     }
 
     setLoading(false)
@@ -716,7 +813,7 @@ export default function LeadsPage() {
             </div>
           ))}
         </div>
-      ) : leads.length === 0 ? (
+      ) : visitors.length === 0 ? (
         <EmptyState
           icon={Zap}
           title="Nenhum lead encontrado"
@@ -724,13 +821,13 @@ export default function LeadsPage() {
         />
       ) : (
         <div className="space-y-2 stagger-children">
-          {leads.map((lead) => {
-            const status = getStatus(lead)
+          {visitors.map((group) => {
+            const { main: lead, status } = group
             const action = nextAction(status)
 
             return (
               <div
-                key={lead.id}
+                key={group.visitor_id}
                 className={`card p-4 card-hover transition-all ${
                   status === 'abandonado' ? 'border-l-2 border-l-red-500/50' :
                   status === 'convertido' ? 'border-l-2 border-l-green-500/50' :
@@ -741,13 +838,18 @@ export default function LeadsPage() {
                 <div className="flex items-start justify-between gap-3">
                   {/* Content */}
                   <div className="min-w-0 flex-1">
-                    {/* Nome + protocolo */}
+                    {/* Nome + protocolo + tentativas */}
                     <div className="flex items-center gap-2 flex-wrap mb-1.5">
                       <span className="text-base font-semibold text-[var(--surface-800)]">
                         {lead.nome || '(sem nome)'}
                       </span>
                       {lead.protocolo && (
                         <span className="text-xs font-mono text-[var(--surface-400)]">{lead.protocolo}</span>
+                      )}
+                      {group.tentativas > 1 && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-[var(--surface-100)] text-[var(--surface-500)]">
+                          {group.tentativas}x
+                        </span>
                       )}
                     </div>
 
@@ -827,8 +929,39 @@ export default function LeadsPage() {
                       )}
                     </div>
 
-                    {/* Abandono info */}
-                    {status === 'abandonado' && lead.abandoned_at_step && (
+                    {/* Jornada do visitante (se teve mais de 1 tentativa) */}
+                    {group.tentativas > 1 && (
+                      <div className="flex items-center gap-1.5 flex-wrap text-xs mb-1.5 mt-1">
+                        {group.leads.map((l, i) => {
+                          const s = l.status || 'completo'
+                          const isLast = i === group.leads.length - 1
+                          const time = new Date(l.created_at).toLocaleString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                          return (
+                            <span key={l.id} className="contents">
+                              <span
+                                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                  s === 'abandonado' ? 'bg-red-500/15 text-red-400' :
+                                  s === 'completo' || s === 'contatado' || s === 'convertido' ? 'bg-emerald-500/15 text-emerald-400' :
+                                  'bg-[var(--surface-100)] text-[var(--surface-500)]'
+                                }`}
+                                title={`${statusLabel(s)}${l.abandoned_at_step ? ' em ' + stepLabel(l.abandoned_at_step) : ''} — ${time}`}
+                              >
+                                {s === 'abandonado' ? (
+                                  <><TrendingDown className="h-2.5 w-2.5" />{l.abandoned_at_step ? stepLabel(l.abandoned_at_step) : 'Abandonou'}</>
+                                ) : (
+                                  <><CheckCircle2 className="h-2.5 w-2.5" />{statusLabel(s)}</>
+                                )}
+                                <span className="text-[9px] opacity-60">{time}</span>
+                              </span>
+                              {!isLast && <ArrowRight className="h-3 w-3 text-[var(--surface-300)]" />}
+                            </span>
+                          )
+                        })}
+                      </div>
+                    )}
+
+                    {/* Abandono info (só se 1 tentativa) */}
+                    {group.tentativas === 1 && status === 'abandonado' && lead.abandoned_at_step && (
                       <div className="flex items-center gap-2 text-xs text-red-400 mb-1">
                         <TrendingDown className="h-3 w-3" />
                         Abandonou em: <strong>{stepLabel(lead.abandoned_at_step)}</strong>
