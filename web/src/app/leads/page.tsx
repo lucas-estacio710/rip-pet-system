@@ -100,7 +100,9 @@ type VisitorGroup = {
 
 type FunnelData = {
   visitantesUnicos: number
-  sessoes: number
+  visitantesPagos: number
+  visitantesOrganicos: number
+  visitantesDiretos: number
   bouncePrecoce: number    // <15s sem clicar CTA
   abandonoMaduro: number   // ≥15s sem clicar CTA
   clicaramCTA: number
@@ -293,13 +295,13 @@ function groupByVisitor(leads: Lead[]): VisitorGroup[] {
 // Funnel Drilldown Chart
 // ============================================
 function FunnelBar({ data, leads }: { data: FunnelData; leads: Lead[] }) {
-  const s = data.sessoes || 1
+  const v = data.visitantesUnicos || 1
   const cta = data.clicaramCTA || 1
 
-  // Percentuais para larguras das barras
-  const pBounce = (data.bouncePrecoce / s) * 100
-  const pMaduro = (data.abandonoMaduro / s) * 100
-  const pCTA = (data.clicaramCTA / s) * 100
+  // Percentuais para larguras das barras (baseado em visitantes)
+  const pBounce = (data.bouncePrecoce / v) * 100
+  const pMaduro = (data.abandonoMaduro / v) * 100
+  const pCTA = (data.clicaramCTA / v) * 100
   const pAbandPopup = (data.abandonaramPopup / cta) * 100
   const pCompletaram = (data.completaram / cta) * 100
 
@@ -310,26 +312,39 @@ function FunnelBar({ data, leads }: { data: FunnelData; leads: Lead[] }) {
     <div className="card p-4 md:p-5 mb-6">
       <div className="flex items-center justify-between mb-5">
         <h3 className="text-sm font-semibold text-[var(--surface-500)] uppercase tracking-wider">Funil de Conversão</h3>
-        {data.sessoes > 0 && (
+        {data.visitantesUnicos > 0 && (
           <span className="text-sm text-[var(--surface-400)]">
-            Conversão: <strong className="text-emerald-400">{pct(data.completaram, data.sessoes)}</strong>
+            Conversão: <strong className="text-emerald-400">{pct(data.completaram, data.visitantesUnicos)}</strong>
           </span>
         )}
       </div>
 
-      {/* ── Nível 0: Visitantes únicos → Sessões ── */}
-      <div className="flex items-center gap-3 mb-2">
+      {/* ── Nível 0: Visitantes únicos com breakdown de origem ── */}
+      <div className="flex items-center gap-3 mb-2 flex-wrap">
         <div className="flex items-center gap-1.5 shrink-0">
           <Eye className="h-3.5 w-3.5 text-purple-400" />
           <span className="text-sm font-semibold text-purple-400">{data.visitantesUnicos}</span>
           <span className="text-xs text-[var(--surface-500)]">visitantes</span>
         </div>
-        <ArrowRight className="h-3.5 w-3.5 text-[var(--surface-400)] shrink-0" />
-        <div className="flex items-center gap-1.5 shrink-0">
-          <Users className="h-3.5 w-3.5 text-blue-400" />
-          <span className="text-sm font-semibold text-blue-400">{data.sessoes}</span>
-          <span className="text-xs text-[var(--surface-500)]">sessões</span>
-        </div>
+        {data.visitantesUnicos > 0 && (
+          <div className="flex items-center gap-2 text-xs">
+            {data.visitantesPagos > 0 && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 font-medium">
+                <Globe className="h-3 w-3" />{data.visitantesPagos} pagos
+              </span>
+            )}
+            {data.visitantesOrganicos > 0 && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-green-500/15 text-green-400 font-medium">
+                <Search className="h-3 w-3" />{data.visitantesOrganicos} orgânicos
+              </span>
+            )}
+            {data.visitantesDiretos > 0 && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 font-medium">
+                <Monitor className="h-3 w-3" />{data.visitantesDiretos} diretos
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Nível 1: Barra sessões se decompondo ── */}
@@ -367,17 +382,17 @@ function FunnelBar({ data, leads }: { data: FunnelData; leads: Lead[] }) {
       <div className="flex mb-3 text-[10px]" style={{ minWidth: 0 }}>
         {data.bouncePrecoce > 0 && (
           <div style={{ width: `${pBounce}%` }} className="text-center text-orange-400 truncate px-0.5">
-            Bounce {pct(data.bouncePrecoce, s)}
+            Bounce {pct(data.bouncePrecoce, v)}
           </div>
         )}
         {data.abandonoMaduro > 0 && (
           <div style={{ width: `${pMaduro}%` }} className="text-center text-amber-400 truncate px-0.5">
-            Saíram {pct(data.abandonoMaduro, s)}
+            Saíram {pct(data.abandonoMaduro, v)}
           </div>
         )}
         {data.clicaramCTA > 0 && (
           <div style={{ width: `${pCTA}%` }} className="text-center text-cyan-400 truncate px-0.5">
-            CTA {pct(data.clicaramCTA, s)}
+            CTA {pct(data.clicaramCTA, v)}
           </div>
         )}
       </div>
@@ -508,7 +523,7 @@ export default function LeadsPage() {
   const [unidade, setUnidade] = useState<UnidadeFilter>('todas')
 
   // Funnel
-  const [funnel, setFunnel] = useState<FunnelData>({ visitantesUnicos: 0, sessoes: 0, bouncePrecoce: 0, abandonoMaduro: 0, clicaramCTA: 0, abandonaramPopup: 0, completaram: 0 })
+  const [funnel, setFunnel] = useState<FunnelData>({ visitantesUnicos: 0, visitantesPagos: 0, visitantesOrganicos: 0, visitantesDiretos: 0, bouncePrecoce: 0, abandonoMaduro: 0, clicaramCTA: 0, abandonaramPopup: 0, completaram: 0 })
   const [showFunnel, setShowFunnel] = useState(true)
 
   // Status counts
@@ -520,7 +535,7 @@ export default function LeadsPage() {
   const carregarFunil = useCallback(async () => {
     const { from, to } = periodoRange(periodo)
 
-    let sessionsQuery = supabase.from('sessions').select('visitor_id, time_on_page_sec, cta_clicked, landing_page, gclid').gte('created_at', from).lt('created_at', to)
+    let sessionsQuery = supabase.from('sessions').select('visitor_id, time_on_page_sec, cta_clicked, landing_page, gclid, utm_source, utm_medium, referrer').gte('created_at', from).lt('created_at', to)
     let leadsQuery = supabase.from('leads').select('status').gte('created_at', from).lt('created_at', to)
 
     if (unidade !== 'todas') {
@@ -550,16 +565,35 @@ export default function LeadsPage() {
       return vid
     }
 
-    // Visitantes únicos (unificados por gclid)
-    const uniqueVisitors = new Set(sessionsData.map((s: any) => resolveVisitor(s))).size
-    const totalSessoes = sessionsData.length
+    // Agrupar sessions por visitante único (unificado por gclid)
+    const visitorSessions = new Map<string, any[]>()
+    sessionsData.forEach((s: any) => {
+      const vid = resolveVisitor(s)
+      const arr = visitorSessions.get(vid) || []
+      arr.push(s)
+      visitorSessions.set(vid, arr)
+    })
 
-    // Sessões sem CTA
+    const uniqueVisitors = visitorSessions.size
+
+    // Classificar visitante pela origem (usa a session mais relevante)
+    let pagos = 0, organicos = 0, diretos = 0
+    visitorSessions.forEach((sessions) => {
+      // Se qualquer session tem gclid ou utm_medium=cpc → pago
+      const isPago = sessions.some((s: any) => s.gclid || s.utm_medium === 'cpc' || s.utm_medium === 'ppc')
+      if (isPago) { pagos++; return }
+      // Se tem referrer ou utm_source → orgânico
+      const isOrganico = sessions.some((s: any) => s.utm_source || (s.referrer && s.referrer.length > 0))
+      if (isOrganico) { organicos++; return }
+      // Senão → direto
+      diretos++
+    })
+
+    // Métricas do funil (por session, não por visitante — fazem sentido assim)
     const semCTA = sessionsData.filter((s: any) => !s.cta_clicked)
     const bouncePrecoce = semCTA.filter((s: any) => (s.time_on_page_sec || 0) < 15).length
     const abandonoMaduro = semCTA.filter((s: any) => (s.time_on_page_sec || 0) >= 15).length
 
-    // Sessões com CTA
     const clicaramCTA = sessionsData.filter((s: any) => s.cta_clicked).length
 
     // Leads — contar por visitante único (não por registro)
@@ -592,7 +626,9 @@ export default function LeadsPage() {
 
     setFunnel({
       visitantesUnicos: uniqueVisitors,
-      sessoes: totalSessoes,
+      visitantesPagos: pagos,
+      visitantesOrganicos: organicos,
+      visitantesDiretos: diretos,
       bouncePrecoce,
       abandonoMaduro,
       clicaramCTA,
