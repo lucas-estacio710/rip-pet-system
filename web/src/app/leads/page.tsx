@@ -322,7 +322,7 @@ function FunnelBar({ data, leads }: { data: FunnelData; leads: Lead[] }) {
         <div className="flex items-center gap-1.5 shrink-0">
           <Eye className="h-3.5 w-3.5 text-purple-400" />
           <span className="text-sm font-semibold text-purple-400">{data.visitantesUnicos}</span>
-          <span className="text-xs text-[var(--surface-500)]">únicos</span>
+          <span className="text-xs text-[var(--surface-500)]">visitantes</span>
         </div>
         <ArrowRight className="h-3.5 w-3.5 text-[var(--surface-400)] shrink-0" />
         <div className="flex items-center gap-1.5 shrink-0">
@@ -520,7 +520,7 @@ export default function LeadsPage() {
   const carregarFunil = useCallback(async () => {
     const { from, to } = periodoRange(periodo)
 
-    let sessionsQuery = supabase.from('sessions').select('visitor_id, time_on_page_sec, cta_clicked, landing_page').gte('created_at', from).lt('created_at', to)
+    let sessionsQuery = supabase.from('sessions').select('visitor_id, time_on_page_sec, cta_clicked, landing_page, gclid').gte('created_at', from).lt('created_at', to)
     let leadsQuery = supabase.from('leads').select('status').gte('created_at', from).lt('created_at', to)
 
     if (unidade !== 'todas') {
@@ -535,8 +535,23 @@ export default function LeadsPage() {
     const sessionsData = sessionsRes.data || []
     const allLeadsData = leadsRes.data || []
 
-    // Visitantes únicos (distinct visitor_id)
-    const uniqueVisitors = new Set(sessionsData.map((s: any) => s.visitor_id)).size
+    // Unificar visitor_id por gclid (mesmo clique = mesma pessoa)
+    const sessionGclidMap = new Map<string, string>()
+    function resolveVisitor(s: any): string {
+      let vid = s.visitor_id || s.id
+      if (s.gclid) {
+        const existing = sessionGclidMap.get(s.gclid)
+        if (existing) {
+          vid = existing
+        } else {
+          sessionGclidMap.set(s.gclid, vid)
+        }
+      }
+      return vid
+    }
+
+    // Visitantes únicos (unificados por gclid)
+    const uniqueVisitors = new Set(sessionsData.map((s: any) => resolveVisitor(s))).size
     const totalSessoes = sessionsData.length
 
     // Sessões sem CTA
