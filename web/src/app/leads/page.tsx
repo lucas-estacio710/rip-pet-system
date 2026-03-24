@@ -216,8 +216,26 @@ const STATUS_PRIORITY: Record<string, number> = {
 function groupByVisitor(leads: Lead[]): VisitorGroup[] {
   const map = new Map<string, Lead[]>()
 
+  // Primeiro, mapear gclid → chave de grupo (para unificar visitor_ids diferentes)
+  const gclidToKey = new Map<string, string>()
+
   leads.forEach(l => {
-    const vid = l.visitor_id || l.id // fallback pra leads sem visitor_id
+    const vid = l.visitor_id || l.id
+
+    // Se tem gclid, verificar se já existe um grupo com esse gclid
+    if (l.gclid) {
+      const existingKey = gclidToKey.get(l.gclid)
+      if (existingKey) {
+        // Agrupar com o visitor_id que já tem esse gclid
+        const arr = map.get(existingKey) || []
+        arr.push(l)
+        map.set(existingKey, arr)
+        return
+      }
+      // Registrar este gclid como pertencente a este visitor
+      gclidToKey.set(l.gclid, vid)
+    }
+
     const arr = map.get(vid) || []
     arr.push(l)
     map.set(vid, arr)
@@ -527,9 +545,19 @@ export default function LeadsPage() {
     const clicaramCTA = sessionsData.filter((s: any) => s.cta_clicked).length
 
     // Leads — contar por visitante único (não por registro)
+    // Unificar por gclid quando visitor_id difere
+    const gclidToVid = new Map<string, string>()
     const byVisitor = new Map<string, string[]>()
     allLeadsData.forEach((l: any) => {
-      const vid = l.visitor_id || l.id
+      let vid = l.visitor_id || l.id
+      if (l.gclid) {
+        const existing = gclidToVid.get(l.gclid)
+        if (existing) {
+          vid = existing
+        } else {
+          gclidToVid.set(l.gclid, vid)
+        }
+      }
       const statuses = byVisitor.get(vid) || []
       statuses.push(l.status || 'completo')
       byVisitor.set(vid, statuses)
