@@ -160,6 +160,9 @@ function stepLabel(step: string | null): string {
     case 'especie': return 'Espécie'
     case 'grande_porte': return 'Grande porte'
     case 'nome': return 'Nome'
+    case 'telefone': return 'Telefone'
+    case 'telefone_skip': return 'Pulou telefone'
+    case 'finalizar': return 'Finalização'
     default: return step || '-'
   }
 }
