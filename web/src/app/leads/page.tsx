@@ -388,7 +388,7 @@ function OrigemBadges({ d }: { d: OrigemBreakdown }) {
     { count: d.organicos, emoji: '🌱', color: 'text-emerald-200', title: 'Orgânicos' },
     { count: d.ia, emoji: '🤖', color: 'text-violet-200', title: 'IA' },
     { count: d.social, emoji: '👥', color: 'text-pink-200', title: 'Redes Sociais' },
-    { count: d.diretos, emoji: '🖱️', color: 'text-sky-200', title: 'Diretos' },
+    { count: d.diretos, emoji: '⌨️', color: 'text-sky-200', title: 'Diretos' },
   ]
   return (
     <div className="flex items-center gap-1">
