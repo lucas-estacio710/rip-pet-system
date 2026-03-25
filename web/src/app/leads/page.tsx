@@ -176,7 +176,9 @@ type FunnelData = {
   visitantes: OrigemBreakdown       // nível 1: todos
   engajados: OrigemBreakdown        // nível 2: ficaram ≥15s e/ou clicaram CTA
   clicaramCTA: OrigemBreakdown      // nível 3: abriram popup
-  converteram: OrigemBreakdown      // nível 4: completaram ou converteram
+  completaramCTA: OrigemBreakdown   // nível 4: completaram o popup
+  contatou: OrigemBreakdown         // nível 5: equipe fez contato
+  contratou: OrigemBreakdown        // nível 6: virou cliente
 }
 
 // ============================================
@@ -401,38 +403,22 @@ function OrigemBadges({ d }: { d: OrigemBreakdown }) {
   )
 }
 
-// Gradientes do frio (topo) ao quente (base)
+// Gradientes do frio (topo) ao quente (base) — 6 níveis
 const FUNNEL_LEVELS = [
-  {
-    label: 'Visitantes',
-    icon: Eye,
-    gradient: 'linear-gradient(180deg, #3b82f6 0%, #6366f1 100%)',  // azul → índigo
-    textColor: 'text-white',
-  },
-  {
-    label: 'Engajados',
-    icon: Users,
-    gradient: 'linear-gradient(180deg, #6366f1 0%, #f59e0b 100%)',  // índigo → âmbar
-    textColor: 'text-white',
-    subtitle: '≥15s ou CTA',
-  },
-  {
-    label: 'Clicaram CTA',
-    icon: MousePointerClick,
-    gradient: 'linear-gradient(180deg, #f59e0b 0%, #f97316 100%)',  // âmbar → laranja
-    textColor: 'text-white',
-  },
-  {
-    label: 'Converteram',
-    icon: CheckCircle2,
-    gradient: 'linear-gradient(180deg, #f97316 0%, #ef4444 100%)',  // laranja → vermelho
-    textColor: 'text-white',
-  },
+  { key: 'visitantes', label: 'Visitantes', icon: Eye, gradient: 'linear-gradient(180deg, #3b82f6 0%, #818cf8 100%)' },
+  { key: 'engajados', label: 'Engajados', icon: Users, gradient: 'linear-gradient(180deg, #818cf8 0%, #c084fc 100%)' },
+  { key: 'clicaramCTA', label: 'Clique CTA', icon: MousePointerClick, gradient: 'linear-gradient(180deg, #c084fc 0%, #f59e0b 100%)' },
+  { key: 'completaramCTA', label: 'Completaram CTA', icon: CheckCircle2, gradient: 'linear-gradient(180deg, #f59e0b 0%, #f97316 100%)' },
+  { key: 'contatou', label: 'Contatou', icon: Phone, gradient: 'linear-gradient(180deg, #f97316 0%, #ef4444 100%)' },
+  { key: 'contratou', label: 'Contratou', icon: Zap, gradient: 'linear-gradient(180deg, #ef4444 0%, #dc2626 100%)' },
 ]
 
 function FunnelBar({ data, leads }: { data: FunnelData; leads: Lead[] }) {
   const top = data.visitantes.total || 1
-  const dataLevels = [data.visitantes, data.engajados, data.clicaramCTA, data.converteram]
+  const dataLevels: OrigemBreakdown[] = [
+    data.visitantes, data.engajados, data.clicaramCTA,
+    data.completaramCTA, data.contatou, data.contratou,
+  ]
 
   return (
     <div className="card p-4 md:p-5 mb-6">
@@ -440,7 +426,7 @@ function FunnelBar({ data, leads }: { data: FunnelData; leads: Lead[] }) {
         <h3 className="text-sm font-semibold text-[var(--surface-500)] uppercase tracking-wider">Funil de Conversão</h3>
         {data.visitantes.total > 0 && (
           <span className="text-sm text-[var(--surface-400)]">
-            Conversão: <strong className="text-emerald-400">{pct(data.converteram.total, data.visitantes.total)}</strong>
+            Conversão: <strong className="text-emerald-400">{pct(data.contratou.total, data.visitantes.total)}</strong>
           </span>
         )}
       </div>
@@ -448,38 +434,35 @@ function FunnelBar({ data, leads }: { data: FunnelData; leads: Lead[] }) {
       <div className="flex flex-col items-center gap-0">
         {FUNNEL_LEVELS.map((level, i) => {
           const d = dataLevels[i]
-          const widthPct = Math.max((d.total / top) * 100, 20)
-          const prevTotal = i > 0 ? dataLevels[i - 1].total : 0
-          const dropoff = i > 0 && prevTotal > 0 ? prevTotal - d.total : 0
+          const widthPct = Math.max((d.total / top) * 100, 18)
+          const percentual = pct(d.total, top)
 
           return (
-            <div key={level.label} className="w-full flex flex-col items-center">
+            <div key={level.key} className="w-full flex flex-col items-center">
               {/* Barra centralizada */}
-              <div className="relative" style={{ width: `${widthPct}%`, minWidth: '140px' }}>
+              <div className="relative flex items-center justify-center" style={{ width: '100%' }}>
                 <div
-                  className="rounded-lg py-2.5 px-3 flex items-center justify-between gap-2 shadow-md"
-                  style={{ background: level.gradient }}
+                  className="rounded-lg py-2 px-3 flex items-center justify-between gap-1 shadow-md mx-auto overflow-visible"
+                  style={{ background: level.gradient, width: `${widthPct}%`, minWidth: '120px' }}
                 >
-                  <div className="flex items-center gap-1.5" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.4)' }}>
-                    <level.icon className="h-3.5 w-3.5 text-white drop-shadow-sm" />
-                    <span className="text-sm font-extrabold text-white drop-shadow-sm">{d.total}</span>
-                    <span className="text-[11px] font-medium text-white/90 hidden sm:inline drop-shadow-sm">{level.label}</span>
+                  {/* Lado esquerdo: ícone + número + label + percentual */}
+                  <div className="flex items-center gap-1.5 shrink-0" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.5)' }}>
+                    <level.icon className="h-3.5 w-3.5 text-white drop-shadow" />
+                    <span className="text-sm font-extrabold text-white drop-shadow">{d.total}</span>
+                    <span className="text-[11px] font-semibold text-white/80 drop-shadow hidden sm:inline">{level.label}</span>
+                    <span className="text-[10px] font-bold text-white/60 drop-shadow">({percentual})</span>
                   </div>
-                  <OrigemBadges d={d} />
-                </div>
 
-                {/* Dropoff à direita */}
-                {dropoff > 0 && (
-                  <span className="absolute -right-2 top-1/2 -translate-y-1/2 translate-x-full text-[10px] font-semibold text-red-400 whitespace-nowrap bg-red-500/10 px-1.5 py-0.5 rounded-full">
-                    −{dropoff} ({pct(dropoff, prevTotal)})
-                  </span>
-                )}
+                  {/* Lado direito: badges de origem (podem transbordar) */}
+                  <div className="shrink-0">
+                    <OrigemBadges d={d} />
+                  </div>
+                </div>
               </div>
 
               {/* Label mobile abaixo */}
               <div className="sm:hidden flex items-center gap-1 mt-0.5">
                 <span className="text-[10px] font-medium text-[var(--surface-500)]">{level.label}</span>
-                {level.subtitle && <span className="text-[9px] text-[var(--surface-400)]">({level.subtitle})</span>}
               </div>
 
               {/* Conector entre níveis */}
@@ -564,8 +547,8 @@ export default function LeadsPage() {
   const [unidade, setUnidade] = useState<UnidadeFilter>('todas')
 
   // Funnel
-  const emptyBreakdown: OrigemBreakdown = { total: 0, pagos: 0, organicos: 0, ia: 0, social: 0, diretos: 0 }
-  const [funnel, setFunnel] = useState<FunnelData>({ visitantes: emptyBreakdown, engajados: emptyBreakdown, clicaramCTA: emptyBreakdown, converteram: emptyBreakdown })
+  const emptyBD = (): OrigemBreakdown => ({ total: 0, pagos: 0, organicos: 0, ia: 0, social: 0, diretos: 0 })
+  const [funnel, setFunnel] = useState<FunnelData>({ visitantes: emptyBD(), engajados: emptyBD(), clicaramCTA: emptyBD(), completaramCTA: emptyBD(), contatou: emptyBD(), contratou: emptyBD() })
   const [showFunnel, setShowFunnel] = useState(true)
 
   // Status counts
@@ -672,13 +655,22 @@ export default function LeadsPage() {
       leadsByVisitor.set(vid, entry)
     })
 
-    const converteram: OrigemBreakdown = { total: 0, pagos: 0, organicos: 0, ia: 0, social: 0, diretos: 0 }
+    const emptyBD = (): OrigemBreakdown => ({ total: 0, pagos: 0, organicos: 0, ia: 0, social: 0, diretos: 0 })
+    const completaramCTA = emptyBD()
+    const contatou = emptyBD()
+    const contratou = emptyBD()
+
     leadsByVisitor.forEach((entry) => {
       const hasComplete = entry.statuses.some(s => s === 'completo' || s === 'contatado' || s === 'convertido')
-      if (hasComplete) addToBreakdown(converteram, entry.origem)
+      const hasContatado = entry.statuses.some(s => s === 'contatado' || s === 'convertido')
+      const hasConvertido = entry.statuses.some(s => s === 'convertido')
+
+      if (hasComplete) addToBreakdown(completaramCTA, entry.origem)
+      if (hasContatado) addToBreakdown(contatou, entry.origem)
+      if (hasConvertido) addToBreakdown(contratou, entry.origem)
     })
 
-    setFunnel({ visitantes, engajados, clicaramCTA: ctaBreakdown, converteram })
+    setFunnel({ visitantes, engajados, clicaramCTA: ctaBreakdown, completaramCTA, contatou, contratou })
   }, [periodo, unidade])
 
   const carregarContagens = useCallback(async () => {
