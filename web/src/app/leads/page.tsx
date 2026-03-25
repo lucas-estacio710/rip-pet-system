@@ -383,18 +383,18 @@ function groupByVisitor(leads: Lead[]): VisitorGroup[] {
 // ============================================
 function OrigemBadges({ d }: { d: OrigemBreakdown }) {
   if (d.total === 0) return null
-  const items: { count: number; label: string; color: string }[] = [
-    { count: d.pagos, label: 'pag', color: 'text-amber-200' },
-    { count: d.organicos, label: 'org', color: 'text-emerald-200' },
-    { count: d.ia, label: 'ia', color: 'text-violet-200' },
-    { count: d.social, label: 'soc', color: 'text-pink-200' },
-    { count: d.diretos, label: 'dir', color: 'text-sky-200' },
+  const items: { count: number; emoji: string; color: string; title: string }[] = [
+    { count: d.pagos, emoji: '💲', color: 'text-amber-200', title: 'Pagos' },
+    { count: d.organicos, emoji: '🌱', color: 'text-emerald-200', title: 'Orgânicos' },
+    { count: d.ia, emoji: '🤖', color: 'text-violet-200', title: 'IA' },
+    { count: d.social, emoji: '👥', color: 'text-pink-200', title: 'Redes Sociais' },
+    { count: d.diretos, emoji: '🖱️', color: 'text-sky-200', title: 'Diretos' },
   ]
   return (
     <div className="flex items-center gap-1">
       {items.filter(x => x.count > 0).map(x => (
-        <span key={x.label} className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-black/30 ${x.color} backdrop-blur-sm`}>
-          {x.count} {x.label}
+        <span key={x.emoji} className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-black/30 ${x.color} backdrop-blur-sm`} title={x.title}>
+          {x.emoji}{x.count}
         </span>
       ))}
     </div>
