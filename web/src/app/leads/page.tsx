@@ -294,15 +294,15 @@ function groupByVisitor(leads: Lead[]): VisitorGroup[] {
 function OrigemBadges({ d }: { d: OrigemBreakdown }) {
   if (d.total === 0) return null
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-1">
       {d.pagos > 0 && (
-        <span className="text-[10px] font-semibold text-amber-300/90">{d.pagos} pag</span>
+        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-black/30 text-amber-200 backdrop-blur-sm">{d.pagos} pag</span>
       )}
       {d.organicos > 0 && (
-        <span className="text-[10px] font-semibold text-green-300/90">{d.organicos} org</span>
+        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-black/30 text-emerald-200 backdrop-blur-sm">{d.organicos} org</span>
       )}
       {d.diretos > 0 && (
-        <span className="text-[10px] font-semibold text-blue-300/90">{d.diretos} dir</span>
+        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-black/30 text-sky-200 backdrop-blur-sm">{d.diretos} dir</span>
       )}
     </div>
   )
@@ -364,20 +364,20 @@ function FunnelBar({ data, leads }: { data: FunnelData; leads: Lead[] }) {
               {/* Barra centralizada */}
               <div className="relative" style={{ width: `${widthPct}%`, minWidth: '140px' }}>
                 <div
-                  className="rounded-lg py-2.5 px-3 flex items-center justify-between gap-2"
+                  className="rounded-lg py-2.5 px-3 flex items-center justify-between gap-2 shadow-md"
                   style={{ background: level.gradient }}
                 >
-                  <div className="flex items-center gap-1.5">
-                    <level.icon className="h-3.5 w-3.5 text-white/80" />
-                    <span className="text-sm font-bold text-white">{d.total}</span>
-                    <span className="text-[11px] text-white/70 hidden sm:inline">{level.label}</span>
+                  <div className="flex items-center gap-1.5" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.4)' }}>
+                    <level.icon className="h-3.5 w-3.5 text-white drop-shadow-sm" />
+                    <span className="text-sm font-extrabold text-white drop-shadow-sm">{d.total}</span>
+                    <span className="text-[11px] font-medium text-white/90 hidden sm:inline drop-shadow-sm">{level.label}</span>
                   </div>
                   <OrigemBadges d={d} />
                 </div>
 
                 {/* Dropoff à direita */}
                 {dropoff > 0 && (
-                  <span className="absolute -right-2 top-1/2 -translate-y-1/2 translate-x-full text-[10px] text-red-400/70 whitespace-nowrap">
+                  <span className="absolute -right-2 top-1/2 -translate-y-1/2 translate-x-full text-[10px] font-semibold text-red-400 whitespace-nowrap bg-red-500/10 px-1.5 py-0.5 rounded-full">
                     −{dropoff} ({pct(dropoff, prevTotal)})
                   </span>
                 )}
