@@ -291,39 +291,55 @@ function groupByVisitor(leads: Lead[]): VisitorGroup[] {
 // ============================================
 // Funnel Visual
 // ============================================
-function OrigemBadges({ d, compact }: { d: OrigemBreakdown; compact?: boolean }) {
+function OrigemBadges({ d }: { d: OrigemBreakdown }) {
   if (d.total === 0) return null
-  const size = compact ? 'text-[9px]' : 'text-[10px]'
   return (
-    <div className="flex items-center gap-1.5 flex-wrap">
+    <div className="flex items-center gap-1.5">
       {d.pagos > 0 && (
-        <span className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-amber-500/15 text-amber-400 font-medium ${size}`}>
-          {d.pagos} {compact ? 'pg' : 'pagos'}
-        </span>
+        <span className="text-[10px] font-semibold text-amber-300/90">{d.pagos} pag</span>
       )}
       {d.organicos > 0 && (
-        <span className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-green-500/15 text-green-400 font-medium ${size}`}>
-          {d.organicos} {compact ? 'org' : 'orgânicos'}
-        </span>
+        <span className="text-[10px] font-semibold text-green-300/90">{d.organicos} org</span>
       )}
       {d.diretos > 0 && (
-        <span className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-blue-500/15 text-blue-400 font-medium ${size}`}>
-          {d.diretos} {compact ? 'dir' : 'diretos'}
-        </span>
+        <span className="text-[10px] font-semibold text-blue-300/90">{d.diretos} dir</span>
       )}
     </div>
   )
 }
 
+// Gradientes do frio (topo) ao quente (base)
+const FUNNEL_LEVELS = [
+  {
+    label: 'Visitantes',
+    icon: Eye,
+    gradient: 'linear-gradient(180deg, #3b82f6 0%, #6366f1 100%)',  // azul → índigo
+    textColor: 'text-white',
+  },
+  {
+    label: 'Engajados',
+    icon: Users,
+    gradient: 'linear-gradient(180deg, #6366f1 0%, #f59e0b 100%)',  // índigo → âmbar
+    textColor: 'text-white',
+    subtitle: '≥15s ou CTA',
+  },
+  {
+    label: 'Clicaram CTA',
+    icon: MousePointerClick,
+    gradient: 'linear-gradient(180deg, #f59e0b 0%, #f97316 100%)',  // âmbar → laranja
+    textColor: 'text-white',
+  },
+  {
+    label: 'Converteram',
+    icon: CheckCircle2,
+    gradient: 'linear-gradient(180deg, #f97316 0%, #ef4444 100%)',  // laranja → vermelho
+    textColor: 'text-white',
+  },
+]
+
 function FunnelBar({ data, leads }: { data: FunnelData; leads: Lead[] }) {
   const top = data.visitantes.total || 1
-
-  const levels = [
-    { label: 'Visitantes', data: data.visitantes, color: 'bg-purple-500/25', textColor: 'text-purple-400', icon: Eye },
-    { label: 'Engajados', data: data.engajados, color: 'bg-blue-500/25', textColor: 'text-blue-400', icon: Users, subtitle: '≥15s ou clicou CTA' },
-    { label: 'Clicaram CTA', data: data.clicaramCTA, color: 'bg-cyan-500/25', textColor: 'text-cyan-400', icon: MousePointerClick },
-    { label: 'Converteram', data: data.converteram, color: 'bg-emerald-500/25', textColor: 'text-emerald-400', icon: CheckCircle2 },
-  ]
+  const dataLevels = [data.visitantes, data.engajados, data.clicaramCTA, data.converteram]
 
   return (
     <div className="card p-4 md:p-5 mb-6">
@@ -336,43 +352,47 @@ function FunnelBar({ data, leads }: { data: FunnelData; leads: Lead[] }) {
         )}
       </div>
 
-      <div className="space-y-2">
-        {levels.map((level, i) => {
-          const widthPct = Math.max((level.data.total / top) * 100, 12)
-          const prevTotal = i > 0 ? levels[i - 1].data.total : 0
-          const dropoff = i > 0 && prevTotal > 0
-            ? prevTotal - level.data.total
-            : 0
+      <div className="flex flex-col items-center gap-0">
+        {FUNNEL_LEVELS.map((level, i) => {
+          const d = dataLevels[i]
+          const widthPct = Math.max((d.total / top) * 100, 20)
+          const prevTotal = i > 0 ? dataLevels[i - 1].total : 0
+          const dropoff = i > 0 && prevTotal > 0 ? prevTotal - d.total : 0
 
           return (
-            <div key={level.label}>
-              {/* Barra do funil */}
-              <div className="flex items-center gap-3">
+            <div key={level.label} className="w-full flex flex-col items-center">
+              {/* Barra centralizada */}
+              <div className="relative" style={{ width: `${widthPct}%`, minWidth: '140px' }}>
                 <div
-                  className={`${level.color} rounded-lg py-2.5 px-3 flex items-center justify-between gap-2 transition-all`}
-                  style={{ width: `${widthPct}%`, minWidth: 'fit-content' }}
+                  className="rounded-lg py-2.5 px-3 flex items-center justify-between gap-2"
+                  style={{ background: level.gradient }}
                 >
                   <div className="flex items-center gap-1.5">
-                    <level.icon className={`h-3.5 w-3.5 ${level.textColor}`} />
-                    <span className={`text-sm font-bold ${level.textColor}`}>{level.data.total}</span>
-                    <span className="text-xs text-[var(--surface-500)] hidden sm:inline">{level.label}</span>
+                    <level.icon className="h-3.5 w-3.5 text-white/80" />
+                    <span className="text-sm font-bold text-white">{d.total}</span>
+                    <span className="text-[11px] text-white/70 hidden sm:inline">{level.label}</span>
                   </div>
-                  <OrigemBadges d={level.data} compact={widthPct < 60} />
+                  <OrigemBadges d={d} />
                 </div>
 
-                {/* Dropoff indicator */}
+                {/* Dropoff à direita */}
                 {dropoff > 0 && (
-                  <span className="text-[10px] text-red-400/70 whitespace-nowrap shrink-0">
+                  <span className="absolute -right-2 top-1/2 -translate-y-1/2 translate-x-full text-[10px] text-red-400/70 whitespace-nowrap">
                     −{dropoff} ({pct(dropoff, prevTotal)})
                   </span>
                 )}
               </div>
 
-              {/* Label mobile */}
-              <div className="sm:hidden flex items-center gap-1 mt-0.5 ml-1">
-                <span className={`text-[10px] font-medium ${level.textColor}`}>{level.label}</span>
+              {/* Label mobile abaixo */}
+              <div className="sm:hidden flex items-center gap-1 mt-0.5">
+                <span className="text-[10px] font-medium text-[var(--surface-500)]">{level.label}</span>
                 {level.subtitle && <span className="text-[9px] text-[var(--surface-400)]">({level.subtitle})</span>}
               </div>
+
+              {/* Conector entre níveis */}
+              {i < FUNNEL_LEVELS.length - 1 && (
+                <div className="w-px h-1 bg-[var(--surface-300)]" />
+              )}
             </div>
           )
         })}
