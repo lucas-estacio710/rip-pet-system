@@ -98,16 +98,13 @@ type VisitorGroup = {
   completou: boolean
 }
 
+type OrigemBreakdown = { total: number; pagos: number; organicos: number; diretos: number }
+
 type FunnelData = {
-  visitantesUnicos: number
-  visitantesPagos: number
-  visitantesOrganicos: number
-  visitantesDiretos: number
-  bouncePrecoce: number    // <15s sem clicar CTA
-  abandonoMaduro: number   // ≥15s sem clicar CTA
-  clicaramCTA: number
-  abandonaramPopup: number  // visitantes únicos que abandonaram (sem completar)
-  completaram: number       // visitantes únicos que completaram
+  visitantes: OrigemBreakdown       // nível 1: todos
+  engajados: OrigemBreakdown        // nível 2: ficaram ≥15s e/ou clicaram CTA
+  clicaramCTA: OrigemBreakdown      // nível 3: abriram popup
+  converteram: OrigemBreakdown      // nível 4: completaram ou converteram
 }
 
 // ============================================
@@ -292,165 +289,96 @@ function groupByVisitor(leads: Lead[]): VisitorGroup[] {
 }
 
 // ============================================
-// Funnel Drilldown Chart
+// Funnel Visual
 // ============================================
+function OrigemBadges({ d, compact }: { d: OrigemBreakdown; compact?: boolean }) {
+  if (d.total === 0) return null
+  const size = compact ? 'text-[9px]' : 'text-[10px]'
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {d.pagos > 0 && (
+        <span className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-amber-500/15 text-amber-400 font-medium ${size}`}>
+          {d.pagos} {compact ? 'pg' : 'pagos'}
+        </span>
+      )}
+      {d.organicos > 0 && (
+        <span className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-green-500/15 text-green-400 font-medium ${size}`}>
+          {d.organicos} {compact ? 'org' : 'orgânicos'}
+        </span>
+      )}
+      {d.diretos > 0 && (
+        <span className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-blue-500/15 text-blue-400 font-medium ${size}`}>
+          {d.diretos} {compact ? 'dir' : 'diretos'}
+        </span>
+      )}
+    </div>
+  )
+}
+
 function FunnelBar({ data, leads }: { data: FunnelData; leads: Lead[] }) {
-  const v = data.visitantesUnicos || 1
-  const cta = data.clicaramCTA || 1
+  const top = data.visitantes.total || 1
 
-  // Percentuais para larguras das barras (baseado em visitantes)
-  const pBounce = (data.bouncePrecoce / v) * 100
-  const pMaduro = (data.abandonoMaduro / v) * 100
-  const pCTA = (data.clicaramCTA / v) * 100
-  const pAbandPopup = (data.abandonaramPopup / cta) * 100
-  const pCompletaram = (data.completaram / cta) * 100
-
-  // Offset left do CTA dentro da barra de sessões (para alinhar drilldown)
-  const ctaOffset = pBounce + pMaduro
+  const levels = [
+    { label: 'Visitantes', data: data.visitantes, color: 'bg-purple-500/25', textColor: 'text-purple-400', icon: Eye },
+    { label: 'Engajados', data: data.engajados, color: 'bg-blue-500/25', textColor: 'text-blue-400', icon: Users, subtitle: '≥15s ou clicou CTA' },
+    { label: 'Clicaram CTA', data: data.clicaramCTA, color: 'bg-cyan-500/25', textColor: 'text-cyan-400', icon: MousePointerClick },
+    { label: 'Converteram', data: data.converteram, color: 'bg-emerald-500/25', textColor: 'text-emerald-400', icon: CheckCircle2 },
+  ]
 
   return (
     <div className="card p-4 md:p-5 mb-6">
       <div className="flex items-center justify-between mb-5">
         <h3 className="text-sm font-semibold text-[var(--surface-500)] uppercase tracking-wider">Funil de Conversão</h3>
-        {data.visitantesUnicos > 0 && (
+        {data.visitantes.total > 0 && (
           <span className="text-sm text-[var(--surface-400)]">
-            Conversão: <strong className="text-emerald-400">{pct(data.completaram, data.visitantesUnicos)}</strong>
+            Conversão: <strong className="text-emerald-400">{pct(data.converteram.total, data.visitantes.total)}</strong>
           </span>
         )}
       </div>
 
-      {/* ── Nível 0: Visitantes únicos com breakdown de origem ── */}
-      <div className="flex items-center gap-3 mb-2 flex-wrap">
-        <div className="flex items-center gap-1.5 shrink-0">
-          <Eye className="h-3.5 w-3.5 text-purple-400" />
-          <span className="text-sm font-semibold text-purple-400">{data.visitantesUnicos}</span>
-          <span className="text-xs text-[var(--surface-500)]">visitantes</span>
-        </div>
-        {data.visitantesUnicos > 0 && (
-          <div className="flex items-center gap-2 text-xs">
-            {data.visitantesPagos > 0 && (
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 font-medium">
-                <Globe className="h-3 w-3" />{data.visitantesPagos} pagos
-              </span>
-            )}
-            {data.visitantesOrganicos > 0 && (
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-green-500/15 text-green-400 font-medium">
-                <Search className="h-3 w-3" />{data.visitantesOrganicos} orgânicos
-              </span>
-            )}
-            {data.visitantesDiretos > 0 && (
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 font-medium">
-                <Monitor className="h-3 w-3" />{data.visitantesDiretos} diretos
-              </span>
-            )}
-          </div>
-        )}
+      <div className="space-y-2">
+        {levels.map((level, i) => {
+          const widthPct = Math.max((level.data.total / top) * 100, 12)
+          const prevTotal = i > 0 ? levels[i - 1].data.total : 0
+          const dropoff = i > 0 && prevTotal > 0
+            ? prevTotal - level.data.total
+            : 0
+
+          return (
+            <div key={level.label}>
+              {/* Barra do funil */}
+              <div className="flex items-center gap-3">
+                <div
+                  className={`${level.color} rounded-lg py-2.5 px-3 flex items-center justify-between gap-2 transition-all`}
+                  style={{ width: `${widthPct}%`, minWidth: 'fit-content' }}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <level.icon className={`h-3.5 w-3.5 ${level.textColor}`} />
+                    <span className={`text-sm font-bold ${level.textColor}`}>{level.data.total}</span>
+                    <span className="text-xs text-[var(--surface-500)] hidden sm:inline">{level.label}</span>
+                  </div>
+                  <OrigemBadges d={level.data} compact={widthPct < 60} />
+                </div>
+
+                {/* Dropoff indicator */}
+                {dropoff > 0 && (
+                  <span className="text-[10px] text-red-400/70 whitespace-nowrap shrink-0">
+                    −{dropoff} ({pct(dropoff, prevTotal)})
+                  </span>
+                )}
+              </div>
+
+              {/* Label mobile */}
+              <div className="sm:hidden flex items-center gap-1 mt-0.5 ml-1">
+                <span className={`text-[10px] font-medium ${level.textColor}`}>{level.label}</span>
+                {level.subtitle && <span className="text-[9px] text-[var(--surface-400)]">({level.subtitle})</span>}
+              </div>
+            </div>
+          )
+        })}
       </div>
 
-      {/* ── Nível 1: Barra sessões se decompondo ── */}
-      <div className="w-full h-10 rounded-lg overflow-hidden flex mb-1" style={{ minWidth: 0 }}>
-        {data.bouncePrecoce > 0 && (
-          <div
-            className="h-full bg-orange-500/30 flex items-center justify-center border-r border-[var(--surface-100)]"
-            style={{ width: `${pBounce}%` }}
-            title={`Bounce <15s: ${data.bouncePrecoce}`}
-          >
-            {pBounce > 8 && <span className="text-xs font-bold text-orange-400">{data.bouncePrecoce}</span>}
-          </div>
-        )}
-        {data.abandonoMaduro > 0 && (
-          <div
-            className="h-full bg-amber-500/30 flex items-center justify-center border-r border-[var(--surface-100)]"
-            style={{ width: `${pMaduro}%` }}
-            title={`Saíram sem clicar ≥15s: ${data.abandonoMaduro}`}
-          >
-            {pMaduro > 8 && <span className="text-xs font-bold text-amber-400">{data.abandonoMaduro}</span>}
-          </div>
-        )}
-        {data.clicaramCTA > 0 && (
-          <div
-            className="h-full bg-cyan-500/30 flex items-center justify-center"
-            style={{ width: `${pCTA}%` }}
-            title={`Clicaram CTA: ${data.clicaramCTA}`}
-          >
-            {pCTA > 8 && <span className="text-xs font-bold text-cyan-400">{data.clicaramCTA}</span>}
-          </div>
-        )}
-      </div>
-
-      {/* Legenda nível 1 */}
-      <div className="flex mb-3 text-[10px]" style={{ minWidth: 0 }}>
-        {data.bouncePrecoce > 0 && (
-          <div style={{ width: `${pBounce}%` }} className="text-center text-orange-400 truncate px-0.5">
-            Bounce {pct(data.bouncePrecoce, v)}
-          </div>
-        )}
-        {data.abandonoMaduro > 0 && (
-          <div style={{ width: `${pMaduro}%` }} className="text-center text-amber-400 truncate px-0.5">
-            Saíram {pct(data.abandonoMaduro, v)}
-          </div>
-        )}
-        {data.clicaramCTA > 0 && (
-          <div style={{ width: `${pCTA}%` }} className="text-center text-cyan-400 truncate px-0.5">
-            CTA {pct(data.clicaramCTA, v)}
-          </div>
-        )}
-      </div>
-
-      {/* ── Linhas tracejadas conectando CTA → drilldown ── */}
-      {data.clicaramCTA > 0 && (
-        <>
-          <div className="relative h-5 mb-1" style={{ marginLeft: `${ctaOffset}%`, width: `${pCTA}%` }}>
-            <div className="absolute top-0 left-0 h-full border-l-2 border-dashed border-cyan-500/40" />
-            <div className="absolute top-0 right-0 h-full border-r-2 border-dashed border-cyan-500/40" />
-            <div className="absolute bottom-0 left-0 w-full border-b-2 border-dashed border-cyan-500/40" />
-          </div>
-
-          {/* ── Nível 2: CTA se decompondo ── */}
-          <div
-            className="flex mb-1 overflow-hidden rounded-lg"
-            style={{ marginLeft: `${ctaOffset}%`, width: `${pCTA}%` }}
-          >
-            {data.abandonaramPopup > 0 && (
-              <div
-                className="h-8 bg-red-500/30 flex items-center justify-center border-r border-[var(--surface-100)]"
-                style={{ width: `${pAbandPopup}%` }}
-                title={`Abandonaram popup: ${data.abandonaramPopup}`}
-              >
-                {pAbandPopup > 15 && <span className="text-xs font-bold text-red-400">{data.abandonaramPopup}</span>}
-              </div>
-            )}
-            {data.completaram > 0 && (
-              <div
-                className="h-8 bg-emerald-500/30 flex items-center justify-center"
-                style={{ width: `${pCompletaram}%` }}
-                title={`Enviaram form: ${data.completaram}`}
-              >
-                {pCompletaram > 15 && <span className="text-xs font-bold text-emerald-400">{data.completaram}</span>}
-              </div>
-            )}
-          </div>
-
-          {/* Legenda nível 2 */}
-          <div
-            className="flex text-[10px] mb-3"
-            style={{ marginLeft: `${ctaOffset}%`, width: `${pCTA}%` }}
-          >
-            {data.abandonaramPopup > 0 && (
-              <div style={{ width: `${pAbandPopup}%` }} className="text-center text-red-400 truncate px-0.5">
-                Abandon. {pct(data.abandonaramPopup, data.clicaramCTA)}
-              </div>
-            )}
-            {data.completaram > 0 && (
-              <div style={{ width: `${pCompletaram}%` }} className="text-center text-emerald-400 truncate px-0.5">
-                Leads {pct(data.completaram, data.clicaramCTA)}
-              </div>
-            )}
-          </div>
-        </>
-      )}
-
-      {/* Abandonos por step (dentro do funil) */}
+      {/* Abandonos por step */}
       {(() => {
         const abandoned = leads.filter(l => l.status === 'abandonado' || (l.abandoned_at_step && l.status !== 'completo'))
         if (abandoned.length === 0) return null
@@ -523,7 +451,8 @@ export default function LeadsPage() {
   const [unidade, setUnidade] = useState<UnidadeFilter>('todas')
 
   // Funnel
-  const [funnel, setFunnel] = useState<FunnelData>({ visitantesUnicos: 0, visitantesPagos: 0, visitantesOrganicos: 0, visitantesDiretos: 0, bouncePrecoce: 0, abandonoMaduro: 0, clicaramCTA: 0, abandonaramPopup: 0, completaram: 0 })
+  const emptyBreakdown: OrigemBreakdown = { total: 0, pagos: 0, organicos: 0, diretos: 0 }
+  const [funnel, setFunnel] = useState<FunnelData>({ visitantes: emptyBreakdown, engajados: emptyBreakdown, clicaramCTA: emptyBreakdown, converteram: emptyBreakdown })
   const [showFunnel, setShowFunnel] = useState(true)
 
   // Status counts
@@ -566,75 +495,74 @@ export default function LeadsPage() {
     }
 
     // Agrupar sessions por visitante único (unificado por gclid)
-    const visitorSessions = new Map<string, any[]>()
+    type VisitorInfo = { sessions: any[]; origem: 'pago' | 'organico' | 'direto'; engajado: boolean; clicouCTA: boolean }
+    const visitorMap = new Map<string, VisitorInfo>()
+
     sessionsData.forEach((s: any) => {
       const vid = resolveVisitor(s)
-      const arr = visitorSessions.get(vid) || []
-      arr.push(s)
-      visitorSessions.set(vid, arr)
+      const existing = visitorMap.get(vid) || { sessions: [], origem: 'direto' as const, engajado: false, clicouCTA: false }
+      existing.sessions.push(s)
+
+      // Origem (pago > orgânico > direto)
+      if (s.gclid || s.utm_medium === 'cpc' || s.utm_medium === 'ppc') existing.origem = 'pago'
+      else if (existing.origem !== 'pago' && (s.utm_source || (s.referrer && s.referrer.length > 0))) existing.origem = 'organico'
+
+      // Engajamento: ≥15s ou clicou CTA
+      if ((s.time_on_page_sec || 0) >= 15 || s.cta_clicked) existing.engajado = true
+
+      // CTA
+      if (s.cta_clicked) existing.clicouCTA = true
+
+      visitorMap.set(vid, existing)
     })
 
-    const uniqueVisitors = visitorSessions.size
+    function makeBreakdown(filter: (v: VisitorInfo) => boolean): OrigemBreakdown {
+      let total = 0, pagos = 0, organicos = 0, diretos = 0
+      visitorMap.forEach(v => {
+        if (!filter(v)) return
+        total++
+        if (v.origem === 'pago') pagos++
+        else if (v.origem === 'organico') organicos++
+        else diretos++
+      })
+      return { total, pagos, organicos, diretos }
+    }
 
-    // Classificar visitante pela origem (usa a session mais relevante)
-    let pagos = 0, organicos = 0, diretos = 0
-    visitorSessions.forEach((sessions) => {
-      // Se qualquer session tem gclid ou utm_medium=cpc → pago
-      const isPago = sessions.some((s: any) => s.gclid || s.utm_medium === 'cpc' || s.utm_medium === 'ppc')
-      if (isPago) { pagos++; return }
-      // Se tem referrer ou utm_source → orgânico
-      const isOrganico = sessions.some((s: any) => s.utm_source || (s.referrer && s.referrer.length > 0))
-      if (isOrganico) { organicos++; return }
-      // Senão → direto
-      diretos++
-    })
+    const visitantes = makeBreakdown(() => true)
+    const engajados = makeBreakdown(v => v.engajado)
+    const ctaBreakdown = makeBreakdown(v => v.clicouCTA)
 
-    // Métricas do funil (por session, não por visitante — fazem sentido assim)
-    const semCTA = sessionsData.filter((s: any) => !s.cta_clicked)
-    const bouncePrecoce = semCTA.filter((s: any) => (s.time_on_page_sec || 0) < 15).length
-    const abandonoMaduro = semCTA.filter((s: any) => (s.time_on_page_sec || 0) >= 15).length
-
-    const clicaramCTA = sessionsData.filter((s: any) => s.cta_clicked).length
-
-    // Leads — contar por visitante único (não por registro)
-    // Unificar por gclid quando visitor_id difere
+    // Leads — contar convertidos por visitante único
     const gclidToVid = new Map<string, string>()
-    const byVisitor = new Map<string, string[]>()
+    const leadsByVisitor = new Map<string, { statuses: string[]; origem: 'pago' | 'organico' | 'direto' }>()
     allLeadsData.forEach((l: any) => {
       let vid = l.visitor_id || l.id
       if (l.gclid) {
         const existing = gclidToVid.get(l.gclid)
-        if (existing) {
-          vid = existing
-        } else {
-          gclidToVid.set(l.gclid, vid)
-        }
+        if (existing) vid = existing
+        else gclidToVid.set(l.gclid, vid)
       }
-      const statuses = byVisitor.get(vid) || []
-      statuses.push(l.status || 'completo')
-      byVisitor.set(vid, statuses)
+      const entry = leadsByVisitor.get(vid) || { statuses: [], origem: 'direto' as const }
+      entry.statuses.push(l.status || 'completo')
+
+      // Origem do lead
+      if (l.gclid || l.utm_medium === 'cpc') entry.origem = 'pago'
+      else if (entry.origem !== 'pago' && l.utm_source) entry.origem = 'organico'
+
+      leadsByVisitor.set(vid, entry)
     })
 
-    let completedVisitors = 0
-    let abandonedOnlyVisitors = 0
-    byVisitor.forEach((statuses) => {
-      const hasComplete = statuses.some(s => s === 'completo' || s === 'contatado' || s === 'convertido')
-      const hasAbandoned = statuses.some(s => s === 'abandonado')
-      if (hasComplete) completedVisitors++
-      else if (hasAbandoned) abandonedOnlyVisitors++
+    const converteram: OrigemBreakdown = { total: 0, pagos: 0, organicos: 0, diretos: 0 }
+    leadsByVisitor.forEach((entry) => {
+      const hasComplete = entry.statuses.some(s => s === 'completo' || s === 'contatado' || s === 'convertido')
+      if (!hasComplete) return
+      converteram.total++
+      if (entry.origem === 'pago') converteram.pagos++
+      else if (entry.origem === 'organico') converteram.organicos++
+      else converteram.diretos++
     })
 
-    setFunnel({
-      visitantesUnicos: uniqueVisitors,
-      visitantesPagos: pagos,
-      visitantesOrganicos: organicos,
-      visitantesDiretos: diretos,
-      bouncePrecoce,
-      abandonoMaduro,
-      clicaramCTA,
-      abandonaramPopup: abandonedOnlyVisitors,
-      completaram: completedVisitors,
-    })
+    setFunnel({ visitantes, engajados, clicaramCTA: ctaBreakdown, converteram })
   }, [periodo, unidade])
 
   const carregarContagens = useCallback(async () => {
