@@ -385,17 +385,22 @@ function groupByVisitor(leads: Lead[]): VisitorGroup[] {
 // ============================================
 function OrigemBadges({ d }: { d: OrigemBreakdown }) {
   if (d.total === 0) return null
-  const items: { count: number; emoji: string; color: string; title: string }[] = [
-    { count: d.pagos, emoji: '💲', color: 'text-amber-200', title: 'Pagos' },
-    { count: d.organicos, emoji: '🌱', color: 'text-emerald-200', title: 'Orgânicos' },
-    { count: d.ia, emoji: '🤖', color: 'text-violet-200', title: 'IA' },
-    { count: d.social, emoji: '👥', color: 'text-pink-200', title: 'Redes Sociais' },
-    { count: d.diretos, emoji: '⌨️', color: 'text-sky-200', title: 'Diretos' },
+  const items: { count: number; emoji: string; title: string }[] = [
+    { count: d.pagos, emoji: '💲', title: 'Pagos' },
+    { count: d.organicos, emoji: '🌱', title: 'Orgânicos' },
+    { count: d.ia, emoji: '🤖', title: 'IA' },
+    { count: d.social, emoji: '👥', title: 'Redes Sociais' },
+    { count: d.diretos, emoji: '⌨️', title: 'Diretos' },
   ]
   return (
     <div className="flex items-center gap-1">
       {items.filter(x => x.count > 0).map(x => (
-        <span key={x.emoji} className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-black/30 ${x.color} backdrop-blur-sm`} title={x.title}>
+        <span
+          key={x.emoji}
+          className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+          style={{ background: 'rgba(0,0,0,0.45)', color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}
+          title={x.title}
+        >
           {x.emoji}{x.count}
         </span>
       ))}
@@ -423,10 +428,10 @@ function FunnelBar({ data, leads }: { data: FunnelData; leads: Lead[] }) {
   return (
     <div className="card p-4 md:p-5 mb-6">
       <div className="flex items-center justify-between mb-5">
-        <h3 className="text-sm font-semibold text-[var(--surface-500)] uppercase tracking-wider">Funil de Conversão</h3>
+        <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: '#94a3b8' }}>Funil de Conversão</h3>
         {data.visitantes.total > 0 && (
-          <span className="text-sm text-[var(--surface-400)]">
-            Conversão: <strong className="text-emerald-400">{pct(data.contratou.total, data.visitantes.total)}</strong>
+          <span className="text-sm" style={{ color: '#94a3b8' }}>
+            Conversão: <strong style={{ color: '#34d399' }}>{pct(data.contratou.total, data.visitantes.total)}</strong>
           </span>
         )}
       </div>
@@ -446,11 +451,11 @@ function FunnelBar({ data, leads }: { data: FunnelData; leads: Lead[] }) {
                   style={{ background: level.gradient, width: `${widthPct}%`, minWidth: '120px' }}
                 >
                   {/* Lado esquerdo: ícone + número + label + percentual */}
-                  <div className="flex items-center gap-1.5 shrink-0" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.5)' }}>
-                    <level.icon className="h-3.5 w-3.5 text-white drop-shadow" />
-                    <span className="text-sm font-extrabold text-white drop-shadow">{d.total}</span>
-                    <span className="text-[11px] font-semibold text-white/80 drop-shadow hidden sm:inline">{level.label}</span>
-                    <span className="text-[10px] font-bold text-white/60 drop-shadow">({percentual})</span>
+                  <div className="flex items-center gap-1.5 shrink-0" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.6), 0 0 8px rgba(0,0,0,0.3)' }}>
+                    <level.icon className="h-3.5 w-3.5" style={{ color: '#fff', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.5))' }} />
+                    <span className="text-sm font-extrabold" style={{ color: '#fff' }}>{d.total}</span>
+                    <span className="text-[11px] font-semibold hidden sm:inline" style={{ color: 'rgba(255,255,255,0.9)' }}>{level.label}</span>
+                    <span className="text-[10px] font-bold" style={{ color: 'rgba(255,255,255,0.7)' }}>({percentual})</span>
                   </div>
 
                   {/* Lado direito: badges de origem (podem transbordar) */}
@@ -462,7 +467,7 @@ function FunnelBar({ data, leads }: { data: FunnelData; leads: Lead[] }) {
 
               {/* Label mobile abaixo */}
               <div className="sm:hidden flex items-center gap-1 mt-0.5">
-                <span className="text-[10px] font-medium text-[var(--surface-500)]">{level.label}</span>
+                <span className="text-[10px] font-medium" style={{ color: '#94a3b8' }}>{level.label}</span>
               </div>
 
               {/* Conector entre níveis */}
