@@ -485,7 +485,7 @@ export default function LeadsPage() {
     const { from, to } = periodoRange(periodo)
 
     let sessionsQuery = supabase.from('sessions').select('visitor_id, time_on_page_sec, cta_clicked, landing_page, gclid, utm_source, utm_medium, referrer').gte('created_at', from).lt('created_at', to)
-    let leadsQuery = supabase.from('leads').select('status').gte('created_at', from).lt('created_at', to)
+    let leadsQuery = supabase.from('leads').select('status, visitor_id, gclid, utm_source, utm_medium, id').gte('created_at', from).lt('created_at', to)
 
     if (unidade !== 'todas') {
       leadsQuery = leadsQuery.eq('unidade_code', unidade)
@@ -587,7 +587,7 @@ export default function LeadsPage() {
 
   const carregarContagens = useCallback(async () => {
     const { from, to } = periodoRange(periodo)
-    let query = supabase.from('leads').select('status').gte('created_at', from).lt('created_at', to)
+    let query = supabase.from('leads').select('status, visitor_id, gclid, convertido, id, abandoned_at_step').gte('created_at', from).lt('created_at', to)
     if (unidade !== 'todas') query = query.eq('unidade_code', unidade)
     const { data } = await query
     if (!data) return
