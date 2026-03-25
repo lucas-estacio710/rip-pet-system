@@ -98,7 +98,79 @@ type VisitorGroup = {
   completou: boolean
 }
 
-type OrigemBreakdown = { total: number; pagos: number; organicos: number; diretos: number }
+type Origem = 'pago' | 'organico' | 'ia' | 'social' | 'direto'
+type OrigemBreakdown = { total: number; pagos: number; organicos: number; ia: number; social: number; diretos: number }
+
+// Domínios de IA
+const IA_DOMAINS = [
+  'chatgpt.com', 'chat.openai.com', 'openai.com',
+  'perplexity.ai',
+  'gemini.google.com', 'bard.google.com',
+  'copilot.microsoft.com',
+  'claude.ai', 'anthropic.com',
+  'you.com', 'phind.com', 'poe.com',
+]
+
+// Domínios de Redes Sociais
+const SOCIAL_DOMAINS = [
+  'facebook.com', 'fb.com', 'm.facebook.com', 'l.facebook.com', 'lm.facebook.com',
+  'instagram.com', 'l.instagram.com',
+  'tiktok.com',
+  'twitter.com', 'x.com', 't.co',
+  'linkedin.com', 'lnkd.in',
+  'pinterest.com', 'pin.it',
+  'threads.net',
+  'youtube.com', 'youtu.be',
+  'reddit.com',
+  'tumblr.com',
+  'snapchat.com',
+  'orkut.com', // nunca se sabe kkk
+]
+
+// Domínios de busca orgânica
+const SEARCH_DOMAINS = [
+  'google.com', 'google.com.br', 'www.google.com', 'www.google.com.br',
+  'bing.com', 'www.bing.com',
+  'yahoo.com', 'search.yahoo.com',
+  'duckduckgo.com',
+  'baidu.com',
+  'ecosia.org',
+]
+
+function classifyOrigem(session: { gclid?: string | null; utm_medium?: string | null; utm_source?: string | null; referrer?: string | null }): Origem {
+  // 1. Pago
+  if (session.gclid || session.utm_medium === 'cpc' || session.utm_medium === 'ppc' || session.utm_medium === 'paid') return 'pago'
+
+  // Extrair domínio do referrer
+  let refDomain = ''
+  if (session.referrer) {
+    try {
+      refDomain = new URL(session.referrer).hostname.replace(/^www\./, '').toLowerCase()
+    } catch { refDomain = session.referrer.toLowerCase() }
+  }
+
+  // utm_source também pode indicar origem
+  const src = (session.utm_source || '').toLowerCase()
+
+  // 2. IA
+  if (IA_DOMAINS.some(d => refDomain === d || refDomain.endsWith('.' + d))) return 'ia'
+  if (['chatgpt', 'perplexity', 'gemini', 'copilot', 'claude', 'openai'].some(k => src.includes(k))) return 'ia'
+
+  // 3. Redes Sociais
+  if (SOCIAL_DOMAINS.some(d => refDomain === d || refDomain.endsWith('.' + d))) return 'social'
+  if (['facebook', 'instagram', 'tiktok', 'twitter', 'linkedin', 'pinterest', 'youtube', 'reddit'].some(k => src.includes(k))) return 'social'
+
+  // 4. Orgânico (buscadores)
+  if (SEARCH_DOMAINS.some(d => refDomain === d || refDomain.endsWith('.' + d))) return 'organico'
+  if (src === 'google' || src === 'bing' || src === 'yahoo' || src === 'duckduckgo') return 'organico'
+
+  // 5. Tem referrer mas não é nenhum dos acima = orgânico genérico
+  if (refDomain && refDomain.length > 0) return 'organico'
+  if (session.utm_source) return 'organico'
+
+  // 6. Direto
+  return 'direto'
+}
 
 type FunnelData = {
   visitantes: OrigemBreakdown       // nível 1: todos
@@ -134,10 +206,28 @@ function tempoLegivel(seg: number): string {
 }
 
 function origemLabel(lead: Lead): string {
-  if (lead.gclid) return 'Google Ads'
-  if (lead.utm_source === 'facebook' || lead.utm_source === 'meta') return 'Meta Ads'
-  if (lead.utm_source) return lead.utm_source
-  return 'Orgânico'
+  const origem = classifyOrigem(lead)
+  switch (origem) {
+    case 'pago':
+      if (lead.gclid) return 'Google Ads'
+      if (lead.utm_source === 'facebook' || lead.utm_source === 'meta') return 'Meta Ads'
+      return 'Pago'
+    case 'ia': return 'IA'
+    case 'social': return 'Social'
+    case 'organico': return 'Orgânico'
+    case 'direto': return 'Direto'
+  }
+}
+
+function origemBadgeStyle(lead: Lead): string {
+  const origem = classifyOrigem(lead)
+  switch (origem) {
+    case 'pago': return 'border-amber-500/60 text-amber-400'
+    case 'ia': return 'border-violet-500/60 text-violet-400'
+    case 'social': return 'border-pink-500/60 text-pink-400'
+    case 'organico': return 'border-green-500/60 text-green-400'
+    case 'direto': return 'border-sky-500/60 text-sky-400'
+  }
 }
 
 function statusLabel(status: string | null): string {
@@ -293,17 +383,20 @@ function groupByVisitor(leads: Lead[]): VisitorGroup[] {
 // ============================================
 function OrigemBadges({ d }: { d: OrigemBreakdown }) {
   if (d.total === 0) return null
+  const items: { count: number; label: string; color: string }[] = [
+    { count: d.pagos, label: 'pag', color: 'text-amber-200' },
+    { count: d.organicos, label: 'org', color: 'text-emerald-200' },
+    { count: d.ia, label: 'ia', color: 'text-violet-200' },
+    { count: d.social, label: 'soc', color: 'text-pink-200' },
+    { count: d.diretos, label: 'dir', color: 'text-sky-200' },
+  ]
   return (
     <div className="flex items-center gap-1">
-      {d.pagos > 0 && (
-        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-black/30 text-amber-200 backdrop-blur-sm">{d.pagos} pag</span>
-      )}
-      {d.organicos > 0 && (
-        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-black/30 text-emerald-200 backdrop-blur-sm">{d.organicos} org</span>
-      )}
-      {d.diretos > 0 && (
-        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-black/30 text-sky-200 backdrop-blur-sm">{d.diretos} dir</span>
-      )}
+      {items.filter(x => x.count > 0).map(x => (
+        <span key={x.label} className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-black/30 ${x.color} backdrop-blur-sm`}>
+          {x.count} {x.label}
+        </span>
+      ))}
     </div>
   )
 }
@@ -471,7 +564,7 @@ export default function LeadsPage() {
   const [unidade, setUnidade] = useState<UnidadeFilter>('todas')
 
   // Funnel
-  const emptyBreakdown: OrigemBreakdown = { total: 0, pagos: 0, organicos: 0, diretos: 0 }
+  const emptyBreakdown: OrigemBreakdown = { total: 0, pagos: 0, organicos: 0, ia: 0, social: 0, diretos: 0 }
   const [funnel, setFunnel] = useState<FunnelData>({ visitantes: emptyBreakdown, engajados: emptyBreakdown, clicaramCTA: emptyBreakdown, converteram: emptyBreakdown })
   const [showFunnel, setShowFunnel] = useState(true)
 
@@ -515,37 +608,43 @@ export default function LeadsPage() {
     }
 
     // Agrupar sessions por visitante único (unificado por gclid)
-    type VisitorInfo = { sessions: any[]; origem: 'pago' | 'organico' | 'direto'; engajado: boolean; clicouCTA: boolean }
+    type VisitorInfo = { origem: Origem; engajado: boolean; clicouCTA: boolean }
     const visitorMap = new Map<string, VisitorInfo>()
+
+    // Prioridade: pago > ia > social > organico > direto
+    const ORIGEM_PRIORITY: Record<Origem, number> = { pago: 5, ia: 4, social: 3, organico: 2, direto: 1 }
 
     sessionsData.forEach((s: any) => {
       const vid = resolveVisitor(s)
-      const existing = visitorMap.get(vid) || { sessions: [], origem: 'direto' as const, engajado: false, clicouCTA: false }
-      existing.sessions.push(s)
+      const existing = visitorMap.get(vid) || { origem: 'direto' as Origem, engajado: false, clicouCTA: false }
 
-      // Origem (pago > orgânico > direto)
-      if (s.gclid || s.utm_medium === 'cpc' || s.utm_medium === 'ppc') existing.origem = 'pago'
-      else if (existing.origem !== 'pago' && (s.utm_source || (s.referrer && s.referrer.length > 0))) existing.origem = 'organico'
+      // Classificar origem desta session
+      const sessionOrigem = classifyOrigem(s)
+      if (ORIGEM_PRIORITY[sessionOrigem] > ORIGEM_PRIORITY[existing.origem]) {
+        existing.origem = sessionOrigem
+      }
 
-      // Engajamento: ≥15s ou clicou CTA
       if ((s.time_on_page_sec || 0) >= 15 || s.cta_clicked) existing.engajado = true
-
-      // CTA
       if (s.cta_clicked) existing.clicouCTA = true
 
       visitorMap.set(vid, existing)
     })
 
+    function addToBreakdown(bd: OrigemBreakdown, origem: Origem) {
+      bd.total++
+      if (origem === 'pago') bd.pagos++
+      else if (origem === 'organico') bd.organicos++
+      else if (origem === 'ia') bd.ia++
+      else if (origem === 'social') bd.social++
+      else bd.diretos++
+    }
+
     function makeBreakdown(filter: (v: VisitorInfo) => boolean): OrigemBreakdown {
-      let total = 0, pagos = 0, organicos = 0, diretos = 0
+      const bd: OrigemBreakdown = { total: 0, pagos: 0, organicos: 0, ia: 0, social: 0, diretos: 0 }
       visitorMap.forEach(v => {
-        if (!filter(v)) return
-        total++
-        if (v.origem === 'pago') pagos++
-        else if (v.origem === 'organico') organicos++
-        else diretos++
+        if (filter(v)) addToBreakdown(bd, v.origem)
       })
-      return { total, pagos, organicos, diretos }
+      return bd
     }
 
     const visitantes = makeBreakdown(() => true)
@@ -554,7 +653,7 @@ export default function LeadsPage() {
 
     // Leads — contar convertidos por visitante único
     const gclidToVid = new Map<string, string>()
-    const leadsByVisitor = new Map<string, { statuses: string[]; origem: 'pago' | 'organico' | 'direto' }>()
+    const leadsByVisitor = new Map<string, { statuses: string[]; origem: Origem }>()
     allLeadsData.forEach((l: any) => {
       let vid = l.visitor_id || l.id
       if (l.gclid) {
@@ -562,24 +661,21 @@ export default function LeadsPage() {
         if (existing) vid = existing
         else gclidToVid.set(l.gclid, vid)
       }
-      const entry = leadsByVisitor.get(vid) || { statuses: [], origem: 'direto' as const }
+      const entry = leadsByVisitor.get(vid) || { statuses: [], origem: 'direto' as Origem }
       entry.statuses.push(l.status || 'completo')
 
-      // Origem do lead
-      if (l.gclid || l.utm_medium === 'cpc') entry.origem = 'pago'
-      else if (entry.origem !== 'pago' && l.utm_source) entry.origem = 'organico'
+      const leadOrigem = classifyOrigem(l)
+      if (ORIGEM_PRIORITY[leadOrigem] > ORIGEM_PRIORITY[entry.origem]) {
+        entry.origem = leadOrigem
+      }
 
       leadsByVisitor.set(vid, entry)
     })
 
-    const converteram: OrigemBreakdown = { total: 0, pagos: 0, organicos: 0, diretos: 0 }
+    const converteram: OrigemBreakdown = { total: 0, pagos: 0, organicos: 0, ia: 0, social: 0, diretos: 0 }
     leadsByVisitor.forEach((entry) => {
       const hasComplete = entry.statuses.some(s => s === 'completo' || s === 'contatado' || s === 'convertido')
-      if (!hasComplete) return
-      converteram.total++
-      if (entry.origem === 'pago') converteram.pagos++
-      else if (entry.origem === 'organico') converteram.organicos++
-      else converteram.diretos++
+      if (hasComplete) addToBreakdown(converteram, entry.origem)
     })
 
     setFunnel({ visitantes, engajados, clicaramCTA: ctaBreakdown, converteram })
@@ -886,12 +982,7 @@ export default function LeadsPage() {
                     {/* Badges: Origem → Tipo → Canal → ··· Status */}
                     <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
                       {/* 1. Origem (tracejado) */}
-                      <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border border-dashed ${
-                        lead.gclid ? 'border-amber-500/60 text-amber-400' :
-                        (lead.utm_source === 'facebook' || lead.utm_source === 'meta') ? 'border-blue-500/60 text-blue-400' :
-                        lead.utm_source ? 'border-purple-500/60 text-purple-400' :
-                        'border-[var(--surface-400)]/40 text-[var(--surface-500)]'
-                      }`}>
+                      <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border border-dashed ${origemBadgeStyle(lead)}`}>
                         <Globe className="h-3 w-3" />
                         {origemLabel(lead)}
                       </span>
