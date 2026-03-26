@@ -13,6 +13,7 @@ import { THEMES, THEME_META, type Theme } from '@/lib/theme'
 import { UnitProvider } from '@/contexts/UnitContext'
 import { UnitSelector } from './UnitSelector'
 import { UserMenu } from './UserMenu'
+import { ImpersonateBanner } from './ImpersonateBanner'
 
 const THEME_ICONS: Record<Theme, string> = {
   dark: '🌙',
@@ -65,6 +66,8 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
 
         {/* Main content area — responsive margins */}
         <main className={`theme-content pt-14 md:pt-0 md:ml-[72px] ${sidebarExpanded ? 'lg:ml-64' : 'lg:ml-[72px]'} min-h-screen transition-all duration-200`}>
+          {/* Banner de impersonação */}
+          <ImpersonateBanner />
           {/* Top bar — unit selector + user menu */}
           <div className="hidden md:flex items-center justify-between px-4 py-0.5 border-b border-[var(--surface-200)]">
             <UnitSelector />

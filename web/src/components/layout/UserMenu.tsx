@@ -7,10 +7,11 @@ import { useUnit } from '@/contexts/UnitContext'
 import { createClient } from '@/lib/supabase/client'
 import {
   User, ChevronDown, LogOut, Eye, Users, Settings, Crown, Shield,
-  Palette, Moon, Sun
+  Palette, Moon, Sun, UserCheck
 } from 'lucide-react'
 import { useTheme } from '@/hooks/useTheme'
 import { THEMES, THEME_META, type Theme } from '@/lib/theme'
+import { ImpersonateModal } from './ImpersonateModal'
 
 const THEME_ICONS: Record<Theme, typeof Moon> = {
   dark: Moon,
@@ -26,7 +27,8 @@ const ROLE_LABELS = {
 }
 
 export function UserMenu() {
-  const { userEmail, userName, currentRole, isSuperAdmin } = useUnit()
+  const { userEmail, userName, currentRole, isSuperAdmin, impersonating, impersonatedEmail, startImpersonating, stopImpersonating } = useUnit()
+  const [showImpersonate, setShowImpersonate] = useState(false)
   const { theme, setTheme } = useTheme()
   const router = useRouter()
   const supabase = createClient()
@@ -113,6 +115,16 @@ export function UserMenu() {
                 <Eye className="h-4 w-4" style={{ color: '#3b82f6' }} />
                 <span className="text-sm">Visibilidade</span>
               </Link>
+              <button
+                onClick={() => { setIsOpen(false); setShowImpersonate(true) }}
+                className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors"
+                style={{ color: '#e2e8f0' }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                <UserCheck className="h-4 w-4" style={{ color: '#f59e0b' }} />
+                <span className="text-sm">Logar como</span>
+              </button>
             </div>
           )}
 
@@ -153,6 +165,16 @@ export function UserMenu() {
           </button>
         </div>
       )}
+
+      {/* Modal de impersonação */}
+      <ImpersonateModal
+        isOpen={showImpersonate}
+        onClose={() => setShowImpersonate(false)}
+        onSelect={async (userId, email) => {
+          setShowImpersonate(false)
+          await startImpersonating(userId, email)
+        }}
+      />
     </div>
   )
 }

@@ -42,6 +42,12 @@ type UnitContextType = {
   userName: string | null
   userEmail: string | null
 
+  // Impersonação
+  impersonating: boolean
+  impersonatedEmail: string | null
+  startImpersonating: (userId: string, email: string) => Promise<void>
+  stopImpersonating: () => void
+
   // Ações
   switchUnit: (unitId: string) => void
   hasModule: (module: string) => boolean
@@ -63,6 +69,9 @@ export function UnitProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
   const [userName, setUserName] = useState<string | null>(null)
   const [userEmail, setUserEmail] = useState<string | null>(null)
+  const [impersonating, setImpersonating] = useState(false)
+  const [impersonatedEmail, setImpersonatedEmail] = useState<string | null>(null)
+  const [realUserData, setRealUserData] = useState<{ perfis: UserPerfil[]; allUnidades: Unidade[]; userName: string | null; userEmail: string | null } | null>(null)
 
   const isSuperAdmin = userPerfis.some(p => p.role === 'super_admin')
 
@@ -218,9 +227,87 @@ export function UnitProvider({ children }: { children: ReactNode }) {
 
   const hasModule = useCallback((module: string): boolean => {
     if (!currentUnit) return false
-    // Respeita os módulos da unidade selecionada, independente do role
     return currentUnit.modulos_ativos?.includes(module) ?? false
   }, [currentUnit])
+
+  // Impersonação: ver a ferramenta como outro usuário veria
+  const startImpersonating = useCallback(async (userId: string, email: string) => {
+    // Salvar estado real
+    setRealUserData({
+      perfis: userPerfis,
+      allUnidades: allUnidades,
+      userName: userName,
+      userEmail: userEmail,
+    })
+
+    // Buscar perfis do usuário alvo
+    const { data: perfisData } = await supabase
+      .from('perfis')
+      .select('id, unidade_id, role, is_default, nome, ativo')
+      .eq('user_id', userId)
+      .eq('ativo', true)
+
+    const { data: unidadesData } = await supabase
+      .from('unidades')
+      .select('*')
+      .order('ordem')
+      .order('nome')
+
+    if (!perfisData || !unidadesData) return
+
+    const unidadesMap = new Map(unidadesData.map((u: any) => [u.id, u]))
+
+    const targetPerfis: UserPerfil[] = perfisData
+      .map((p: any) => {
+        const unidade = unidadesMap.get(p.unidade_id)
+        if (!unidade) return null
+        return {
+          perfil_id: p.id,
+          unidade: { ...unidade, ativa: unidade.ativa ?? true, modulos_ativos: unidade.modulos_ativos || [] } as Unidade,
+          role: p.role as UserRole,
+          is_default: p.is_default,
+          nome: p.nome,
+        }
+      })
+      .filter(Boolean) as UserPerfil[]
+
+    if (targetPerfis.length === 0) return
+
+    const targetIsSA = targetPerfis.some(p => p.role === 'super_admin')
+    const targetUnidades = targetIsSA
+      ? unidadesData.map((u: any) => ({ ...u, ativa: u.ativa ?? true, modulos_ativos: u.modulos_ativos || [] })) as Unidade[]
+      : targetPerfis.map(p => p.unidade)
+
+    const defaultPerfil = targetPerfis.find(p => p.is_default) || targetPerfis[0]
+
+    setUserPerfis(targetPerfis)
+    setAllUnidades(targetUnidades)
+    setCurrentUnit(defaultPerfil.unidade)
+    setCurrentRole(defaultPerfil.role)
+    setUserName(defaultPerfil.nome || email.split('@')[0])
+    setUserEmail(email)
+    setImpersonating(true)
+    setImpersonatedEmail(email)
+  }, [supabase, userPerfis, allUnidades, userName, userEmail])
+
+  const stopImpersonating = useCallback(() => {
+    if (!realUserData) return
+
+    setUserPerfis(realUserData.perfis)
+    setAllUnidades(realUserData.allUnidades)
+    setUserName(realUserData.userName)
+    setUserEmail(realUserData.userEmail)
+    setImpersonating(false)
+    setImpersonatedEmail(null)
+    setRealUserData(null)
+
+    // Restaurar unidade default
+    const defaultPerfil = realUserData.perfis.find(p => p.is_default) || realUserData.perfis[0]
+    if (defaultPerfil) {
+      setCurrentUnit(defaultPerfil.unidade)
+      setCurrentRole(defaultPerfil.role)
+    }
+  }, [realUserData])
 
   return (
     <UnitContext.Provider value={{
@@ -229,9 +316,13 @@ export function UnitProvider({ children }: { children: ReactNode }) {
       userPerfis,
       allUnidades,
       isLoading,
-      isSuperAdmin,
+      isSuperAdmin: impersonating ? userPerfis.some(p => p.role === 'super_admin') : isSuperAdmin,
       userName,
       userEmail,
+      impersonating,
+      impersonatedEmail,
+      startImpersonating,
+      stopImpersonating,
       switchUnit,
       hasModule,
       refetch: fetchData,
