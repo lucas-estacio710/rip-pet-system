@@ -48,6 +48,7 @@ export async function POST(request: NextRequest) {
     })
 
     if (error) {
+      console.error('Supabase admin.createUser error:', error.message, error.status, JSON.stringify(error))
       return NextResponse.json({ error: error.message }, { status: 400 })
     }
 

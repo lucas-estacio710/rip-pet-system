@@ -196,10 +196,16 @@ export default function AdminUsuariosPage() {
           nome: formNome || null,
         }))
 
-        await supabase.from('perfis').insert(perfisToInsert)
+        const { error: perfisError } = await supabase.from('perfis').insert(perfisToInsert)
+        if (perfisError) {
+          console.error('Erro ao inserir perfis:', perfisError)
+          alert('Usuário criado mas erro ao configurar perfil: ' + perfisError.message)
+        }
       }
 
       setShowModal(false)
+      // Pequeno delay pro Supabase propagar
+      await new Promise(r => setTimeout(r, 500))
       await carregarUsuarios()
     } catch (e) {
       console.error(e)
