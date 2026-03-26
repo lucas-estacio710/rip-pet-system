@@ -64,26 +64,9 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
 
         {/* Main content area — responsive margins */}
         <main className={`theme-content pt-14 md:pt-0 md:ml-[72px] ${sidebarExpanded ? 'lg:ml-64' : 'lg:ml-[72px]'} min-h-screen transition-all duration-200`}>
-          {/* Top bar — unit selector + theme selector */}
-          <div className="hidden md:flex items-center justify-between gap-2 px-4 py-0.5 border-b border-[var(--surface-200)]">
+          {/* Top bar — unit selector */}
+          <div className="hidden md:flex items-center px-4 py-0.5 border-b border-[var(--surface-200)]">
             <UnitSelector />
-            <div className="flex items-center gap-1">
-            <span className="text-xs text-[var(--shell-text-muted)] mr-1">Tema</span>
-            {THEMES.map((t) => (
-              <button
-                key={t}
-                onClick={() => setTheme(t)}
-                title={THEME_META[t].label}
-                className={`px-2 py-0.5 text-xs rounded-md transition-all ${
-                  theme === t
-                    ? 'bg-purple-600 text-white font-semibold shadow-sm'
-                    : 'text-[var(--shell-text-muted)] hover:bg-[var(--surface-100)] hover:text-[var(--shell-text)]'
-                }`}
-              >
-                {THEME_ICONS[t]} {THEME_META[t].label}
-              </button>
-            ))}
-            </div>
           </div>
           <div className="p-4 md:px-6 md:pt-2 md:pb-6 animate-fade-in">
             {children}

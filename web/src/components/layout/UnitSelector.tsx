@@ -69,12 +69,15 @@ export function UnitSelector() {
       </button>
 
       {isOpen && (
-        <div className="absolute top-full left-0 mt-1 w-72 bg-[var(--surface-bg)] border border-[var(--surface-200)] rounded-xl shadow-xl z-50 overflow-hidden animate-fade-in">
+        <div
+          className="absolute top-full left-0 mt-1 w-72 rounded-xl shadow-2xl z-50 overflow-hidden animate-fade-in"
+          style={{ background: '#1e293b', border: '1px solid #334155' }}
+        >
           {/* Header */}
-          <div className="px-3 py-2 border-b border-[var(--surface-200)]">
+          <div style={{ borderBottom: '1px solid #334155', padding: '8px 12px' }}>
             <div className="flex items-center gap-1.5">
-              <RoleIcon className="h-3.5 w-3.5 text-purple-400" />
-              <span className="text-xs font-semibold text-purple-400">
+              <RoleIcon className="h-3.5 w-3.5" style={{ color: '#a78bfa' }} />
+              <span className="text-xs font-semibold" style={{ color: '#a78bfa' }}>
                 {currentRole ? ROLE_LABELS[currentRole] : ''}
               </span>
             </div>
@@ -84,8 +87,6 @@ export function UnitSelector() {
           <div className="max-h-80 overflow-y-auto py-1">
             {units.map(unit => {
               const isActive = unit.id === currentUnit.id
-              const perfil = userPerfis.find(p => p.unidade.id === unit.id)
-              const role = perfil?.role || (isSuperAdmin ? 'super_admin' : null)
 
               return (
                 <button
@@ -94,30 +95,31 @@ export function UnitSelector() {
                     switchUnit(unit.id)
                     setIsOpen(false)
                   }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${
-                    isActive
-                      ? 'bg-purple-500/10'
-                      : 'hover:bg-[var(--surface-50)]'
-                  }`}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors"
+                  style={{
+                    background: isActive ? 'rgba(139, 92, 246, 0.15)' : 'transparent',
+                  }}
+                  onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)' }}
+                  onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent' }}
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className={`text-sm font-medium ${isActive ? 'text-purple-400' : 'text-[var(--surface-700)]'}`}>
+                      <span className="text-sm font-medium" style={{ color: isActive ? '#a78bfa' : '#e2e8f0' }}>
                         {unit.nome}
                       </span>
                       {unit.is_matriz && (
-                        <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/20 text-amber-400 font-bold">MATRIZ</span>
+                        <span className="text-[9px] px-1 py-0.5 rounded font-bold" style={{ background: 'rgba(245,158,11,0.2)', color: '#fbbf24' }}>MATRIZ</span>
                       )}
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[10px] text-[var(--surface-400)] font-mono">{unit.codigo}</span>
+                      <span className="text-[10px] font-mono" style={{ color: '#94a3b8' }}>{unit.codigo}</span>
                       {unit.cidade && (
-                        <span className="text-[10px] text-[var(--surface-400)]">{unit.cidade}/{unit.estado}</span>
+                        <span className="text-[10px]" style={{ color: '#94a3b8' }}>{unit.cidade}/{unit.estado}</span>
                       )}
                     </div>
                   </div>
 
-                  {isActive && <Check className="h-4 w-4 text-purple-400 shrink-0" />}
+                  {isActive && <Check className="h-4 w-4 shrink-0" style={{ color: '#a78bfa' }} />}
                 </button>
               )
             })}
