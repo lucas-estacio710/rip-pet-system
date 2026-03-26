@@ -111,18 +111,12 @@ body {
   color: #f8fafc;
   color-scheme: dark;
 
-  /* Só texto (600+) invertido pra ficar claro. Backgrounds (50-500) mantidos. */
-  --color-slate-600: #e2e8f0;
-  --color-slate-700: #f1f5f9;
-  --color-slate-800: #f8fafc;
-  --color-slate-900: #ffffff;
-  --color-slate-950: #ffffff;
-
-  --color-gray-600: #e2e8f0;
-  --color-gray-700: #f1f5f9;
-  --color-gray-800: #f8fafc;
-  --color-gray-900: #ffffff;
-  --color-gray-950: #ffffff;
+  /*
+   * NÃO inverter --color-slate-* no dark!
+   * As páginas legadas (contratos/[id]) usam bg-slate-800, text-slate-200 etc.
+   * diretamente no Tailwind, que no dark já são as cores certas.
+   * Páginas novas devem usar var(--surface-*) em vez de slate hardcoded.
+   */
 
   /* Cores quentes legíveis em fundo escuro */
   --color-amber-400: #fbbf24;
