@@ -30,14 +30,14 @@ type NavItem = {
 }
 
 const navItems: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, countKey: null, module: null },
-  { href: '/leads', label: 'Leads', icon: Zap, countKey: 'leads', module: 'leads' },
-  { href: '/fichas', label: 'Fichas', icon: TextSelect, countKey: 'fichas', module: 'fichas' },
-  { href: '/preventivos', label: 'Preventivos', icon: Heart, countKey: null, module: 'preventivos' },
-  { href: '/contratos?status=ativo', label: 'Contratos', icon: FileCheck, countKey: 'contratos', module: 'pipeline' },
-  { href: '/supindas', label: 'Encaminhamentos', icon: Route, countKey: null, module: 'pipeline' },
-  { href: '/estoque', label: 'Estoque', icon: ShelvingUnit, countKey: null, module: 'produtos' },
-  { href: '/tutores', label: 'Tutores', icon: Users, countKey: null, module: 'tutores' },
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, countKey: null, module: 'tela_dashboard' },
+  { href: '/leads', label: 'Leads', icon: Zap, countKey: 'leads', module: 'tela_leads' },
+  { href: '/fichas', label: 'Fichas', icon: TextSelect, countKey: 'fichas', module: 'tela_fichas' },
+  { href: '/preventivos', label: 'Preventivos', icon: Heart, countKey: null, module: 'tela_preventivos' },
+  { href: '/contratos?status=ativo', label: 'Pipeline', icon: FileCheck, countKey: 'contratos', module: 'tela_pipeline' },
+  { href: '/supindas', label: 'Encaminhamentos', icon: Route, countKey: null, module: 'tela_entregas' },
+  { href: '/estoque', label: 'Estoque', icon: ShelvingUnit, countKey: null, module: 'tela_estoque' },
+  { href: '/tutores', label: 'Tutores', icon: Users, countKey: null, module: 'tela_tutores' },
 ]
 
 type Props = {
