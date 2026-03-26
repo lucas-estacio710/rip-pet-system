@@ -7,7 +7,7 @@ import { useUnit } from '@/contexts/UnitContext'
 import { createClient } from '@/lib/supabase/client'
 import {
   User, ChevronDown, LogOut, Eye, Users, Settings, Crown, Shield,
-  Palette, Moon, Sun, UserCheck
+  Palette, Moon, Sun, UserCheck, Tag
 } from 'lucide-react'
 import { useTheme } from '@/hooks/useTheme'
 import { THEMES, THEME_META, type Theme } from '@/lib/theme'
@@ -114,6 +114,17 @@ export function UserMenu() {
               >
                 <Eye className="h-4 w-4" style={{ color: '#3b82f6' }} />
                 <span className="text-sm">Visibilidade</span>
+              </Link>
+              <Link
+                href="/admin/nomes-comerciais"
+                onClick={() => setIsOpen(false)}
+                className="flex items-center gap-3 px-4 py-2.5 transition-colors"
+                style={{ color: '#e2e8f0' }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                <Tag className="h-4 w-4" style={{ color: '#f59e0b' }} />
+                <span className="text-sm">Nomes Comerciais</span>
               </Link>
               <button
                 onClick={() => { setIsOpen(false); setShowImpersonate(true) }}
