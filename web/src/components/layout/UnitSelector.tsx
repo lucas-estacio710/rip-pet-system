@@ -137,11 +137,6 @@ export function UnitSelector() {
                         <span className="text-[9px] px-1 py-0.5 rounded font-bold" style={{ background: 'rgba(245,158,11,0.2)', color: '#fbbf24' }}>MATRIZ</span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      {unit.cidade && (
-                        <span className="text-[10px]" style={{ color: '#94a3b8' }}>{unit.cidade}/{unit.estado}</span>
-                      )}
-                    </div>
                   </div>
 
                   {isActive && <Check className="h-4 w-4 shrink-0" style={{ color: '#a78bfa' }} />}
