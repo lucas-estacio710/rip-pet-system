@@ -111,26 +111,13 @@ body {
   color: #f8fafc;
   color-scheme: dark;
 
-  /* Slate invertido: 50=escuro, 900=branco */
-  --color-slate-50: #0f172a;
-  --color-slate-100: #1e293b;
-  --color-slate-200: #334155;
-  --color-slate-300: #475569;
-  --color-slate-400: #94a3b8;
-  --color-slate-500: #cbd5e1;
+  /* Só texto (600+) invertido pra ficar claro. Backgrounds (50-500) mantidos. */
   --color-slate-600: #e2e8f0;
   --color-slate-700: #f1f5f9;
   --color-slate-800: #f8fafc;
   --color-slate-900: #ffffff;
   --color-slate-950: #ffffff;
 
-  /* Gray invertido */
-  --color-gray-50: #0f172a;
-  --color-gray-100: #1e293b;
-  --color-gray-200: #334155;
-  --color-gray-300: #475569;
-  --color-gray-400: #94a3b8;
-  --color-gray-500: #cbd5e1;
   --color-gray-600: #e2e8f0;
   --color-gray-700: #f1f5f9;
   --color-gray-800: #f8fafc;
