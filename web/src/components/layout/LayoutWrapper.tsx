@@ -18,8 +18,6 @@ import { ImpersonateBanner } from './ImpersonateBanner'
 const THEME_ICONS: Record<Theme, string> = {
   dark: '🌙',
   white: '☀️',
-  'half-white': '◐',
-  'half-dark': '◑',
 }
 
 const STANDALONE_ROUTES = ['/login', '/ficha/']

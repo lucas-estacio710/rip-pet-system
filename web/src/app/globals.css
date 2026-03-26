@@ -90,21 +90,12 @@ body {
 }
 
 /* ============================================
-   Theme System — 4 Selectable Themes
-
-   | Theme      | Shell (bg)  | Content    |
-   |------------|-------------|------------|
-   | dark       | Dark        | Dark       |
-   | white      | Light       | Light      |
-   | half-white | Light       | Dark       |
-   | half-dark  | Dark        | Light      |
-
-   Sidebar always dark in all themes.
+   Theme System — 2 Themes: Dark & White
+   Sidebar always dark in both.
    ============================================ */
 
-/* Shell-light themes: light page background */
-[data-theme="white"],
-[data-theme="half-white"] {
+/* White theme: light shell + light content */
+[data-theme="white"] {
   --shell-bg: #f8fafc;
   --shell-text: #0f172a;
   --shell-text-muted: #64748b;
@@ -115,17 +106,12 @@ body {
   color-scheme: light;
 }
 
-/*
- * Content-dark: forçar texto legível nos temas escuros.
- * Inverte TODA a escala slate/gray: 50 (mais escuro) → 950 (mais claro)
- * Assim text-slate-900 = branco, bg-slate-50 = escuro, etc.
- */
-[data-theme="dark"] .theme-content,
-[data-theme="half-white"] .theme-content {
+/* Dark content: forçar texto legível */
+[data-theme="dark"] .theme-content {
   color: #f8fafc;
   color-scheme: dark;
 
-  /* Slate: escala invertida (escuro→claro vira claro→escuro) */
+  /* Slate invertido: 50=escuro, 900=branco */
   --color-slate-50: #0f172a;
   --color-slate-100: #1e293b;
   --color-slate-200: #334155;
@@ -138,7 +124,7 @@ body {
   --color-slate-900: #ffffff;
   --color-slate-950: #ffffff;
 
-  /* Gray: mesma inversão */
+  /* Gray invertido */
   --color-gray-50: #0f172a;
   --color-gray-100: #1e293b;
   --color-gray-200: #334155;
@@ -151,7 +137,7 @@ body {
   --color-gray-900: #ffffff;
   --color-gray-950: #ffffff;
 
-  /* Amarelo/âmbar legível em fundo escuro */
+  /* Cores quentes legíveis em fundo escuro */
   --color-amber-400: #fbbf24;
   --color-amber-500: #f59e0b;
   --color-yellow-400: #facc15;
@@ -160,9 +146,8 @@ body {
   --color-orange-500: #f97316;
 }
 
-/* Content-light: remap surface variables + override hardcoded classes */
-[data-theme="white"] .theme-content,
-[data-theme="half-dark"] .theme-content {
+/* White content: remap surface + slate para fundo claro */
+[data-theme="white"] .theme-content {
   color: #0f172a;
   color-scheme: light;
 

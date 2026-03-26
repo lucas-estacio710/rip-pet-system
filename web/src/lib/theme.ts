@@ -1,4 +1,4 @@
-export const THEMES = ['dark', 'white', 'half-white', 'half-dark'] as const
+export const THEMES = ['dark', 'white'] as const
 export type Theme = (typeof THEMES)[number]
 
 export const DEFAULT_THEME: Theme = 'dark'
@@ -7,8 +7,6 @@ export const THEME_STORAGE_KEY = 'rippet-theme'
 export const THEME_META: Record<Theme, { label: string; description: string }> = {
   dark: { label: 'Escuro', description: 'Tudo escuro' },
   white: { label: 'Claro', description: 'Tudo claro' },
-  'half-white': { label: 'Meio-claro', description: 'Shell claro, conteúdo escuro' },
-  'half-dark': { label: 'Meio-escuro', description: 'Shell escuro, conteúdo claro' },
 }
 
 export function getStoredTheme(): Theme {

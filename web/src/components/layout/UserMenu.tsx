@@ -16,8 +16,6 @@ import { ImpersonateModal } from './ImpersonateModal'
 const THEME_ICONS: Record<Theme, typeof Moon> = {
   dark: Moon,
   white: Sun,
-  'half-white': Sun,
-  'half-dark': Moon,
 }
 
 const ROLE_LABELS = {
