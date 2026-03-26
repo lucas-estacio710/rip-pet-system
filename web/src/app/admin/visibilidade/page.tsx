@@ -9,14 +9,15 @@ import EmptyState from '@/components/ui/EmptyState'
 // ============================================
 // Módulos disponíveis
 // ============================================
+// Ordem igual ao menu lateral (Sidebar)
 const MODULOS = [
+  { key: 'leads', label: 'Leads', desc: 'Funil de leads do site', fase: 3 },
   { key: 'fichas', label: 'Fichas', desc: 'Receber e processar fichas de entrada', fase: 1 },
-  { key: 'pipeline', label: 'Pipeline', desc: 'Contratos, status, encaminhamentos', fase: 1 },
-  { key: 'recepcao', label: 'Recepção', desc: 'Receber pets de outras unidades (Pinda)', fase: 1 },
   { key: 'preventivos', label: 'Preventivos', desc: 'Contratos preventivos', fase: 1 },
+  { key: 'pipeline', label: 'Pipeline', desc: 'Contratos, status, encaminhamentos', fase: 1 },
+  { key: 'recepcao', label: 'Recepção', desc: 'Receber pets de outras unidades', fase: 1 },
   { key: 'produtos', label: 'Produtos', desc: 'Catálogo, estoque, produtos do contrato', fase: 2 },
   { key: 'pagamentos', label: 'Pagamentos', desc: 'Financeiro, contas, taxas', fase: 2 },
-  { key: 'leads', label: 'Leads', desc: 'Funil de leads do site', fase: 3 },
   { key: 'rotas', label: 'Rotas', desc: 'Rotas de entrega', fase: 3 },
   { key: 'comercial', label: 'Comercial', desc: 'Estabelecimentos, visitas, contatos', fase: 3 },
   { key: 'mensagens', label: 'Mensagens', desc: 'Templates e envio automático', fase: 3 },

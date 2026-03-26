@@ -218,9 +218,9 @@ export function UnitProvider({ children }: { children: ReactNode }) {
 
   const hasModule = useCallback((module: string): boolean => {
     if (!currentUnit) return false
-    if (isSuperAdmin) return true // super admin vê tudo
+    // Respeita os módulos da unidade selecionada, independente do role
     return currentUnit.modulos_ativos?.includes(module) ?? false
-  }, [currentUnit, isSuperAdmin])
+  }, [currentUnit])
 
   return (
     <UnitContext.Provider value={{
