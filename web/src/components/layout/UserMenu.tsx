@@ -154,7 +154,7 @@ export function UserMenu() {
                     }}
                     title={THEME_META[t].label}
                   >
-                    {THEME_META[t].label}
+                    {t === 'dark' ? '🌙' : '☀️'} {THEME_META[t].label}
                   </button>
                 )
               })}
