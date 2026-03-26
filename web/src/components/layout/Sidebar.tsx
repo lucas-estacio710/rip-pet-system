@@ -40,6 +40,7 @@ const navItems: NavItem[] = [
   { href: '/tutores', label: 'Tutores', icon: Users, countKey: null, module: null },
   { href: '/configuracoes', label: 'Configurações', icon: Settings, countKey: null, module: null },
   { href: '/admin/usuarios', label: 'Usuários', icon: Crown, countKey: null, module: null, superAdminOnly: true },
+  { href: '/admin/visibilidade', label: 'Visibilidade', icon: Settings, countKey: null, module: null, superAdminOnly: true },
 ]
 
 type Props = {
