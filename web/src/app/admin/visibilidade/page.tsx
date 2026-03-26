@@ -18,6 +18,7 @@ const MODULOS = [
   { key: 'recepcao', label: 'Recepção', desc: 'Receber pets de outras unidades', fase: 1 },
   { key: 'produtos', label: 'Produtos', desc: 'Catálogo, estoque, produtos do contrato', fase: 2 },
   { key: 'pagamentos', label: 'Pagamentos', desc: 'Financeiro, contas, taxas', fase: 2 },
+  { key: 'tutores', label: 'Tutores', desc: 'Cadastro e gestão de tutores', fase: 3 },
   { key: 'rotas', label: 'Rotas', desc: 'Rotas de entrega', fase: 3 },
   { key: 'comercial', label: 'Comercial', desc: 'Estabelecimentos, visitas, contatos', fase: 3 },
   { key: 'mensagens', label: 'Mensagens', desc: 'Templates e envio automático', fase: 3 },

@@ -37,7 +37,7 @@ const navItems: NavItem[] = [
   { href: '/contratos?status=ativo', label: 'Contratos', icon: FileCheck, countKey: 'contratos', module: 'pipeline' },
   { href: '/supindas', label: 'Encaminhamentos', icon: Route, countKey: null, module: 'pipeline' },
   { href: '/estoque', label: 'Estoque', icon: ShelvingUnit, countKey: null, module: 'produtos' },
-  { href: '/tutores', label: 'Tutores', icon: Users, countKey: null, module: null },
+  { href: '/tutores', label: 'Tutores', icon: Users, countKey: null, module: 'tutores' },
   { href: '/configuracoes', label: 'Configurações', icon: Settings, countKey: null, module: null },
   // Admin tools movidos pro UserMenu (canto direito da top bar)
 ]
