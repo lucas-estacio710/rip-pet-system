@@ -165,31 +165,38 @@ export default function AdminUsuariosPage() {
         await supabase.from('perfis').insert(perfisToInsert)
 
       } else {
-        // Criar: novo usuário via Supabase Admin (precisa de service role ou edge function)
-        // Por enquanto, criar via signUp e depois inserir perfis
-        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-          email: formEmail,
-          password: formPassword || 'RipPet2026!',
-          options: { data: { nome: formNome } }
+        // Criar via API route (usa service_role no server)
+        const { data: { session } } = await supabase.auth.getSession()
+        const res = await fetch('/api/admin/users', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`,
+          },
+          body: JSON.stringify({
+            email: formEmail,
+            password: formPassword || 'RipPet2026!',
+            nome: formNome,
+          }),
         })
 
-        if (signUpError) {
-          alert('Erro ao criar usuário: ' + signUpError.message)
+        const result = await res.json()
+        if (!res.ok) {
+          alert('Erro ao criar usuário: ' + result.error)
           setSaving(false)
           return
         }
 
-        if (signUpData.user) {
-          const perfisToInsert = formPerfis.map(p => ({
-            user_id: signUpData.user!.id,
-            unidade_id: p.unidade_id,
-            role: p.role,
-            is_default: p.is_default,
-            nome: formNome || null,
-          }))
+        // Inserir perfis pro novo usuário
+        const perfisToInsert = formPerfis.map(p => ({
+          user_id: result.user_id,
+          unidade_id: p.unidade_id,
+          role: p.role,
+          is_default: p.is_default,
+          nome: formNome || null,
+        }))
 
-          await supabase.from('perfis').insert(perfisToInsert)
-        }
+        await supabase.from('perfis').insert(perfisToInsert)
       }
 
       setShowModal(false)
