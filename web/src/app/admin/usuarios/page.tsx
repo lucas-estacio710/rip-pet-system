@@ -366,9 +366,9 @@ export default function AdminUsuariosPage() {
       {/* Modal Criar/Editar */}
       {showModal && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setShowModal(false)}>
-          <div className="bg-[var(--surface-bg)] rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="p-6 border-b border-[var(--surface-200)]">
-              <h2 className="text-lg font-semibold text-[var(--surface-800)]">
+          <div className="rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" style={{ background: '#1e293b', border: '1px solid #334155' }} onClick={e => e.stopPropagation()}>
+            <div className="p-6" style={{ borderBottom: '1px solid #334155' }}>
+              <h2 className="text-lg font-semibold" style={{ color: '#e2e8f0' }}>
                 {editingUser ? 'Editar Usuário' : 'Novo Usuário'}
               </h2>
             </div>
@@ -376,13 +376,14 @@ export default function AdminUsuariosPage() {
             <div className="p-6 space-y-4">
               {/* Email */}
               <div>
-                <label className="block text-sm font-medium text-[var(--surface-600)] mb-1">Email</label>
+                <label className="block text-sm font-medium mb-1" style={{ color: '#94a3b8' }}>Email</label>
                 <input
                   type="email"
                   value={formEmail}
                   onChange={e => setFormEmail(e.target.value)}
                   disabled={!!editingUser}
-                  className="input w-full"
+                  className="w-full px-3 py-2.5 rounded-xl text-sm outline-none"
+                  style={{ background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155' }}
                   placeholder="usuario@rippet.com.br"
                 />
               </div>
@@ -390,26 +391,28 @@ export default function AdminUsuariosPage() {
               {/* Senha (só na criação) */}
               {!editingUser && (
                 <div>
-                  <label className="block text-sm font-medium text-[var(--surface-600)] mb-1">Senha inicial</label>
+                  <label className="block text-sm font-medium mb-1" style={{ color: '#94a3b8' }}>Senha inicial</label>
                   <input
                     type="text"
                     value={formPassword}
                     onChange={e => setFormPassword(e.target.value)}
-                    className="input w-full"
+                    className="w-full px-3 py-2.5 rounded-xl text-sm outline-none"
+                    style={{ background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155' }}
                     placeholder="RipPet2026!"
                   />
-                  <p className="text-xs text-[var(--surface-400)] mt-1">O usuário pode alterar depois</p>
+                  <p className="text-xs mt-1" style={{ color: '#64748b' }}>O usuário pode alterar depois</p>
                 </div>
               )}
 
               {/* Nome */}
               <div>
-                <label className="block text-sm font-medium text-[var(--surface-600)] mb-1">Nome</label>
+                <label className="block text-sm font-medium mb-1" style={{ color: '#94a3b8' }}>Nome</label>
                 <input
                   type="text"
                   value={formNome}
                   onChange={e => setFormNome(e.target.value)}
-                  className="input w-full"
+                  className="w-full px-3 py-2.5 rounded-xl text-sm outline-none"
+                  style={{ background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155' }}
                   placeholder="Nome do usuário"
                 />
               </div>
@@ -417,10 +420,11 @@ export default function AdminUsuariosPage() {
               {/* Perfis (unidade + papel) */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-[var(--surface-600)]">Unidades e Papéis</label>
+                  <label className="text-sm font-medium" style={{ color: '#94a3b8' }}>Unidades e Papéis</label>
                   <button
                     onClick={addPerfil}
-                    className="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-1"
+                    className="text-xs flex items-center gap-1"
+                    style={{ color: '#a78bfa' }}
                     disabled={formPerfis.length >= allUnidades.length}
                   >
                     <Plus className="h-3 w-3" /> Adicionar unidade
@@ -428,19 +432,20 @@ export default function AdminUsuariosPage() {
                 </div>
 
                 {formPerfis.length === 0 && (
-                  <p className="text-xs text-[var(--surface-400)] py-3 text-center border border-dashed border-[var(--surface-300)] rounded-lg">
-                    Clique em "Adicionar unidade" para configurar acesso
+                  <p className="text-xs py-3 text-center rounded-lg" style={{ color: '#64748b', border: '1px dashed #334155' }}>
+                    Clique em &quot;Adicionar unidade&quot; para configurar acesso
                   </p>
                 )}
 
                 <div className="space-y-2">
                   {formPerfis.map((perfil, idx) => (
-                    <div key={idx} className="flex items-center gap-2 p-2 bg-[var(--surface-50)] rounded-lg">
+                    <div key={idx} className="flex items-center gap-2 p-2 rounded-lg" style={{ background: '#0f172a' }}>
                       {/* Unidade */}
                       <select
                         value={perfil.unidade_id}
                         onChange={e => updatePerfil(idx, 'unidade_id', e.target.value)}
-                        className="input flex-1 text-sm py-1.5"
+                        className="flex-1 text-sm py-1.5 px-2 rounded-lg outline-none"
+                        style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155' }}
                       >
                         {allUnidades.map(u => (
                           <option key={u.id} value={u.id}>{u.nome}</option>
@@ -451,7 +456,8 @@ export default function AdminUsuariosPage() {
                       <select
                         value={perfil.role}
                         onChange={e => updatePerfil(idx, 'role', e.target.value)}
-                        className="input w-32 text-sm py-1.5"
+                        className="w-32 text-sm py-1.5 px-2 rounded-lg outline-none"
+                        style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155' }}
                       >
                         <option value="operador">Operador</option>
                         <option value="gerente">Gerente</option>
@@ -478,8 +484,8 @@ export default function AdminUsuariosPage() {
             </div>
 
             {/* Footer */}
-            <div className="p-6 border-t border-[var(--surface-200)] flex items-center justify-end gap-3">
-              <button onClick={() => setShowModal(false)} className="btn-secondary">
+            <div className="p-6 flex items-center justify-end gap-3" style={{ borderTop: '1px solid #334155' }}>
+              <button onClick={() => setShowModal(false)} className="px-4 py-2 rounded-lg text-sm font-medium" style={{ color: '#94a3b8', border: '1px solid #334155' }}>
                 Cancelar
               </button>
               <button
