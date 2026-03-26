@@ -69,7 +69,7 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
           {/* Top bar — unit selector + user menu */}
           <div className="hidden md:flex items-center justify-between px-4 py-0.5 border-b border-[var(--surface-200)]">
             <UnitSelector />
-            <span className="text-xs font-semibold tracking-wider uppercase" style={{ color: '#64748b' }}>Novo CRM Rip Pet</span>
+            <span className="text-sm font-bold tracking-widest uppercase" style={{ color: '#64748b' }}>Novo CRM Rip Pet</span>
             <UserMenu />
           </div>
           <div className="p-4 md:px-6 md:pt-2 md:pb-6 animate-fade-in">
