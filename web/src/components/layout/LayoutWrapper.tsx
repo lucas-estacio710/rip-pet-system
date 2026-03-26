@@ -10,6 +10,8 @@ import { ToastProvider } from '@/components/ui/Toast'
 import { PanelLeftOpen, PanelLeftClose } from 'lucide-react'
 import { useTheme } from '@/hooks/useTheme'
 import { THEMES, THEME_META, type Theme } from '@/lib/theme'
+import { UnitProvider } from '@/contexts/UnitContext'
+import { UnitSelector } from './UnitSelector'
 
 const THEME_ICONS: Record<Theme, string> = {
   dark: '🌙',
@@ -32,6 +34,7 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
   }
 
   return (
+    <UnitProvider>
     <ToastProvider>
       <div className="min-h-screen bg-[var(--shell-bg)]">
         {/* Desktop sidebar (>=1024px) — mini por padrão, expansível */}
@@ -61,8 +64,10 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
 
         {/* Main content area — responsive margins */}
         <main className={`theme-content pt-14 md:pt-0 md:ml-[72px] ${sidebarExpanded ? 'lg:ml-64' : 'lg:ml-[72px]'} min-h-screen transition-all duration-200`}>
-          {/* Top bar — theme selector (provisório) */}
-          <div className="hidden md:flex items-center justify-end gap-1 px-4 py-0.5 border-b border-[var(--surface-200)]">
+          {/* Top bar — unit selector + theme selector */}
+          <div className="hidden md:flex items-center justify-between gap-2 px-4 py-0.5 border-b border-[var(--surface-200)]">
+            <UnitSelector />
+            <div className="flex items-center gap-1">
             <span className="text-xs text-[var(--shell-text-muted)] mr-1">Tema</span>
             {THEMES.map((t) => (
               <button
@@ -78,6 +83,7 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
                 {THEME_ICONS[t]} {THEME_META[t].label}
               </button>
             ))}
+            </div>
           </div>
           <div className="p-4 md:px-6 md:pt-2 md:pb-6 animate-fade-in">
             {children}
@@ -85,5 +91,6 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
         </main>
       </div>
     </ToastProvider>
+    </UnitProvider>
   )
 }

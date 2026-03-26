@@ -14,20 +14,32 @@ import {
   ShelvingUnit,
   Users,
   Settings,
-  LogOut
+  LogOut,
+  Crown
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useUnit } from '@/contexts/UnitContext'
 
-const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, countKey: null },
-  { href: '/leads', label: 'Leads', icon: Zap, countKey: 'leads' as const },
-  { href: '/fichas', label: 'Fichas', icon: TextSelect, countKey: 'fichas' as const },
-  { href: '/preventivos', label: 'Preventivos', icon: Heart, countKey: null },
-  { href: '/contratos?status=ativo', label: 'Contratos', icon: FileCheck, countKey: 'contratos' as const },
-  { href: '/supindas', label: 'Encaminhamentos', icon: Route, countKey: null },
-  { href: '/estoque', label: 'Estoque', icon: ShelvingUnit, countKey: null },
-  { href: '/tutores', label: 'Tutores', icon: Users, countKey: null },
-  { href: '/configuracoes', label: 'Configurações', icon: Settings, countKey: null },
+type NavItem = {
+  href: string
+  label: string
+  icon: typeof LayoutDashboard
+  countKey: 'contratos' | 'fichas' | 'leads' | null
+  module: string | null          // null = sempre visível
+  superAdminOnly?: boolean
+}
+
+const navItems: NavItem[] = [
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, countKey: null, module: null },
+  { href: '/leads', label: 'Leads', icon: Zap, countKey: 'leads', module: 'leads' },
+  { href: '/fichas', label: 'Fichas', icon: TextSelect, countKey: 'fichas', module: 'fichas' },
+  { href: '/preventivos', label: 'Preventivos', icon: Heart, countKey: null, module: 'preventivos' },
+  { href: '/contratos?status=ativo', label: 'Contratos', icon: FileCheck, countKey: 'contratos', module: 'pipeline' },
+  { href: '/supindas', label: 'Encaminhamentos', icon: Route, countKey: null, module: 'pipeline' },
+  { href: '/estoque', label: 'Estoque', icon: ShelvingUnit, countKey: null, module: 'produtos' },
+  { href: '/tutores', label: 'Tutores', icon: Users, countKey: null, module: null },
+  { href: '/configuracoes', label: 'Configurações', icon: Settings, countKey: null, module: null },
+  { href: '/admin/usuarios', label: 'Usuários', icon: Crown, countKey: null, module: null, superAdminOnly: true },
 ]
 
 type Props = {
@@ -45,6 +57,14 @@ export function Sidebar({ mode, onNavigate }: Props) {
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const supabase = createClient()
   const showText = mode !== 'mini'
+  const { hasModule, isSuperAdmin, userName } = useUnit()
+
+  // Filtrar itens por módulo ativo e permissão
+  const visibleItems = navItems.filter(item => {
+    if (item.superAdminOnly && !isSuperAdmin) return false
+    if (item.module && !hasModule(item.module)) return false
+    return true
+  })
 
   useEffect(() => {
     async function fetchData() {
@@ -100,7 +120,7 @@ export function Sidebar({ mode, onNavigate }: Props) {
       {/* Navigation */}
       <nav className={`flex-1 ${showText ? 'p-3' : 'p-2'}`}>
         <ul className="space-y-1">
-          {navItems.map((item) => {
+          {visibleItems.map((item) => {
             const hrefPath = item.href.split('?')[0]
             const isActive = pathname === hrefPath || pathname?.startsWith(hrefPath + '/')
             const Icon = item.icon

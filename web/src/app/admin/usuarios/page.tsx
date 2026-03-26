@@ -1,0 +1,499 @@
+'use client'
+
+import { useEffect, useState, useCallback } from 'react'
+import {
+  Users, Search, X, Plus, Building2, Shield, Crown, User,
+  Key, ToggleLeft, ToggleRight, Pencil, Trash2, Loader2, Check
+} from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
+import { useUnit, type Unidade, type UserRole } from '@/contexts/UnitContext'
+import { Skeleton } from '@/components/ui/Skeleton'
+import EmptyState from '@/components/ui/EmptyState'
+
+// ============================================
+// Types
+// ============================================
+type UserPerfil = {
+  perfil_id: string
+  unidade_id: string
+  unidade_nome: string
+  unidade_codigo: string
+  role: UserRole
+  is_default: boolean
+  nome: string | null
+  ativo: boolean
+}
+
+type UserRow = {
+  user_id: string
+  email: string
+  created_at: string
+  last_sign_in_at: string | null
+  perfis: UserPerfil[]
+}
+
+const ROLE_CONFIG: Record<UserRole, { label: string; icon: typeof Crown; color: string }> = {
+  super_admin: { label: 'Super Admin', icon: Crown, color: 'text-amber-400' },
+  gerente: { label: 'Gerente', icon: Shield, color: 'text-purple-400' },
+  operador: { label: 'Operador', icon: User, color: 'text-blue-400' },
+}
+
+// ============================================
+// Page
+// ============================================
+export default function AdminUsuariosPage() {
+  const supabase = createClient()
+  const { isSuperAdmin, allUnidades } = useUnit()
+
+  const [users, setUsers] = useState<UserRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [busca, setBusca] = useState('')
+  const [showModal, setShowModal] = useState(false)
+  const [editingUser, setEditingUser] = useState<UserRow | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [resetPasswordUserId, setResetPasswordUserId] = useState<string | null>(null)
+  const [resetSent, setResetSent] = useState(false)
+
+  // Form state
+  const [formEmail, setFormEmail] = useState('')
+  const [formPassword, setFormPassword] = useState('')
+  const [formNome, setFormNome] = useState('')
+  const [formPerfis, setFormPerfis] = useState<{ unidade_id: string; role: UserRole; is_default: boolean }[]>([])
+
+  const carregarUsuarios = useCallback(async () => {
+    setLoading(true)
+    const { data, error } = await supabase.rpc('list_users_with_profiles')
+
+    if (error) {
+      console.error('Erro ao carregar usuários:', error)
+      setUsers([])
+    } else {
+      setUsers((data || []) as UserRow[])
+    }
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    carregarUsuarios()
+  }, [carregarUsuarios])
+
+  // Filtrar por busca
+  const filtered = users.filter(u => {
+    if (!busca.trim()) return true
+    const term = busca.toLowerCase()
+    return (
+      u.email.toLowerCase().includes(term) ||
+      u.perfis.some(p => p.nome?.toLowerCase().includes(term)) ||
+      u.perfis.some(p => p.unidade_nome.toLowerCase().includes(term))
+    )
+  })
+
+  // ============================================
+  // Modal: Criar/Editar usuário
+  // ============================================
+  function openCreateModal() {
+    setEditingUser(null)
+    setFormEmail('')
+    setFormPassword('')
+    setFormNome('')
+    setFormPerfis([])
+    setShowModal(true)
+  }
+
+  function openEditModal(user: UserRow) {
+    setEditingUser(user)
+    setFormEmail(user.email)
+    setFormPassword('')
+    setFormNome(user.perfis[0]?.nome || '')
+    setFormPerfis(user.perfis.map(p => ({
+      unidade_id: p.unidade_id,
+      role: p.role,
+      is_default: p.is_default,
+    })))
+    setShowModal(true)
+  }
+
+  function addPerfil() {
+    // Encontrar primeira unidade não selecionada
+    const usedIds = new Set(formPerfis.map(p => p.unidade_id))
+    const available = allUnidades.find(u => !usedIds.has(u.id))
+    if (available) {
+      setFormPerfis([...formPerfis, { unidade_id: available.id, role: 'operador', is_default: formPerfis.length === 0 }])
+    }
+  }
+
+  function removePerfil(idx: number) {
+    const updated = formPerfis.filter((_, i) => i !== idx)
+    // Se removeu o default, marca o primeiro como default
+    if (updated.length > 0 && !updated.some(p => p.is_default)) {
+      updated[0].is_default = true
+    }
+    setFormPerfis(updated)
+  }
+
+  function updatePerfil(idx: number, field: string, value: any) {
+    const updated = [...formPerfis]
+    if (field === 'is_default') {
+      // Só 1 default por vez
+      updated.forEach((p, i) => { p.is_default = i === idx })
+    } else {
+      (updated[idx] as any)[field] = value
+    }
+    setFormPerfis(updated)
+  }
+
+  async function handleSave() {
+    if (!formEmail || formPerfis.length === 0) return
+
+    setSaving(true)
+
+    try {
+      if (editingUser) {
+        // Editar: atualizar perfis
+        // Deletar perfis antigos
+        await supabase.from('perfis').delete().eq('user_id', editingUser.user_id)
+
+        // Inserir novos
+        const perfisToInsert = formPerfis.map(p => ({
+          user_id: editingUser.user_id,
+          unidade_id: p.unidade_id,
+          role: p.role,
+          is_default: p.is_default,
+          nome: formNome || null,
+        }))
+
+        await supabase.from('perfis').insert(perfisToInsert)
+
+      } else {
+        // Criar: novo usuário via Supabase Admin (precisa de service role ou edge function)
+        // Por enquanto, criar via signUp e depois inserir perfis
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+          email: formEmail,
+          password: formPassword || 'RipPet2026!',
+          options: { data: { nome: formNome } }
+        })
+
+        if (signUpError) {
+          alert('Erro ao criar usuário: ' + signUpError.message)
+          setSaving(false)
+          return
+        }
+
+        if (signUpData.user) {
+          const perfisToInsert = formPerfis.map(p => ({
+            user_id: signUpData.user!.id,
+            unidade_id: p.unidade_id,
+            role: p.role,
+            is_default: p.is_default,
+            nome: formNome || null,
+          }))
+
+          await supabase.from('perfis').insert(perfisToInsert)
+        }
+      }
+
+      setShowModal(false)
+      await carregarUsuarios()
+    } catch (e) {
+      console.error(e)
+    }
+
+    setSaving(false)
+  }
+
+  // Redefinir senha
+  async function handleResetPassword(email: string) {
+    setResetSent(false)
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin + '/login',
+    })
+    if (error) {
+      alert('Erro: ' + error.message)
+    } else {
+      setResetSent(true)
+      setTimeout(() => { setResetSent(false); setResetPasswordUserId(null) }, 3000)
+    }
+  }
+
+  // Toggle ativo
+  async function toggleAtivo(perfilId: string, currentAtivo: boolean) {
+    await supabase.from('perfis').update({ ativo: !currentAtivo }).eq('id', perfilId)
+    await carregarUsuarios()
+  }
+
+  // ============================================
+  // Render
+  // ============================================
+  if (!isSuperAdmin) {
+    return (
+      <div className="animate-fade-in">
+        <EmptyState icon={Shield} title="Acesso restrito" description="Somente administradores podem acessar esta página." />
+      </div>
+    )
+  }
+
+  return (
+    <div className="animate-fade-in">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <div className="hidden md:flex w-10 h-10 rounded-[var(--radius-md)] bg-purple-900/30 items-center justify-center">
+            <Users className="h-5 w-5 text-purple-500" />
+          </div>
+          <div>
+            <h1 className="text-title text-[var(--shell-text)]">Usuários</h1>
+            <p className="text-small text-[var(--shell-text-muted)]">Gerenciar acessos, papéis e unidades</p>
+          </div>
+        </div>
+        <button onClick={openCreateModal} className="btn-primary flex items-center gap-2">
+          <Plus className="h-4 w-4" />
+          <span className="hidden sm:inline">Novo Usuário</span>
+        </button>
+      </div>
+
+      {/* Busca */}
+      <div className="mb-4 relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-[var(--surface-400)]" />
+        <input
+          type="text"
+          placeholder="Buscar por nome, email, unidade..."
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          className="input pl-10 pr-10"
+        />
+        {busca && (
+          <button onClick={() => setBusca('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--surface-400)] hover:text-[var(--surface-600)]">
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
+      {/* Lista */}
+      {loading ? (
+        <div className="space-y-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="card p-4 space-y-2">
+              <Skeleton className="h-5 w-48" />
+              <Skeleton className="h-4 w-36" />
+            </div>
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
+        <EmptyState icon={Users} title="Nenhum usuário encontrado" description={busca ? 'Tente ajustar a busca' : 'Crie o primeiro usuário'} />
+      ) : (
+        <div className="space-y-2 stagger-children">
+          {filtered.map(user => {
+            const mainPerfil = user.perfis[0]
+            const nome = mainPerfil?.nome || user.email.split('@')[0]
+
+            return (
+              <div key={user.user_id} className="card p-4 card-hover">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    {/* Nome + email */}
+                    <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                      <span className="text-base font-semibold text-[var(--surface-800)]">{nome}</span>
+                      <span className="text-xs text-[var(--surface-400)]">{user.email}</span>
+                    </div>
+
+                    {/* Unidades e papéis */}
+                    <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+                      {user.perfis.map(p => {
+                        const cfg = ROLE_CONFIG[p.role]
+                        const RoleIcon = cfg.icon
+                        return (
+                          <span
+                            key={p.perfil_id}
+                            className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
+                              p.ativo ? 'border-[var(--surface-300)]' : 'border-red-500/30 opacity-50'
+                            }`}
+                          >
+                            <Building2 className="h-3 w-3 text-[var(--surface-400)]" />
+                            {p.unidade_nome}
+                            <span className={`${cfg.color} ml-0.5`}>
+                              <RoleIcon className="h-3 w-3 inline" /> {cfg.label}
+                            </span>
+                            {p.is_default && <span className="text-[9px] text-emerald-400">(padrão)</span>}
+                          </span>
+                        )
+                      })}
+
+                      {user.perfis.length === 0 && (
+                        <span className="text-xs text-red-400">Sem acesso configurado</span>
+                      )}
+                    </div>
+
+                    {/* Metadata */}
+                    <div className="flex items-center gap-3 text-xs text-[var(--surface-400)]">
+                      {user.last_sign_in_at && (
+                        <span>Último login: {new Date(user.last_sign_in_at).toLocaleDateString('pt-BR')}</span>
+                      )}
+                      <span>Criado: {new Date(user.created_at).toLocaleDateString('pt-BR')}</span>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => openEditModal(user)}
+                      className="p-2 rounded-lg hover:bg-[var(--surface-100)] transition-colors"
+                      title="Editar"
+                    >
+                      <Pencil className="h-4 w-4 text-[var(--surface-500)]" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setResetPasswordUserId(user.user_id)
+                        handleResetPassword(user.email)
+                      }}
+                      className="p-2 rounded-lg hover:bg-[var(--surface-100)] transition-colors"
+                      title="Redefinir senha"
+                    >
+                      {resetPasswordUserId === user.user_id && resetSent ? (
+                        <Check className="h-4 w-4 text-emerald-400" />
+                      ) : (
+                        <Key className="h-4 w-4 text-[var(--surface-500)]" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Modal Criar/Editar */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setShowModal(false)}>
+          <div className="bg-[var(--surface-bg)] rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="p-6 border-b border-[var(--surface-200)]">
+              <h2 className="text-lg font-semibold text-[var(--surface-800)]">
+                {editingUser ? 'Editar Usuário' : 'Novo Usuário'}
+              </h2>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {/* Email */}
+              <div>
+                <label className="block text-sm font-medium text-[var(--surface-600)] mb-1">Email</label>
+                <input
+                  type="email"
+                  value={formEmail}
+                  onChange={e => setFormEmail(e.target.value)}
+                  disabled={!!editingUser}
+                  className="input w-full"
+                  placeholder="usuario@rippet.com.br"
+                />
+              </div>
+
+              {/* Senha (só na criação) */}
+              {!editingUser && (
+                <div>
+                  <label className="block text-sm font-medium text-[var(--surface-600)] mb-1">Senha inicial</label>
+                  <input
+                    type="text"
+                    value={formPassword}
+                    onChange={e => setFormPassword(e.target.value)}
+                    className="input w-full"
+                    placeholder="RipPet2026!"
+                  />
+                  <p className="text-xs text-[var(--surface-400)] mt-1">O usuário pode alterar depois</p>
+                </div>
+              )}
+
+              {/* Nome */}
+              <div>
+                <label className="block text-sm font-medium text-[var(--surface-600)] mb-1">Nome</label>
+                <input
+                  type="text"
+                  value={formNome}
+                  onChange={e => setFormNome(e.target.value)}
+                  className="input w-full"
+                  placeholder="Nome do usuário"
+                />
+              </div>
+
+              {/* Perfis (unidade + papel) */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-[var(--surface-600)]">Unidades e Papéis</label>
+                  <button
+                    onClick={addPerfil}
+                    className="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-1"
+                    disabled={formPerfis.length >= allUnidades.length}
+                  >
+                    <Plus className="h-3 w-3" /> Adicionar unidade
+                  </button>
+                </div>
+
+                {formPerfis.length === 0 && (
+                  <p className="text-xs text-[var(--surface-400)] py-3 text-center border border-dashed border-[var(--surface-300)] rounded-lg">
+                    Clique em "Adicionar unidade" para configurar acesso
+                  </p>
+                )}
+
+                <div className="space-y-2">
+                  {formPerfis.map((perfil, idx) => (
+                    <div key={idx} className="flex items-center gap-2 p-2 bg-[var(--surface-50)] rounded-lg">
+                      {/* Unidade */}
+                      <select
+                        value={perfil.unidade_id}
+                        onChange={e => updatePerfil(idx, 'unidade_id', e.target.value)}
+                        className="input flex-1 text-sm py-1.5"
+                      >
+                        {allUnidades.map(u => (
+                          <option key={u.id} value={u.id}>{u.nome}</option>
+                        ))}
+                      </select>
+
+                      {/* Role */}
+                      <select
+                        value={perfil.role}
+                        onChange={e => updatePerfil(idx, 'role', e.target.value)}
+                        className="input w-32 text-sm py-1.5"
+                      >
+                        <option value="operador">Operador</option>
+                        <option value="gerente">Gerente</option>
+                        <option value="super_admin">Super Admin</option>
+                      </select>
+
+                      {/* Default */}
+                      <button
+                        onClick={() => updatePerfil(idx, 'is_default', true)}
+                        className={`p-1 rounded ${perfil.is_default ? 'text-emerald-400' : 'text-[var(--surface-400)]'}`}
+                        title={perfil.is_default ? 'Unidade padrão' : 'Definir como padrão'}
+                      >
+                        {perfil.is_default ? <ToggleRight className="h-5 w-5" /> : <ToggleLeft className="h-5 w-5" />}
+                      </button>
+
+                      {/* Remover */}
+                      <button onClick={() => removePerfil(idx)} className="p-1 text-red-400 hover:text-red-300">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-6 border-t border-[var(--surface-200)] flex items-center justify-end gap-3">
+              <button onClick={() => setShowModal(false)} className="btn-secondary">
+                Cancelar
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving || !formEmail || formPerfis.length === 0}
+                className="btn-primary flex items-center gap-2"
+              >
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                {editingUser ? 'Salvar' : 'Criar Usuário'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
