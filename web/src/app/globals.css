@@ -116,38 +116,48 @@ body {
 }
 
 /*
- * Content-dark: remap Tailwind slate para que text-slate-800/900 fique branco.
- * Resolve: texto escuro sobre fundo escuro nos temas dark e half-white content.
+ * Content-dark: forçar texto legível nos temas escuros.
+ * Inverte TODA a escala slate/gray: 50 (mais escuro) → 950 (mais claro)
+ * Assim text-slate-900 = branco, bg-slate-50 = escuro, etc.
  */
 [data-theme="dark"] .theme-content,
 [data-theme="half-white"] .theme-content {
   color: #f8fafc;
   color-scheme: dark;
 
-  --color-slate-50: #ffffff;
-  --color-slate-100: #f8fafc;
-  --color-slate-200: #f1f5f9;
-  --color-slate-300: #e2e8f0;
-  --color-slate-400: #cbd5e1;
-  --color-slate-500: #94a3b8;
+  /* Slate: escala invertida (escuro→claro vira claro→escuro) */
+  --color-slate-50: #0f172a;
+  --color-slate-100: #1e293b;
+  --color-slate-200: #334155;
+  --color-slate-300: #475569;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #cbd5e1;
   --color-slate-600: #e2e8f0;
   --color-slate-700: #f1f5f9;
   --color-slate-800: #f8fafc;
   --color-slate-900: #ffffff;
   --color-slate-950: #ffffff;
 
-  /* Gray também (alguns componentes usam gray ao invés de slate) */
-  --color-gray-50: #ffffff;
-  --color-gray-100: #f8fafc;
-  --color-gray-200: #f1f5f9;
-  --color-gray-300: #e2e8f0;
-  --color-gray-400: #cbd5e1;
-  --color-gray-500: #94a3b8;
+  /* Gray: mesma inversão */
+  --color-gray-50: #0f172a;
+  --color-gray-100: #1e293b;
+  --color-gray-200: #334155;
+  --color-gray-300: #475569;
+  --color-gray-400: #94a3b8;
+  --color-gray-500: #cbd5e1;
   --color-gray-600: #e2e8f0;
   --color-gray-700: #f1f5f9;
   --color-gray-800: #f8fafc;
   --color-gray-900: #ffffff;
   --color-gray-950: #ffffff;
+
+  /* Amarelo/âmbar legível em fundo escuro */
+  --color-amber-400: #fbbf24;
+  --color-amber-500: #f59e0b;
+  --color-yellow-400: #facc15;
+  --color-yellow-500: #eab308;
+  --color-orange-400: #fb923c;
+  --color-orange-500: #f97316;
 }
 
 /* Content-light: remap surface variables + override hardcoded classes */
