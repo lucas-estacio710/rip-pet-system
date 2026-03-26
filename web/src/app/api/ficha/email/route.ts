@@ -3,9 +3,18 @@ import { NextResponse, NextRequest } from 'next/server'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
-// Email de destino do operador
-// TODO: trocar para 'rippetsantos@gmail.com' quando domínio rippet.com.br verificar no Resend
-const OPERADOR_EMAIL = 'lucasmestacio@gmail.com'
+// Email de destino por unidade (fallback pro Lucão se não configurado)
+const EMAILS_UNIDADE: Record<string, string> = {
+  'Santos - SP': 'lucasmestacio@gmail.com',
+  'São Paulo - SP': 'lucasmestacio@gmail.com',
+  'Campinas - SP': 'lucasmestacio@gmail.com',
+  'São José dos Campos - SP': 'lucasmestacio@gmail.com',
+  'Resende - RJ': 'lucasmestacio@gmail.com',
+  'Pouso Alegre - MG': 'lucasmestacio@gmail.com',
+  'Pindamonhangaba - SP': 'lucasmestacio@gmail.com',
+  'Matriz - SP': 'lucasmestacio@gmail.com',
+}
+const FALLBACK_EMAIL = 'lucasmestacio@gmail.com'
 
 // Rate limiting: max submissions per IP
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>()
@@ -180,7 +189,7 @@ export async function POST(request: NextRequest) {
 
     const { error } = await resend.emails.send({
       from: 'R.I.P. Pet <onboarding@resend.dev>',  // TODO: trocar para ficha@rippet.com.br quando domínio verificar
-      to: [OPERADOR_EMAIL],
+      to: [EMAILS_UNIDADE[data.unidade] || FALLBACK_EMAIL],
       subject: `Nova Ficha: ${data.nome_pet} (${data.nome_completo}) - ${data.unidade}${data.fallback ? ' [FALLBACK]' : ''}`,
       html: buildEmailHTML(data),
     })
