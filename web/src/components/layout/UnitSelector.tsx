@@ -2,7 +2,31 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useUnit } from '@/contexts/UnitContext'
-import { Building2, ChevronDown, Check, Shield, Crown, User } from 'lucide-react'
+import { ChevronDown, Check, Shield, Crown, User } from 'lucide-react'
+
+// Cores por código de unidade
+const UNIT_COLORS: Record<string, string> = {
+  ST: '#7c3aed', // roxo — só pra você Lucão 😎
+  SP: '#ef4444', // vermelho
+  CP: '#22c55e', // verde
+  SJ: '#3b82f6', // azul
+  RS: '#f59e0b', // âmbar
+  PA: '#ec4899', // rosa
+  PI: '#06b6d4', // cyan
+  MA: '#f97316', // laranja
+}
+
+function UnitAvatar({ codigo, size = 28 }: { codigo: string; size?: number }) {
+  const bg = UNIT_COLORS[codigo] || '#6366f1'
+  return (
+    <div
+      className="rounded-full flex items-center justify-center font-bold shrink-0"
+      style={{ width: size, height: size, background: bg, color: '#fff', fontSize: size * 0.38 }}
+    >
+      {codigo}
+    </div>
+  )
+}
 
 const ROLE_ICONS = {
   super_admin: Crown,
@@ -41,7 +65,7 @@ export function UnitSelector() {
   if (units.length <= 1 && !isSuperAdmin) {
     return (
       <div className="flex items-center gap-2 px-3 py-1.5">
-        <Building2 className="h-4 w-4 text-purple-400" />
+        <UnitAvatar codigo={currentUnit.codigo} size={24} />
         <span className="text-sm font-semibold text-[var(--shell-text)]">{currentUnit.nome}</span>
         {currentRole && (
           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300">
@@ -60,7 +84,7 @@ export function UnitSelector() {
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-[var(--surface-100)] transition-colors"
       >
-        <Building2 className="h-4 w-4 text-purple-400" />
+        <UnitAvatar codigo={currentUnit.codigo} size={24} />
         <span className="text-sm font-semibold text-[var(--shell-text)]">{currentUnit.nome}</span>
         {currentUnit.is_matriz && (
           <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/20 text-amber-400 font-bold">MATRIZ</span>
@@ -102,6 +126,7 @@ export function UnitSelector() {
                   onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)' }}
                   onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent' }}
                 >
+                  <UnitAvatar codigo={unit.codigo} size={28} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium" style={{ color: isActive ? '#a78bfa' : '#e2e8f0' }}>
@@ -112,7 +137,6 @@ export function UnitSelector() {
                       )}
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[10px] font-mono" style={{ color: '#94a3b8' }}>{unit.codigo}</span>
                       {unit.cidade && (
                         <span className="text-[10px]" style={{ color: '#94a3b8' }}>{unit.cidade}/{unit.estado}</span>
                       )}
