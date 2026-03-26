@@ -116,7 +116,7 @@ export function UserMenu() {
                 <span className="text-sm">Visibilidade</span>
               </Link>
               <Link
-                href="/admin/nomes-comerciais"
+                href="/admin/catalogo"
                 onClick={() => setIsOpen(false)}
                 className="flex items-center gap-3 px-4 py-2.5 transition-colors"
                 style={{ color: '#e2e8f0' }}
@@ -124,7 +124,7 @@ export function UserMenu() {
                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
               >
                 <Tag className="h-4 w-4" style={{ color: '#f59e0b' }} />
-                <span className="text-sm">Nomes Comerciais</span>
+                <span className="text-sm">Catálogo</span>
               </Link>
               <button
                 onClick={() => { setIsOpen(false); setShowImpersonate(true) }}
