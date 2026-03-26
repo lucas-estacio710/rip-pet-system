@@ -9,7 +9,7 @@ const UNIT_COLORS: Record<string, string> = {
   ST: '#7c3aed', // roxo — só pra você Lucão 😎
   SP: '#ef4444', // vermelho
   CP: '#22c55e', // verde
-  SJ: '#3b82f6', // azul
+  SJ: '#cbd5e1', // cinza claro
   RS: '#f59e0b', // âmbar
   PA: '#ec4899', // rosa
   PI: '#06b6d4', // cyan
@@ -18,10 +18,11 @@ const UNIT_COLORS: Record<string, string> = {
 
 function UnitAvatar({ codigo, size = 28 }: { codigo: string; size?: number }) {
   const bg = UNIT_COLORS[codigo] || '#6366f1'
+  const textColor = codigo === 'SJ' ? '#334155' : '#fff'
   return (
     <div
       className="rounded-full flex items-center justify-center font-bold shrink-0"
-      style={{ width: size, height: size, background: bg, color: '#fff', fontSize: size * 0.38 }}
+      style={{ width: size, height: size, background: bg, color: textColor, fontSize: size * 0.38 }}
     >
       {codigo}
     </div>
