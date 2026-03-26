@@ -44,6 +44,7 @@ type Ficha = {
   veterinario_especificar: string | null
   outro_especificar: string | null
   observacoes: string | null
+  unidade_id: string
 }
 
 type Estabelecimento = { id: string; nome: string; tipo: string | null }
@@ -362,6 +363,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
 
       const contratoData = {
         codigo: codigo.trim(),
+        unidade_id: ficha.unidade_id,
         status,
         tipo_plano: tipoPlano,
         tipo_cremacao: ficha.cremacao.toLowerCase() as 'individual' | 'coletiva',

@@ -7,6 +7,7 @@ import {
   ArrowRight, Clock, ChevronDown
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useUnit } from '@/contexts/UnitContext'
 import Link from 'next/link'
 import { Skeleton } from '@/components/ui/Skeleton'
 import ChartCard from '@/components/dashboard/ChartCard'
@@ -198,6 +199,7 @@ function PieLabel({ cx, cy, midAngle, innerRadius, outerRadius, percent, name }:
 // ============================================
 export default function DashboardPage() {
   const supabase = createClient()
+  const { currentUnit } = useUnit()
 
   // Raw data
   const [contratos, setContratos] = useState<ContratoFull[]>([])
@@ -219,13 +221,22 @@ export default function DashboardPage() {
   // ============================================
   useEffect(() => {
     // Fetch all rows from a table in batches of 1000
+    const unitId = currentUnit?.id
+
+    // Tabelas que têm unidade_id direto
+    const TABLES_WITH_UNIT = ['contratos', 'fichas', 'supindas', 'tarefas', 'estoque_entradas', 'indicadores', 'funcionarios']
+
     async function fetchAll<T>(table: string, select: string): Promise<T[]> {
       const all: T[] = []
       const PAGE = 1000
       let from = 0
       // eslint-disable-next-line no-constant-condition
       while (true) {
-        const { data, error } = await supabase.from(table).select(select).range(from, from + PAGE - 1)
+        let q = supabase.from(table).select(select).range(from, from + PAGE - 1)
+        if (unitId && TABLES_WITH_UNIT.includes(table)) {
+          q = q.eq('unidade_id', unitId)
+        }
+        const { data, error } = await q
         if (error) { console.error(`Erro ao carregar ${table}:`, error); break }
         if (!data || data.length === 0) break
         all.push(...(data as T[]))
@@ -256,7 +267,7 @@ export default function DashboardPage() {
       setLoading(false)
     }
     loadAll()
-  }, [])
+  }, [currentUnit?.id])
 
   // ============================================
   // Filtered Data

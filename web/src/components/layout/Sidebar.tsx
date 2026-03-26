@@ -57,7 +57,7 @@ export function Sidebar({ mode, onNavigate }: Props) {
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const supabase = createClient()
   const showText = mode !== 'mini'
-  const { hasModule, isSuperAdmin, userName } = useUnit()
+  const { hasModule, isSuperAdmin, userName, currentUnit } = useUnit()
 
   // Filtrar itens por módulo ativo e permissão
   const visibleItems = navItems.filter(item => {
@@ -68,10 +68,21 @@ export function Sidebar({ mode, onNavigate }: Props) {
 
   useEffect(() => {
     async function fetchData() {
+      // Queries filtradas pela unidade selecionada
+      let contratosQuery = supabase.from('contratos').select('*', { count: 'exact', head: true })
+      let fichasQuery = supabase.from('fichas').select('*', { count: 'exact', head: true }).eq('processada', false)
+      let leadsQuery = supabase.from('leads').select('*', { count: 'exact', head: true }).eq('convertido', false)
+
+      if (currentUnit) {
+        contratosQuery = contratosQuery.eq('unidade_id', currentUnit.id)
+        fichasQuery = fichasQuery.eq('unidade_id', currentUnit.id)
+        leadsQuery = leadsQuery.eq('unidade_id', currentUnit.id)
+      }
+
       const [{ count: cCount }, { count: fCount }, { count: lCount }, { data: { user } }] = await Promise.all([
-        supabase.from('contratos').select('*', { count: 'exact', head: true }),
-        supabase.from('fichas').select('*', { count: 'exact', head: true }).eq('processada', false),
-        supabase.from('leads').select('*', { count: 'exact', head: true }).eq('convertido', false),
+        contratosQuery,
+        fichasQuery,
+        leadsQuery,
         supabase.auth.getUser(),
       ])
       setContratosCount(cCount)
@@ -80,7 +91,7 @@ export function Sidebar({ mode, onNavigate }: Props) {
       setUserEmail(user?.email ?? null)
     }
     fetchData()
-  }, [])
+  }, [currentUnit?.id])
 
   async function handleSignOut() {
     await supabase.auth.signOut()

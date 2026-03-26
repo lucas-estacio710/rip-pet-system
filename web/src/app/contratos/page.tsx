@@ -13,6 +13,7 @@ import { printProtocolos } from '@/components/protocolo/ProtocoloPrint'
 import InteractiveTags from '@/components/contratos/InteractiveTags'
 import ActionButtons from '@/components/contratos/ActionButtons'
 import EntregaModal from '@/components/contratos/modals/EntregaModal'
+import { useUnit } from '@/contexts/UnitContext'
 import PelinhoModal from '@/components/contratos/modals/PelinhoModal'
 import CertificadoModal from '@/components/contratos/modals/CertificadoModal'
 import AtivarModal from '@/components/contratos/modals/AtivarModal'
@@ -231,6 +232,7 @@ function calcFinanceiroProtocolo(
 function ContratosContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
+  const { currentUnit } = useUnit()
 
   // Inicializar estado a partir dos query params
   const [contratos, setContratos] = useState<Contrato[]>([])
@@ -515,7 +517,7 @@ function ContratosContent() {
   useEffect(() => {
     carregarContagens()
     carregarProdutosRescaldo()
-  }, [])
+  }, [currentUnit?.id])
 
   // Busca em tempo real com debounce
   useEffect(() => {
@@ -542,10 +544,12 @@ function ContratosContent() {
 
     // Buscar contagem de cada status em paralelo
     const promises = statusList.map(async (status) => {
-      const { count } = await supabase
+      let q = supabase
         .from('contratos')
         .select('*', { count: 'exact', head: true })
         .eq('status', status)
+      if (currentUnit) q = q.eq('unidade_id', currentUnit.id)
+      const { count } = await q
       return { status, count: count || 0 }
     })
 
@@ -584,6 +588,10 @@ function ContratosContent() {
       .select('id, codigo, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas(id, numero, data, responsavel, status, quantidade_pets, peso_total), protocolo_data, data_entrega', { count: 'exact' })
       .order(campoOrdem, { ascending, nullsFirst: false })
       .range(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA - 1)
+
+    if (currentUnit) {
+      query = query.eq('unidade_id', currentUnit.id)
+    }
 
     if (statusFiltro) {
       query = query.eq('status', statusFiltro)
@@ -634,6 +642,10 @@ function ContratosContent() {
       )
       .order(campoOrdem, { ascending, nullsFirst: false })
       .limit(1000)
+
+    if (currentUnit) {
+      query = query.eq('unidade_id', currentUnit.id)
+    }
 
     const { data, error, count } = await query
 
