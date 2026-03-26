@@ -369,13 +369,19 @@ export default function CatalogoPage() {
                     <span className="font-semibold text-[var(--surface-700)]">{formatMoeda(p.preco)}</span>
                   </td>
 
-                  {/* Nome Retorno (protocolo) */}
+                  {/* Nome Retorno (protocolo) — edição inline */}
                   <td className="px-3 py-2.5 text-center">
-                    {p.nome_retorno ? (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500 font-medium">{p.nome_retorno}</span>
-                    ) : (
-                      <span className="text-[var(--surface-300)]">—</span>
-                    )}
+                    <input
+                      type="text"
+                      defaultValue={p.nome_retorno || ''}
+                      placeholder="—"
+                      className="w-full text-center text-[11px] font-medium px-1.5 py-1 rounded border border-transparent hover:border-[var(--surface-200)] focus:border-amber-500 focus:bg-amber-500/5 outline-none transition-all bg-transparent text-[var(--surface-600)]"
+                      onBlur={e => {
+                        const val = e.target.value.trim() || null
+                        if (val !== (p.nome_retorno || null)) updateField(p.id, 'nome_retorno', val)
+                      }}
+                      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                    />
                   </td>
 
                   {/* Ações */}
