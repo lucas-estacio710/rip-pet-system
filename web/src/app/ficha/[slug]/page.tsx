@@ -17,12 +17,12 @@ export default function FichaUnidade() {
       const supabase = createClient()
       const { data } = await supabase
         .from('unidades')
-        .select('id, codigo, nome, cidade, estado, whatsapp')
+        .select('id, codigo, nome, cidade, estado, whatsapp, is_matriz')
         .eq('slug', slug)
         .eq('ativa', true)
         .single()
 
-      if (!data) {
+      if (!data || data.is_matriz) {
         setError(true)
         setLoading(false)
         return

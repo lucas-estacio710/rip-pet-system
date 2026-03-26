@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CRM Rip Pet — Proposta</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=JetBrains+Mono:wght@400;600&display=swap');
+
+    :root {
+      --brand: #E8A87C;
+      --brand-light: #F5D5C0;
+      --brand-dark: #C4784A;
+      --surface: #1A1614;
+      --surface-2: #2A2420;
+      --surface-3: #3A3430;
+      --text: #F5F0EB;
+      --text-muted: #A89E95;
+      --green: #7BC67E;
+      --blue: #7EB8E0;
+      --orange: #E8A87C;
+      --red: #E07E7E;
+      --purple: #B07EE0;
+    }
+
+    .reveal {
+      font-family: 'DM Sans', sans-serif;
+      color: var(--text);
+    }
+
+    .reveal .slides {
+      text-align: left;
+    }
+
+    .reveal .slide-background {
+      background: var(--surface);
+    }
+
+    .reveal h1 {
+      font-size: 2.6em;
+      font-weight: 700;
+      color: var(--brand);
+      margin-bottom: 0.2em;
+    }
+
+    .reveal h2 {
+      font-size: 1.7em;
+      font-weight: 600;
+      color: var(--brand);
+      margin-bottom: 0.3em;
+    }
+
+    .reveal h3 {
+      font-size: 1.1em;
+      font-weight: 600;
+      color: var(--brand-light);
+      margin-bottom: 0.2em;
+    }
+
+    .reveal p, .reveal li {
+      font-size: 0.72em;
+      line-height: 1.55;
+      color: var(--text);
+    }
+
+    .reveal .subtitle {
+      font-size: 1em;
+      color: var(--text-muted);
+      font-style: italic;
+      margin-top: -0.2em;
+    }
+
+    .reveal .text-muted {
+      color: var(--text-muted);
+      font-size: 0.62em;
+    }
+
+    .reveal .price-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.4em;
+      font-weight: 600;
+      color: var(--green);
+      background: rgba(123, 198, 126, 0.1);
+      border: 1px solid rgba(123, 198, 126, 0.3);
+      border-radius: 12px;
+      padding: 0.1em 0.45em;
+      display: inline-block;
+    }
+
+    .reveal .card {
+      background: var(--surface-2);
+      border: 1px solid var(--surface-3);
+      border-radius: 14px;
+      padding: 22px;
+    }
+
+    .reveal .card h3 { margin-top: 0; }
+    .reveal .card p {
+      font-size: 0.65em;
+      color: var(--text-muted);
+      margin: 0;
+    }
+
+    .reveal .feature-list {
+      list-style: none;
+      padding: 0;
+      margin: 0.4em 0;
+    }
+
+    .reveal .feature-list li {
+      font-size: 0.68em;
+      padding: 0.25em 0;
+      border-bottom: 1px solid var(--surface-3);
+      display: flex;
+      align-items: center;
+      gap: 0.5em;
+    }
+
+    .reveal .feature-list li:last-child { border-bottom: none; }
+
+    .reveal .check {
+      color: var(--green);
+      font-weight: bold;
+      flex-shrink: 0;
+    }
+
+    .reveal .pain {
+      color: var(--red);
+      font-weight: bold;
+      flex-shrink: 0;
+    }
+
+    .reveal .two-cols {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+      align-items: start;
+    }
+
+    .reveal .three-cols {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .reveal .big-number {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 2.8em;
+      font-weight: 700;
+      color: var(--brand);
+      line-height: 1;
+    }
+
+    .reveal .vs-box {
+      text-align: center;
+      padding: 20px;
+    }
+
+    .reveal .vs-box .label {
+      font-size: 0.6em;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 0.5em;
+    }
+
+    .reveal .flow-steps {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 0.4em 0;
+      flex-wrap: wrap;
+    }
+
+    .reveal .flow-step {
+      background: var(--surface-2);
+      border: 1px solid var(--surface-3);
+      border-radius: 8px;
+      padding: 6px 14px;
+      font-size: 0.52em;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .reveal .flow-step.active {
+      border-color: var(--brand);
+      background: rgba(232, 168, 124, 0.1);
+      color: var(--brand);
+    }
+
+    .reveal .flow-arrow {
+      color: var(--brand-dark);
+      font-size: 0.7em;
+    }
+
+    .reveal .expansion-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+
+    .reveal .exp-card {
+      background: var(--surface-2);
+      border: 1px solid var(--surface-3);
+      border-radius: 12px;
+      padding: 16px;
+      text-align: center;
+      transition: border-color 0.3s;
+    }
+
+    .reveal .exp-card:hover {
+      border-color: var(--brand-dark);
+    }
+
+    .reveal .exp-card .icon {
+      font-size: 1.6em;
+      display: block;
+      margin-bottom: 0.2em;
+    }
+
+    .reveal .exp-card .name {
+      font-size: 0.6em;
+      font-weight: 600;
+      color: var(--text);
+      margin: 0;
+    }
+
+    .reveal .exp-card .desc {
+      font-size: 0.48em;
+      color: var(--text-muted);
+      margin: 4px 0 0;
+    }
+
+    .reveal .highlight-box {
+      background: linear-gradient(135deg, rgba(232, 168, 124, 0.08), rgba(232, 168, 124, 0.02));
+      border: 1px solid var(--brand-dark);
+      border-radius: 14px;
+      padding: 20px 24px;
+      margin-top: 0.5em;
+    }
+
+    .reveal .badge-cat {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 6px;
+      font-size: 0.45em;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .badge-op { background: rgba(126, 184, 224, 0.15); color: var(--blue); }
+    .badge-fiscal { background: rgba(123, 198, 126, 0.15); color: var(--green); }
+    .badge-com { background: rgba(176, 126, 224, 0.15); color: var(--purple); }
+    .badge-gestao { background: rgba(232, 168, 124, 0.15); color: var(--orange); }
+  </style>
+</head>
+<body>
+  <div class="reveal">
+    <div class="slides">
+
+      <!-- ============================================================ -->
+      <!-- SLIDE 1: POR QUE UM SISTEMA INTEGRADO                       -->
+      <!-- ============================================================ -->
+      <section data-background-color="#1A1614">
+
+        <h2>Por que um sistema integrado?</h2>
+        <p class="subtitle">Planilha resolve. Até o dia que não resolve mais.</p>
+
+        <div class="two-cols" style="margin-top: 0.8em;">
+
+          <!-- COLUNA: DOR -->
+          <div>
+            <h3 style="color: var(--red);">Hoje (planilhas + AppSheets)</h3>
+            <ul class="feature-list">
+              <li><span class="pain">✗</span> Dados espalhados em 5+ abas diferentes</li>
+              <li><span class="pain">✗</span> Retrabalho — preenche aqui, copia ali</li>
+              <li><span class="pain">✗</span> Sem visão em tempo real do que está pendente</li>
+              <li><span class="pain">✗</span> Financeiro calculado na mão (erro humano)</li>
+              <li><span class="pain">✗</span> Escalar = mais planilha = mais caos</li>
+              <li><span class="pain">✗</span> Nova unidade? Duplicar tudo e rezar</li>
+            </ul>
+          </div>
+
+          <!-- COLUNA: SOLUÇÃO -->
+          <div>
+            <h3 style="color: var(--green);">Com o CRM Rip Pet</h3>
+            <ul class="feature-list">
+              <li><span class="check">✓</span> Tudo num lugar só — pipeline visual do pet</li>
+              <li><span class="check">✓</span> Dado entra 1 vez, propaga automático</li>
+              <li><span class="check">✓</span> Dashboard com KPIs em tempo real</li>
+              <li><span class="check">✓</span> Taxas, NF e estoque calculados pelo sistema</li>
+              <li><span class="check">✓</span> Escalar = ativar nova unidade em 1 dia</li>
+              <li><span class="check">✓</span> Dados isolados por unidade (segurança)</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="highlight-box" style="margin-top: 0.8em;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <h3 style="margin: 0; color: var(--brand);">Modelo modular — sem tudo ou nada</h3>
+              <p style="font-size: 0.62em; color: var(--text-muted); margin: 4px 0 0;">Cada pacote = 10h de dev = R$ 1.000 = ~1 semana. Comece pelo essencial, expanda conforme a necessidade.</p>
+            </div>
+            <div style="text-align: center; padding-left: 30px;">
+              <div class="big-number" style="font-size: 2em;">13</div>
+              <p class="text-muted">pacotes<br>disponíveis</p>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- SLIDE 2: T-0 + T-1  (O COMEÇO)                             -->
+      <!-- ============================================================ -->
+      <section data-background-color="#1A1614">
+
+        <div style="display: flex; justify-content: space-between; align-items: baseline;">
+          <h2 style="margin: 0;">Para Começar: T-0 + T-1</h2>
+          <span class="price-tag">R$ 2.000</span>
+        </div>
+        <p class="subtitle">Fundação + Financeiro — o mínimo pra rodar a operação digital</p>
+
+        <div class="two-cols" style="margin-top: 0.6em;">
+
+          <!-- T-0 -->
+          <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: baseline;">
+              <h3 style="color: var(--brand); font-size: 1.05em; margin: 0;">T-0 — Fundação</h3>
+              <span style="font-family: 'JetBrains Mono'; font-size: 0.7em; color: var(--green);">R$ 1.000</span>
+            </div>
+            <p style="color: var(--text-muted); font-style: italic; font-size: 0.58em; margin: 2px 0 8px;">"A unidade entra no sistema"</p>
+            <ul class="feature-list">
+              <li><span class="check">✓</span> Ficha digital exclusiva da unidade</li>
+              <li><span class="check">✓</span> Pipeline visual de contratos</li>
+              <li><span class="check">✓</span> Dashboard com volume de atendimentos</li>
+              <li><span class="check">✓</span> Login individual por colaborador</li>
+              <li><span class="check">✓</span> Dados isolados por unidade (RLS)</li>
+            </ul>
+            <div style="margin-top: 0.5em;">
+              <p style="font-size: 0.52em; color: var(--text-muted); margin: 0;">Fluxo do atendimento:</p>
+              <div class="flow-steps">
+                <span class="flow-step active">Preventivo</span>
+                <span class="flow-arrow">→</span>
+                <span class="flow-step active">Ativo</span>
+                <span class="flow-arrow">→</span>
+                <span class="flow-step active">Pinda</span>
+                <span class="flow-arrow">→</span>
+                <span class="flow-step active">Retorno</span>
+                <span class="flow-arrow">→</span>
+                <span class="flow-step active">Finalizado</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- T-1 -->
+          <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: baseline;">
+              <h3 style="color: var(--brand); font-size: 1.05em; margin: 0;">T-1 — Financeiro + Produtos</h3>
+              <span style="font-family: 'JetBrains Mono'; font-size: 0.7em; color: var(--green);">R$ 1.000</span>
+            </div>
+            <p style="color: var(--text-muted); font-style: italic; font-size: 0.58em; margin: 2px 0 8px;">"Quanto entra, quanto sai, o que vendeu"</p>
+            <ul class="feature-list">
+              <li><span class="check">✓</span> Registrar pagamentos (PIX, crédito, débito)</li>
+              <li><span class="check">✓</span> Taxas de cartão automáticas</li>
+              <li><span class="check">✓</span> Vincular produtos (urnas, acessórios)</li>
+              <li><span class="check">✓</span> Quitar saldo pendente</li>
+              <li><span class="check">✓</span> Dashboard financeiro (receita, ticket médio)</li>
+            </ul>
+            <div style="margin-top: 0.5em;">
+              <p style="font-size: 0.52em; color: var(--text-muted); margin: 0;">Pré-requisitos:</p>
+              <p style="font-size: 0.55em; color: var(--brand-light); margin: 2px 0 0;">Nome da unidade, colaboradores, catálogo de produtos, taxas das maquininhas.</p>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="highlight-box" style="margin-top: 0.6em; text-align: center;">
+          <p style="font-size: 0.7em; color: var(--text); margin: 0;">
+            <strong style="color: var(--brand);">Com R$ 2.000 a unidade já opera:</strong>
+            ficha digital, pipeline, pagamentos, produtos, dashboard financeiro e login seguro.
+          </p>
+        </div>
+
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- SLIDE 3: EXPANSÕES (T-2 a T-12)                             -->
+      <!-- ============================================================ -->
+      <section data-background-color="#1A1614">
+
+        <h2>Depois: expanda conforme a necessidade</h2>
+        <p class="subtitle">Cada bloco = R$ 1.000 = ~1 semana. Sem ordem obrigatória.</p>
+
+        <div class="expansion-grid" style="margin-top: 0.7em;">
+
+          <div class="exp-card">
+            <span class="icon">📋</span>
+            <p class="name">T-2 Supindas</p>
+            <p class="desc">Viagens ao crematório + fichas de remoção em lote</p>
+            <span class="badge-cat badge-op" style="margin-top: 6px;">Operacional</span>
+          </div>
+
+          <div class="exp-card">
+            <span class="icon">🐾</span>
+            <p class="name">T-3 Rescaldos</p>
+            <p class="desc">Checklist: molde, pelinho, carimbo, itens pessoais</p>
+            <span class="badge-cat badge-op" style="margin-top: 6px;">Operacional</span>
+          </div>
+
+          <div class="exp-card">
+            <span class="icon">🧾</span>
+            <p class="name">T-4 NFS-e</p>
+            <p class="desc">Nota fiscal com 1 clique, certificado A1</p>
+            <span class="badge-cat badge-fiscal" style="margin-top: 6px;">Fiscal</span>
+          </div>
+
+          <div class="exp-card">
+            <span class="icon">🗺️</span>
+            <p class="name">T-5 Rotas</p>
+            <p class="desc">Entrega de cinzas com mapa e otimização</p>
+            <span class="badge-cat badge-op" style="margin-top: 6px;">Operacional</span>
+          </div>
+
+          <div class="exp-card">
+            <span class="icon">📦</span>
+            <p class="name">T-6 Estoque</p>
+            <p class="desc">Entradas, empréstimos entre unidades, alertas</p>
+            <span class="badge-cat badge-op" style="margin-top: 6px;">Operacional</span>
+          </div>
+
+          <div class="exp-card">
+            <span class="icon">💬</span>
+            <p class="name">T-7 Mensageria</p>
+            <p class="desc">WhatsApp + email automáticos por etapa</p>
+            <span class="badge-cat badge-com" style="margin-top: 6px;">Comunicação</span>
+          </div>
+
+          <div class="exp-card">
+            <span class="icon">✅</span>
+            <p class="name">T-8 Tarefas</p>
+            <p class="desc">Checklist operacional, prioridades, automáticas</p>
+            <span class="badge-cat badge-op" style="margin-top: 6px;">Operacional</span>
+          </div>
+
+          <div class="exp-card">
+            <span class="icon">🏥</span>
+            <p class="name">T-9 CRM Comercial</p>
+            <p class="desc">Clínicas, visitas, indicações, ranking</p>
+            <span class="badge-cat badge-com" style="margin-top: 6px;">Comercial</span>
+          </div>
+
+          <div class="exp-card">
+            <span class="icon">🎯</span>
+            <p class="name">T-10 Leads</p>
+            <p class="desc">Funil de captação, landing page, UTM</p>
+            <span class="badge-cat badge-com" style="margin-top: 6px;">Comercial</span>
+          </div>
+
+          <div class="exp-card">
+            <span class="icon">👥</span>
+            <p class="name">T-11 Equipe</p>
+            <p class="desc">Permissões por cargo, convites, audit trail</p>
+            <span class="badge-cat badge-gestao" style="margin-top: 6px;">Gestão</span>
+          </div>
+
+          <div class="exp-card">
+            <span class="icon">📊</span>
+            <p class="name">T-12 Dashboard CEO</p>
+            <p class="desc">Visão multi-unidade, comparativos, relatórios</p>
+            <span class="badge-cat badge-gestao" style="margin-top: 6px;">Gestão</span>
+          </div>
+
+          <div class="exp-card" style="border-style: dashed; opacity: 0.7;">
+            <span class="icon">🔮</span>
+            <p class="name">T-13 a T-20</p>
+            <p class="desc">Preventivos, Portal Tutor, IA, PWA, Automações...</p>
+            <span class="badge-cat" style="background: rgba(255,255,255,0.05); color: var(--text-muted); margin-top: 6px;">Futuro</span>
+          </div>
+
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.7em; padding: 0 4px;">
+          <p style="font-size: 0.6em; color: var(--text-muted); margin: 0;">
+            T-0 é pré-requisito de todas · T-3 depende de T-2 · T-6 depende de T-1 · O resto é livre
+          </p>
+          <div style="text-align: right;">
+            <p style="font-size: 0.55em; color: var(--text-muted); margin: 0;">Pacote completo (13 T-shirts)</p>
+            <span class="price-tag" style="font-size: 1.1em;">R$ 13.000</span>
+          </div>
+        </div>
+
+      </section>
+
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+  <script>
+    Reveal.initialize({
+      hash: true,
+      width: 1280,
+      height: 720,
+      margin: 0.06,
+      transition: 'slide',
+      transitionSpeed: 'default',
+      backgroundTransition: 'fade',
+      center: false,
+      controls: true,
+      progress: true,
+      slideNumber: 'c/t',
+    });
+  </script>
+</body>
+</html>
