@@ -39,8 +39,7 @@ const navItems: NavItem[] = [
   { href: '/estoque', label: 'Estoque', icon: ShelvingUnit, countKey: null, module: 'produtos' },
   { href: '/tutores', label: 'Tutores', icon: Users, countKey: null, module: null },
   { href: '/configuracoes', label: 'Configurações', icon: Settings, countKey: null, module: null },
-  { href: '/admin/usuarios', label: 'Usuários', icon: Crown, countKey: null, module: null, superAdminOnly: true },
-  { href: '/admin/visibilidade', label: 'Visibilidade', icon: Settings, countKey: null, module: null, superAdminOnly: true },
+  // Admin tools movidos pro UserMenu (canto direito da top bar)
 ]
 
 type Props = {

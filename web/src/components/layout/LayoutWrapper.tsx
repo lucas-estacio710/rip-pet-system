@@ -12,6 +12,7 @@ import { useTheme } from '@/hooks/useTheme'
 import { THEMES, THEME_META, type Theme } from '@/lib/theme'
 import { UnitProvider } from '@/contexts/UnitContext'
 import { UnitSelector } from './UnitSelector'
+import { UserMenu } from './UserMenu'
 
 const THEME_ICONS: Record<Theme, string> = {
   dark: '🌙',
@@ -64,9 +65,10 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
 
         {/* Main content area — responsive margins */}
         <main className={`theme-content pt-14 md:pt-0 md:ml-[72px] ${sidebarExpanded ? 'lg:ml-64' : 'lg:ml-[72px]'} min-h-screen transition-all duration-200`}>
-          {/* Top bar — unit selector */}
-          <div className="hidden md:flex items-center px-4 py-0.5 border-b border-[var(--surface-200)]">
+          {/* Top bar — unit selector + user menu */}
+          <div className="hidden md:flex items-center justify-between px-4 py-0.5 border-b border-[var(--surface-200)]">
             <UnitSelector />
+            <UserMenu />
           </div>
           <div className="p-4 md:px-6 md:pt-2 md:pb-6 animate-fade-in">
             {children}
