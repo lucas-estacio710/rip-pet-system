@@ -22,7 +22,7 @@ const TELAS: Item[] = [
   { key: 'tela_tutores', label: 'Tutores', desc: 'Cadastro de tutores' },
   { key: 'tela_comercial', label: 'Comercial', desc: 'Estabelecimentos e visitas' },
   { key: 'tela_entregas', label: 'Entregas', desc: 'Retorno + rotas de entrega' },
-  { key: 'tela_recepcao', label: 'Recepção', desc: 'Receber pets (Pinda)' },
+  { key: 'tela_gc', label: 'GC', desc: 'Gerenciamento de Cremações (Matriz)' },
 ]
 
 const FUNCIONALIDADES: Item[] = [
