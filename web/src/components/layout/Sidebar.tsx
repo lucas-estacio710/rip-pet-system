@@ -11,7 +11,7 @@ import {
   FileCheck,
   Heart,
   Route,
-  Factory,
+  Church,
   ShelvingUnit,
   Users,
   Settings,
@@ -38,7 +38,7 @@ const navItems: NavItem[] = [
   { href: '/contratos?status=ativo', label: 'Pipeline', icon: FileCheck, countKey: 'contratos', module: 'tela_pipeline' },
   { href: '/supindas', label: 'Encaminhamentos', icon: Route, countKey: null, module: 'tela_entregas' },
   { href: '/estoque', label: 'Estoque', icon: ShelvingUnit, countKey: null, module: 'tela_estoque' },
-  { href: '/gc', label: 'GC', icon: Factory, countKey: null, module: 'tela_gc' },
+  { href: '/gc', label: 'GC', icon: Church, countKey: null, module: 'tela_gc' },
   { href: '/tutores', label: 'Tutores', icon: Users, countKey: null, module: 'tela_tutores' },
 ]
 

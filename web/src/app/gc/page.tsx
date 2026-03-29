@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import {
-  Factory, Search, X, ChevronRight, Dog, Cat, Bug, MapPin,
+  Church, Search, X, ChevronRight, Dog, Cat, Bug, MapPin,
   User, Clock, Weight, Lock, Phone, Eye
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -166,7 +166,7 @@ export default function GCPage() {
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <div className="hidden md:flex w-10 h-10 rounded-[var(--radius-md)] bg-orange-900/30 items-center justify-center">
-            <Factory className="h-5 w-5 text-orange-500" />
+            <Church className="h-5 w-5 text-orange-500" />
           </div>
           <div>
             <h1 className="text-title text-[var(--shell-text)]">GC — Gerenciamento de Cremações</h1>
@@ -206,7 +206,7 @@ export default function GCPage() {
           ))}
         </div>
       ) : contratos.length === 0 ? (
-        <EmptyState icon={Factory} title="Nenhum pet na matriz" description="Quando as unidades enviarem pets para cremação, eles aparecerão aqui." />
+        <EmptyState icon={Church} title="Nenhum pet na matriz" description="Quando as unidades enviarem pets para cremação, eles aparecerão aqui." />
       ) : (
         <div className="flex gap-4 overflow-x-auto pb-4 snap-x">
           {unidades.map(unit => {
