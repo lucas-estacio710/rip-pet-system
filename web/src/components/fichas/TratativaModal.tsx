@@ -87,7 +87,7 @@ function getPrimeiroNome(nomeCompleto: string | null | undefined): string {
 export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Props) {
   const { toast } = useToast()
   const supabase = createClient()
-  const { hasModule } = useUnit()
+  const { hasModule, currentUnit } = useUnit()
   const temPadronizacaoClinicas = hasModule('cb_padronizacao_clinicas')
 
   // Lookups
@@ -200,8 +200,9 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
     const siglaCremacao = ficha.cremacao?.toLowerCase() === 'individual' ? 'IND' : 'COL'
     const tutor3 = (ficha.nome_completo || '').trim().slice(0, 3).toUpperCase()
     const pet3 = (ficha.nome_pet || '').trim().slice(0, 3).toUpperCase()
-    setCodigo(`${yy}${mm}${dd}${siglaCremacao}${tutor3}${pet3}`)
-  }, [isOpen, ficha, dataContrato, codigoManual])
+    const unidadeCod = currentUnit?.codigo || ''
+    setCodigo(`${unidadeCod}${yy}${mm}${dd}${siglaCremacao}${tutor3}${pet3}`)
+  }, [isOpen, ficha, dataContrato, codigoManual, currentUnit])
 
   // Reset form on close
   useEffect(() => {
@@ -343,7 +344,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
       if (temPadronizacaoClinicas) {
         // COM padronização — autocomplete de estabelecimentos
         const AUTONOMOS_ESTAB_ID = 'b4eedcff-7ccf-4cfb-bf3a-1978eeec6382'
-        if (autônomo) {
+        if (autonomo) {
           resolvedEstabId = AUTONOMOS_ESTAB_ID
           clinicaColetaNome = 'Autônomo'
         } else {
