@@ -262,7 +262,7 @@ export default function GCPage() {
           className="grid grid-cols-3 lg:grid-cols-7 gap-2 rounded-xl p-3"
           style={{
             background: activeUnit
-              ? `linear-gradient(180deg, ${UNIT_COLORS[unidades.find(u => u.id === activeUnit)?.codigo || ''] || '#6366f1'}15 0%, transparent 100%)`
+              ? `linear-gradient(180deg, ${UNIT_COLORS[unidades.find(u => u.id === activeUnit)?.codigo || ''] || '#6366f1'}40 0%, ${UNIT_COLORS[unidades.find(u => u.id === activeUnit)?.codigo || ''] || '#6366f1'}10 100%)`
               : 'linear-gradient(180deg, var(--surface-50) 0%, transparent 100%)',
           }}
         >
