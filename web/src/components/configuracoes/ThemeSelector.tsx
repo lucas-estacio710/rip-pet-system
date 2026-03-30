@@ -7,8 +7,6 @@ import { THEMES, THEME_META, type Theme } from '@/lib/theme'
 const PREVIEW_COLORS: Record<Theme, { shell: string; content: string; shellText: string; contentText: string }> = {
   dark:         { shell: '#1e293b', content: '#1e293b', shellText: '#94a3b8', contentText: '#94a3b8' },
   white:        { shell: '#f8fafc', content: '#ffffff', shellText: '#64748b', contentText: '#64748b' },
-  'half-white': { shell: '#f8fafc', content: '#1e293b', shellText: '#64748b', contentText: '#94a3b8' },
-  'half-dark':  { shell: '#1e293b', content: '#ffffff', shellText: '#94a3b8', contentText: '#64748b' },
 }
 
 function ThemePreview({ themeId, active, onClick }: { themeId: Theme; active: boolean; onClick: () => void }) {

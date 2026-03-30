@@ -8,8 +8,6 @@ import { THEMES, type Theme } from '@/lib/theme'
 const THEME_ICONS: Record<Theme, string> = {
   dark: '🌙',
   white: '☀️',
-  'half-white': '◐',
-  'half-dark': '◑',
 }
 
 const PAGE_TITLES: Record<string, string> = {

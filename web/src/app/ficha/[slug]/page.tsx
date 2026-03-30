@@ -15,13 +15,14 @@ export default function FichaUnidade() {
   useEffect(() => {
     async function loadUnit() {
       const supabase = createClient()
-      const { data } = await supabase
+      const { data: rawData } = await supabase
         .from('unidades')
         .select('id, codigo, nome, cidade, estado, whatsapp, is_matriz')
         .eq('slug', slug)
         .eq('ativa', true)
         .single()
 
+      const data = rawData as any
       if (!data || data.is_matriz) {
         setError(true)
         setLoading(false)
