@@ -255,8 +255,6 @@ export default function GCPage() {
             </div>
           ))}
         </div>
-      ) : filtered.length === 0 ? (
-        <EmptyState icon={Church} title={activeUnit ? 'Nenhum pet desta unidade' : 'Nenhum pet na matriz'} description={activeUnit ? 'Selecione outra unidade ou limpe o filtro' : 'Quando as unidades enviarem pets para cremação, eles aparecerão aqui.'} />
       ) : (
         <div
           className="grid grid-cols-3 lg:grid-cols-7 gap-2 rounded-xl p-3"
@@ -266,6 +264,12 @@ export default function GCPage() {
               : 'linear-gradient(180deg, var(--surface-50) 0%, transparent 100%)',
           }}
         >
+          {filtered.length === 0 && (
+            <div className="col-span-3 lg:col-span-7 py-12 text-center">
+              <Church className="h-8 w-8 mx-auto mb-2" style={{ color: '#475569' }} />
+              <p className="text-sm" style={{ color: '#64748b' }}>{activeUnit ? 'Nenhum pet desta unidade na matriz' : 'Nenhum pet na matriz'}</p>
+            </div>
+          )}
           {filtered.map(c => {
             const unit = unidades.find(u => u.id === c.unidade_id)
             const unitColor = UNIT_COLORS[unit?.codigo || ''] || '#6366f1'
