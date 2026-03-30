@@ -258,7 +258,14 @@ export default function GCPage() {
       ) : filtered.length === 0 ? (
         <EmptyState icon={Church} title={activeUnit ? 'Nenhum pet desta unidade' : 'Nenhum pet na matriz'} description={activeUnit ? 'Selecione outra unidade ou limpe o filtro' : 'Quando as unidades enviarem pets para cremação, eles aparecerão aqui.'} />
       ) : (
-        <div className="grid grid-cols-3 lg:grid-cols-7 gap-2">
+        <div
+          className="grid grid-cols-3 lg:grid-cols-7 gap-2 rounded-xl p-3"
+          style={{
+            background: activeUnit
+              ? `linear-gradient(180deg, ${UNIT_COLORS[unidades.find(u => u.id === activeUnit)?.codigo || ''] || '#6366f1'}15 0%, transparent 100%)`
+              : 'linear-gradient(180deg, var(--surface-50) 0%, transparent 100%)',
+          }}
+        >
           {filtered.map(c => {
             const unit = unidades.find(u => u.id === c.unidade_id)
             const unitColor = UNIT_COLORS[unit?.codigo || ''] || '#6366f1'
