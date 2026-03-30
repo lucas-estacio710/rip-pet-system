@@ -123,6 +123,11 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
   const [clinicaTextoLivre, setClinicaTextoLivre] = useState('')
   const [localColeta, setLocalColeta] = useState<'residencia' | 'clinica' | 'unidade' | 'outro' | ''>('')
   const [enderecoOutro, setEnderecoOutro] = useState('')
+  // Indicação
+  const [indicClinica, setIndicClinica] = useState(false)
+  const [indicVet, setIndicVet] = useState(false)
+  const [indicClinicaTexto, setIndicClinicaTexto] = useState('')
+  const [indicVetTexto, setIndicVetTexto] = useState('')
   const [lacre, setLacre] = useState('')
   const [semLacre, setSemLacre] = useState(false)
   const [dataContrato, setDataContrato] = useState(new Date().toISOString().split('T')[0])
@@ -138,7 +143,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
       const [{ data: estabs }, { data: conts }, { data: funcs }] = await Promise.all([
         supabase.from('estabelecimentos').select('id, nome, tipo').order('nome'),
         supabase.from('contatos').select('id, nome, cargo, estabelecimento_id').order('nome'),
-        supabase.from('funcionarios').select('id, nome').eq('ativo', true).order('nome'),
+        supabase.from('funcionarios').select('id, nome').eq('ativo', true).eq('unidade_id', ficha!.unidade_id).order('nome'),
       ])
       if (estabs) setEstabelecimentos(estabs as Estabelecimento[])
       if (conts) setContatos(conts as Contato[])
@@ -223,6 +228,10 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
       setClinicaTextoLivre('')
       setEnderecoOutro('')
       setDescontoPreVenda('')
+      setIndicClinica(false)
+      setIndicVet(false)
+      setIndicClinicaTexto('')
+      setIndicVetTexto('')
     }
   }, [isOpen])
 
@@ -240,6 +249,14 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
     } else if (loc === 'Outro') {
       setLocalColeta('outro')
       if (ficha.localizacao_outra) setEnderecoOutro(ficha.localizacao_outra)
+    }
+
+    // Pré-setar indicação baseado no como_conheceu
+    const conheceu = ficha.como_conheceu || []
+    if (conheceu.some(c => c.includes('Veterinário') || c.includes('Indicação em Clínica'))) {
+      setIndicClinica(true)
+      setIndicVet(true)
+      if (ficha.veterinario_especificar) setIndicVetTexto(ficha.veterinario_especificar)
     }
   }, [isOpen, ficha])
 
@@ -417,6 +434,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
         estabelecimento_id: resolvedEstabId || null,
         funcionario_id: funcionarioId || null,
         fonte_conhecimento_id: fonteConhecimentoId,
+        indicacao_clinica: temPadronizacaoClinicas ? (estabNome.trim() || null) : (indicClinica ? indicClinicaTexto.trim() || null : null),
+        indicacao_contato: temPadronizacaoClinicas ? (indicNome.trim() || null) : (indicVet ? indicVetTexto.trim() || null : null),
         data_contrato: dataContrato,
         pelinho_quer: true,
         pelinho_feito: false,
@@ -829,6 +848,58 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
                 className="input mt-2 text-sm"
               />
             )}
+          </div>
+          )}
+
+          {/* Indicação — quem encaminhou o tutor */}
+          {!temPadronizacaoClinicas && (
+          <div>
+            <label className="block text-sm font-medium text-[var(--surface-600)] mb-2">
+              Indicação
+            </label>
+            <div className="space-y-2">
+              {/* Checkbox Hospital/Clínica */}
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={indicClinica}
+                  onChange={e => setIndicClinica(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded accent-purple-500"
+                />
+                <span className="text-xs text-[var(--surface-500)]">Hospital / Clínica</span>
+              </label>
+              {indicClinica && (
+                <input
+                  type="text"
+                  value={indicClinicaTexto}
+                  onChange={e => setIndicClinicaTexto(e.target.value)}
+                  placeholder="Nome do hospital ou clínica"
+                  className="input text-sm"
+                />
+              )}
+
+              {/* Checkbox Veterinário */}
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={indicVet}
+                  onChange={e => setIndicVet(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded accent-purple-500"
+                />
+                <span className="text-xs text-[var(--surface-500)]">Veterinário(a)</span>
+              </label>
+              {indicVet && (
+                <input
+                  type="text"
+                  value={indicVetTexto}
+                  onChange={e => setIndicVetTexto(e.target.value)}
+                  placeholder="Nome do(a) veterinário(a)"
+                  className="input text-sm"
+                />
+              )}
+
+              <p className="text-[10px] text-[var(--surface-400)]">Mantenha sempre o mesmo padrão de escrita</p>
+            </div>
           </div>
           )}
 
