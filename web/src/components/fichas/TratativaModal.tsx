@@ -116,6 +116,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
   const [codigo, setCodigo] = useState('')
   const [codigoManual, setCodigoManual] = useState(false)
   const [valorPlano, setValorPlano] = useState('')
+  const [descontoPreVenda, setDescontoPreVenda] = useState('')
   const [lacre, setLacre] = useState('')
   const [semLacre, setSemLacre] = useState(false)
   const [dataContrato, setDataContrato] = useState(new Date().toISOString().split('T')[0])
@@ -340,14 +341,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
         }
       }
 
-      // Step 5: Build observacoes
-      const obsPartes: string[] = []
-      if (ficha.observacoes) obsPartes.push(ficha.observacoes)
-      if (ficha.pagamento) obsPartes.push(`Pagamento: ${ficha.pagamento}${ficha.parcelas ? ` (${ficha.parcelas})` : ''}`)
-      if (ficha.outros_tutores && ficha.outros_tutores.filter(Boolean).length > 0) {
-        obsPartes.push(`Outros tutores: ${ficha.outros_tutores.filter(Boolean).join(', ')}`)
-      }
-      if (ficha.localizacao_outra) obsPartes.push(`Local: ${ficha.localizacao_outra}`)
+      // Step 5: Build observacoes (apenas obs originais da ficha)
+      const observacoes = ficha.observacoes || null
 
       // Step 6: Map local_coleta
       let localColeta: string | null = null
@@ -395,9 +390,10 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
         acompanhamento_online: ficha.acompanhamento?.includes('On-line') || false,
         acompanhamento_presencial: ficha.acompanhamento?.includes('Presencial') || false,
         valor_plano: valorPlano ? parseFloat(valorPlano) : null,
+        desconto_plano: descontoPreVenda ? parseFloat(descontoPreVenda) : 0,
         local_coleta: localColeta,
         numero_lacre: lacre || null,
-        observacoes: obsPartes.length > 0 ? obsPartes.join('\n') : null,
+        observacoes,
       }
 
       const { data: contrato, error: errContrato } = await supabase
@@ -791,22 +787,47 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
             />
           </div>
 
-          {/* Valor */}
+          {/* Valor + Desconto Pré-Venda */}
           <div>
             <label className="block text-sm font-medium text-[var(--surface-600)] mb-1">
               Valor do Plano (R$)
             </label>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={valorPlano}
-              onChange={(e) => {
-                const v = e.target.value.replace(/[^\d.,]/g, '').replace(',', '.')
-                setValorPlano(v)
-              }}
-              placeholder="0.00"
-              className="input text-mono"
-            />
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                inputMode="decimal"
+                value={valorPlano}
+                onChange={(e) => {
+                  const v = e.target.value.replace(/[^\d.,]/g, '').replace(',', '.')
+                  setValorPlano(v)
+                }}
+                placeholder="0.00"
+                className="input text-mono flex-1"
+              />
+              <span className="text-[var(--surface-400)] text-sm">−</span>
+              <div className="relative">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={descontoPreVenda}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/[^\d.,]/g, '').replace(',', '.')
+                    setDescontoPreVenda(v)
+                  }}
+                  placeholder="Desconto"
+                  className="input text-mono w-24"
+                />
+              </div>
+              <span className="text-[var(--surface-400)] text-sm">=</span>
+              <span className="text-sm font-bold text-emerald-400 min-w-[70px] text-right">
+                {(() => {
+                  const v = parseFloat(valorPlano) || 0
+                  const d = parseFloat(descontoPreVenda) || 0
+                  const total = Math.max(v - d, 0)
+                  return total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                })()}
+              </span>
+            </div>
           </div>
 
           {/* Lacre */}
