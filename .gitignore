@@ -17,6 +17,14 @@ public/racas/
 # Supabase migrations (gerenciado separadamente)
 supabase/
 
+# Docs internos (não necessários pro deploy)
+CHANGELOG.md
+FLUXO_COMPLETO.md
+PENDENCIAS.md
+TSHIRTS.md
+apresentacao-tshirts.html
+CONTRATOS/
+
 # Templates referência
 chegamos e chegaram.html
 
