@@ -99,7 +99,7 @@ export default function GCTracking({ contratoId, tipoCremacao, observacoesContra
         contrato_id: contratoId,
         etapa: 'recebido',
         observacoes_unidade: observacoesContrato || null,
-      })
+      } as never)
       .select()
       .single()
 

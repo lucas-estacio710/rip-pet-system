@@ -162,7 +162,7 @@ export default function AdminUsuariosPage() {
           nome: formNome || null,
         }))
 
-        await supabase.from('perfis').insert(perfisToInsert)
+        await supabase.from('perfis').insert(perfisToInsert as never)
 
       } else {
         // Criar via API route (usa service_role no server)
@@ -196,7 +196,7 @@ export default function AdminUsuariosPage() {
           nome: formNome || null,
         }))
 
-        const { error: perfisError } = await supabase.from('perfis').insert(perfisToInsert)
+        const { error: perfisError } = await supabase.from('perfis').insert(perfisToInsert as never)
         if (perfisError) {
           console.error('Erro ao inserir perfis:', perfisError)
           alert('Usuário criado mas erro ao configurar perfil: ' + perfisError.message)

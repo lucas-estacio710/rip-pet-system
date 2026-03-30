@@ -182,7 +182,7 @@ export default function VisibilidadePage() {
 
     // Inserir logs
     if (logEntries.length > 0) {
-      await supabase.from('visibilidade_logs').insert(logEntries)
+      await supabase.from('visibilidade_logs').insert(logEntries as never)
     }
 
     await refetch()
