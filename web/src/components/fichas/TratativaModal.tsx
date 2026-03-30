@@ -6,6 +6,7 @@ import { User, PawPrint, Flame, Search, Check, Plus, Pencil, Loader2, Building2,
 import Modal from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
 import { createClient } from '@/lib/supabase/client'
+import { useUnit } from '@/contexts/UnitContext'
 
 // ============================================
 // Types
@@ -86,6 +87,8 @@ function getPrimeiroNome(nomeCompleto: string | null | undefined): string {
 export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Props) {
   const { toast } = useToast()
   const supabase = createClient()
+  const { hasModule } = useUnit()
+  const temPadronizacaoClinicas = hasModule('cb_padronizacao_clinicas')
 
   // Lookups
   const [estabelecimentos, setEstabelecimentos] = useState<Estabelecimento[]>([])
@@ -117,6 +120,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
   const [codigoManual, setCodigoManual] = useState(false)
   const [valorPlano, setValorPlano] = useState('')
   const [descontoPreVenda, setDescontoPreVenda] = useState('')
+  const [clinicaTextoLivre, setClinicaTextoLivre] = useState('')
   const [lacre, setLacre] = useState('')
   const [semLacre, setSemLacre] = useState(false)
   const [dataContrato, setDataContrato] = useState(new Date().toISOString().split('T')[0])
@@ -292,53 +296,61 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
         if (fonte) fonteConhecimentoId = fonte.id
       }
 
-      // Step 3: Resolve estabelecimento
-      const AUTONOMOS_ESTAB_ID = 'b4eedcff-7ccf-4cfb-bf3a-1978eeec6382'
+      // Step 3 & 4: Resolve estabelecimento + contato
       let resolvedEstabId: string | null = null
-      if (autonomo) {
-        resolvedEstabId = AUTONOMOS_ESTAB_ID
-      } else {
-        resolvedEstabId = estabId
-        if (!resolvedEstabId && estabNome.trim()) {
-          const { data: novoEstab } = await supabase
-            .from('estabelecimentos')
-            .insert({ nome: estabNome.trim(), tipo: 'clinica' } as never)
-            .select('id')
-            .single() as { data: { id: string } | null }
-          if (novoEstab) resolvedEstabId = novoEstab.id
-        }
-      }
+      let resolvedContatoId: string | null = null
+      let clinicaColetaNome: string | null = null
 
-      // Step 4: Resolve contato (quem indicou)
-      let resolvedContatoId: string | null = indicId
-
-      if (!resolvedContatoId && indicNome.trim()) {
-        // Busca contato existente pelo nome (+ estabelecimento se tiver)
-        let query = supabase
-          .from('contatos')
-          .select('id')
-          .ilike('nome', indicNome.trim())
-          .limit(1)
-        if (resolvedEstabId) {
-          query = query.eq('estabelecimento_id', resolvedEstabId)
-        }
-        const { data: contatoExist } = await query.maybeSingle() as { data: { id: string } | null }
-
-        if (contatoExist) {
-          resolvedContatoId = contatoExist.id
+      if (temPadronizacaoClinicas) {
+        // COM padronização — autocomplete de estabelecimentos
+        const AUTONOMOS_ESTAB_ID = 'b4eedcff-7ccf-4cfb-bf3a-1978eeec6382'
+        if (autonomo) {
+          resolvedEstabId = AUTONOMOS_ESTAB_ID
+          clinicaColetaNome = 'Autônomo'
         } else {
-          // Cria novo contato
-          const { data: novoContato } = await supabase
-            .from('contatos')
-            .insert({
-              nome: indicNome.trim(),
-              cargo: indicCargo.trim() || null,
-              estabelecimento_id: resolvedEstabId,
-            } as never)
-            .select('id')
-            .single() as { data: { id: string } | null }
-          if (novoContato) resolvedContatoId = novoContato.id
+          resolvedEstabId = estabId
+          clinicaColetaNome = estabNome.trim() || null
+          if (!resolvedEstabId && estabNome.trim()) {
+            const { data: novoEstab } = await supabase
+              .from('estabelecimentos')
+              .insert({ nome: estabNome.trim(), tipo: 'clinica' } as never)
+              .select('id')
+              .single() as { data: { id: string } | null }
+            if (novoEstab) resolvedEstabId = novoEstab.id
+          }
         }
+
+        // Resolve contato (quem indicou)
+        resolvedContatoId = indicId
+        if (!resolvedContatoId && indicNome.trim()) {
+          let query = supabase
+            .from('contatos')
+            .select('id')
+            .ilike('nome', indicNome.trim())
+            .limit(1)
+          if (resolvedEstabId) {
+            query = query.eq('estabelecimento_id', resolvedEstabId)
+          }
+          const { data: contatoExist } = await query.maybeSingle() as { data: { id: string } | null }
+
+          if (contatoExist) {
+            resolvedContatoId = contatoExist.id
+          } else {
+            const { data: novoContato } = await supabase
+              .from('contatos')
+              .insert({
+                nome: indicNome.trim(),
+                cargo: indicCargo.trim() || null,
+                estabelecimento_id: resolvedEstabId,
+              } as never)
+              .select('id')
+              .single() as { data: { id: string } | null }
+            if (novoContato) resolvedContatoId = novoContato.id
+          }
+        }
+      } else {
+        // SEM padronização — texto livre
+        clinicaColetaNome = clinicaTextoLivre.trim() || null
       }
 
       // Step 5: Build observacoes (apenas obs originais da ficha)
@@ -378,6 +390,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
         tutor_bairro: ficha.bairro || null,
         tutor_endereco: ficha.endereco ? `${ficha.endereco}, ${ficha.numero}${ficha.complemento ? ` - ${ficha.complemento}` : ''}` : null,
         tutor_cep: ficha.cep || null,
+        clinica_coleta: clinicaColetaNome,
         contato_id: resolvedContatoId || null,
         estabelecimento_id: resolvedEstabId || null,
         funcionario_id: funcionarioId || null,
@@ -579,12 +592,14 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
             </div>
           )}
 
-          {/* Estabelecimento (clinica) */}
+          {/* Estabelecimento / Clínica */}
+          {temPadronizacaoClinicas ? (
+          /* === COM PADRONIZAÇÃO (Santos) — Autocomplete === */
           <div ref={estabRef} className="relative">
             <div className="flex items-center justify-between mb-1">
               <label className="text-sm font-medium text-[var(--surface-600)]">
                 <Building2 className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
-                Estabelecimento (clinica)
+                Estabelecimento (clínica)
               </label>
               <label className="flex items-center gap-1.5 cursor-pointer select-none">
                 <input
@@ -667,8 +682,26 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
             </>
             )}
           </div>
+          ) : (
+          /* === SEM PADRONIZAÇÃO — Campo texto livre === */
+          <div>
+            <label className="block text-sm font-medium text-[var(--surface-600)] mb-1">
+              <Building2 className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
+              Clínica / Local de origem
+            </label>
+            <input
+              type="text"
+              value={clinicaTextoLivre}
+              onChange={(e) => setClinicaTextoLivre(e.target.value)}
+              placeholder="Nome da clínica, hospital ou veterinário"
+              className="input"
+            />
+            <p className="mt-1 text-[10px] text-[var(--surface-400)]">Mantenha sempre o mesmo padrão de escrita</p>
+          </div>
+          )}
 
-          {/* Contato (pessoa que indicou) */}
+          {/* Contato (pessoa que indicou) — só com padronização */}
+          {temPadronizacaoClinicas && (
           <div ref={indicRef} className="relative">
             <label className="block text-sm font-medium text-[var(--surface-600)] mb-1">
               <UserCheck className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
@@ -747,6 +780,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
               />
             )}
           </div>
+          )}
 
           {/* Responsavel */}
           <div>

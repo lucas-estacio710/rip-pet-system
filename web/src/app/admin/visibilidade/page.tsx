@@ -29,14 +29,16 @@ const OBJETOS: Item[] = [
   { key: 'func_gc', label: 'GC', desc: 'Tracking de cremação dentro do contrato' },
 ]
 
-// Campos: adicionar aqui conforme implementar — por enquanto vazio
-const CAMPOS: Item[] = []
+const CAMPOS_BOTOES: Item[] = [
+  { key: 'cb_padronizacao_clinicas', label: 'Padronização Clínicas', desc: 'Autocomplete de estabelecimentos no processamento de ficha' },
+]
 
 type Categoria = { key: string; label: string; icon: typeof Monitor; color: string; items: Item[] }
 
 const CATEGORIAS: Categoria[] = [
   { key: 'telas', label: 'Telas', icon: Monitor, color: '#3b82f6', items: TELAS },
   { key: 'objetos', label: 'Objetos Relacionados', icon: Wrench, color: '#f59e0b', items: OBJETOS },
+  { key: 'campos', label: 'Campos e Botões', icon: FormInput, color: '#8b5cf6', items: CAMPOS_BOTOES },
 ]
 
 type LogEntry = {
