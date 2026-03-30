@@ -61,7 +61,7 @@
 ### Campos Controlados
 - [ ] **campo_seguradora** — Mostrar/esconder campo de seguradora
 - [ ] **campo_lacre** — Mostrar/esconder campo de lacre
-- [ ] **campo_velorio** — Mostrar/esconder opções de velório
+- [ ] **campo_velorio** — Mostrar/esconder opções de vvelório
 - [ ] **campo_acompanhamento** — Mostrar/esconder acompanhamento
 - [ ] **campo_pelinho** — Mostrar/esconder controle de pelinho
 - [ ] **campo_certificado_nomes** — Mostrar/esconder nomes do certificado
