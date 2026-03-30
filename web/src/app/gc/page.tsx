@@ -76,6 +76,15 @@ const ETAPA_COLORS: Record<string, string> = {
   disponivel: '#22c55e',
 }
 
+function corPeso(peso: number | null): string {
+  if (!peso) return '#64748b'
+  if (peso <= 5) return '#22c55e'    // verde — leve
+  if (peso <= 15) return '#84cc16'   // verde-amarelo
+  if (peso <= 30) return '#eab308'   // amarelo — médio
+  if (peso <= 45) return '#f97316'   // laranja
+  return '#ef4444'                   // vermelho — pesado
+}
+
 function tempoRelativo(dataStr: string | null): string {
   if (!dataStr) return ''
   const diffMs = Date.now() - new Date(dataStr).getTime()
@@ -186,7 +195,6 @@ export default function GCPage() {
           const isActive = activeUnit === unit.id
           const counts = countByUnit.get(unit.id) || { cremados: 0, total: 0 }
           const color = UNIT_COLORS[unit.codigo] || '#6366f1'
-          const hasItems = counts.total > 0
 
           return (
             <button
@@ -194,35 +202,23 @@ export default function GCPage() {
               onClick={() => setActiveUnit(isActive ? null : unit.id)}
               className="flex items-center gap-2 transition-all duration-300 ease-out rounded-t-xl border border-b-0 shrink-0"
               style={{
-                padding: isActive ? '8px 16px 10px' : '8px 10px 10px',
-                background: isActive ? 'var(--surface-0)' : 'transparent',
-                borderColor: isActive ? 'var(--surface-200)' : 'transparent',
-                opacity: !hasItems && !isActive ? 0.4 : 1,
+                padding: '8px 12px 10px',
+                background: isActive ? 'var(--surface-0)' : 'var(--surface-50)',
+                borderColor: isActive ? 'var(--surface-200)' : 'var(--surface-100)',
               }}
             >
-              {/* Bolinha */}
               <div
-                className="rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 transition-all duration-300"
-                style={{
-                  width: isActive ? 28 : 32,
-                  height: isActive ? 28 : 32,
-                  background: color,
-                  color: unit.codigo === 'SJ' ? '#334155' : '#fff',
-                }}
+                className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
+                style={{ background: color, color: unit.codigo === 'SJ' ? '#334155' : '#fff' }}
               >
                 {unit.codigo}
               </div>
 
-              {/* Nome (só quando ativo) */}
               <div className="overflow-hidden transition-all duration-300 ease-out" style={{ maxWidth: isActive ? 150 : 0, opacity: isActive ? 1 : 0 }}>
                 <span className="text-sm font-semibold text-[var(--surface-700)] whitespace-nowrap">{unit.nome}</span>
               </div>
 
-              {/* Contador */}
-              <span
-                className="text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 transition-all duration-300"
-                style={{ background: color + '20', color }}
-              >
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0" style={{ background: color + '20', color }}>
                 {counts.cremados}/{counts.total}
               </span>
             </button>
@@ -230,7 +226,6 @@ export default function GCPage() {
         })}
       </div>
 
-      {/* Linha divisória */}
       <div className="border-b border-[var(--surface-200)] -mt-4 mb-4" />
 
       {/* Busca */}
@@ -263,93 +258,94 @@ export default function GCPage() {
       ) : filtered.length === 0 ? (
         <EmptyState icon={Church} title={activeUnit ? 'Nenhum pet desta unidade' : 'Nenhum pet na matriz'} description={activeUnit ? 'Selecione outra unidade ou limpe o filtro' : 'Quando as unidades enviarem pets para cremação, eles aparecerão aqui.'} />
       ) : (
-        <div className="space-y-2">
+        <div className="grid grid-cols-3 lg:grid-cols-7 gap-2">
           {filtered.map(c => {
             const unit = unidades.find(u => u.id === c.unidade_id)
             const unitColor = UNIT_COLORS[unit?.codigo || ''] || '#6366f1'
             const etapa = c.gc?.etapa || 'recebido'
             const etapaColor = ETAPA_COLORS[etapa] || '#64748b'
             const PetIcon = c.pet_especie === 'canina' ? Dog : c.pet_especie === 'felina' ? Cat : Bug
+            const pesoColor = corPeso(c.pet_peso)
+            const isInd = c.tipo_cremacao === 'individual'
 
             return (
               <Link href={`/contratos/${c.id}`} key={c.id}>
-                <div className="card p-3 card-hover cursor-pointer transition-all">
-                  <div className="flex gap-3">
-                    {/* Bolinha da unidade (quando não tem filtro ativo) */}
+                <div
+                  className="card p-2.5 card-hover cursor-pointer transition-all h-full"
+                  style={{ borderLeft: `3px solid ${isInd ? '#a78bfa' : '#60a5fa'}` }}
+                >
+                  {/* Lacre + Pet */}
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    {c.numero_lacre && (
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: '#1e3a5f', color: '#fff' }}>
+                        {c.numero_lacre}
+                      </span>
+                    )}
+                    <PetIcon className="h-3 w-3 text-[var(--surface-400)]" />
+                    <span className="font-semibold text-xs text-[var(--surface-800)] truncate">{c.pet_nome}</span>
+                  </div>
+
+                  {/* Tipo (IND/COL) bem destacado */}
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{
+                      background: isInd ? '#7c3aed' : '#2563eb',
+                      color: '#fff',
+                    }}>
+                      {isInd ? 'INDIVIDUAL' : 'COLETIVA'}
+                    </span>
+                    {/* Bolinha unidade (sem filtro) */}
                     {!activeUnit && unit && (
                       <div
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5"
+                        className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold"
                         style={{ background: unitColor, color: unit.codigo === 'SJ' ? '#334155' : '#fff' }}
                       >
                         {unit.codigo}
                       </div>
                     )}
-
-                    <div className="flex-1 min-w-0">
-                      {/* Post-it */}
-                      {(c.observacoes || c.gc?.observacoes_unidade) && (
-                        <div className="mb-2 px-2 py-1.5 rounded-lg text-[11px] leading-tight" style={{ background: 'rgba(250,204,21,0.15)', color: '#eab308', borderLeft: '3px solid #eab308' }}>
-                          {c.gc?.observacoes_unidade || c.observacoes}
-                        </div>
-                      )}
-
-                      {/* Pet + tipo */}
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <PetIcon className="h-3.5 w-3.5 text-[var(--surface-400)]" />
-                          <span className="font-semibold text-sm text-[var(--surface-800)]">{c.pet_nome}</span>
-                        </div>
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{
-                          background: c.tipo_cremacao === 'individual' ? 'rgba(139,92,246,0.2)' : 'rgba(59,130,246,0.2)',
-                          color: c.tipo_cremacao === 'individual' ? '#a78bfa' : '#60a5fa',
-                        }}>
-                          {c.tipo_cremacao === 'individual' ? 'IND' : 'COL'}
-                        </span>
-                      </div>
-
-                      {/* Tutor + peso + lacre */}
-                      <div className="flex items-center gap-3 text-xs text-[var(--surface-500)] mb-1.5">
-                        {c.tutor_nome && (
-                          <span className="flex items-center gap-1"><User className="h-3 w-3" />{c.tutor_nome}</span>
-                        )}
-                        {c.pet_peso && (
-                          <span className="flex items-center gap-1"><Weight className="h-3 w-3" />{c.pet_peso}kg</span>
-                        )}
-                        {c.numero_lacre && (
-                          <span className="flex items-center gap-1"><Lock className="h-3 w-3" />{c.numero_lacre}</span>
-                        )}
-                      </div>
-
-                      {/* Etapa + forno + tempo */}
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ background: etapaColor + '20', color: etapaColor }}>
-                          {ETAPA_LABELS[etapa]}
-                        </span>
-                        <div className="flex items-center gap-2">
-                          {c.gc?.forno && (
-                            <span className="text-[10px] font-bold text-[var(--surface-400)]">Forno {c.gc.forno}</span>
-                          )}
-                          {c.data_acolhimento && (
-                            <span className="text-[10px] text-[var(--surface-400)] flex items-center gap-0.5">
-                              <Clock className="h-2.5 w-2.5" />{tempoRelativo(c.data_acolhimento)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Cinzas + certificado */}
-                      {c.gc && (etapa === 'cremacao' || etapa === 'disponivel') && (
-                        <div className="flex items-center gap-2 mt-1.5 text-[10px]">
-                          <span style={{ color: c.gc.cinzas_prontas ? '#22c55e' : '#64748b' }}>
-                            {c.gc.cinzas_prontas ? '✓' : '○'} Cinzas
-                          </span>
-                          <span style={{ color: c.gc.certificado_pronto ? '#22c55e' : '#64748b' }}>
-                            {c.gc.certificado_pronto ? '✓' : '○'} Certificado
-                          </span>
-                        </div>
-                      )}
-                    </div>
                   </div>
+
+                  {/* Tutor */}
+                  {c.tutor_nome && (
+                    <p className="text-[10px] text-[var(--surface-500)] truncate mb-1">
+                      <User className="h-2.5 w-2.5 inline mr-0.5" />{c.tutor_nome}
+                    </p>
+                  )}
+
+                  {/* Peso com cor condicional */}
+                  {c.pet_peso != null && (
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full inline-block mb-1" style={{ background: pesoColor + '20', color: pesoColor }}>
+                      {c.pet_peso}kg
+                    </span>
+                  )}
+
+                  {/* Etapa */}
+                  <div className="flex items-center justify-between mt-auto">
+                    <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: etapaColor + '20', color: etapaColor }}>
+                      {ETAPA_LABELS[etapa]}
+                    </span>
+                    {c.gc?.forno && (
+                      <span className="text-[9px] font-bold" style={{ color: '#f59e0b' }}>F{c.gc.forno}</span>
+                    )}
+                  </div>
+
+                  {/* Cinzas/Certificado */}
+                  {c.gc && (etapa === 'cremacao' || etapa === 'disponivel') && (
+                    <div className="flex items-center gap-1.5 mt-1 text-[9px]">
+                      <span style={{ color: c.gc.cinzas_prontas ? '#22c55e' : '#475569' }}>
+                        {c.gc.cinzas_prontas ? '✓' : '○'}Cz
+                      </span>
+                      <span style={{ color: c.gc.certificado_pronto ? '#22c55e' : '#475569' }}>
+                        {c.gc.certificado_pronto ? '✓' : '○'}Ct
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Post-it (compacto) */}
+                  {(c.observacoes || c.gc?.observacoes_unidade) && (
+                    <div className="mt-1.5 px-1.5 py-1 rounded text-[9px] leading-tight truncate" style={{ background: 'rgba(250,204,21,0.15)', color: '#eab308' }}>
+                      ⚠️ {c.gc?.observacoes_unidade || c.observacoes}
+                    </div>
+                  )}
                 </div>
               </Link>
             )
