@@ -163,7 +163,7 @@ export default function VisibilidadePage() {
       const removidos = antes.filter(m => !depois.includes(m))
 
       updatePromises.push(
-        supabase.from('unidades').update({ modulos_ativos: modulos }).eq('id', unidadeId)
+        supabase.from('unidades').update({ modulos_ativos: modulos } as never).eq('id', unidadeId)
       )
 
       logEntries.push({

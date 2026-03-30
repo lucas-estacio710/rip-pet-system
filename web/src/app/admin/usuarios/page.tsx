@@ -230,7 +230,7 @@ export default function AdminUsuariosPage() {
 
   // Toggle ativo
   async function toggleAtivo(perfilId: string, currentAtivo: boolean) {
-    await supabase.from('perfis').update({ ativo: !currentAtivo }).eq('id', perfilId)
+    await supabase.from('perfis').update({ ativo: !currentAtivo } as never).eq('id', perfilId)
     await carregarUsuarios()
   }
 

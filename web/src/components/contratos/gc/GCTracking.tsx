@@ -127,7 +127,7 @@ export default function GCTracking({ contratoId, tipoCremacao, observacoesContra
     setSaving(true)
     const { data } = await supabase
       .from('contrato_gc')
-      .update(fields)
+      .update(fields as never)
       .eq('id', gc.id)
       .select()
       .single()

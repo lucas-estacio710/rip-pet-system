@@ -123,7 +123,7 @@ export default function CatalogoPage() {
   // Toggle ativo (inline, sem modal)
   async function toggleAtivo(produto: Produto) {
     setSaving(produto.id)
-    await supabase.from('produtos').update({ ativo: !produto.ativo }).eq('id', produto.id)
+    await supabase.from('produtos').update({ ativo: !produto.ativo } as never).eq('id', produto.id)
     setProdutos(prev => prev.map(p => p.id === produto.id ? { ...p, ativo: !p.ativo } : p))
     setSaving(null)
   }
@@ -131,7 +131,7 @@ export default function CatalogoPage() {
   // Editar preço inline
   async function updateField(id: string, field: string, value: any) {
     setSaving(id)
-    await supabase.from('produtos').update({ [field]: value }).eq('id', id)
+    await supabase.from('produtos').update({ [field]: value } as never).eq('id', id)
     setProdutos(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p))
     setSaving(null)
   }
