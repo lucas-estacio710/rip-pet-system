@@ -468,8 +468,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Processar Ficha" footer={footer} size="xl">
-      {/* Tutor detection banner */}
-      {tutorChecked && (
+      {/* Tutor detection banner — só se tela_tutores habilitada */}
+      {hasModule('tela_tutores') && tutorChecked && (
         <div className={`mb-4 px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 ${
           tutorExistente
             ? 'bg-green-900/30 text-green-400 border border-green-700'
