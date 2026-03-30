@@ -34,7 +34,7 @@ type GCData = {
 
 type Props = {
   contratoId: string
-  tipoCremacao: 'individual' | 'coletiva'
+  tipoCremacao: string
   observacoesContrato: string | null
 }
 
