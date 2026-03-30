@@ -50,7 +50,7 @@ type Categoria = { key: string; label: string; icon: typeof Monitor; color: stri
 
 const CATEGORIAS: Categoria[] = [
   { key: 'telas', label: 'Telas', icon: Monitor, color: '#3b82f6', items: TELAS },
-  { key: 'funcionalidades', label: 'Funcionalidades', icon: Wrench, color: '#f59e0b', items: FUNCIONALIDADES },
+  { key: 'objetos', label: 'Objetos Relacionados', icon: Wrench, color: '#f59e0b', items: FUNCIONALIDADES },
   { key: 'campos', label: 'Campos', icon: FormInput, color: '#8b5cf6', items: CAMPOS },
 ]
 
@@ -252,7 +252,12 @@ export default function VisibilidadePage() {
               </tr>
             </thead>
             <tbody>
-              {unidades.map(u => {
+              {[...unidades].sort((a, b) => {
+                // Ordenar por quantidade de itens DESTA categoria habilitados (mais → menos)
+                const aCount = cat.items.filter(m => (changes[a.id] || []).includes(m.key)).length
+                const bCount = cat.items.filter(m => (changes[b.id] || []).includes(m.key)).length
+                return bCount - aCount
+              }).map(u => {
                 const unitModulos = changes[u.id] || []
                 return (
                   <tr key={u.id} style={{ borderBottom: '1px solid var(--surface-100)' }} className="hover:bg-[var(--surface-50)] transition-colors">
