@@ -20,7 +20,7 @@ const TELAS: Item[] = [
   { key: 'tela_pipeline', label: 'Pipeline', desc: 'Contratos e status' },
   { key: 'tela_estoque', label: 'Estoque', desc: 'Controle de estoque' },
   { key: 'tela_tutores', label: 'Tutores', desc: 'Cadastro de tutores' },
-  { key: 'tela_entregas', label: 'Entregas', desc: 'Encaminhamentos e retornos' },
+  { key: 'tela_entregas', label: 'Encaminhamentos', desc: 'Envio e retorno de pets pra Matriz' },
   { key: 'tela_gc', label: 'GC', desc: 'Gerenciamento de Cremações (Matriz)' },
 ]
 
