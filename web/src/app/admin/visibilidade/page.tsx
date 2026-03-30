@@ -20,38 +20,23 @@ const TELAS: Item[] = [
   { key: 'tela_pipeline', label: 'Pipeline', desc: 'Contratos e status' },
   { key: 'tela_estoque', label: 'Estoque', desc: 'Controle de estoque' },
   { key: 'tela_tutores', label: 'Tutores', desc: 'Cadastro de tutores' },
-  { key: 'tela_comercial', label: 'Comercial', desc: 'Estabelecimentos e visitas' },
-  { key: 'tela_entregas', label: 'Entregas', desc: 'Retorno + rotas de entrega' },
+  { key: 'tela_entregas', label: 'Entregas', desc: 'Encaminhamentos e retornos' },
   { key: 'tela_gc', label: 'GC', desc: 'Gerenciamento de Cremações (Matriz)' },
 ]
 
-const FUNCIONALIDADES: Item[] = [
-  { key: 'func_produtos', label: 'Produtos', desc: 'Adicionar produtos ao contrato' },
-  { key: 'func_financeiro', label: 'Financeiro', desc: 'Pagamentos e contas' },
-  { key: 'func_nfs', label: 'NFs', desc: 'Notas fiscais' },
-  { key: 'func_bac', label: 'BAC', desc: 'Botões de Ação Rápida' },
-  { key: 'func_tags', label: 'Tags Pendências', desc: 'Tags de pendência no pipeline' },
+const OBJETOS: Item[] = [
   { key: 'func_tutores', label: 'Tutores', desc: 'Link "Ver cadastro" no card do tutor' },
   { key: 'func_gc', label: 'GC', desc: 'Tracking de cremação dentro do contrato' },
-  { key: 'func_logs', label: 'Logs', desc: 'Histórico de alterações' },
 ]
 
-const CAMPOS: Item[] = [
-  // Sob demanda — Lucão adiciona aqui conforme identificar
-  { key: 'campo_seguradora', label: 'Seguradora', desc: 'Campo de seguradora no contrato' },
-  { key: 'campo_lacre', label: 'Lacre', desc: 'Número do lacre' },
-  { key: 'campo_velorio', label: 'Velório', desc: 'Opções de velório' },
-  { key: 'campo_acompanhamento', label: 'Acompanhamento', desc: 'Acompanhamento online/presencial' },
-  { key: 'campo_pelinho', label: 'Pelinho', desc: 'Controle de pelinho' },
-  { key: 'campo_certificado_nomes', label: 'Nomes Certificado', desc: 'Nomes para o certificado' },
-]
+// Campos: adicionar aqui conforme implementar — por enquanto vazio
+const CAMPOS: Item[] = []
 
 type Categoria = { key: string; label: string; icon: typeof Monitor; color: string; items: Item[] }
 
 const CATEGORIAS: Categoria[] = [
   { key: 'telas', label: 'Telas', icon: Monitor, color: '#3b82f6', items: TELAS },
-  { key: 'objetos', label: 'Objetos Relacionados', icon: Wrench, color: '#f59e0b', items: FUNCIONALIDADES },
-  { key: 'campos', label: 'Campos', icon: FormInput, color: '#8b5cf6', items: CAMPOS },
+  { key: 'objetos', label: 'Objetos Relacionados', icon: Wrench, color: '#f59e0b', items: OBJETOS },
 ]
 
 type LogEntry = {
