@@ -537,7 +537,7 @@ function ContratosContent() {
   }, [pagina, statusFiltro, ordenacao, ordemAsc])
 
   async function carregarContagens() {
-    if (!currentUnit) return
+    if (!currentUnit) { setLoading(false); return }
     // Carregar contagem por status usando count do Supabase (sem limite de 1000)
     const statusList = ['ativo', 'pinda', 'retorno', 'pendente', 'finalizado']
     const counts: Record<string, number> = {}
@@ -576,7 +576,7 @@ function ContratosContent() {
   }
 
   async function carregarContratos() {
-    if (!currentUnit) return
+    if (!currentUnit) { setLoading(false); return }
     const minhaBuscaId = ++buscaIdRef.current
 
     setLoading(true)
@@ -615,7 +615,7 @@ function ContratosContent() {
   }
 
   async function buscarContratos(termo?: string) {
-    if (!currentUnit) return
+    if (!currentUnit) { setLoading(false); return }
     const termoBusca = termo ?? busca
     if (!termoBusca.trim()) {
       atualizarURL({ busca: '' })
