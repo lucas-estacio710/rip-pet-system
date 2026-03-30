@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Eye, Save, Loader2, Check, Building2, Shield, Monitor, Wrench, FormInput } from 'lucide-react'
+import { Eye, Save, Loader2, Check, Building2, Shield, Monitor, Wrench, FormInput, Clock } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import EmptyState from '@/components/ui/EmptyState'
@@ -54,6 +54,15 @@ const CATEGORIAS: Categoria[] = [
   { key: 'campos', label: 'Campos', icon: FormInput, color: '#8b5cf6', items: CAMPOS },
 ]
 
+type LogEntry = {
+  id: string
+  unidade_nome: string
+  alterado_por_email: string | null
+  adicionados: string[]
+  removidos: string[]
+  created_at: string
+}
+
 type Unidade = {
   id: string
   codigo: string
@@ -75,8 +84,19 @@ export default function VisibilidadePage() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [changes, setChanges] = useState<Record<string, string[]>>({})
+  const [logs, setLogs] = useState<LogEntry[]>([])
+  const [showLogs, setShowLogs] = useState(false)
 
-  useEffect(() => { loadUnidades() }, [])
+  useEffect(() => { loadUnidades(); loadLogs() }, [])
+
+  async function loadLogs() {
+    const { data } = await supabase
+      .from('visibilidade_logs')
+      .select('id, unidade_nome, alterado_por_email, adicionados, removidos, created_at')
+      .order('created_at', { ascending: false })
+      .limit(50)
+    if (data) setLogs(data as LogEntry[])
+  }
 
   async function loadUnidades() {
     setLoading(true)
@@ -135,11 +155,54 @@ export default function VisibilidadePage() {
 
   async function handleSave() {
     setSaving(true)
-    const promises = Object.entries(changes).map(([unidadeId, modulos]) =>
-      supabase.from('unidades').update({ modulos_ativos: modulos }).eq('id', unidadeId)
-    )
-    await Promise.all(promises)
+
+    // Pegar user pra log
+    const { data: { user } } = await supabase.auth.getUser()
+
+    // Salvar alterações + gerar logs
+    const updatePromises: Promise<any>[] = []
+    const logEntries: any[] = []
+
+    for (const [unidadeId, modulos] of Object.entries(changes)) {
+      const unit = unidades.find(u => u.id === unidadeId)
+      if (!unit) continue
+
+      const antes = unit.modulos_ativos || []
+      const depois = modulos
+
+      // Só loga se mudou
+      const mudou = antes.length !== depois.length || antes.some(m => !depois.includes(m))
+      if (!mudou) continue
+
+      const adicionados = depois.filter(m => !antes.includes(m))
+      const removidos = antes.filter(m => !depois.includes(m))
+
+      updatePromises.push(
+        supabase.from('unidades').update({ modulos_ativos: modulos }).eq('id', unidadeId)
+      )
+
+      logEntries.push({
+        unidade_id: unidadeId,
+        unidade_nome: unit.nome,
+        alterado_por: user?.id || null,
+        alterado_por_email: user?.email || null,
+        modulos_antes: antes,
+        modulos_depois: depois,
+        adicionados,
+        removidos,
+      })
+    }
+
+    await Promise.all(updatePromises)
+
+    // Inserir logs
+    if (logEntries.length > 0) {
+      await supabase.from('visibilidade_logs').insert(logEntries)
+    }
+
     await refetch()
+    await loadUnidades()
+    await loadLogs()
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 3000)
@@ -268,6 +331,56 @@ export default function VisibilidadePage() {
           {CATEGORIAS.map(cat => renderMatrix(cat))}
         </>
       )}
+
+      {/* Histórico de alterações */}
+      <div className="mt-8">
+        <button
+          onClick={() => setShowLogs(!showLogs)}
+          className="flex items-center gap-2 text-xs font-medium mb-3"
+          style={{ color: '#64748b' }}
+        >
+          <Clock className="h-3.5 w-3.5" />
+          Histórico de alterações ({logs.length})
+          <span style={{ transform: showLogs ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}>▼</span>
+        </button>
+
+        {showLogs && logs.length > 0 && (
+          <div className="card overflow-hidden">
+            <div className="divide-y divide-[var(--surface-100)]">
+              {logs.map(log => (
+                <div key={log.id} className="px-4 py-3 text-xs">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-[var(--surface-700)]">{log.unidade_nome}</span>
+                      <span style={{ color: '#64748b' }}>por</span>
+                      <span style={{ color: '#94a3b8' }}>{log.alterado_por_email || 'sistema'}</span>
+                    </div>
+                    <span style={{ color: '#475569' }}>
+                      {new Date(log.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {log.adicionados.map(m => (
+                      <span key={m} className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e' }}>
+                        + {m}
+                      </span>
+                    ))}
+                    {log.removidos.map(m => (
+                      <span key={m} className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}>
+                        − {m}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {showLogs && logs.length === 0 && (
+          <p className="text-xs text-center py-4" style={{ color: '#64748b' }}>Nenhuma alteração registrada</p>
+        )}
+      </div>
     </div>
   )
 }
