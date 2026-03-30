@@ -31,6 +31,7 @@ const FUNCIONALIDADES: Item[] = [
   { key: 'func_nfs', label: 'NFs', desc: 'Notas fiscais' },
   { key: 'func_bac', label: 'BAC', desc: 'Botões de Ação Rápida' },
   { key: 'func_tags', label: 'Tags Pendências', desc: 'Tags de pendência no pipeline' },
+  { key: 'func_gc', label: 'GC', desc: 'Tracking de cremação dentro do contrato' },
   { key: 'func_logs', label: 'Logs', desc: 'Histórico de alterações' },
 ]
 

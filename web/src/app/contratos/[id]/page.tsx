@@ -14,6 +14,7 @@ import InteractiveTags from '@/components/contratos/InteractiveTags'
 import ActionButtons from '@/components/contratos/ActionButtons'
 import EntregaModal from '@/components/contratos/modals/EntregaModal'
 import GCTracking from '@/components/contratos/gc/GCTracking'
+import { useUnit } from '@/contexts/UnitContext'
 import PelinhoModal from '@/components/contratos/modals/PelinhoModal'
 import CertificadoModal from '@/components/contratos/modals/CertificadoModal'
 import AtivarModal from '@/components/contratos/modals/AtivarModal'
@@ -377,6 +378,7 @@ export default function ContratoDetalhe() {
   const [certificadoModalOpen, setCertificadoModalOpen] = useState(false)
 
   const supabase = createClient()
+  const { hasModule } = useUnit()
 
   // Função para obter URL da imagem local
   function getImagemUrl(codigo: string): string {
@@ -2730,8 +2732,8 @@ ${petNome}`
           )}
         </div>
 
-        {/* Card GC — aparece quando status é 'pinda' ou posterior */}
-        {(['pinda', 'retorno', 'pendente', 'finalizado'].includes(contrato.status)) && (
+        {/* Card GC — aparece quando status é 'pinda' ou posterior E func_gc habilitado */}
+        {hasModule('func_gc') && (['pinda', 'retorno', 'pendente', 'finalizado'].includes(contrato.status)) && (
           <div className="md:col-span-2">
             <GCTracking
               contratoId={contrato.id}
