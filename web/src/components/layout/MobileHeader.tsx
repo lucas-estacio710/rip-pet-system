@@ -3,6 +3,7 @@
 import { Menu } from 'lucide-react'
 import { usePathname } from 'next/navigation'
 import { UserMenu } from './UserMenu'
+import { UnitSelector } from './UnitSelector'
 
 const PAGE_TITLES: Record<string, string> = {
   '/dashboard': 'Dashboard',
@@ -37,9 +38,9 @@ export function MobileHeader({ onMenuClick }: Props) {
           <Menu className="h-5 w-5" />
         </button>
 
-        <h1 className="text-subtitle text-white truncate mx-3">
-          {title}
-        </h1>
+        <div className="flex-1 min-w-0 mx-2">
+          <UnitSelector />
+        </div>
 
         <UserMenu />
       </div>
