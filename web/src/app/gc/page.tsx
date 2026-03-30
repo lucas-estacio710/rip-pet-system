@@ -282,7 +282,7 @@ export default function GCPage() {
                   {/* Lacre + Pet */}
                   <div className="flex items-center gap-1.5 mb-1.5">
                     {c.numero_lacre && (
-                      <span className="text-[11px] font-bold px-1.5 py-0.5 rounded" style={{ background: '#1e3a5f', color: '#fff' }}>
+                      <span className="text-sm font-extrabold px-1.5 py-0 rounded leading-tight" style={{ background: '#1e3a5f', color: '#fff' }}>
                         {c.numero_lacre}
                       </span>
                     )}
