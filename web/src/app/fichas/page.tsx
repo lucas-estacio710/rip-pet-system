@@ -323,9 +323,12 @@ export default function FichasPage() {
                       <span className="text-base font-semibold text-[var(--surface-800)]">
                         {especieEmoji(ficha.especie)} {ficha.nome_pet}
                       </span>
-                      <Badge variant={ficha.cremacao?.toLowerCase() === 'individual' ? 'info' : 'default'}>
-                        {ficha.cremacao}
-                      </Badge>
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{
+                        background: ficha.cremacao?.toLowerCase() === 'individual' ? '#16a34a' : '#7c3aed',
+                        color: '#fff',
+                      }}>
+                        {ficha.cremacao?.toLowerCase() === 'individual' ? 'IND' : 'COL'}
+                      </span>
                       {ficha.valor != null && (
                         <span className="text-xs font-bold text-green-500 text-mono">
                           R$ {ficha.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
