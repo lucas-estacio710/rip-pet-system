@@ -2,13 +2,7 @@
 
 import { Menu } from 'lucide-react'
 import { usePathname } from 'next/navigation'
-import { useTheme } from '@/hooks/useTheme'
-import { THEMES, type Theme } from '@/lib/theme'
-
-const THEME_ICONS: Record<Theme, string> = {
-  dark: '🌙',
-  white: '☀️',
-}
+import { UserMenu } from './UserMenu'
 
 const PAGE_TITLES: Record<string, string> = {
   '/dashboard': 'Dashboard',
@@ -26,12 +20,6 @@ type Props = {
 
 export function MobileHeader({ onMenuClick }: Props) {
   const pathname = usePathname()
-  const { theme, setTheme } = useTheme()
-
-  function cycleTheme() {
-    const idx = THEMES.indexOf(theme)
-    setTheme(THEMES[(idx + 1) % THEMES.length])
-  }
 
   // Get title from exact match or parent route
   const title = PAGE_TITLES[pathname ?? '']
@@ -53,14 +41,7 @@ export function MobileHeader({ onMenuClick }: Props) {
           {title}
         </h1>
 
-        {/* Theme cycle button (provisório) */}
-        <button
-          onClick={cycleTheme}
-          className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors text-sm"
-          title={`Tema: ${theme}`}
-        >
-          {THEME_ICONS[theme]}
-        </button>
+        <UserMenu />
       </div>
     </header>
   )
