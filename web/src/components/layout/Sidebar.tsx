@@ -28,6 +28,7 @@ type NavItem = {
   countKey: 'contratos' | 'fichas' | 'leads' | null
   module: string | null          // null = sempre visível
   superAdminOnly?: boolean
+  iconColor?: string             // cor customizada do ícone
 }
 
 const navItems: NavItem[] = [
@@ -35,7 +36,7 @@ const navItems: NavItem[] = [
   { href: '/leads', label: 'Leads', icon: Zap, countKey: 'leads', module: 'tela_leads' },
   { href: '/fichas', label: 'Fichas', icon: TextSelect, countKey: 'fichas', module: 'tela_fichas' },
   { href: '/preventivos', label: 'Preventivos', icon: Heart, countKey: null, module: 'tela_preventivos' },
-  { href: '/contratos?status=ativo', label: 'Pipeline', icon: FileCheck, countKey: 'contratos', module: 'tela_pipeline' },
+  { href: '/contratos?status=ativo', label: 'Pipeline', icon: FileCheck, countKey: 'contratos', module: 'tela_pipeline', iconColor: '#f59e0b' },
   { href: '/supindas', label: 'Encaminhamentos', icon: Route, countKey: null, module: 'tela_entregas' },
   { href: '/estoque', label: 'Estoque', icon: ShelvingUnit, countKey: null, module: 'tela_estoque' },
   { href: '/gc', label: 'GC', icon: Church, countKey: null, module: 'tela_gc' },
@@ -161,7 +162,7 @@ export function Sidebar({ mode, onNavigate }: Props) {
                     {isActive && (
                       <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-6 bg-sky-400 rounded-r-full" />
                     )}
-                    <Icon className="h-5 w-5" />
+                    <Icon className="h-5 w-5" style={item.iconColor ? { color: item.iconColor } : undefined} />
                     {/* Fichas amber badge */}
                     {isFichas && fichasCount !== null && fichasCount > 0 && (
                       <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center px-1 text-[10px] font-bold bg-amber-500 text-white rounded-full animate-pulse">
