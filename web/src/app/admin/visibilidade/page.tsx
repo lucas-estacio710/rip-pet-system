@@ -1,7 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Eye, Save, Loader2, Check, Building2, Shield, Monitor, Wrench, FormInput, Clock } from 'lucide-react'
+import { Eye, Save, Loader2, Check, Shield, Monitor, Wrench, FormInput, Clock } from 'lucide-react'
+
+const UNIT_COLORS: Record<string, string> = {
+  ST: '#7c3aed', SP: '#ef4444', CP: '#22c55e', SJ: '#cbd5e1',
+  RS: '#f59e0b', PA: '#ec4899', PI: '#06b6d4', MA: '#f97316',
+}
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import EmptyState from '@/components/ui/EmptyState'
@@ -43,11 +48,12 @@ const CATEGORIAS: Categoria[] = [
 
 type LogEntry = {
   id: string
-  unidade_nome: string
+  entidade_nome: string
+  valor_anterior: string | null
+  valor_novo: string | null
+  nota: string | null
+  criado_em: string
   alterado_por_email: string | null
-  adicionados: string[]
-  removidos: string[]
-  created_at: string
 }
 
 type Unidade = {
@@ -78,9 +84,10 @@ export default function VisibilidadePage() {
 
   async function loadLogs() {
     const { data } = await supabase
-      .from('visibilidade_logs')
-      .select('id, unidade_nome, alterado_por_email, adicionados, removidos, created_at')
-      .order('created_at', { ascending: false })
+      .from('historico_alteracoes')
+      .select('id, entidade_nome, valor_anterior, valor_novo, nota, criado_em, alterado_por_email')
+      .eq('entidade', 'visibilidade')
+      .order('criado_em', { ascending: false })
       .limit(50)
     if (data) setLogs(data as LogEntry[])
   }
@@ -168,15 +175,22 @@ export default function VisibilidadePage() {
         supabase.from('unidades').update({ modulos_ativos: modulos } as never).eq('id', unidadeId)
       )
 
+      const partes: string[] = []
+      if (adicionados.length > 0) partes.push(`+ ${adicionados.join(', ')}`)
+      if (removidos.length > 0) partes.push(`− ${removidos.join(', ')}`)
+
       logEntries.push({
-        unidade_id: unidadeId,
-        unidade_nome: unit.nome,
+        entidade: 'visibilidade',
+        entidade_id: unidadeId,
+        entidade_nome: unit.nome,
+        campo: 'modulos_ativos',
+        campo_label: 'Módulos',
+        valor_anterior: antes.join(', ') || null,
+        valor_novo: depois.join(', ') || null,
+        tipo: 'alteracao',
         alterado_por: user?.id || null,
         alterado_por_email: user?.email || null,
-        modulos_antes: antes,
-        modulos_depois: depois,
-        adicionados,
-        removidos,
+        nota: partes.join(' | '),
       })
     }
 
@@ -184,7 +198,7 @@ export default function VisibilidadePage() {
 
     // Inserir logs
     if (logEntries.length > 0) {
-      await supabase.from('visibilidade_logs').insert(logEntries as never)
+      await supabase.from('historico_alteracoes').insert(logEntries as never)
     }
 
     await refetch()
@@ -254,7 +268,16 @@ export default function VisibilidadePage() {
                         className="flex items-center gap-2 hover:opacity-80 transition-opacity"
                         title="Marcar/desmarcar todos"
                       >
-                        <Building2 className="h-3.5 w-3.5" style={{ color: '#a78bfa' }} />
+                        <div
+                          className="w-5 h-5 rounded-full flex items-center justify-center font-bold shrink-0"
+                          style={{
+                            background: UNIT_COLORS[u.codigo] || '#6366f1',
+                            color: u.codigo === 'SJ' ? '#334155' : '#fff',
+                            fontSize: 8,
+                          }}
+                        >
+                          {u.codigo}
+                        </div>
                         <span className="font-medium text-[var(--surface-700)] text-xs">{u.nome}</span>
                         {u.is_matriz && (
                           <span className="text-[8px] px-1 py-0.5 rounded font-bold" style={{ background: 'rgba(245,158,11,0.2)', color: '#fbbf24' }}>MA</span>
@@ -338,33 +361,46 @@ export default function VisibilidadePage() {
 
         {showLogs && logs.length > 0 && (
           <div className="card overflow-hidden">
-            <div className="divide-y divide-[var(--surface-100)]">
-              {logs.map(log => (
-                <div key={log.id} className="px-4 py-3 text-xs">
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-[var(--surface-700)]">{log.unidade_nome}</span>
-                      <span style={{ color: '#64748b' }}>por</span>
-                      <span style={{ color: '#94a3b8' }}>{log.alterado_por_email || 'sistema'}</span>
+            <div className="divide-y divide-[var(--surface-100)] max-h-80 overflow-y-auto">
+              {logs.map(log => {
+                // Parsear nota pra extrair adicionados/removidos
+                const partes = (log.nota || '').split(' | ')
+                const adicionados = partes.find(p => p.startsWith('+'))?.replace('+ ', '').split(', ') || []
+                const removidos = partes.find(p => p.startsWith('−'))?.replace('− ', '').split(', ') || []
+
+                return (
+                  <div key={log.id} className="px-4 py-3 text-xs space-y-1.5">
+                    {/* Linha 1: Quem + Quando */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ background: '#7c3aed', color: '#fff' }}>
+                          {(log.alterado_por_email || '?')[0].toUpperCase()}
+                        </div>
+                        <span className="font-medium text-[var(--surface-600)]">{log.alterado_por_email || 'Sistema'}</span>
+                      </div>
+                      <span style={{ color: '#475569' }}>
+                        {new Date(log.criado_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                      </span>
                     </div>
-                    <span style={{ color: '#475569' }}>
-                      {new Date(log.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                    </span>
+                    {/* Linha 2: Unidade + Módulos */}
+                    <div>
+                      <span className="font-semibold text-[var(--surface-700)] mr-2">{log.entidade_nome}</span>
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {adicionados.filter(Boolean).map(m => (
+                          <span key={m} className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e' }}>
+                            + {m}
+                          </span>
+                        ))}
+                        {removidos.filter(Boolean).map(m => (
+                          <span key={m} className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}>
+                            − {m}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {log.adicionados.map(m => (
-                      <span key={m} className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e' }}>
-                        + {m}
-                      </span>
-                    ))}
-                    {log.removidos.map(m => (
-                      <span key={m} className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}>
-                        − {m}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         )}

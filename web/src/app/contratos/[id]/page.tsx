@@ -21,6 +21,7 @@ import AtivarModal from '@/components/contratos/modals/AtivarModal'
 import FinalizadoraModal from '@/components/contratos/modals/FinalizadoraModal'
 import ChegamosModal from '@/components/contratos/modals/ChegamosModal'
 import ChegaramModal from '@/components/contratos/modals/ChegaramModal'
+import { gerarContratoPDF, contratoFilename } from '@/lib/contrato-pdf'
 
 function PixIcon({ className = "h-5 w-5" }: { className?: string }) {
   return (
@@ -214,6 +215,12 @@ type Contrato = {
   seguradora: string | null
   // Supinda
   supinda_id: string | null
+  // Velório e acompanhamento
+  velorio_deseja: boolean | null
+  acompanhamento_online: boolean | null
+  acompanhamento_presencial: boolean | null
+  // Pagamento (parcelas no 1º pagamento)
+  parcelas: number | null
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; strip: string }> = {
@@ -293,6 +300,7 @@ export default function ContratoDetalhe() {
   const [mostrarOpcoesProduto, setMostrarOpcoesProduto] = useState(false)
   // NFS-e
   const [emitindoNf, setEmitindoNf] = useState(false)
+  const [gerandoPdf, setGerandoPdf] = useState(false)
   const [nfMensagem, setNfMensagem] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null)
   // Pagamentos
   const [pagamentos, setPagamentos] = useState<Pagamento[]>([])
@@ -1247,6 +1255,69 @@ export default function ContratoDetalhe() {
     setEmitindoNf(false)
   }
 
+  // Gerar Contrato PDF
+  async function gerarPdf() {
+    if (!contrato) return
+    setGerandoPdf(true)
+    try {
+      // Buscar nome da unidade
+      let nomeUnidade = 'Santos - SP'
+      const unidadeId = (contrato as unknown as { unidade_id?: string }).unidade_id
+      if (unidadeId) {
+        const { data: unidadeData } = await supabase
+          .from('unidades')
+          .select('nome, cidade, estado')
+          .eq('id', unidadeId)
+          .single() as { data: { nome: string; cidade: string; estado: string } | null }
+        if (unidadeData) {
+          nomeUnidade = `${unidadeData.cidade} - ${unidadeData.estado}`
+        }
+      }
+
+      const tutor = contrato.tutor
+      const blob = await gerarContratoPDF({
+        codigo: contrato.codigo,
+        lacre: contrato.numero_lacre,
+        tutorNome: tutor?.nome || contrato.tutor_nome,
+        tutorTelefone: tutor?.telefone || contrato.tutor_telefone || '',
+        tutorCpf: tutor?.cpf || contrato.tutor_cpf || '',
+        tutorEmail: tutor?.email || contrato.tutor_email,
+        tutorEndereco: tutor ? `${tutor.endereco || ''}${tutor.numero ? ', ' + tutor.numero : ''}${tutor.complemento ? ' - ' + tutor.complemento : ''}` : contrato.tutor_endereco,
+        tutorEstado: tutor?.estado || contrato.tutor_estado,
+        tutorCidade: tutor?.cidade || contrato.tutor_cidade,
+        tutorBairro: tutor?.bairro || contrato.tutor_bairro,
+        tutorCep: tutor?.cep || contrato.tutor_cep,
+        petNome: contrato.pet_nome,
+        petEspecie: contrato.pet_especie,
+        petRaca: contrato.pet_raca,
+        petIdade: contrato.pet_idade_anos,
+        petCor: contrato.pet_cor,
+        petGenero: contrato.pet_genero,
+        petPeso: contrato.pet_peso,
+        localColeta: contrato.local_coleta,
+        tipoCremacao: contrato.tipo_cremacao as 'individual' | 'coletiva',
+        valorPlano: contrato.valor_plano,
+        metodoPagamento: pagamentos[0]?.metodo || null,
+        parcelas: pagamentos[0]?.parcelas || null,
+        velorioDeseja: contrato.velorio_deseja ?? null,
+        acompanhamentoOnline: contrato.acompanhamento_online ?? false,
+        acompanhamentoPresencial: contrato.acompanhamento_presencial ?? false,
+      }, nomeUnidade)
+
+      // Download
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = contratoFilename(contrato.codigo, contrato.pet_nome)
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Erro ao gerar PDF:', err)
+      alert('Erro ao gerar contrato PDF')
+    }
+    setGerandoPdf(false)
+  }
+
   // Filtrar produtos pela busca, tipo, categoria (exclui pelinho 0004 - gerenciado pelo PelinhoModal)
   const produtosDisponiveis = todosProdutos.filter(p => {
     if (p.codigo === '0004') return false
@@ -1978,6 +2049,20 @@ ${petNome}`
                 <FileText className="h-4 w-4" />
               </button>
             )}
+
+            {/* Botão Gerar Contrato PDF */}
+            <button
+              onClick={gerarPdf}
+              disabled={gerandoPdf}
+              className="flex items-center justify-center w-7 h-7 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors disabled:opacity-50"
+              title="Gerar Contrato PDF"
+            >
+              {gerandoPdf ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+            </button>
 
             {/* Botão Protocolo de Entrega - Retorno, Pendente, Finalizado */}
             {(contrato.status === 'retorno' || contrato.status === 'pendente' || contrato.status === 'finalizado') && (

@@ -87,6 +87,24 @@ export function UserMenu() {
             )}
           </div>
 
+          {/* Gerente tools (gerente + super_admin) */}
+          {(isSuperAdmin || currentRole === 'gerente') && (
+            <div style={{ borderBottom: '1px solid #334155' }}>
+              <p className="px-4 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#64748b' }}>Gestão</p>
+              <Link
+                href="/admin/funcionarios"
+                onClick={() => setIsOpen(false)}
+                className="flex items-center gap-3 px-4 py-2.5 transition-colors"
+                style={{ color: '#e2e8f0' }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                <Users className="h-4 w-4" style={{ color: '#10b981' }} />
+                <span className="text-sm">Funcionários</span>
+              </Link>
+            </div>
+          )}
+
           {/* Admin tools (só super_admin) */}
           {isSuperAdmin && (
             <div style={{ borderBottom: '1px solid #334155' }}>
@@ -179,9 +197,9 @@ export function UserMenu() {
       <ImpersonateModal
         isOpen={showImpersonate}
         onClose={() => setShowImpersonate(false)}
-        onSelect={async (userId, email) => {
+        onSelect={async (userId, email, perfis) => {
+          await startImpersonating(userId, email, perfis)
           setShowImpersonate(false)
-          await startImpersonating(userId, email)
         }}
       />
     </div>

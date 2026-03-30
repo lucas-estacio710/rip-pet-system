@@ -5,14 +5,14 @@ const resend = new Resend(process.env.RESEND_API_KEY)
 
 // Email de destino por unidade (fallback pro Lucão se não configurado)
 const EMAILS_UNIDADE: Record<string, string> = {
-  'Santos - SP': 'lucasmestacio@gmail.com',
-  'São Paulo - SP': 'lucasmestacio@gmail.com',
-  'Campinas - SP': 'lucasmestacio@gmail.com',
-  'São José dos Campos - SP': 'lucasmestacio@gmail.com',
-  'Resende - RJ': 'lucasmestacio@gmail.com',
-  'Pouso Alegre - MG': 'lucasmestacio@gmail.com',
-  'Pindamonhangaba - SP': 'lucasmestacio@gmail.com',
-  'Matriz - SP': 'lucasmestacio@gmail.com',
+  'Santos - SP': 'rippetsantos@gmail.com',
+  'São Paulo - SP': 'atendimento@rippet.com.br',
+  'Campinas - SP': 'campinasrippet@gmail.com',
+  'São José dos Campos - SP': 'rippetcrematoriosjc@gmail.com',
+  'Resende - RJ': 'patriciazoovet@gmail.com',
+  'Pouso Alegre - MG': 'patriciazoovet@gmail.com',
+  'Pindamonhangaba - SP': 'angelabbalieiro@gmail.com',
+  'Matriz - SP': 'angelabbalieiro@gmail.com',
 }
 const FALLBACK_EMAIL = 'lucasmestacio@gmail.com'
 
