@@ -10,12 +10,14 @@ import { ToastProvider } from '@/components/ui/Toast'
 import { PanelLeftOpen, PanelLeftClose } from 'lucide-react'
 import { useTheme } from '@/hooks/useTheme'
 import { THEMES, THEME_META, type Theme } from '@/lib/theme'
+import { UnitProvider } from '@/contexts/UnitContext'
+import { UnitSelector } from './UnitSelector'
+import { UserMenu } from './UserMenu'
+import { ImpersonateBanner } from './ImpersonateBanner'
 
 const THEME_ICONS: Record<Theme, string> = {
   dark: '🌙',
   white: '☀️',
-  'half-white': '◐',
-  'half-dark': '◑',
 }
 
 const STANDALONE_ROUTES = ['/login', '/ficha/']
@@ -32,6 +34,7 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
   }
 
   return (
+    <UnitProvider>
     <ToastProvider>
       <div className="min-h-screen bg-[var(--shell-bg)]">
         {/* Desktop sidebar (>=1024px) — mini por padrão, expansível */}
@@ -61,23 +64,13 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
 
         {/* Main content area — responsive margins */}
         <main className={`theme-content pt-14 md:pt-0 md:ml-[72px] ${sidebarExpanded ? 'lg:ml-64' : 'lg:ml-[72px]'} min-h-screen transition-all duration-200`}>
-          {/* Top bar — theme selector (provisório) */}
-          <div className="hidden md:flex items-center justify-end gap-1 px-4 py-0.5 border-b border-[var(--surface-200)]">
-            <span className="text-xs text-[var(--shell-text-muted)] mr-1">Tema</span>
-            {THEMES.map((t) => (
-              <button
-                key={t}
-                onClick={() => setTheme(t)}
-                title={THEME_META[t].label}
-                className={`px-2 py-0.5 text-xs rounded-md transition-all ${
-                  theme === t
-                    ? 'bg-purple-600 text-white font-semibold shadow-sm'
-                    : 'text-[var(--shell-text-muted)] hover:bg-[var(--surface-100)] hover:text-[var(--shell-text)]'
-                }`}
-              >
-                {THEME_ICONS[t]} {THEME_META[t].label}
-              </button>
-            ))}
+          {/* Banner de impersonação */}
+          <ImpersonateBanner />
+          {/* Top bar — unit selector + user menu */}
+          <div className="hidden md:flex items-center justify-between px-4 py-0.5 border-b border-[var(--surface-200)]">
+            <UnitSelector />
+            <span className="text-sm font-bold tracking-widest uppercase" style={{ color: '#64748b' }}>Novo CRM Rip Pet</span>
+            <UserMenu />
           </div>
           <div className="p-4 md:px-6 md:pt-2 md:pb-6 animate-fade-in">
             {children}
@@ -85,5 +78,6 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
         </main>
       </div>
     </ToastProvider>
+    </UnitProvider>
   )
 }

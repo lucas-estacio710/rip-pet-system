@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import EmptyState from '@/components/ui/EmptyState'
 import Badge from '@/components/ui/Badge'
 import TratativaModal from '@/components/fichas/TratativaModal'
+import { useUnit } from '@/contexts/UnitContext'
 
 // ============================================
 // Types
@@ -51,6 +52,8 @@ type Ficha = {
   veterinario_especificar: string | null
   outro_especificar: string | null
   observacoes: string | null
+  // Unidade
+  unidade_id: string
   // Processamento
   processada: boolean | null
   contrato_id: string | null
@@ -99,6 +102,7 @@ function formatarTelefone(tel: string | null): string {
 export default function FichasPage() {
   const router = useRouter()
   const supabase = createClient()
+  const { currentUnit, isLoading: unitLoading } = useUnit()
 
   const [fichas, setFichas] = useState<Ficha[]>([])
   const [loading, setLoading] = useState(true)
@@ -113,25 +117,33 @@ export default function FichasPage() {
   // Modal
   const [fichaModal, setFichaModal] = useState<Ficha | null>(null)
 
-  // Load data
+  // Load data — recarrega quando muda de unidade
   useEffect(() => {
     carregarContagens()
-  }, [])
+    carregarFichas()
+  }, [currentUnit?.id])
 
   useEffect(() => {
     carregarFichas()
   }, [filtro, buscaDebounced])
 
   async function carregarContagens() {
-    const [{ count: pend }, { count: proc }] = await Promise.all([
-      supabase.from('fichas').select('*', { count: 'exact', head: true }).or('processada.is.null,processada.eq.false'),
-      supabase.from('fichas').select('*', { count: 'exact', head: true }).eq('processada', true),
-    ])
+    if (!currentUnit) { setLoading(false); return }
+    let pendQuery = supabase.from('fichas').select('*', { count: 'exact', head: true }).or('processada.is.null,processada.eq.false')
+    let procQuery = supabase.from('fichas').select('*', { count: 'exact', head: true }).eq('processada', true)
+
+    if (currentUnit) {
+      pendQuery = pendQuery.eq('unidade_id', currentUnit.id)
+      procQuery = procQuery.eq('unidade_id', currentUnit.id)
+    }
+
+    const [{ count: pend }, { count: proc }] = await Promise.all([pendQuery, procQuery])
     setPendentesCount(pend || 0)
     setProcessadasCount(proc || 0)
   }
 
   async function carregarFichas() {
+    if (!currentUnit) { setLoading(false); return }
     setLoading(true)
 
     let query = supabase
@@ -139,6 +151,11 @@ export default function FichasPage() {
       .select('*')
       .order('created_at', { ascending: false })
       .limit(100)
+
+    // Filtrar por unidade
+    if (currentUnit) {
+      query = query.eq('unidade_id', currentUnit.id)
+    }
 
     // Filter
     if (filtro === 'pendentes') {
@@ -176,6 +193,10 @@ export default function FichasPage() {
   // ============================================
   // Render
   // ============================================
+  if (unitLoading || !currentUnit) {
+    return <div className="min-h-[50vh]" />
+  }
+
   return (
     <div className="animate-fade-in">
       {/* Header */}

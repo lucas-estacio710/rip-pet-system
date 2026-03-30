@@ -11,23 +11,36 @@ import {
   FileCheck,
   Heart,
   Route,
+  Church,
   ShelvingUnit,
   Users,
   Settings,
-  LogOut
+  LogOut,
+  Crown
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useUnit } from '@/contexts/UnitContext'
 
-const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, countKey: null },
-  { href: '/leads', label: 'Leads', icon: Zap, countKey: 'leads' as const },
-  { href: '/fichas', label: 'Fichas', icon: TextSelect, countKey: 'fichas' as const },
-  { href: '/preventivos', label: 'Preventivos', icon: Heart, countKey: null },
-  { href: '/contratos?status=ativo', label: 'Contratos', icon: FileCheck, countKey: 'contratos' as const },
-  { href: '/supindas', label: 'Encaminhamentos', icon: Route, countKey: null },
-  { href: '/estoque', label: 'Estoque', icon: ShelvingUnit, countKey: null },
-  { href: '/tutores', label: 'Tutores', icon: Users, countKey: null },
-  { href: '/configuracoes', label: 'Configurações', icon: Settings, countKey: null },
+type NavItem = {
+  href: string
+  label: string
+  icon: typeof LayoutDashboard
+  countKey: 'contratos' | 'fichas' | 'leads' | null
+  module: string | null          // null = sempre visível
+  superAdminOnly?: boolean
+  iconColor?: string             // cor customizada do ícone
+}
+
+const navItems: NavItem[] = [
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, countKey: null, module: 'tela_dashboard' },
+  { href: '/leads', label: 'Leads', icon: Zap, countKey: 'leads', module: 'tela_leads' },
+  { href: '/fichas', label: 'Fichas', icon: TextSelect, countKey: 'fichas', module: 'tela_fichas' },
+  { href: '/preventivos', label: 'Preventivos', icon: Heart, countKey: null, module: 'tela_preventivos' },
+  { href: '/contratos?status=ativo', label: 'Pipeline', icon: FileCheck, countKey: 'contratos', module: 'tela_pipeline', iconColor: '#f59e0b' },
+  { href: '/supindas', label: 'Encaminhamentos', icon: Route, countKey: null, module: 'tela_entregas' },
+  { href: '/estoque', label: 'Estoque', icon: ShelvingUnit, countKey: null, module: 'tela_estoque' },
+  { href: '/gc', label: 'GC', icon: Church, countKey: null, module: 'tela_gc' },
+  { href: '/tutores', label: 'Tutores', icon: Users, countKey: null, module: 'tela_tutores' },
 ]
 
 type Props = {
@@ -45,13 +58,32 @@ export function Sidebar({ mode, onNavigate }: Props) {
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const supabase = createClient()
   const showText = mode !== 'mini'
+  const { hasModule, isSuperAdmin, userName, currentUnit } = useUnit()
+
+  // Filtrar itens por módulo ativo e permissão
+  const visibleItems = navItems.filter(item => {
+    if (item.superAdminOnly && !isSuperAdmin) return false
+    if (item.module && !hasModule(item.module)) return false
+    return true
+  })
 
   useEffect(() => {
     async function fetchData() {
+      // Queries filtradas pela unidade selecionada
+      let contratosQuery = supabase.from('contratos').select('*', { count: 'exact', head: true })
+      let fichasQuery = supabase.from('fichas').select('*', { count: 'exact', head: true }).eq('processada', false)
+      let leadsQuery = supabase.from('leads').select('*', { count: 'exact', head: true }).eq('convertido', false)
+
+      if (currentUnit) {
+        contratosQuery = contratosQuery.eq('unidade_id', currentUnit.id)
+        fichasQuery = fichasQuery.eq('unidade_id', currentUnit.id)
+        leadsQuery = leadsQuery.eq('unidade_id', currentUnit.id)
+      }
+
       const [{ count: cCount }, { count: fCount }, { count: lCount }, { data: { user } }] = await Promise.all([
-        supabase.from('contratos').select('*', { count: 'exact', head: true }),
-        supabase.from('fichas').select('*', { count: 'exact', head: true }).eq('processada', false),
-        supabase.from('leads').select('*', { count: 'exact', head: true }).eq('convertido', false),
+        contratosQuery,
+        fichasQuery,
+        leadsQuery,
         supabase.auth.getUser(),
       ])
       setContratosCount(cCount)
@@ -60,7 +92,7 @@ export function Sidebar({ mode, onNavigate }: Props) {
       setUserEmail(user?.email ?? null)
     }
     fetchData()
-  }, [])
+  }, [currentUnit?.id])
 
   async function handleSignOut() {
     await supabase.auth.signOut()
@@ -100,7 +132,7 @@ export function Sidebar({ mode, onNavigate }: Props) {
       {/* Navigation */}
       <nav className={`flex-1 ${showText ? 'p-3' : 'p-2'}`}>
         <ul className="space-y-1">
-          {navItems.map((item) => {
+          {visibleItems.map((item) => {
             const hrefPath = item.href.split('?')[0]
             const isActive = pathname === hrefPath || pathname?.startsWith(hrefPath + '/')
             const Icon = item.icon
@@ -130,7 +162,7 @@ export function Sidebar({ mode, onNavigate }: Props) {
                     {isActive && (
                       <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-6 bg-sky-400 rounded-r-full" />
                     )}
-                    <Icon className="h-5 w-5" />
+                    <Icon className="h-5 w-5" style={item.iconColor ? { color: item.iconColor } : undefined} />
                     {/* Fichas amber badge */}
                     {isFichas && fichasCount !== null && fichasCount > 0 && (
                       <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center px-1 text-[10px] font-bold bg-amber-500 text-white rounded-full animate-pulse">

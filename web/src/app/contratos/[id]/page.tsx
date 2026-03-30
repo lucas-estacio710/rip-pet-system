@@ -13,6 +13,8 @@ import { printProtocolos } from '@/components/protocolo/ProtocoloPrint'
 import InteractiveTags from '@/components/contratos/InteractiveTags'
 import ActionButtons from '@/components/contratos/ActionButtons'
 import EntregaModal from '@/components/contratos/modals/EntregaModal'
+import GCTracking from '@/components/contratos/gc/GCTracking'
+import { useUnit } from '@/contexts/UnitContext'
 import PelinhoModal from '@/components/contratos/modals/PelinhoModal'
 import CertificadoModal from '@/components/contratos/modals/CertificadoModal'
 import AtivarModal from '@/components/contratos/modals/AtivarModal'
@@ -376,6 +378,7 @@ export default function ContratoDetalhe() {
   const [certificadoModalOpen, setCertificadoModalOpen] = useState(false)
 
   const supabase = createClient()
+  const { hasModule } = useUnit()
 
   // Função para obter URL da imagem local
   function getImagemUrl(codigo: string): string {
@@ -2031,7 +2034,7 @@ ${petNome}`
               <User className="h-4 w-4 text-blue-400" />
             </div>
             <h2 className="font-semibold text-slate-200">Tutor</h2>
-            {contrato.tutor && (
+            {contrato.tutor && hasModule('func_tutores') && (
               <Link href={`/tutores/${contrato.tutor.id}`} className="text-xs text-purple-400 hover:underline ml-2">
                 Ver cadastro
               </Link>
@@ -2728,6 +2731,17 @@ ${petNome}`
             </div>
           )}
         </div>
+
+        {/* Card GC — aparece quando status é 'pinda' ou posterior E func_gc habilitado */}
+        {hasModule('func_gc') && (['pinda', 'retorno', 'pendente', 'finalizado'].includes(contrato.status)) && (
+          <div className="md:col-span-2">
+            <GCTracking
+              contratoId={contrato.id}
+              tipoCremacao={contrato.tipo_cremacao}
+              observacoesContrato={contrato.observacoes}
+            />
+          </div>
+        )}
 
         {/* Card Observações */}
         {contrato.observacoes && (

@@ -24,10 +24,10 @@
   --surface-200: #475569;  /* slate-600 — borders */
   --surface-300: #64748b;  /* slate-500 */
   --surface-400: #94a3b8;  /* slate-400 — muted text */
-  --surface-500: #cbd5e1;  /* slate-300 — secondary text */
-  --surface-600: #e2e8f0;  /* slate-200 */
-  --surface-700: #f1f5f9;  /* slate-100 */
-  --surface-800: #f8fafc;  /* slate-50 — primary text */
+  --surface-500: #e2e8f0;  /* slate-200 — secondary text (mais claro) */
+  --surface-600: #f1f5f9;  /* slate-100 — text (mais claro) */
+  --surface-700: #f8fafc;  /* slate-50 — text */
+  --surface-800: #ffffff;  /* white — primary text */
   --surface-900: #ffffff;  /* white */
 
   /* Status colors */
@@ -90,21 +90,12 @@ body {
 }
 
 /* ============================================
-   Theme System — 4 Selectable Themes
-
-   | Theme      | Shell (bg)  | Content    |
-   |------------|-------------|------------|
-   | dark       | Dark        | Dark       |
-   | white      | Light       | Light      |
-   | half-white | Light       | Dark       |
-   | half-dark  | Dark        | Light      |
-
-   Sidebar always dark in all themes.
+   Theme System — 2 Themes: Dark & White
+   Sidebar always dark in both.
    ============================================ */
 
-/* Shell-light themes: light page background */
-[data-theme="white"],
-[data-theme="half-white"] {
+/* White theme: light shell + light content */
+[data-theme="white"] {
   --shell-bg: #f8fafc;
   --shell-text: #0f172a;
   --shell-text-muted: #64748b;
@@ -115,20 +106,50 @@ body {
   color-scheme: light;
 }
 
-/* Content text base for half-white (content stays dark but boost contrast) */
-[data-theme="half-white"] .theme-content {
+/* Dark content: forçar texto legível */
+[data-theme="dark"] .theme-content {
   color: #f8fafc;
   color-scheme: dark;
 
-  /* Boost light text colors for better readability */
-  --color-slate-100: #f8fafc;
-  --color-slate-200: #f1f5f9;
-  --color-slate-300: #e2e8f0;
+  /*
+   * Dark: forçar valores naturais do slate (Tailwind v4 pode não ter defaults).
+   * Garante que bg-slate-800 = escuro e text-slate-200 = claro.
+   */
+  --color-slate-50: #f8fafc;
+  --color-slate-100: #f1f5f9;
+  --color-slate-200: #e2e8f0;
+  --color-slate-300: #cbd5e1;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+  --color-slate-700: #334155;
+  --color-slate-800: #1e293b;
+  --color-slate-900: #0f172a;
+  --color-slate-950: #020617;
+
+  --color-gray-50: #f9fafb;
+  --color-gray-100: #f3f4f6;
+  --color-gray-200: #e5e7eb;
+  --color-gray-300: #d1d5db;
+  --color-gray-400: #9ca3af;
+  --color-gray-500: #6b7280;
+  --color-gray-600: #4b5563;
+  --color-gray-700: #374151;
+  --color-gray-800: #1f2937;
+  --color-gray-900: #111827;
+  --color-gray-950: #030712;
+
+  /* Cores quentes legíveis em fundo escuro */
+  --color-amber-400: #fbbf24;
+  --color-amber-500: #f59e0b;
+  --color-yellow-400: #facc15;
+  --color-yellow-500: #eab308;
+  --color-orange-400: #fb923c;
+  --color-orange-500: #f97316;
 }
 
-/* Content-light: remap surface variables + override hardcoded classes */
-[data-theme="white"] .theme-content,
-[data-theme="half-dark"] .theme-content {
+/* White content: remap surface + slate para fundo claro */
+[data-theme="white"] .theme-content {
   color: #0f172a;
   color-scheme: light;
 
