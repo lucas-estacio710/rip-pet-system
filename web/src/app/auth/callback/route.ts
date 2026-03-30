@@ -14,6 +14,13 @@ export async function GET(request: Request) {
     }
   }
 
+  // Supabase pode enviar tokens via hash fragment (type=recovery)
+  // Nesse caso o code não vem como query param — o client-side JS precisa processar
+  // Redirecionar para /redefinir-senha se next indicar isso
+  if (next === '/redefinir-senha') {
+    return NextResponse.redirect(`${origin}/redefinir-senha`)
+  }
+
   // Se não tem code ou deu erro, volta pro login
   return NextResponse.redirect(`${origin}/login`)
 }

@@ -45,7 +45,7 @@ type UnitContextType = {
   // Impersonação
   impersonating: boolean
   impersonatedEmail: string | null
-  startImpersonating: (userId: string, email: string) => Promise<void>
+  startImpersonating: (userId: string, email: string, rpcPerfis?: { perfil_id: string; unidade_id?: string; unidade_nome: string; unidade_codigo: string; role: string; is_default: boolean; nome: string | null; ativo?: boolean }[]) => Promise<void>
   stopImpersonating: () => void
 
   // Ações
@@ -231,38 +231,43 @@ export function UnitProvider({ children }: { children: ReactNode }) {
   }, [currentUnit])
 
   // Impersonação: ver a ferramenta como outro usuário veria
-  const startImpersonating = useCallback(async (userId: string, email: string) => {
-    // Salvar estado real
-    setRealUserData({
-      perfis: userPerfis,
-      allUnidades: allUnidades,
-      userName: userName,
-      userEmail: userEmail,
-    })
+  // rpcPerfis vem da RPC list_users_with_profiles (SECURITY DEFINER, sem RLS)
+  const startImpersonating = useCallback(async (userId: string, email: string, rpcPerfis?: { perfil_id: string; unidade_id?: string; unidade_nome: string; unidade_codigo: string; role: string; is_default: boolean; nome: string | null; ativo?: boolean }[]): Promise<void> => {
+    if (!rpcPerfis || rpcPerfis.length === 0) {
+      alert('Este usuário não tem nenhum perfil configurado.')
+      return
+    }
 
-    // Buscar perfis do usuário alvo
-    const { data: perfisData } = await supabase
-      .from('perfis')
-      .select('id, unidade_id, role, is_default, nome, ativo')
-      .eq('user_id', userId)
-      .eq('ativo', true)
+    const perfisAtivos = rpcPerfis.filter(p => p.ativo !== false)
+    if (perfisAtivos.length === 0) {
+      alert('Este usuário está desativado (todos os perfis inativos).')
+      return
+    }
 
-    const { data: unidadesData } = await supabase
+    // Buscar unidades completas (RLS permite leitura para authenticated)
+    const { data: unidadesData, error: unidadesError } = await supabase
       .from('unidades')
       .select('*')
       .order('ordem')
       .order('nome')
 
-    if (!perfisData || !unidadesData) return
+    if (unidadesError || !unidadesData) {
+      console.error('[Impersonate] Erro ao buscar unidades:', unidadesError)
+      alert('Erro ao carregar unidades: ' + (unidadesError?.message || 'sem dados'))
+      return
+    }
 
     const unidadesMap = new Map(unidadesData.map((u: any) => [u.id, u]))
+    // Também mapear por codigo+nome para match quando unidade_id não está disponível
+    const unidadesByCode = new Map(unidadesData.map((u: any) => [u.codigo, u]))
 
-    const targetPerfis: UserPerfil[] = perfisData
-      .map((p: any) => {
-        const unidade = unidadesMap.get(p.unidade_id)
+    const targetPerfis: UserPerfil[] = perfisAtivos
+      .map((p) => {
+        const unidade = (p.unidade_id ? unidadesMap.get(p.unidade_id) : null)
+          || unidadesByCode.get(p.unidade_codigo)
         if (!unidade) return null
         return {
-          perfil_id: p.id,
+          perfil_id: p.perfil_id,
           unidade: { ...unidade, ativa: unidade.ativa ?? true, modulos_ativos: unidade.modulos_ativos || [] } as Unidade,
           role: p.role as UserRole,
           is_default: p.is_default,
@@ -271,7 +276,18 @@ export function UnitProvider({ children }: { children: ReactNode }) {
       })
       .filter(Boolean) as UserPerfil[]
 
-    if (targetPerfis.length === 0) return
+    if (targetPerfis.length === 0) {
+      alert('Não foi possível montar os perfis do usuário (unidades não encontradas).')
+      return
+    }
+
+    // Salvar estado real (só depois de confirmar que deu certo)
+    setRealUserData({
+      perfis: userPerfis,
+      allUnidades: allUnidades,
+      userName: userName,
+      userEmail: userEmail,
+    })
 
     const targetIsSA = targetPerfis.some(p => p.role === 'super_admin')
     const targetUnidades = targetIsSA

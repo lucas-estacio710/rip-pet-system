@@ -9,17 +9,20 @@ type UserResult = {
   email: string
   perfis: {
     perfil_id: string
+    unidade_id: string
     unidade_nome: string
     unidade_codigo: string
     role: string
+    is_default: boolean
     nome: string | null
+    ativo: boolean
   }[]
 }
 
 type Props = {
   isOpen: boolean
   onClose: () => void
-  onSelect: (userId: string, email: string) => void
+  onSelect: (userId: string, email: string, perfis: UserResult['perfis']) => void
 }
 
 const ROLE_ICONS = {
@@ -33,6 +36,7 @@ export function ImpersonateModal({ isOpen, onClose, onSelect }: Props) {
   const [busca, setBusca] = useState('')
   const [results, setResults] = useState<UserResult[]>([])
   const [loading, setLoading] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const debounceRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -54,24 +58,40 @@ export function ImpersonateModal({ isOpen, onClose, onSelect }: Props) {
 
   async function loadUsers(termo: string) {
     setLoading(true)
-    const { data, error } = await supabase.rpc('list_users_with_profiles')
+    setErro(null)
 
-    if (error || !data) {
-      setLoading(false)
-      return
+    try {
+      const { data, error } = await supabase.rpc('list_users_with_profiles')
+
+      if (error) {
+        console.error('[ImpersonateModal] Erro na RPC:', error)
+        setErro('Erro ao carregar usuários: ' + error.message)
+        setLoading(false)
+        return
+      }
+
+      if (!data || !Array.isArray(data)) {
+        console.error('[ImpersonateModal] Dados inválidos:', data)
+        setErro('Nenhum dado retornado')
+        setLoading(false)
+        return
+      }
+
+      let filtered = data as UserResult[]
+
+      if (termo.trim()) {
+        const t = termo.toLowerCase()
+        filtered = filtered.filter(u =>
+          u.email.toLowerCase().includes(t) ||
+          u.perfis?.some(p => p.nome?.toLowerCase().includes(t))
+        )
+      }
+
+      setResults(filtered)
+    } catch (e) {
+      console.error('[ImpersonateModal] Erro:', e)
+      setErro('Erro inesperado ao carregar usuários')
     }
-
-    let filtered = data as UserResult[]
-
-    if (termo.trim()) {
-      const t = termo.toLowerCase()
-      filtered = filtered.filter(u =>
-        u.email.toLowerCase().includes(t) ||
-        u.perfis.some(p => p.nome?.toLowerCase().includes(t))
-      )
-    }
-
-    setResults(filtered)
     setLoading(false)
   }
 
@@ -116,6 +136,10 @@ export function ImpersonateModal({ isOpen, onClose, onSelect }: Props) {
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-5 w-5 animate-spin" style={{ color: '#64748b' }} />
             </div>
+          ) : erro ? (
+            <div className="text-center py-8 px-4 text-sm" style={{ color: '#ef4444' }}>
+              {erro}
+            </div>
           ) : results.length === 0 ? (
             <div className="text-center py-8 text-sm" style={{ color: '#64748b' }}>
               {busca ? 'Nenhum usuário encontrado' : 'Nenhum usuário cadastrado'}
@@ -126,7 +150,7 @@ export function ImpersonateModal({ isOpen, onClose, onSelect }: Props) {
               return (
                 <button
                   key={user.user_id}
-                  onClick={() => onSelect(user.user_id, user.email)}
+                  onClick={() => onSelect(user.user_id, user.email, user.perfis)}
                   className="w-full flex items-start gap-3 px-4 py-3 text-left transition-colors"
                   onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}

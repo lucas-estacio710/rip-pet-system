@@ -53,6 +53,7 @@ export default function AdminUsuariosPage() {
   const [saving, setSaving] = useState(false)
   const [resetPasswordUserId, setResetPasswordUserId] = useState<string | null>(null)
   const [resetSent, setResetSent] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   // Form state
   const [formEmail, setFormEmail] = useState('')
@@ -148,25 +149,32 @@ export default function AdminUsuariosPage() {
     setSaving(true)
 
     try {
+      const { data: { session } } = await supabase.auth.getSession()
+
       if (editingUser) {
-        // Editar: atualizar perfis
-        // Deletar perfis antigos
-        await supabase.from('perfis').delete().eq('user_id', editingUser.user_id)
+        // Editar: atualizar perfis via API server-side (service_role)
+        const res = await fetch('/api/admin/users', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`,
+          },
+          body: JSON.stringify({
+            user_id: editingUser.user_id,
+            nome: formNome,
+            perfis: formPerfis,
+          }),
+        })
 
-        // Inserir novos
-        const perfisToInsert = formPerfis.map(p => ({
-          user_id: editingUser.user_id,
-          unidade_id: p.unidade_id,
-          role: p.role,
-          is_default: p.is_default,
-          nome: formNome || null,
-        }))
-
-        await supabase.from('perfis').insert(perfisToInsert as never)
+        const result = await res.json()
+        if (!res.ok) {
+          alert('Erro ao atualizar perfis: ' + result.error)
+          setSaving(false)
+          return
+        }
 
       } else {
         // Criar via API route (usa service_role no server)
-        const { data: { session } } = await supabase.auth.getSession()
         const res = await fetch('/api/admin/users', {
           method: 'POST',
           headers: {
@@ -180,26 +188,30 @@ export default function AdminUsuariosPage() {
           }),
         })
 
-        const result = await res.json()
+        const createResult = await res.json()
         if (!res.ok) {
-          alert('Erro ao criar usuário: ' + result.error)
+          alert('Erro ao criar usuário: ' + createResult.error)
           setSaving(false)
           return
         }
 
-        // Inserir perfis pro novo usuário
-        const perfisToInsert = formPerfis.map(p => ({
-          user_id: result.user_id,
-          unidade_id: p.unidade_id,
-          role: p.role,
-          is_default: p.is_default,
-          nome: formNome || null,
-        }))
+        // Inserir perfis via API server-side (service_role)
+        const perfisRes = await fetch('/api/admin/users', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`,
+          },
+          body: JSON.stringify({
+            user_id: createResult.user_id,
+            nome: formNome,
+            perfis: formPerfis,
+          }),
+        })
 
-        const { error: perfisError } = await supabase.from('perfis').insert(perfisToInsert as never)
-        if (perfisError) {
-          console.error('Erro ao inserir perfis:', perfisError)
-          alert('Usuário criado mas erro ao configurar perfil: ' + perfisError.message)
+        if (!perfisRes.ok) {
+          const perfisResult = await perfisRes.json()
+          alert('Usuário criado mas erro ao configurar perfil: ' + perfisResult.error)
         }
       }
 
@@ -218,7 +230,7 @@ export default function AdminUsuariosPage() {
   async function handleResetPassword(email: string) {
     setResetSent(false)
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: window.location.origin + '/login',
+      redirectTo: window.location.origin + '/auth/callback?next=/redefinir-senha',
     })
     if (error) {
       alert('Erro: ' + error.message)
@@ -232,6 +244,63 @@ export default function AdminUsuariosPage() {
   async function toggleAtivo(perfilId: string, currentAtivo: boolean) {
     await supabase.from('perfis').update({ ativo: !currentAtivo } as never).eq('id', perfilId)
     await carregarUsuarios()
+  }
+
+  // Desativar usuário (soft delete)
+  async function handleDelete(user: UserRow) {
+    const nome = user.perfis[0]?.nome || user.email
+    if (!confirm(`Desativar o usuário "${nome}" (${user.email})?\n\nO usuário perderá acesso ao sistema. Você pode reativá-lo depois.`)) return
+
+    setDeletingId(user.user_id)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/admin/users', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ user_id: user.user_id }),
+      })
+
+      const result = await res.json()
+      if (!res.ok) {
+        alert('Erro ao excluir: ' + result.error)
+      } else {
+        await carregarUsuarios()
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Erro ao desativar usuário')
+    }
+    setDeletingId(null)
+  }
+
+  // Reativar usuário
+  async function handleReactivate(user: UserRow) {
+    setDeletingId(user.user_id)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ user_id: user.user_id }),
+      })
+
+      const result = await res.json()
+      if (!res.ok) {
+        alert('Erro ao reativar: ' + result.error)
+      } else {
+        await carregarUsuarios()
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Erro ao reativar usuário')
+    }
+    setDeletingId(null)
   }
 
   // ============================================
@@ -298,15 +367,21 @@ export default function AdminUsuariosPage() {
           {filtered.map(user => {
             const mainPerfil = user.perfis[0]
             const nome = mainPerfil?.nome || user.email.split('@')[0]
+            const isDesativado = user.perfis.length > 0 && user.perfis.every(p => !p.ativo)
 
             return (
-              <div key={user.user_id} className="card p-4 card-hover">
+              <div key={user.user_id} className={`card p-4 card-hover ${isDesativado ? 'opacity-50' : ''}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     {/* Nome + email */}
                     <div className="flex items-center gap-2 flex-wrap mb-1.5">
                       <span className="text-base font-semibold text-[var(--surface-800)]">{nome}</span>
                       <span className="text-xs text-[var(--surface-400)]">{user.email}</span>
+                      {isDesativado && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-900/30 text-red-400">
+                          Desativado
+                        </span>
+                      )}
                     </div>
 
                     {/* Unidades e papéis */}
@@ -368,6 +443,33 @@ export default function AdminUsuariosPage() {
                         <Key className="h-4 w-4 text-[var(--surface-500)]" />
                       )}
                     </button>
+                    {isDesativado ? (
+                      <button
+                        onClick={() => handleReactivate(user)}
+                        disabled={deletingId === user.user_id}
+                        className="p-2 rounded-lg hover:bg-emerald-500/10 transition-colors disabled:opacity-50"
+                        title="Reativar usuário"
+                      >
+                        {deletingId === user.user_id ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-emerald-400" />
+                        ) : (
+                          <ToggleLeft className="h-4 w-4 text-emerald-400" />
+                        )}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleDelete(user)}
+                        disabled={deletingId === user.user_id}
+                        className="p-2 rounded-lg hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                        title="Desativar usuário"
+                      >
+                        {deletingId === user.user_id ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-red-400" />
+                        ) : (
+                          <ToggleRight className="h-4 w-4 text-red-400" />
+                        )}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

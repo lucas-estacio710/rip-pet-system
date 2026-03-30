@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { Lock, Mail, Loader2 } from 'lucide-react'
 
@@ -92,6 +93,13 @@ export default function LoginPage() {
                   className="w-full pl-10 pr-4 py-2.5 border border-slate-600 rounded-lg bg-slate-700 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 />
               </div>
+            </div>
+
+            {/* Esqueci senha */}
+            <div className="text-right">
+              <Link href="/esqueci-senha" className="text-xs text-purple-400 hover:text-purple-300">
+                Esqueci minha senha
+              </Link>
             </div>
 
             {/* Erro */}

@@ -37,16 +37,18 @@ export async function middleware(request: NextRequest) {
   const isLoginPage = request.nextUrl.pathname === '/login'
   const isAuthCallback = request.nextUrl.pathname.startsWith('/auth/callback')
   const isFicha = request.nextUrl.pathname.startsWith('/ficha')
+  const isAuthPage = request.nextUrl.pathname === '/esqueci-senha' || request.nextUrl.pathname === '/redefinir-senha'
 
-  // Se não autenticado e NÃO está na página de login/callback/ficha → redireciona para login
-  if (!user && !isLoginPage && !isAuthCallback && !isFicha) {
+  // Se não autenticado e NÃO está em página pública → redireciona para login
+  if (!user && !isLoginPage && !isAuthCallback && !isFicha && !isAuthPage) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
   }
 
-  // Se autenticado e está na página de login → redireciona para dashboard
-  if (user && isLoginPage) {
+  // Se autenticado e está na página de login ou esqueci-senha → redireciona para dashboard
+  // (mas permite /redefinir-senha pois o usuário pode estar trocando a senha via link)
+  if (user && (isLoginPage || request.nextUrl.pathname === '/esqueci-senha')) {
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'
     return NextResponse.redirect(url)
