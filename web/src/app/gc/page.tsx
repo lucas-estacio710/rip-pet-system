@@ -327,6 +327,22 @@ export default function GCPage() {
                     </p>
                   )}
 
+                  {/* Ações */}
+                  <div className="flex items-center justify-center gap-2 mt-1.5" onClick={e => e.preventDefault()}>
+                    {c.tutor_telefone && (
+                      <a
+                        href={`https://wa.me/${c.tutor_telefone.replace(/\D/g, '')}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-6 h-6 rounded-full flex items-center justify-center transition-transform hover:scale-110"
+                        style={{ background: '#25D366' }}
+                        title={`WhatsApp: ${c.tutor_telefone}`}
+                      >
+                        <Phone className="h-3 w-3 text-white" />
+                      </a>
+                    )}
+                  </div>
+
                   {/* Cinzas/Certificado */}
                   {c.gc && (etapa === 'cremacao' || etapa === 'disponivel') && (
                     <div className="flex items-center gap-1.5 mt-1 text-[9px]">
