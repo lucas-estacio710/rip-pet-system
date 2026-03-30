@@ -285,7 +285,7 @@ export default function GCPage() {
             const borderColor = isInd ? '#22c55e' : '#8b5cf6'
 
             return (
-              <Link href={`/contratos/${c.id}`} key={c.id}>
+              <div key={c.id} onClick={() => window.location.href = `/contratos/${c.id}`}>
                 <div
                   className="card p-2.5 card-hover cursor-pointer transition-all h-full"
                   style={{ borderLeft: `3px solid ${borderColor}`, background: gradientBg }}
@@ -375,7 +375,7 @@ export default function GCPage() {
                     </div>
                   )}
                 </div>
-              </Link>
+              </div>
             )
           })}
         </div>
