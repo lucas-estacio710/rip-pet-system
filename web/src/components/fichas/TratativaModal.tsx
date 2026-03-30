@@ -343,7 +343,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
       if (temPadronizacaoClinicas) {
         // COM padronização — autocomplete de estabelecimentos
         const AUTONOMOS_ESTAB_ID = 'b4eedcff-7ccf-4cfb-bf3a-1978eeec6382'
-        if (autonomo) {
+        if (autônomo) {
           resolvedEstabId = AUTONOMOS_ESTAB_ID
           clinicaColetaNome = 'Autônomo'
         } else {
@@ -523,7 +523,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
           {tutorExistente ? (
             <><Check className="h-4 w-4" />Tutor existente: {tutorExistente.nome}</>
           ) : (
-            <><Plus className="h-4 w-4" />Novo tutor sera criado</>
+            <><Plus className="h-4 w-4" />Novo tutor será criado</>
           )}
         </div>
       )}
@@ -542,7 +542,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
             <InfoRow label="CPF" value={ficha.cpf} mono />
             <InfoRow label="Telefone" value={ficha.telefone} mono />
             {ficha.email && <InfoRow label="Email" value={ficha.email} />}
-            <InfoRow label="Endereco" value={`${ficha.endereco}, ${ficha.numero}${ficha.complemento ? ` - ${ficha.complemento}` : ''}`} />
+            <InfoRow label="Endereço" value={`${ficha.endereco}, ${ficha.numero}${ficha.complemento ? ` - ${ficha.complemento}` : ''}`} />
             <InfoRow label="Bairro/Cidade" value={`${ficha.bairro}, ${ficha.cidade} - ${ficha.estado}`} />
             <InfoRow label="CEP" value={ficha.cep} mono />
           </div>
@@ -553,9 +553,9 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
               <PawPrint className="h-4 w-4" />Pet
             </div>
             <InfoRow label="Nome" value={ficha.nome_pet} bold />
-            <InfoRow label="Especie" value={ficha.especie} />
-            {ficha.raca && <InfoRow label="Raca" value={ficha.raca} />}
-            <InfoRow label="Genero" value={ficha.genero} />
+            <InfoRow label="Espécie" value={ficha.especie} />
+            {ficha.raca && <InfoRow label="Raça" value={ficha.raca} />}
+            <InfoRow label="Gênero" value={ficha.genero} />
             <InfoRow label="Cor" value={ficha.cor} />
             {ficha.peso && <InfoRow label="Peso" value={`${ficha.peso} kg`} />}
             {ficha.idade && <InfoRow label="Idade" value={ficha.idade} />}
@@ -564,12 +564,12 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
           {/* Servico */}
           <div className="p-3 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)] space-y-1.5">
             <div className="flex items-center gap-2 text-sm font-semibold text-[var(--surface-700)] mb-2">
-              <Flame className="h-4 w-4" />Servico
+              <Flame className="h-4 w-4" />Serviço
             </div>
-            <InfoRow label="Cremacao" value={ficha.cremacao} />
+            <InfoRow label="Cremação" value={ficha.cremacao} />
             {ficha.valor != null && <InfoRow label="Valor" value={`R$ ${ficha.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`} mono bold />}
             <InfoRow label="Pagamento" value={`${ficha.pagamento}${ficha.parcelas ? ` (${ficha.parcelas})` : ''}`} />
-            <InfoRow label="Velorio" value={ficha.velorio} />
+            <InfoRow label="Velório" value={ficha.velorio} />
             <InfoRow label="Acompanhamento" value={ficha.acompanhamento} />
             <InfoRow label="Local" value={ficha.localizacao} />
             {ficha.localizacao_outra && <InfoRow label="Local (outro)" value={ficha.localizacao_outra} />}
@@ -582,11 +582,11 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
                 <InfoRow label="Como conheceu" value={ficha.como_conheceu.join(', ')} />
               )}
               {ficha.veterinario_especificar && (
-                <InfoRow label="Vet/Clinica" value={ficha.veterinario_especificar} />
+                <InfoRow label="Vet/Clínica" value={ficha.veterinario_especificar} />
               )}
               {ficha.observacoes && (
                 <div>
-                  <span className="text-xs text-[var(--surface-400)]">Observacoes</span>
+                  <span className="text-xs text-[var(--surface-400)]">Observações</span>
                   <p className="text-sm text-[var(--surface-700)] whitespace-pre-wrap">{ficha.observacoes}</p>
                 </div>
               )}
@@ -603,7 +603,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
             <span className="text-sm font-semibold text-red-400">EM - Emergencial</span>
           </div>
 
-          {/* === Origem da Indicacao === */}
+          {/* === Origem da Indicação === */}
           {ficha.veterinario_especificar && (
             <div className="px-3 py-2 rounded-lg bg-purple-900/20 border border-purple-700 text-sm">
               <span className="text-purple-400 font-medium">Tutor informou:</span>{' '}
@@ -685,12 +685,12 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
                   }}
                   className="h-3.5 w-3.5 rounded accent-blue-500"
                 />
-                <span className="text-xs text-blue-400">Autonomo</span>
+                <span className="text-xs text-blue-400">Autônomo</span>
               </label>
             </div>
             {autonomo ? (
               <div className="px-3 py-2.5 rounded-lg border-2 border-dashed border-blue-500/30 bg-blue-900/10 text-sm text-blue-400">
-                Profissional autonomo (sem vinculo com estabelecimento)
+                Profissional autônomo (sem vínculo com estabelecimento)
               </div>
             ) : (
             <>
@@ -706,7 +706,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
                   setEstabAberto(true)
                 }}
                 onFocus={() => setEstabAberto(true)}
-                placeholder="Buscar clinica..."
+                placeholder="Buscar clínica..."
                 className="input pl-9 pr-3"
               />
             </div>
@@ -748,7 +748,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
               </div>
             )}
             {estabId && <p className="mt-1 text-xs text-green-500 flex items-center gap-1"><Check className="h-3 w-3" />Estabelecimento selecionado</p>}
-            {!estabId && estabNome.trim() && !estabAberto && <p className="mt-1 text-xs text-amber-500">Novo estabelecimento sera criado</p>}
+            {!estabId && estabNome.trim() && !estabAberto && <p className="mt-1 text-xs text-amber-500">Novo estabelecimento será criado</p>}
             </>
             )}
           </div>
@@ -788,7 +788,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
                   setIndicAberto(true)
                 }}
                 onFocus={() => setIndicAberto(true)}
-                placeholder={estabId ? 'Buscar contato da clinica...' : 'Nome do indicador (vet, recepcionista)...'}
+                placeholder={estabId ? 'Buscar contato da clínica...' : 'Nome do indicador (vet, recepcionista)...'}
                 className="input pl-9 pr-3"
               />
             </div>
@@ -826,7 +826,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
                   >
                     <Plus className="h-3.5 w-3.5" />
                     Criar contato &quot;{indicBusca.trim()}&quot;
-                    {estabId && <span className="text-xs text-[var(--surface-400)]">vinculado a clinica</span>}
+                    {estabId && <span className="text-xs text-[var(--surface-400)]">vinculado à clínica</span>}
                   </button>
                 )}
               </div>
@@ -834,7 +834,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
             {indicId && <p className="mt-1 text-xs text-green-500 flex items-center gap-1"><Check className="h-3 w-3" />Contato selecionado</p>}
             {!indicId && indicNome.trim() && !indicAberto && (
               <p className="mt-1 text-xs text-amber-500">
-                Novo contato sera criado{estabId ? ' e vinculado a clinica' : ' (autonomo)'}
+                Novo contato será criado{estabId ? ' e vinculado à clínica' : ' (autônomo)'}
               </p>
             )}
 
@@ -844,7 +844,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
                 type="text"
                 value={indicCargo}
                 onChange={(e) => setIndicCargo(e.target.value)}
-                placeholder="Cargo (ex: Veterinaria, Recepcionista)..."
+                placeholder="Cargo (ex: Veterinária, Recepcionista)..."
                 className="input mt-2 text-sm"
               />
             )}
@@ -905,13 +905,13 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
 
           {/* Responsavel */}
           <div>
-            <label className="block text-sm font-medium text-[var(--surface-600)] mb-1">Responsavel</label>
+            <label className="block text-sm font-medium text-[var(--surface-600)] mb-1">Responsável</label>
             <select
               value={funcionarioId}
               onChange={(e) => setFuncionarioId(e.target.value)}
               className="input"
             >
-              <option value="">Nao definido</option>
+              <option value="">Não definido</option>
               {funcionarios.map(f => (
                 <option key={f.id} value={f.id}>{f.nome}</option>
               ))}
@@ -922,7 +922,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="text-sm font-medium text-[var(--surface-600)]">
-                Codigo <span className="text-red-400">*</span>
+                Código <span className="text-red-400">*</span>
               </label>
               <button
                 type="button"
@@ -1009,7 +1009,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
               value={lacre}
               onChange={(e) => setLacre(e.target.value)}
               disabled={semLacre}
-              placeholder={semLacre ? 'Sera preenchido depois...' : 'Numero do lacre'}
+              placeholder={semLacre ? 'Será preenchido depois...' : 'Número do lacre'}
               className={`input ${semLacre ? 'opacity-50 bg-[var(--surface-50)]' : ''}`}
             />
             {semLacre && (
