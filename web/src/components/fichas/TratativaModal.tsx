@@ -121,6 +121,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
   const [valorPlano, setValorPlano] = useState('')
   const [descontoPreVenda, setDescontoPreVenda] = useState('')
   const [clinicaTextoLivre, setClinicaTextoLivre] = useState('')
+  const [localColeta, setLocalColeta] = useState<'residencia' | 'clinica' | 'unidade' | 'outro' | ''>('')
+  const [enderecoOutro, setEnderecoOutro] = useState('')
   const [lacre, setLacre] = useState('')
   const [semLacre, setSemLacre] = useState(false)
   const [dataContrato, setDataContrato] = useState(new Date().toISOString().split('T')[0])
@@ -356,14 +358,14 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
       // Step 5: Build observacoes (apenas obs originais da ficha)
       const observacoes = ficha.observacoes || null
 
-      // Step 6: Map local_coleta
-      let localColeta: string | null = null
-      if (ficha.localizacao) {
-        if (ficha.localizacao.includes('Residência')) localColeta = 'Residência'
-        else if (ficha.localizacao.includes('Hospital') || ficha.localizacao.includes('Clínica')) localColeta = 'Clínica'
-        else if (ficha.localizacao.includes('Unidade')) localColeta = 'Unidade Canal 6'
-        else localColeta = ficha.localizacao
+      // Step 6: Map local_coleta (selecionado pelo operador)
+      const localColetaMap: Record<string, string> = {
+        residencia: 'Residência',
+        clinica: 'Clínica',
+        unidade: 'Unidade',
+        outro: 'Outro',
       }
+      const localColetaValor = localColetaMap[localColeta] || null
 
       // Step 7: Insert contrato
       const status = tipoPlano === 'emergencial' ? 'ativo' : 'preventivo'
@@ -404,7 +406,11 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
         acompanhamento_presencial: ficha.acompanhamento?.includes('Presencial') || false,
         valor_plano: valorPlano ? parseFloat(valorPlano) : null,
         desconto_plano: descontoPreVenda ? parseFloat(descontoPreVenda) : 0,
-        local_coleta: localColeta,
+        local_coleta: localColetaValor,
+        remocao_endereco: localColeta === 'residencia' ? (ficha.endereco ? `${ficha.endereco}, ${ficha.numero}` : null) : localColeta === 'outro' ? enderecoOutro || null : null,
+        remocao_bairro: localColeta === 'residencia' ? ficha.bairro : null,
+        remocao_cidade: localColeta === 'residencia' ? ficha.cidade : null,
+        remocao_cep: localColeta === 'residencia' ? ficha.cep : null,
         numero_lacre: lacre || null,
         observacoes,
       }
@@ -592,14 +598,65 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
             </div>
           )}
 
-          {/* Estabelecimento / Clínica */}
-          {temPadronizacaoClinicas ? (
-          /* === COM PADRONIZAÇÃO (Santos) — Autocomplete === */
+          {/* Local de Coleta */}
+          <div>
+            <label className="block text-sm font-medium text-[var(--surface-600)] mb-1">
+              <Building2 className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
+              Local de Acolhimento
+            </label>
+            <div className="grid grid-cols-2 gap-1.5">
+              {[
+                { key: 'residencia', label: 'Residência' },
+                { key: 'clinica', label: 'Clínica / Hospital' },
+                { key: 'unidade', label: 'Unidade RIP PET' },
+                { key: 'outro', label: 'Outro endereço' },
+              ].map(opt => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => setLocalColeta(opt.key as typeof localColeta)}
+                  className={`py-2 px-3 rounded-lg text-xs font-medium border-2 transition-all ${
+                    localColeta === opt.key
+                      ? 'border-purple-500 bg-purple-500/10 text-purple-400'
+                      : 'border-[var(--surface-200)] text-[var(--surface-500)] hover:border-[var(--surface-300)]'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Endereço baseado na seleção */}
+            {localColeta === 'residencia' && ficha && (
+              <p className="mt-2 text-xs text-[var(--surface-500)] bg-[var(--surface-50)] rounded-lg px-3 py-2">
+                📍 {ficha.endereco}, {ficha.numero}{ficha.complemento ? ` - ${ficha.complemento}` : ''} — {ficha.bairro}, {ficha.cidade}/{ficha.estado}
+              </p>
+            )}
+
+            {localColeta === 'unidade' && (
+              <p className="mt-2 text-xs text-[var(--surface-500)] bg-[var(--surface-50)] rounded-lg px-3 py-2">
+                📍 Endereço da unidade
+              </p>
+            )}
+
+            {localColeta === 'outro' && (
+              <input
+                type="text"
+                value={enderecoOutro}
+                onChange={(e) => setEnderecoOutro(e.target.value)}
+                placeholder="Endereço completo (parente, amigo, etc.)"
+                className="input mt-2"
+              />
+            )}
+          </div>
+
+          {/* Clínica/Estabelecimento — só aparece quando local = clinica */}
+          {localColeta === 'clinica' && temPadronizacaoClinicas ? (
+          /* === COM PADRONIZAÇÃO — Autocomplete === */
           <div ref={estabRef} className="relative">
             <div className="flex items-center justify-between mb-1">
               <label className="text-sm font-medium text-[var(--surface-600)]">
-                <Building2 className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
-                Estabelecimento (clínica)
+                Estabelecimento
               </label>
               <label className="flex items-center gap-1.5 cursor-pointer select-none">
                 <input
@@ -682,12 +739,11 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
             </>
             )}
           </div>
-          ) : (
+          ) : localColeta === 'clinica' ? (
           /* === SEM PADRONIZAÇÃO — Campo texto livre === */
           <div>
             <label className="block text-sm font-medium text-[var(--surface-600)] mb-1">
-              <Building2 className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
-              Clínica / Local de origem
+              Nome da Clínica / Hospital
             </label>
             <input
               type="text"
@@ -698,7 +754,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
             />
             <p className="mt-1 text-[10px] text-[var(--surface-400)]">Mantenha sempre o mesmo padrão de escrita</p>
           </div>
-          )}
+          ) : null}
 
           {/* Contato (pessoa que indicou) — só com padronização */}
           {temPadronizacaoClinicas && (
