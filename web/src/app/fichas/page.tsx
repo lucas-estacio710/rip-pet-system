@@ -194,11 +194,7 @@ export default function FichasPage() {
   // Render
   // ============================================
   if (unitLoading || !currentUnit) {
-    return (
-      <div className="animate-fade-in flex items-center justify-center py-20">
-        <div className="w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    )
+    return <div className="min-h-[50vh]" />
   }
 
   return (
