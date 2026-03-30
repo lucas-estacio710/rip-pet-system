@@ -264,6 +264,12 @@ export default function GCTracking({ contratoId, tipoCremacao, observacoesContra
               <span className="text-slate-200 font-medium">{ACOMP_LABELS[gc.acompanhamento_confirmado] || gc.acompanhamento_confirmado}</span>
             </div>
           )}
+          {gc.contato_tutor_obs && (
+            <div className="col-span-2 md:col-span-3">
+              <span className="text-slate-400 block mb-0.5">Obs. Acompanhamento</span>
+              <span className="text-slate-200 text-xs">{gc.contato_tutor_obs}</span>
+            </div>
+          )}
 
           {/* Agendamento */}
           {gc.forno && (
@@ -325,17 +331,30 @@ export default function GCTracking({ contratoId, tipoCremacao, observacoesContra
               </button>
             )}
             {gc.etapa === 'contato_tutor' && (
-              <select
-                value={gc.acompanhamento_confirmado || ''}
-                onChange={e => updateGC({ acompanhamento_confirmado: e.target.value || null })}
-                className="text-xs px-2 py-1.5 rounded-lg bg-slate-700 border border-slate-600 text-slate-200 outline-none"
-              >
-                <option value="">Acompanhamento...</option>
-                <option value="video_chamada">Vídeo-chamada</option>
-                <option value="video_gravado">Vídeo gravado</option>
-                <option value="presencial">Presencial</option>
-                <option value="nao_deseja">Não deseja</option>
-              </select>
+              <>
+                <select
+                  value={gc.acompanhamento_confirmado || ''}
+                  onChange={e => updateGC({ acompanhamento_confirmado: e.target.value || null })}
+                  className="text-xs px-2 py-1.5 rounded-lg bg-slate-700 border border-slate-600 text-slate-200 outline-none"
+                >
+                  <option value="">Acompanhamento...</option>
+                  <option value="video_chamada">Vídeo-chamada</option>
+                  <option value="video_gravado">Vídeo gravado</option>
+                  <option value="presencial">Presencial</option>
+                  <option value="nao_deseja">Não deseja</option>
+                </select>
+                <input
+                  type="text"
+                  placeholder="Obs. do acompanhamento..."
+                  defaultValue={gc.contato_tutor_obs || ''}
+                  onBlur={e => {
+                    const val = e.target.value.trim() || null
+                    if (val !== (gc.contato_tutor_obs || null)) updateGC({ contato_tutor_obs: val })
+                  }}
+                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                  className="text-xs px-2 py-1.5 rounded-lg bg-slate-700 border border-slate-600 text-slate-200 outline-none placeholder-slate-500 flex-1 min-w-[150px]"
+                />
+              </>
             )}
             {gc.etapa === 'agendado' && (
               <>
