@@ -2034,7 +2034,7 @@ ${petNome}`
               <User className="h-4 w-4 text-blue-400" />
             </div>
             <h2 className="font-semibold text-slate-200">Tutor</h2>
-            {contrato.tutor && (
+            {contrato.tutor && hasModule('func_tutores') && (
               <Link href={`/tutores/${contrato.tutor.id}`} className="text-xs text-purple-400 hover:underline ml-2">
                 Ver cadastro
               </Link>
