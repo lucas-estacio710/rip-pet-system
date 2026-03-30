@@ -268,11 +268,16 @@ export default function GCPage() {
             const pesoColor = corPeso(c.pet_peso)
             const isInd = c.tipo_cremacao === 'individual'
 
+            const gradientBg = isInd
+              ? 'linear-gradient(135deg, rgba(34,197,94,0.12) 0%, rgba(34,197,94,0.04) 100%)'
+              : 'linear-gradient(135deg, rgba(139,92,246,0.12) 0%, rgba(139,92,246,0.04) 100%)'
+            const borderColor = isInd ? '#22c55e' : '#8b5cf6'
+
             return (
               <Link href={`/contratos/${c.id}`} key={c.id}>
                 <div
                   className="card p-2.5 card-hover cursor-pointer transition-all h-full"
-                  style={{ borderLeft: `3px solid ${isInd ? '#a78bfa' : '#60a5fa'}` }}
+                  style={{ borderLeft: `3px solid ${borderColor}`, background: gradientBg }}
                 >
                   {/* Lacre + Pet */}
                   <div className="flex items-center gap-1.5 mb-1.5">
@@ -283,20 +288,10 @@ export default function GCPage() {
                     )}
                     <PetIcon className="h-3 w-3 text-[var(--surface-400)]" />
                     <span className="font-semibold text-xs text-[var(--surface-800)] truncate">{c.pet_nome}</span>
-                  </div>
-
-                  {/* Tipo (IND/COL) bem destacado */}
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{
-                      background: isInd ? '#7c3aed' : '#2563eb',
-                      color: '#fff',
-                    }}>
-                      {isInd ? 'INDIVIDUAL' : 'COLETIVA'}
-                    </span>
                     {/* Bolinha unidade (sem filtro) */}
                     {!activeUnit && unit && (
                       <div
-                        className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold"
+                        className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold ml-auto shrink-0"
                         style={{ background: unitColor, color: unit.codigo === 'SJ' ? '#334155' : '#fff' }}
                       >
                         {unit.codigo}
@@ -304,22 +299,19 @@ export default function GCPage() {
                     )}
                   </div>
 
-                  {/* Tutor */}
-                  {c.tutor_nome && (
-                    <p className="text-[10px] text-[var(--surface-500)] truncate mb-1">
-                      <User className="h-2.5 w-2.5 inline mr-0.5" />{c.tutor_nome}
-                    </p>
-                  )}
-
-                  {/* Peso com cor condicional */}
-                  {c.pet_peso != null && (
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full inline-block mb-1" style={{ background: pesoColor + '20', color: pesoColor }}>
-                      {c.pet_peso}kg
+                  {/* IND/COL + Peso + Etapa — tudo na mesma linha */}
+                  <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{
+                      background: isInd ? '#16a34a' : '#7c3aed',
+                      color: '#fff',
+                    }}>
+                      {isInd ? 'IND' : 'COL'}
                     </span>
-                  )}
-
-                  {/* Etapa */}
-                  <div className="flex items-center justify-between mt-auto">
+                    {c.pet_peso != null && (
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: pesoColor + '20', color: pesoColor }}>
+                        {c.pet_peso}kg
+                      </span>
+                    )}
                     <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: etapaColor + '20', color: etapaColor }}>
                       {ETAPA_LABELS[etapa]}
                     </span>
@@ -327,6 +319,13 @@ export default function GCPage() {
                       <span className="text-[9px] font-bold" style={{ color: '#f59e0b' }}>F{c.gc.forno}</span>
                     )}
                   </div>
+
+                  {/* Tutor */}
+                  {c.tutor_nome && (
+                    <p className="text-[10px] text-[var(--surface-500)] truncate">
+                      <User className="h-2.5 w-2.5 inline mr-0.5" />{c.tutor_nome}
+                    </p>
+                  )}
 
                   {/* Cinzas/Certificado */}
                   {c.gc && (etapa === 'cremacao' || etapa === 'disponivel') && (
@@ -340,7 +339,7 @@ export default function GCPage() {
                     </div>
                   )}
 
-                  {/* Post-it (compacto) */}
+                  {/* Post-it */}
                   {(c.observacoes || c.gc?.observacoes_unidade) && (
                     <div className="mt-1.5 px-1.5 py-1 rounded text-[9px] leading-tight truncate" style={{ background: 'rgba(250,204,21,0.15)', color: '#eab308' }}>
                       ⚠️ {c.gc?.observacoes_unidade || c.observacoes}
