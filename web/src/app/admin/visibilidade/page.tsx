@@ -145,7 +145,7 @@ export default function VisibilidadePage() {
     const { data: { user } } = await supabase.auth.getUser()
 
     // Salvar alterações + gerar logs
-    const updatePromises: Promise<any>[] = []
+    const updatePromises: any[] = []
     const logEntries: any[] = []
 
     for (const [unidadeId, modulos] of Object.entries(changes)) {
