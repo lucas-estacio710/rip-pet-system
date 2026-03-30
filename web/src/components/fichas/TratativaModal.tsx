@@ -114,7 +114,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
   const indicRef = useRef<HTMLDivElement>(null)
 
   // Form fields
-  const [tipoPlano, setTipoPlano] = useState<'emergencial' | 'preventivo'>('emergencial')
+  const tipoPlano = 'emergencial' as const
   const [funcionarioId, setFuncionarioId] = useState('')
   const [codigo, setCodigo] = useState('')
   const [codigoManual, setCodigoManual] = useState(false)
@@ -196,12 +196,11 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
     const tutor3 = (ficha.nome_completo || '').trim().slice(0, 3).toUpperCase()
     const pet3 = (ficha.nome_pet || '').trim().slice(0, 3).toUpperCase()
     setCodigo(`${yy}${mm}${dd}${siglaCremacao}${tutor3}${pet3}`)
-  }, [isOpen, ficha, tipoPlano, dataContrato, codigoManual])
+  }, [isOpen, ficha, dataContrato, codigoManual])
 
   // Reset form on close
   useEffect(() => {
     if (!isOpen) {
-      setTipoPlano('emergencial')
       setEstabId(null)
       setEstabNome('')
       setEstabBusca('')
@@ -220,8 +219,29 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
       setSalvando(false)
       setTutorExistente(null)
       setTutorChecked(false)
+      setLocalColeta('')
+      setClinicaTextoLivre('')
+      setEnderecoOutro('')
+      setDescontoPreVenda('')
     }
   }, [isOpen])
+
+  // Pré-setar local de coleta baseado na ficha do tutor
+  useEffect(() => {
+    if (!isOpen || !ficha) return
+    const loc = ficha.localizacao || ''
+    if (loc.includes('Residência')) {
+      setLocalColeta('residencia')
+    } else if (loc.includes('Hospital') || loc.includes('Clínica')) {
+      setLocalColeta('clinica')
+      if (ficha.localizacao_outra) setClinicaTextoLivre(ficha.localizacao_outra)
+    } else if (loc.includes('Unidade')) {
+      setLocalColeta('unidade')
+    } else if (loc === 'Outro') {
+      setLocalColeta('outro')
+      if (ficha.localizacao_outra) setEnderecoOutro(ficha.localizacao_outra)
+    }
+  }, [isOpen, ficha])
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -559,35 +579,9 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
         <div className="space-y-4">
           <h3 className="text-sm font-semibold text-[var(--surface-500)] uppercase tracking-wide">Dados do Operador</h3>
 
-          {/* Tipo Plano */}
-          <div>
-            <label className="block text-sm font-medium text-[var(--surface-600)] mb-2">
-              Tipo de Plano <span className="text-red-400">*</span>
-            </label>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setTipoPlano('emergencial')}
-                className={`flex-1 py-2.5 px-4 rounded-lg border-2 text-sm font-semibold transition-all ${
-                  tipoPlano === 'emergencial'
-                    ? 'border-red-500 bg-red-900/30 text-red-400'
-                    : 'border-[var(--surface-200)] text-[var(--surface-500)] hover:border-[var(--surface-300)]'
-                }`}
-              >
-                EM - Emergencial
-              </button>
-              <button
-                type="button"
-                onClick={() => setTipoPlano('preventivo')}
-                className={`flex-1 py-2.5 px-4 rounded-lg border-2 text-sm font-semibold transition-all ${
-                  tipoPlano === 'preventivo'
-                    ? 'border-amber-500 bg-amber-900/30 text-amber-400'
-                    : 'border-[var(--surface-200)] text-[var(--surface-500)] hover:border-[var(--surface-300)]'
-                }`}
-              >
-                PV - Preventivo
-              </button>
-            </div>
+          {/* Tipo Plano — fixo emergencial (ficha de entrada = EM) */}
+          <div className="px-3 py-2 rounded-lg border-2 border-red-500 bg-red-900/30">
+            <span className="text-sm font-semibold text-red-400">EM - Emergencial</span>
           </div>
 
           {/* === Origem da Indicacao === */}
