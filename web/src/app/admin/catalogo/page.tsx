@@ -180,9 +180,9 @@ export default function CatalogoPage() {
     }
 
     if (isNew) {
-      await supabase.from('produtos').insert(data as any)
+      await supabase.from('produtos').insert(data as never)
     } else if (editProduto) {
-      await supabase.from('produtos').update(data as any).eq('id', editProduto.id)
+      await supabase.from('produtos').update(data as never).eq('id', editProduto.id)
     }
 
     setShowModal(false)
