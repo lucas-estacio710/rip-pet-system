@@ -128,6 +128,7 @@ export default function FichasPage() {
   }, [filtro, buscaDebounced])
 
   async function carregarContagens() {
+    if (!currentUnit) return
     let pendQuery = supabase.from('fichas').select('*', { count: 'exact', head: true }).or('processada.is.null,processada.eq.false')
     let procQuery = supabase.from('fichas').select('*', { count: 'exact', head: true }).eq('processada', true)
 
@@ -142,6 +143,7 @@ export default function FichasPage() {
   }
 
   async function carregarFichas() {
+    if (!currentUnit) return
     setLoading(true)
 
     let query = supabase
