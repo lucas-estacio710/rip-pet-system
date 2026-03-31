@@ -15,6 +15,8 @@ type ContratoMinimal = {
   certificado_nome_3: string | null
   certificado_nome_4: string | null
   certificado_nome_5: string | null
+  certificado_nome_6: string | null
+  certificado_nome_7: string | null
   certificado_confirmado: boolean | null
 }
 
@@ -29,12 +31,14 @@ type Props = {
     certificado_nome_3: string | null
     certificado_nome_4: string | null
     certificado_nome_5: string | null
+    certificado_nome_6: string | null
+    certificado_nome_7: string | null
     certificado_confirmado: true
   }) => void
 }
 
 export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess }: Props) {
-  const [certificadoNomes, setCertificadoNomes] = useState<string[]>(['', '', '', '', ''])
+  const [certificadoNomes, setCertificadoNomes] = useState<string[]>(['', '', '', '', '', '', ''])
   const [certificadoTextoColado, setCertificadoTextoColado] = useState('')
   const [salvando, setSalvando] = useState(false)
 
@@ -50,6 +54,8 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
       contrato.certificado_nome_3 || '',
       contrato.certificado_nome_4 || '',
       contrato.certificado_nome_5 || '',
+      contrato.certificado_nome_6 || '',
+      contrato.certificado_nome_7 || '',
     ]
 
     // Se nenhum nome definido, colocar o tutor principal no primeiro campo
@@ -121,16 +127,12 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
     try {
       const nomesUpper = certificadoNomes.map(n => n.trim().toUpperCase())
 
+      const updateData: Record<string, unknown> = { certificado_confirmado: true }
+      nomesUpper.forEach((n, i) => { updateData[`certificado_nome_${i + 1}`] = n || null })
+
       const { error } = await supabase
         .from('contratos')
-        .update({
-          certificado_nome_1: nomesUpper[0] || null,
-          certificado_nome_2: nomesUpper[1] || null,
-          certificado_nome_3: nomesUpper[2] || null,
-          certificado_nome_4: nomesUpper[3] || null,
-          certificado_nome_5: nomesUpper[4] || null,
-          certificado_confirmado: true,
-        } as never)
+        .update(updateData as never)
         .eq('id', contrato.id)
 
       if (error) throw error
@@ -142,6 +144,8 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
         certificado_nome_3: nomesUpper[2] || null,
         certificado_nome_4: nomesUpper[3] || null,
         certificado_nome_5: nomesUpper[4] || null,
+        certificado_nome_6: nomesUpper[5] || null,
+        certificado_nome_7: nomesUpper[6] || null,
         certificado_confirmado: true,
       })
 

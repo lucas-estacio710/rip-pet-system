@@ -97,6 +97,70 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
   const [tutorExistente, setTutorExistente] = useState<TutorExistente>(null)
   const [tutorChecked, setTutorChecked] = useState(false)
 
+  // Edições nos dados originais da ficha
+  const [fichaEdits, setFichaEdits] = useState<Record<string, string>>({})
+  const [editingField, setEditingField] = useState<string | null>(null)
+  const [editingValue, setEditingValue] = useState('')
+
+  // Ficha com edições aplicadas
+  const fichaAtual = ficha ? {
+    ...ficha,
+    ...fichaEdits,
+    // outros_tutores é armazenado como JSON string nas edições
+    outros_tutores: fichaEdits.outros_tutores
+      ? JSON.parse(fichaEdits.outros_tutores) as string[]
+      : ficha.outros_tutores,
+  } as Ficha : null
+
+  function getFichaValue(key: keyof Ficha): string {
+    if (fichaEdits[key] !== undefined) return fichaEdits[key]
+    return String(ficha?.[key] ?? '')
+  }
+
+  function startEdit(key: string, currentValue: string) {
+    setEditingField(key)
+    setEditingValue(currentValue || '')
+  }
+
+  function confirmEdit() {
+    if (editingField && ficha) {
+      // Edição de outros_tutores individual (outros_tutores_0, outros_tutores_1, etc)
+      if (editingField.startsWith('outros_tutores_')) {
+        const idx = parseInt(editingField.split('_')[2])
+        const atual = fichaEdits.outros_tutores
+          ? JSON.parse(fichaEdits.outros_tutores) as string[]
+          : [...(ficha.outros_tutores || [])]
+        atual[idx] = editingValue
+        setFichaEdits(prev => ({ ...prev, outros_tutores: JSON.stringify(atual) }))
+      } else {
+        const original = String((ficha as Record<string, unknown>)[editingField] ?? '')
+        if (editingValue !== original) {
+          setFichaEdits(prev => ({ ...prev, [editingField]: editingValue }))
+        }
+      }
+    }
+    setEditingField(null)
+    setEditingValue('')
+  }
+
+  function cancelEdit() {
+    // Se cancelou a adição de um nome vazio no certificado, remover o item
+    if (editingField?.startsWith('outros_tutores_') && editingValue === '') {
+      const idx = parseInt(editingField.split('_')[2])
+      const atual = fichaEdits.outros_tutores
+        ? JSON.parse(fichaEdits.outros_tutores) as string[]
+        : [...(ficha?.outros_tutores || [])]
+      if (!atual[idx]) {
+        atual.splice(idx, 1)
+        if (atual.length > 0 || fichaEdits.outros_tutores) {
+          setFichaEdits(prev => ({ ...prev, outros_tutores: JSON.stringify(atual) }))
+        }
+      }
+    }
+    setEditingField(null)
+    setEditingValue('')
+  }
+
   // Estabelecimento autocomplete
   const [estabBusca, setEstabBusca] = useState('')
   const [estabAberto, setEstabAberto] = useState(false)
@@ -116,20 +180,34 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
   // Form fields
   const tipoPlano = 'emergencial' as const
   const [funcionarioId, setFuncionarioId] = useState('')
+  // Telefone — operador confirma ou adiciona secundário
+  const [telefoneConfirmado, setTelefoneConfirmado] = useState(false)
+  const [telefone2, setTelefone2] = useState('')
+  const [usarTelefone2ComoPrincipal, setUsarTelefone2ComoPrincipal] = useState(false)
   const [codigo, setCodigo] = useState('')
   const [codigoManual, setCodigoManual] = useState(false)
   const [valorPlano, setValorPlano] = useState('')
   const [descontoPreVenda, setDescontoPreVenda] = useState('')
-  const [clinicaTextoLivre, setClinicaTextoLivre] = useState('')
   const [localColeta, setLocalColeta] = useState<'residencia' | 'clinica' | 'unidade' | 'outro' | ''>('')
   const [enderecoOutro, setEnderecoOutro] = useState('')
-  // Indicação
-  const [indicClinica, setIndicClinica] = useState(false)
-  const [indicVet, setIndicVet] = useState(false)
-  const [indicClinicaTexto, setIndicClinicaTexto] = useState('')
-  const [indicVetTexto, setIndicVetTexto] = useState('')
+  // Bloco Acolhimento
+  const [semLocal, setSemLocal] = useState(false)
+  const [semResponsavel, setSemResponsavel] = useState(false)
+  const [dataHoraAcolhimento, setDataHoraAcolhimento] = useState('')
+  const [semDataHora, setSemDataHora] = useState(false)
   const [lacre, setLacre] = useState('')
   const [semLacre, setSemLacre] = useState(false)
+  // Bloco Indicação
+  const [mostrarIndicacao, setMostrarIndicacao] = useState(false)
+  const [indicacaoDeClinica, setIndicacaoDeClinica] = useState(false) // true = veio de vet/clínica, abre campos direto
+  const [teveIndicacao, setTeveIndicacao] = useState(false) // toggle manual pra indicações não-clínica
+  const [indicNomeQuemIndicou, setIndicNomeQuemIndicou] = useState('')
+  const [indicNomeAtivo, setIndicNomeAtivo] = useState(false)
+  const [indicHospClinica, setIndicHospClinica] = useState('')
+  const [indicHospAtivo, setIndicHospAtivo] = useState(false)
+  // Legado (manter pra padronização com busca)
+  const [clinicaTextoLivre, setClinicaTextoLivre] = useState('')
+  // Outros
   const [dataContrato, setDataContrato] = useState(new Date().toISOString().split('T')[0])
 
   const [salvando, setSalvando] = useState(false)
@@ -207,6 +285,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
   // Reset form on close
   useEffect(() => {
     if (!isOpen) {
+      setFichaEdits({})
+      setEditingField(null)
       setEstabId(null)
       setEstabNome('')
       setEstabBusca('')
@@ -229,10 +309,20 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
       setClinicaTextoLivre('')
       setEnderecoOutro('')
       setDescontoPreVenda('')
-      setIndicClinica(false)
-      setIndicVet(false)
-      setIndicClinicaTexto('')
-      setIndicVetTexto('')
+      setTelefoneConfirmado(false)
+      setTelefone2('')
+      setUsarTelefone2ComoPrincipal(false)
+      setSemLocal(false)
+      setSemResponsavel(false)
+      setDataHoraAcolhimento('')
+      setSemDataHora(false)
+      setMostrarIndicacao(false)
+      setIndicacaoDeClinica(false)
+      setTeveIndicacao(false)
+      setIndicNomeQuemIndicou('')
+      setIndicNomeAtivo(false)
+      setIndicHospClinica('')
+      setIndicHospAtivo(false)
     }
   }, [isOpen])
 
@@ -252,12 +342,19 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
       if (ficha.localizacao_outra) setEnderecoOutro(ficha.localizacao_outra)
     }
 
-    // Pré-setar indicação baseado no como_conheceu
+    // Pré-setar indicação
     const conheceu = ficha.como_conheceu || []
-    if (conheceu.some(c => c.includes('Veterinário') || c.includes('Indicação em Clínica'))) {
-      setIndicClinica(true)
-      setIndicVet(true)
-      if (ficha.veterinario_especificar) setIndicVetTexto(ficha.veterinario_especificar)
+    const veioDeClinica = !!(ficha.veterinario_especificar ||
+      conheceu.some(c => c.includes('Veterinário') || c.includes('Indicação em Clínica')))
+    const temAlgumaFonte = conheceu.length > 0 || !!ficha.veterinario_especificar || !!ficha.outro_especificar
+
+    setMostrarIndicacao(temAlgumaFonte)
+    setIndicacaoDeClinica(veioDeClinica)
+    setTeveIndicacao(veioDeClinica) // se veio de clínica, já abre os campos
+
+    if (ficha.veterinario_especificar) {
+      setIndicNomeQuemIndicou(ficha.veterinario_especificar)
+      setIndicNomeAtivo(true)
     }
   }, [isOpen, ficha])
 
@@ -293,24 +390,39 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
     if (!ficha || !codigo.trim()) return
     setSalvando(true)
 
+    // Usar ficha com edições aplicadas
+    const f = fichaAtual!
+
     try {
+      // Step 0: Salvar edições na ficha original (se houve)
+      if (Object.keys(fichaEdits).length > 0) {
+        const editsParaSalvar = { ...fichaEdits }
+        // outros_tutores: converter JSON string de volta pra array
+        if (editsParaSalvar.outros_tutores) {
+          editsParaSalvar.outros_tutores = JSON.parse(editsParaSalvar.outros_tutores)
+        }
+        await supabase.from('fichas').update(editsParaSalvar as never).eq('id', ficha.id)
+      }
+
       // Step 1: Find or create tutor
       let tutorId = tutorExistente?.id || null
       if (!tutorId) {
         const { data: novoTutor, error: errTutor } = await supabase
           .from('tutores')
           .insert({
-            nome: ficha.nome_completo,
-            cpf: ficha.cpf,
-            telefone: ficha.telefone,
-            email: ficha.email || null,
-            cep: ficha.cep,
-            endereco: ficha.endereco,
-            numero: ficha.numero,
-            complemento: ficha.complemento || null,
-            bairro: ficha.bairro,
-            cidade: ficha.cidade,
-            estado: ficha.estado,
+            nome: f.nome_completo,
+            cpf: f.cpf,
+            telefone: usarTelefone2ComoPrincipal && telefone2.trim() ? telefone2.replace(/\D/g, '') : f.telefone,
+            telefone2: telefone2.trim() ? (usarTelefone2ComoPrincipal ? f.telefone : telefone2.replace(/\D/g, '')) : null,
+            email: f.email || null,
+            cep: f.cep,
+            endereco: f.endereco,
+            numero: f.numero,
+            complemento: f.complemento || null,
+            bairro: f.bairro,
+            cidade: f.cidade,
+            estado: f.estado,
+            unidade_id: f.unidade_id,
           } as never)
           .select('id')
           .single() as { data: { id: string } | null; error: { message: string } | null }
@@ -318,20 +430,22 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
         tutorId = novoTutor!.id
       }
 
-      // Step 2: Map fonte_conhecimento
+      // Step 2: Map fonte_conhecimento (ficha → nome exato no banco)
       let fonteConhecimentoId: string | null = null
-      if (ficha.como_conheceu && ficha.como_conheceu.length > 0) {
+      if (f.como_conheceu && f.como_conheceu.length > 0) {
         const fonteMap: Record<string, string> = {
-          'Google': 'Google', 'Instagram/Facebook': 'Instagram',
-          'Veterinário': 'Clínica', 'Parente/Amigo': 'Parente/Amigo',
-          'Já utilizei a R.I.P. Pet': 'Cliente', 'Outro': 'Outro',
+          'Google': 'Google',
+          'Instagram/Facebook': 'Instagram/Facebook',
+          'Veterinário': 'Indicação em Clínica',
+          'Parente/Amigo': 'Parente/Amigo',
+          'Já utilizei a R.I.P. Pet': 'Cliente',
+          'Outro': 'Outro',
         }
-        const nomeBusca = fonteMap[ficha.como_conheceu[0]] || ficha.como_conheceu[0]
+        const nomeExato = fonteMap[f.como_conheceu[0]] || f.como_conheceu[0]
         const { data: fonte } = await supabase
           .from('fontes_conhecimento')
           .select('id')
-          .ilike('nome', `%${nomeBusca}%`)
-          .limit(1)
+          .eq('nome', nomeExato)
           .maybeSingle() as { data: { id: string } | null }
         if (fonte) fonteConhecimentoId = fonte.id
       }
@@ -382,6 +496,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
                 nome: indicNome.trim(),
                 cargo: indicCargo.trim() || null,
                 estabelecimento_id: resolvedEstabId,
+                unidade_id: f.unidade_id,
               } as never)
               .select('id')
               .single() as { data: { id: string } | null }
@@ -394,7 +509,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
       }
 
       // Step 5: Build observacoes (apenas obs originais da ficha)
-      const observacoes = ficha.observacoes || null
+      const observacoes = f.observacoes || null
 
       // Step 6: Map local_coleta (selecionado pelo operador)
       const localColetaMap: Record<string, string> = {
@@ -410,49 +525,56 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
 
       const contratoData = {
         codigo: codigo.trim(),
-        unidade_id: ficha.unidade_id,
+        unidade_id: f.unidade_id,
         status,
         tipo_plano: tipoPlano,
-        tipo_cremacao: ficha.cremacao.toLowerCase() as 'individual' | 'coletiva',
-        pet_nome: ficha.nome_pet?.toUpperCase() || '',
-        pet_especie: ficha.especie.toLowerCase(),
-        pet_raca: ficha.raca || null,
-        pet_genero: ficha.genero ? ficha.genero.toLowerCase() : null,
-        pet_cor: ficha.cor || null,
-        pet_peso: ficha.peso ? parseFloat(ficha.peso) || null : null,
-        pet_idade_anos: ficha.idade ? parseInt(ficha.idade) || null : null,
+        tipo_cremacao: f.cremacao.toLowerCase() as 'individual' | 'coletiva',
+        pet_nome: f.nome_pet?.toUpperCase() || '',
+        pet_especie: f.especie.toLowerCase(),
+        pet_raca: f.raca || null,
+        pet_genero: f.genero ? f.genero.toLowerCase() : null,
+        pet_cor: f.cor || null,
+        pet_peso: f.peso ? parseFloat(f.peso) || null : null,
+        pet_idade_anos: f.idade ? parseInt(f.idade) || null : null,
         tutor_id: tutorId,
-        tutor_nome: ficha.nome_completo?.toUpperCase() || '',
-        tutor_cpf: ficha.cpf,
-        tutor_telefone: ficha.telefone,
-        tutor_email: ficha.email || null,
-        tutor_cidade: ficha.cidade || null,
-        tutor_bairro: ficha.bairro || null,
-        tutor_endereco: ficha.endereco ? `${ficha.endereco}, ${ficha.numero}${ficha.complemento ? ` - ${ficha.complemento}` : ''}` : null,
-        tutor_cep: ficha.cep || null,
+        tutor_nome: f.nome_completo?.toUpperCase() || '',
+        tutor_cpf: f.cpf,
+        tutor_telefone: usarTelefone2ComoPrincipal && telefone2.trim() ? telefone2.replace(/\D/g, '') : f.telefone,
+        tutor_telefone2: telefone2.trim() ? (usarTelefone2ComoPrincipal ? f.telefone : telefone2.replace(/\D/g, '')) : null,
+        tutor_email: f.email || null,
+        tutor_cidade: f.cidade || null,
+        tutor_bairro: f.bairro || null,
+        tutor_endereco: f.endereco ? `${f.endereco}, ${f.numero}${f.complemento ? ` - ${f.complemento}` : ''}` : null,
+        tutor_cep: f.cep || null,
         clinica_coleta: clinicaColetaNome,
         contato_id: resolvedContatoId || null,
         estabelecimento_id: resolvedEstabId || null,
-        funcionario_id: funcionarioId || null,
+        funcionario_id: semResponsavel ? null : (funcionarioId || null),
         fonte_conhecimento_id: fonteConhecimentoId,
-        indicacao_clinica: temPadronizacaoClinicas ? (estabNome.trim() || null) : (indicClinica ? indicClinicaTexto.trim() || null : null),
-        indicacao_contato: temPadronizacaoClinicas ? (indicNome.trim() || null) : (indicVet ? indicVetTexto.trim() || null : null),
+        indicacao_clinica: teveIndicacao ? (temPadronizacaoClinicas ? (estabNome.trim() || null) : (indicHospClinica.trim() || null)) : null,
+        indicacao_contato: teveIndicacao ? (indicNomeQuemIndicou.trim() || null) : null,
         data_contrato: dataContrato,
+        data_acolhimento: semDataHora ? null : (dataHoraAcolhimento ? new Date(dataHoraAcolhimento).toISOString() : null),
         pelinho_quer: true,
         pelinho_feito: false,
         pelinho_quantidade: 1,
-        velorio_deseja: ficha.velorio === 'Sim' ? true : ficha.velorio === 'Não' ? false : null,
-        acompanhamento_online: ficha.acompanhamento?.includes('On-line') || false,
-        acompanhamento_presencial: ficha.acompanhamento?.includes('Presencial') || false,
+        velorio_deseja: f.velorio === 'Sim' ? true : f.velorio === 'Não' ? false : null,
+        acompanhamento_online: f.acompanhamento?.includes('On-line') || false,
+        acompanhamento_presencial: f.acompanhamento?.includes('Presencial') || false,
         valor_plano: valorPlano ? parseFloat(valorPlano) : null,
         desconto_plano: descontoPreVenda ? parseFloat(descontoPreVenda) : 0,
-        local_coleta: localColetaValor,
-        remocao_endereco: localColeta === 'residencia' ? (ficha.endereco ? `${ficha.endereco}, ${ficha.numero}` : null) : localColeta === 'outro' ? enderecoOutro || null : null,
-        remocao_bairro: localColeta === 'residencia' ? ficha.bairro : null,
-        remocao_cidade: localColeta === 'residencia' ? ficha.cidade : null,
-        remocao_cep: localColeta === 'residencia' ? ficha.cep : null,
+        local_coleta: semLocal ? null : localColetaValor,
+        remocao_endereco: semLocal ? null : (localColeta === 'residencia' ? (f.endereco ? `${f.endereco}, ${f.numero}` : null) : localColeta === 'outro' ? enderecoOutro || null : null),
+        remocao_bairro: semLocal ? null : (localColeta === 'residencia' ? f.bairro : null),
+        remocao_cidade: semLocal ? null : (localColeta === 'residencia' ? f.cidade : null),
+        remocao_cep: semLocal ? null : (localColeta === 'residencia' ? f.cep : null),
         numero_lacre: lacre || null,
         observacoes,
+        // Nomes do certificado: tutor principal + outros tutores da ficha (até 6 extras)
+        certificado_nome_1: f.nome_completo || null,
+        ...(f.outros_tutores ? Object.fromEntries(
+          f.outros_tutores.filter(Boolean).slice(0, 6).map((nome, i) => [`certificado_nome_${i + 2}`, nome])
+        ) : {}),
       }
 
       const { data: contrato, error: errContrato } = await supabase
@@ -532,20 +654,117 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* ======== LEFT COLUMN — Ficha summary ======== */}
         <div className="space-y-4">
-          <h3 className="text-sm font-semibold text-[var(--surface-500)] uppercase tracking-wide">Dados da Ficha</h3>
+          <h3 className="text-sm font-semibold text-[var(--surface-500)] uppercase tracking-wide">
+            Dados da Ficha — <span className="text-red-400">Tipo: Emergencial</span>
+          </h3>
 
           {/* Tutor */}
           <div className="p-3 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)] space-y-1.5">
             <div className="flex items-center gap-2 text-sm font-semibold text-[var(--surface-700)] mb-2">
               <User className="h-4 w-4" />Tutor
             </div>
-            <InfoRow label="Nome" value={ficha.nome_completo} />
-            <InfoRow label="CPF" value={ficha.cpf} mono />
-            <InfoRow label="Telefone" value={ficha.telefone} mono />
-            {ficha.email && <InfoRow label="Email" value={ficha.email} />}
-            <InfoRow label="Endereço" value={`${ficha.endereco}, ${ficha.numero}${ficha.complemento ? ` - ${ficha.complemento}` : ''}`} />
-            <InfoRow label="Bairro/Cidade" value={`${ficha.bairro}, ${ficha.cidade} - ${ficha.estado}`} />
-            <InfoRow label="CEP" value={ficha.cep} mono />
+            <InfoRow label="Nome" value={getFichaValue('nome_completo')} editKey="nome_completo" edited={!!fichaEdits.nome_completo} onEdit={startEdit} />
+            <InfoRow label="CPF" value={getFichaValue('cpf')} mono editKey="cpf" edited={!!fichaEdits.cpf} onEdit={startEdit} />
+            <InfoRow label="Telefone" value={getFichaValue('telefone')} mono editKey="telefone" edited={!!fichaEdits.telefone} onEdit={startEdit} />
+
+            {/* Confirmação de telefone pelo operador */}
+            <div className="ml-[78px] space-y-1.5">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={telefoneConfirmado}
+                  onChange={e => setTelefoneConfirmado(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded accent-emerald-500"
+                />
+                <span className={`text-xs ${telefoneConfirmado ? 'text-emerald-400 font-medium' : 'text-[var(--surface-400)]'}`}>
+                  {telefoneConfirmado ? 'Telefone confirmado com o tutor' : 'Confirmar que é o telefone correto'}
+                </span>
+              </label>
+
+              {/* Adicionar telefone 2 */}
+              {!telefone2 ? (
+                <button
+                  type="button"
+                  onClick={() => setTelefone2(' ')}
+                  className="text-[10px] text-purple-400 hover:text-purple-300 flex items-center gap-1"
+                >
+                  <Plus className="h-3 w-3" /> Adicionar telefone secundário
+                </button>
+              ) : (
+                <div className="space-y-1">
+                  <input
+                    type="text"
+                    inputMode="tel"
+                    value={telefone2.trim()}
+                    onChange={e => setTelefone2(e.target.value.replace(/\D/g, '').replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15))}
+                    placeholder="(00) 00000-0000"
+                    maxLength={15}
+                    className="input text-sm text-mono"
+                  />
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={usarTelefone2ComoPrincipal}
+                      onChange={e => setUsarTelefone2ComoPrincipal(e.target.checked)}
+                      className="h-3 w-3 rounded accent-amber-500"
+                    />
+                    <span className="text-[10px] text-amber-400">Usar este como principal (trocar)</span>
+                  </label>
+                </div>
+              )}
+            </div>
+
+            <InfoRow label="Email" value={getFichaValue('email')} editKey="email" edited={!!fichaEdits.email} onEdit={startEdit} />
+            <InfoRow label="Endereço" value={getFichaValue('endereco')} editKey="endereco" edited={!!fichaEdits.endereco} onEdit={startEdit} />
+            <InfoRow label="Número" value={getFichaValue('numero')} editKey="numero" edited={!!fichaEdits.numero} onEdit={startEdit} />
+            <InfoRow label="Bairro" value={getFichaValue('bairro')} editKey="bairro" edited={!!fichaEdits.bairro} onEdit={startEdit} />
+            <InfoRow label="Cidade" value={getFichaValue('cidade')} editKey="cidade" edited={!!fichaEdits.cidade} onEdit={startEdit} />
+            <InfoRow label="CEP" value={getFichaValue('cep')} mono editKey="cep" edited={!!fichaEdits.cep} onEdit={startEdit} />
+            <div className="mt-2 pt-2 border-t border-[var(--surface-200)]">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs text-[var(--surface-400)]">Outros nomes (certificado)</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const atual = fichaEdits.outros_tutores
+                      ? JSON.parse(fichaEdits.outros_tutores) as string[]
+                      : [...(ficha.outros_tutores || [])]
+                    if (atual.length < 6) {
+                      setFichaEdits(prev => ({ ...prev, outros_tutores: JSON.stringify([...atual, '']) }))
+                      // Abrir edição do novo campo
+                      setTimeout(() => startEdit(`outros_tutores_${atual.length}`, ''), 50)
+                    }
+                  }}
+                  className="text-[10px] text-purple-400 hover:text-purple-300 flex items-center gap-0.5"
+                >
+                  <Plus className="h-3 w-3" /> Adicionar
+                </button>
+              </div>
+              {(fichaEdits.outros_tutores
+                ? JSON.parse(fichaEdits.outros_tutores) as string[]
+                : ficha.outros_tutores || []
+              ).map((nome: string, i: number) => (
+                <div key={i} className="flex items-center gap-2 group">
+                  <span className={`text-sm ${fichaEdits.outros_tutores ? 'text-amber-400 font-semibold' : 'text-[var(--surface-700)]'}`}>
+                    {nome || '(vazio)'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingField(`outros_tutores_${i}`)
+                      setEditingValue(nome || '')
+                    }}
+                    className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-[var(--surface-100)] transition-all"
+                    title="Editar nome"
+                  >
+                    <Pencil className="h-3 w-3 text-[var(--surface-400)]" />
+                  </button>
+                </div>
+              ))}
+              {!(fichaEdits.outros_tutores ? JSON.parse(fichaEdits.outros_tutores) : ficha.outros_tutores || []).some(Boolean) && (
+                <span className="text-xs text-[var(--surface-400)] italic">Nenhum outro nome informado</span>
+              )}
+            </div>
           </div>
 
           {/* Pet */}
@@ -553,13 +772,13 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
             <div className="flex items-center gap-2 text-sm font-semibold text-[var(--surface-700)] mb-2">
               <PawPrint className="h-4 w-4" />Pet
             </div>
-            <InfoRow label="Nome" value={ficha.nome_pet} bold />
-            <InfoRow label="Espécie" value={ficha.especie} />
-            {ficha.raca && <InfoRow label="Raça" value={ficha.raca} />}
-            <InfoRow label="Gênero" value={ficha.genero} />
-            <InfoRow label="Cor" value={ficha.cor} />
-            {ficha.peso && <InfoRow label="Peso" value={`${ficha.peso} kg`} />}
-            {ficha.idade && <InfoRow label="Idade" value={ficha.idade} />}
+            <InfoRow label="Nome" value={getFichaValue('nome_pet')} bold editKey="nome_pet" edited={!!fichaEdits.nome_pet} onEdit={startEdit} />
+            <InfoRow label="Espécie" value={getFichaValue('especie')} editKey="especie" edited={!!fichaEdits.especie} onEdit={startEdit} />
+            <InfoRow label="Raça" value={getFichaValue('raca')} editKey="raca" edited={!!fichaEdits.raca} onEdit={startEdit} />
+            <InfoRow label="Gênero" value={getFichaValue('genero')} editKey="genero" edited={!!fichaEdits.genero} onEdit={startEdit} />
+            <InfoRow label="Cor" value={getFichaValue('cor')} editKey="cor" edited={!!fichaEdits.cor} onEdit={startEdit} />
+            <InfoRow label="Peso" value={getFichaValue('peso')} editKey="peso" edited={!!fichaEdits.peso} onEdit={startEdit} />
+            <InfoRow label="Idade" value={getFichaValue('idade')} editKey="idade" edited={!!fichaEdits.idade} onEdit={startEdit} />
           </div>
 
           {/* Servico */}
@@ -567,23 +786,25 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
             <div className="flex items-center gap-2 text-sm font-semibold text-[var(--surface-700)] mb-2">
               <Flame className="h-4 w-4" />Serviço
             </div>
-            <InfoRow label="Cremação" value={ficha.cremacao} />
-            {ficha.valor != null && <InfoRow label="Valor" value={`R$ ${ficha.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`} mono bold />}
-            <InfoRow label="Pagamento" value={`${ficha.pagamento}${ficha.parcelas ? ` (${ficha.parcelas})` : ''}`} />
-            <InfoRow label="Velório" value={ficha.velorio} />
-            <InfoRow label="Acompanhamento" value={ficha.acompanhamento} />
-            <InfoRow label="Local" value={ficha.localizacao} />
-            {ficha.localizacao_outra && <InfoRow label="Local (outro)" value={ficha.localizacao_outra} />}
+            <InfoRow label="Cremação" value={getFichaValue('cremacao')} editKey="cremacao" edited={!!fichaEdits.cremacao} onEdit={startEdit} />
+            <InfoRow label="Pagamento" value={getFichaValue('pagamento')} editKey="pagamento" edited={!!fichaEdits.pagamento} onEdit={startEdit} />
+            <InfoRow label="Velório" value={getFichaValue('velorio')} editKey="velorio" edited={!!fichaEdits.velorio} onEdit={startEdit} />
+            <InfoRow label="Acompanhamento" value={getFichaValue('acompanhamento')} editKey="acompanhamento" edited={!!fichaEdits.acompanhamento} onEdit={startEdit} />
+            <InfoRow label="Local" value={getFichaValue('localizacao')} editKey="localizacao" edited={!!fichaEdits.localizacao} onEdit={startEdit} />
+            {ficha.localizacao_outra && <InfoRow label="Local (outro)" value={getFichaValue('localizacao_outra')} editKey="localizacao_outra" edited={!!fichaEdits.localizacao_outra} onEdit={startEdit} />}
           </div>
 
           {/* Extras */}
-          {(ficha.como_conheceu || ficha.veterinario_especificar || ficha.observacoes) && (
+          {(ficha.como_conheceu || ficha.veterinario_especificar || ficha.outro_especificar || ficha.observacoes) && (
             <div className="p-3 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)] space-y-1.5">
               {ficha.como_conheceu && ficha.como_conheceu.length > 0 && (
                 <InfoRow label="Como conheceu" value={ficha.como_conheceu.join(', ')} />
               )}
               {ficha.veterinario_especificar && (
                 <InfoRow label="Vet/Clínica" value={ficha.veterinario_especificar} />
+              )}
+              {ficha.outro_especificar && (
+                <InfoRow label="Outro (indicação)" value={ficha.outro_especificar} />
               )}
               {ficha.observacoes && (
                 <div>
@@ -598,440 +819,421 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
         {/* ======== RIGHT COLUMN — Operator fields ======== */}
         <div className="space-y-4">
           <h3 className="text-sm font-semibold text-[var(--surface-500)] uppercase tracking-wide">Dados do Operador</h3>
+          <p className="text-[10px] font-bold text-[var(--surface-400)] uppercase tracking-widest">Padronização de Dados</p>
 
-          {/* Tipo Plano — fixo emergencial (ficha de entrada = EM) */}
-          <div className="px-3 py-2 rounded-lg border-2 border-red-500 bg-red-900/30">
-            <span className="text-sm font-semibold text-red-400">EM - Emergencial</span>
+          {/* ═══════ BLOCO: ACOLHIMENTO ═══════ */}
+          <div className="p-3 rounded-xl border border-[var(--surface-200)] space-y-3">
+            <h4 className="text-xs font-bold text-[var(--surface-600)] uppercase tracking-wider">Acolhimento</h4>
+
+            {/* Local de Acolhimento */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-medium text-[var(--surface-600)]">Local de Acolhimento</label>
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input type="checkbox" checked={semLocal} onChange={e => { setSemLocal(e.target.checked); if (e.target.checked) setLocalColeta('') }} className="h-3 w-3 rounded accent-amber-500" />
+                  <span className="text-[10px] text-amber-500">Sem local provisoriamente</span>
+                </label>
+              </div>
+
+              {semLocal ? (
+                <div className="px-3 py-2 rounded-lg bg-amber-900/10 border border-amber-500/30 text-xs text-amber-400">
+                  A definir — preencher depois no contrato
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {[
+                      { key: 'residencia', label: 'Residência' },
+                      { key: 'clinica', label: 'Clínica / Hospital' },
+                      { key: 'unidade', label: 'Unidade RIP PET' },
+                      { key: 'outro', label: 'Outro endereço' },
+                    ].map(opt => (
+                      <button key={opt.key} type="button" onClick={() => setLocalColeta(opt.key as typeof localColeta)}
+                        className={`py-2 px-3 rounded-lg text-xs font-medium border-2 transition-all ${localColeta === opt.key ? 'border-purple-500 bg-purple-500/10 text-purple-400' : 'border-[var(--surface-200)] text-[var(--surface-500)] hover:border-[var(--surface-300)]'}`}
+                      >{opt.label}</button>
+                    ))}
+                  </div>
+
+                  {/* Residência / Unidade: auto-padronizado */}
+                  {localColeta === 'residencia' && ficha && (
+                    <p className="mt-2 text-xs text-green-400 bg-green-900/10 rounded-lg px-3 py-2">
+                      Endereço do tutor (padronizado automaticamente)
+                    </p>
+                  )}
+                  {localColeta === 'unidade' && (
+                    <p className="mt-2 text-xs text-green-400 bg-green-900/10 rounded-lg px-3 py-2">
+                      Endereço da unidade (padronizado automaticamente)
+                    </p>
+                  )}
+
+                  {/* Clínica: precisa padronizar */}
+                  {localColeta === 'clinica' && (
+                    <div className="mt-2 space-y-2">
+                      {ficha.localizacao_outra && (
+                        <div className="px-3 py-2 rounded-lg bg-purple-900/20 border border-purple-700 text-xs">
+                          <span className="text-purple-400 font-medium">Tutor marcou &quot;Clínica / Hospital&quot; e escreveu:</span>{' '}
+                          <span className="text-purple-300">&quot;{ficha.localizacao_outra}&quot;</span>
+                          <p className="text-purple-400/70 mt-1">Padronize abaixo somente com o nome da Clínica / Hospital</p>
+                        </div>
+                      )}
+                      {temPadronizacaoClinicas ? (
+                        /* COM PADRONIZAÇÃO — Autocomplete */
+                        <div ref={estabRef} className="relative">
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-xs font-medium text-[var(--surface-500)]">Estabelecimento</label>
+                            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                              <input type="checkbox" checked={autonomo} onChange={e => { setAutonomo(e.target.checked); if (e.target.checked) { setEstabId(null); setEstabNome(''); setEstabBusca('') } }} className="h-3 w-3 rounded accent-blue-500" />
+                              <span className="text-[10px] text-blue-400">Autônomo</span>
+                            </label>
+                          </div>
+                          {autonomo ? (
+                            <div className="px-3 py-2 rounded-lg border-2 border-dashed border-blue-500/30 bg-blue-900/10 text-xs text-blue-400">Profissional autônomo (sem vínculo)</div>
+                          ) : (
+                            <>
+                              <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--surface-400)]" />
+                                <input type="text" value={estabBusca} onChange={e => { setEstabBusca(e.target.value); setEstabNome(e.target.value); setEstabId(null); setEstabAberto(true) }} onFocus={() => setEstabAberto(true)} placeholder="Buscar clínica..." className="input pl-9 pr-3 text-sm" />
+                              </div>
+                              {estabAberto && (estabsFiltrados.length > 0 || estabBusca.trim()) && (
+                                <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-[var(--surface-0)] border border-[var(--surface-200)] rounded-lg shadow-lg">
+                                  {estabsFiltrados.map(e => (
+                                    <button key={e.id} type="button" onClick={() => { setEstabId(e.id); setEstabNome(e.nome); setEstabBusca(e.nome); setEstabAberto(false) }}
+                                      className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-50)] transition-colors flex items-center justify-between ${estabId === e.id ? 'bg-[var(--surface-50)] font-medium text-[var(--surface-800)]' : 'text-[var(--surface-600)]'}`}>
+                                      <span>{e.nome}</span>
+                                      {e.tipo && <span className="text-xs text-[var(--surface-400)]">{e.tipo}</span>}
+                                    </button>
+                                  ))}
+                                  {estabBusca.trim() && !estabsFiltrados.some(e => e.nome.toLowerCase() === estabBusca.toLowerCase()) && (
+                                    <button type="button" onClick={() => { setEstabId(null); setEstabNome(estabBusca.trim()); setEstabAberto(false) }}
+                                      className="w-full text-left px-3 py-2 text-sm text-amber-500 hover:bg-amber-900/10 flex items-center gap-2 border-t border-[var(--surface-100)]">
+                                      <Plus className="h-3.5 w-3.5" />Criar &quot;{estabBusca.trim()}&quot;
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                              {estabId && <p className="mt-1 text-xs text-green-500 flex items-center gap-1"><Check className="h-3 w-3" />Selecionado</p>}
+                              {!estabId && estabNome.trim() && !estabAberto && <p className="mt-1 text-xs text-amber-500">Novo estabelecimento será criado</p>}
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        /* SEM PADRONIZAÇÃO — Campo texto livre */
+                        <div>
+                          <input type="text" value={clinicaTextoLivre} onChange={e => setClinicaTextoLivre(e.target.value)} placeholder="Nome da clínica ou hospital" className="input text-sm" />
+                          <p className="mt-1 text-[10px] text-[var(--surface-400)]">Mantenha sempre o mesmo padrão de escrita</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Outro endereço: precisa padronizar */}
+                  {localColeta === 'outro' && (
+                    <div className="mt-2 space-y-2">
+                      {ficha.localizacao_outra && (
+                        <div className="px-3 py-2 rounded-lg bg-purple-900/20 border border-purple-700 text-xs">
+                          <span className="text-purple-400 font-medium">Tutor marcou &quot;Outro endereço&quot; e escreveu:</span>{' '}
+                          <span className="text-purple-300">&quot;{ficha.localizacao_outra}&quot;</span>
+                          <p className="text-purple-400/70 mt-1">Padronize abaixo com o endereço completo</p>
+                        </div>
+                      )}
+                      <input type="text" value={enderecoOutro} onChange={e => setEnderecoOutro(e.target.value)} placeholder="Endereço completo" className="input text-sm" />
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Responsável pelo Acolhimento */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-medium text-[var(--surface-600)]">Responsável pelo Acolhimento</label>
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input type="checkbox" checked={semResponsavel} onChange={e => { setSemResponsavel(e.target.checked); if (e.target.checked) setFuncionarioId('') }} className="h-3 w-3 rounded accent-amber-500" />
+                  <span className="text-[10px] text-amber-500">Sem responsável provisoriamente</span>
+                </label>
+              </div>
+              {semResponsavel ? (
+                <div className="px-3 py-2 rounded-lg bg-amber-900/10 border border-amber-500/30 text-xs text-amber-400">A definir</div>
+              ) : (
+                <select value={funcionarioId} onChange={e => setFuncionarioId(e.target.value)} className="input text-sm">
+                  <option value="">Selecione...</option>
+                  {funcionarios.map(f => (<option key={f.id} value={f.id}>{f.nome}</option>))}
+                </select>
+              )}
+            </div>
+
+            {/* Data e Hora do Acolhimento */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-medium text-[var(--surface-600)]">Data e Hora do Acolhimento</label>
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input type="checkbox" checked={semDataHora} onChange={e => { setSemDataHora(e.target.checked); if (e.target.checked) setDataHoraAcolhimento('') }} className="h-3 w-3 rounded accent-amber-500" />
+                  <span className="text-[10px] text-amber-500">Sem data/hora provisoriamente</span>
+                </label>
+              </div>
+              {semDataHora ? (
+                <div className="px-3 py-2 rounded-lg bg-amber-900/10 border border-amber-500/30 text-xs text-amber-400">A definir</div>
+              ) : (
+                <input type="datetime-local" value={dataHoraAcolhimento} onChange={e => setDataHoraAcolhimento(e.target.value)} className="input text-sm" />
+              )}
+            </div>
+
+            {/* Lacre */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-medium text-[var(--surface-600)]">Número do Lacre</label>
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input type="checkbox" checked={semLacre} onChange={e => { setSemLacre(e.target.checked); if (e.target.checked) setLacre('') }} className="h-3 w-3 rounded accent-amber-500" />
+                  <span className="text-[10px] text-amber-500">Sem lacre provisoriamente</span>
+                </label>
+              </div>
+              {semLacre ? (
+                <div className="px-3 py-2 rounded-lg bg-amber-900/10 border border-amber-500/30 text-xs text-amber-400">A definir — preencher depois no contrato</div>
+              ) : (
+                <input type="text" value={lacre} onChange={e => setLacre(e.target.value)} placeholder="Número do lacre" className="input text-sm" />
+              )}
+            </div>
           </div>
 
-          {/* === Origem da Indicação === */}
-          {ficha.veterinario_especificar && (
-            <div className="px-3 py-2 rounded-lg bg-purple-900/20 border border-purple-700 text-sm">
-              <span className="text-purple-400 font-medium">Tutor informou:</span>{' '}
-              <span className="text-purple-300">&quot;{ficha.veterinario_especificar}&quot;</span>
-            </div>
-          )}
-
-          {/* Local de Coleta */}
-          <div>
-            <label className="block text-sm font-medium text-[var(--surface-600)] mb-1">
-              <Building2 className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
-              Local de Acolhimento
-            </label>
-            <div className="grid grid-cols-2 gap-1.5">
-              {[
-                { key: 'residencia', label: 'Residência' },
-                { key: 'clinica', label: 'Clínica / Hospital' },
-                { key: 'unidade', label: 'Unidade RIP PET' },
-                { key: 'outro', label: 'Outro endereço' },
-              ].map(opt => (
-                <button
-                  key={opt.key}
-                  type="button"
-                  onClick={() => setLocalColeta(opt.key as typeof localColeta)}
-                  className={`py-2 px-3 rounded-lg text-xs font-medium border-2 transition-all ${
-                    localColeta === opt.key
-                      ? 'border-purple-500 bg-purple-500/10 text-purple-400'
-                      : 'border-[var(--surface-200)] text-[var(--surface-500)] hover:border-[var(--surface-300)]'
-                  }`}
-                >
-                  {opt.label}
+          {/* ═══════ BLOCO: INDICAÇÃO ═══════ */}
+          <div className="p-3 rounded-xl border border-[var(--surface-200)] space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-bold text-[var(--surface-600)] uppercase tracking-wider">Indicação</h4>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <span className="text-[10px] text-[var(--surface-400)]">{teveIndicacao ? 'Sim' : 'Não'}</span>
+                <button type="button" onClick={() => setTeveIndicacao(!teveIndicacao)}
+                  className={`relative w-8 h-4.5 rounded-full transition-colors ${teveIndicacao ? 'bg-purple-500' : 'bg-[var(--surface-300)]'}`}
+                  style={{ height: 18 }}>
+                  <span className={`absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white transition-transform ${teveIndicacao ? 'translate-x-4' : 'translate-x-0.5'}`} style={{ width: 14, height: 14 }} />
                 </button>
-              ))}
-            </div>
-
-            {/* Endereço baseado na seleção */}
-            {localColeta === 'residencia' && ficha && (
-              <p className="mt-2 text-xs text-[var(--surface-500)] bg-[var(--surface-50)] rounded-lg px-3 py-2">
-                📍 {ficha.endereco}, {ficha.numero}{ficha.complemento ? ` - ${ficha.complemento}` : ''} — {ficha.bairro}, {ficha.cidade}/{ficha.estado}
-              </p>
-            )}
-
-            {localColeta === 'unidade' && (
-              <p className="mt-2 text-xs text-[var(--surface-500)] bg-[var(--surface-50)] rounded-lg px-3 py-2">
-                📍 Endereço da unidade
-              </p>
-            )}
-
-            {localColeta === 'outro' && (
-              <input
-                type="text"
-                value={enderecoOutro}
-                onChange={(e) => setEnderecoOutro(e.target.value)}
-                placeholder="Endereço completo (parente, amigo, etc.)"
-                className="input mt-2"
-              />
-            )}
-          </div>
-
-          {/* Clínica/Estabelecimento — só aparece quando local = clinica */}
-          {localColeta === 'clinica' && temPadronizacaoClinicas ? (
-          /* === COM PADRONIZAÇÃO — Autocomplete === */
-          <div ref={estabRef} className="relative">
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-sm font-medium text-[var(--surface-600)]">
-                Estabelecimento
-              </label>
-              <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={autonomo}
-                  onChange={(e) => {
-                    setAutonomo(e.target.checked)
-                    if (e.target.checked) {
-                      setEstabId(null)
-                      setEstabNome('')
-                      setEstabBusca('')
-                    }
-                  }}
-                  className="h-3.5 w-3.5 rounded accent-blue-500"
-                />
-                <span className="text-xs text-blue-400">Autônomo</span>
               </label>
             </div>
-            {autonomo ? (
-              <div className="px-3 py-2.5 rounded-lg border-2 border-dashed border-blue-500/30 bg-blue-900/10 text-sm text-blue-400">
-                Profissional autônomo (sem vínculo com estabelecimento)
-              </div>
-            ) : (
-            <>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--surface-400)]" />
-              <input
-                type="text"
-                value={estabBusca}
-                onChange={(e) => {
-                  setEstabBusca(e.target.value)
-                  setEstabNome(e.target.value)
-                  setEstabId(null)
-                  setEstabAberto(true)
-                }}
-                onFocus={() => setEstabAberto(true)}
-                placeholder="Buscar clínica..."
-                className="input pl-9 pr-3"
-              />
-            </div>
 
-            {estabAberto && (estabsFiltrados.length > 0 || estabBusca.trim()) && (
-              <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-[var(--surface-0)] border border-[var(--surface-200)] rounded-lg shadow-lg">
-                {estabsFiltrados.map(e => (
-                  <button
-                    key={e.id}
-                    type="button"
-                    onClick={() => {
-                      setEstabId(e.id)
-                      setEstabNome(e.nome)
-                      setEstabBusca(e.nome)
-                      setEstabAberto(false)
-                    }}
-                    className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-50)] transition-colors flex items-center justify-between ${
-                      estabId === e.id ? 'bg-[var(--surface-50)] font-medium text-[var(--surface-800)]' : 'text-[var(--surface-600)]'
-                    }`}
-                  >
-                    <span>{e.nome}</span>
-                    {e.tipo && <span className="text-xs text-[var(--surface-400)]">{e.tipo}</span>}
-                  </button>
-                ))}
-                {estabBusca.trim() && !estabsFiltrados.some(e => e.nome.toLowerCase() === estabBusca.toLowerCase()) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEstabId(null)
-                      setEstabNome(estabBusca.trim())
-                      setEstabAberto(false)
-                    }}
-                    className="w-full text-left px-3 py-2 text-sm text-amber-500 hover:bg-amber-900/10 flex items-center gap-2 border-t border-[var(--surface-100)]"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    Criar &quot;{estabBusca.trim()}&quot;
-                  </button>
-                )}
+            {/* Contexto: o que o tutor informou */}
+            {mostrarIndicacao && (ficha.como_conheceu || ficha.veterinario_especificar || ficha.outro_especificar) && (
+              <div className="px-3 py-2 rounded-lg bg-purple-900/20 border border-purple-700 text-xs">
+                <span className="text-purple-400 font-medium">Tutor informou:</span>{' '}
+                <span className="text-purple-300">
+                  &quot;{ficha.veterinario_especificar || ficha.outro_especificar || (ficha.como_conheceu || []).join(', ')}&quot;
+                </span>
               </div>
             )}
-            {estabId && <p className="mt-1 text-xs text-green-500 flex items-center gap-1"><Check className="h-3 w-3" />Estabelecimento selecionado</p>}
-            {!estabId && estabNome.trim() && !estabAberto && <p className="mt-1 text-xs text-amber-500">Novo estabelecimento será criado</p>}
-            </>
-            )}
-          </div>
-          ) : localColeta === 'clinica' ? (
-          /* === SEM PADRONIZAÇÃO — Campo texto livre === */
-          <div>
-            <label className="block text-sm font-medium text-[var(--surface-600)] mb-1">
-              Nome da Clínica / Hospital
-            </label>
-            <input
-              type="text"
-              value={clinicaTextoLivre}
-              onChange={(e) => setClinicaTextoLivre(e.target.value)}
-              placeholder="Nome da clínica, hospital ou veterinário"
-              className="input"
-            />
-            <p className="mt-1 text-[10px] text-[var(--surface-400)]">Mantenha sempre o mesmo padrão de escrita</p>
-          </div>
-          ) : null}
 
-          {/* Contato (pessoa que indicou) — só com padronização */}
-          {temPadronizacaoClinicas && (
-          <div ref={indicRef} className="relative">
-            <label className="block text-sm font-medium text-[var(--surface-600)] mb-1">
-              <UserCheck className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
-              Contato (quem indicou)
-            </label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--surface-400)]" />
-              <input
-                type="text"
-                value={indicBusca}
-                onChange={(e) => {
-                  setIndicBusca(e.target.value)
-                  setIndicNome(e.target.value)
-                  setIndicId(null)
-                  setIndicAberto(true)
-                }}
-                onFocus={() => setIndicAberto(true)}
-                placeholder={estabId ? 'Buscar contato da clínica...' : 'Nome do indicador (vet, recepcionista)...'}
-                className="input pl-9 pr-3"
-              />
-            </div>
+            {teveIndicacao && (
+              <div className="space-y-3">
+                {/* Nome de quem indicou */}
+                <div>
+                  <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Nome de quem indicou</label>
+                  {temPadronizacaoClinicas ? (
+                    <div ref={indicRef} className="relative">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--surface-400)]" />
+                        <input type="text" value={indicBusca} onChange={e => { setIndicBusca(e.target.value); setIndicNome(e.target.value); setIndicNomeQuemIndicou(e.target.value); setIndicId(null); setIndicAberto(true) }} onFocus={() => setIndicAberto(true)} placeholder="ex: Dra. Maria ou Recep. João" className="input pl-9 text-sm" />
+                      </div>
+                      {indicAberto && (contatosFiltrados.length > 0 || indicBusca.trim()) && (
+                        <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-[var(--surface-0)] border border-[var(--surface-200)] rounded-lg shadow-lg">
+                          {contatosFiltrados.map(c => (
+                            <button key={c.id} type="button" onClick={() => { setIndicId(c.id); setIndicNome(c.nome); setIndicBusca(c.nome); setIndicNomeQuemIndicou(c.nome); setIndicCargo(c.cargo || ''); setIndicAberto(false) }}
+                              className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-50)] transition-colors flex items-center justify-between ${indicId === c.id ? 'bg-[var(--surface-50)] font-medium' : 'text-[var(--surface-600)]'}`}>
+                              <span>{c.nome}</span>
+                              {c.cargo && <span className="text-xs text-[var(--surface-400)]">{c.cargo}</span>}
+                            </button>
+                          ))}
+                          {indicBusca.trim() && !contatosFiltrados.some(c => c.nome.toLowerCase() === indicBusca.toLowerCase()) && (
+                            <button type="button" onClick={() => { setIndicId(null); setIndicNome(indicBusca.trim()); setIndicNomeQuemIndicou(indicBusca.trim()); setIndicAberto(false) }}
+                              className="w-full text-left px-3 py-2 text-sm text-amber-500 hover:bg-amber-900/10 flex items-center gap-2 border-t border-[var(--surface-100)]">
+                              <Plus className="h-3.5 w-3.5" />Criar &quot;{indicBusca.trim()}&quot;
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {indicId && <p className="mt-1 text-xs text-green-500 flex items-center gap-1"><Check className="h-3 w-3" />Selecionado</p>}
+                      {!indicId && indicNome.trim() && !indicAberto && (
+                        <>
+                          <p className="mt-1 text-xs text-amber-500">Novo contato será criado</p>
+                          <input type="text" value={indicCargo} onChange={e => setIndicCargo(e.target.value)} placeholder="Cargo (ex: Veterinária, Recepcionista)..." className="input mt-1 text-sm" />
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <input type="text" value={indicNomeQuemIndicou} onChange={e => setIndicNomeQuemIndicou(e.target.value)} placeholder="ex: Dra. Maria ou Recep. João" className="input text-sm" />
+                  )}
+                </div>
 
-            {indicAberto && (contatosFiltrados.length > 0 || indicBusca.trim()) && (
-              <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-[var(--surface-0)] border border-[var(--surface-200)] rounded-lg shadow-lg">
-                {contatosFiltrados.map(c => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => {
-                      setIndicId(c.id)
-                      setIndicNome(c.nome)
-                      setIndicBusca(c.nome)
-                      setIndicCargo(c.cargo || '')
-                      setIndicAberto(false)
-                    }}
-                    className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-50)] transition-colors flex items-center justify-between ${
-                      indicId === c.id ? 'bg-[var(--surface-50)] font-medium text-[var(--surface-800)]' : 'text-[var(--surface-600)]'
-                    }`}
-                  >
-                    <span>{c.nome}</span>
-                    {c.cargo && <span className="text-xs text-[var(--surface-400)]">{c.cargo}</span>}
-                  </button>
-                ))}
-                {indicBusca.trim() && !contatosFiltrados.some(c => c.nome.toLowerCase() === indicBusca.toLowerCase()) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIndicId(null)
-                      setIndicNome(indicBusca.trim())
-                      setIndicAberto(false)
-                    }}
-                    className="w-full text-left px-3 py-2 text-sm text-amber-500 hover:bg-amber-900/10 flex items-center gap-2 border-t border-[var(--surface-100)]"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    Criar contato &quot;{indicBusca.trim()}&quot;
-                    {estabId && <span className="text-xs text-[var(--surface-400)]">vinculado à clínica</span>}
-                  </button>
-                )}
+                {/* Hospital / Clínica */}
+                <div>
+                  <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Hospital / Clínica</label>
+                  {temPadronizacaoClinicas ? (
+                    <div>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--surface-400)]" />
+                        <input type="text" value={estabBusca} onChange={e => { setEstabBusca(e.target.value); setEstabNome(e.target.value); setEstabId(null); setEstabAberto(true) }} onFocus={() => setEstabAberto(true)} placeholder="Buscar clínica..." className="input pl-9 text-sm" />
+                      </div>
+                      {estabId && <p className="mt-1 text-xs text-green-500 flex items-center gap-1"><Check className="h-3 w-3" />Selecionado: {estabNome}</p>}
+                    </div>
+                  ) : (
+                    <input type="text" value={indicHospClinica} onChange={e => setIndicHospClinica(e.target.value)} placeholder="Nome do hospital ou clínica" className="input text-sm" />
+                  )}
+                </div>
               </div>
             )}
-            {indicId && <p className="mt-1 text-xs text-green-500 flex items-center gap-1"><Check className="h-3 w-3" />Contato selecionado</p>}
-            {!indicId && indicNome.trim() && !indicAberto && (
-              <p className="mt-1 text-xs text-amber-500">
-                Novo contato será criado{estabId ? ' e vinculado à clínica' : ' (autônomo)'}
-              </p>
-            )}
-
-            {/* Cargo field when creating new contact */}
-            {!indicId && indicNome.trim() && !indicAberto && (
-              <input
-                type="text"
-                value={indicCargo}
-                onChange={(e) => setIndicCargo(e.target.value)}
-                placeholder="Cargo (ex: Veterinária, Recepcionista)..."
-                className="input mt-2 text-sm"
-              />
-            )}
-          </div>
-          )}
-
-          {/* Indicação — quem encaminhou o tutor */}
-          {!temPadronizacaoClinicas && (
-          <div>
-            <label className="block text-sm font-medium text-[var(--surface-600)] mb-2">
-              Indicação
-            </label>
-            <div className="space-y-2">
-              {/* Checkbox Hospital/Clínica */}
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={indicClinica}
-                  onChange={e => setIndicClinica(e.target.checked)}
-                  className="h-3.5 w-3.5 rounded accent-purple-500"
-                />
-                <span className="text-xs text-[var(--surface-500)]">Hospital / Clínica</span>
-              </label>
-              {indicClinica && (
-                <input
-                  type="text"
-                  value={indicClinicaTexto}
-                  onChange={e => setIndicClinicaTexto(e.target.value)}
-                  placeholder="Nome do hospital ou clínica"
-                  className="input text-sm"
-                />
-              )}
-
-              {/* Checkbox Veterinário */}
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={indicVet}
-                  onChange={e => setIndicVet(e.target.checked)}
-                  className="h-3.5 w-3.5 rounded accent-purple-500"
-                />
-                <span className="text-xs text-[var(--surface-500)]">Veterinário(a)</span>
-              </label>
-              {indicVet && (
-                <input
-                  type="text"
-                  value={indicVetTexto}
-                  onChange={e => setIndicVetTexto(e.target.value)}
-                  placeholder="Nome do(a) veterinário(a)"
-                  className="input text-sm"
-                />
-              )}
-
-              <p className="text-[10px] text-[var(--surface-400)]">Mantenha sempre o mesmo padrão de escrita</p>
-            </div>
-          </div>
-          )}
-
-          {/* Responsavel */}
-          <div>
-            <label className="block text-sm font-medium text-[var(--surface-600)] mb-1">Responsável</label>
-            <select
-              value={funcionarioId}
-              onChange={(e) => setFuncionarioId(e.target.value)}
-              className="input"
-            >
-              <option value="">Não definido</option>
-              {funcionarios.map(f => (
-                <option key={f.id} value={f.id}>{f.nome}</option>
-              ))}
-            </select>
           </div>
 
-          {/* Codigo */}
+          {/* ═══════ CAMPOS FINAIS ═══════ */}
+
+          {/* Código */}
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="text-sm font-medium text-[var(--surface-600)]">
-                Código <span className="text-red-400">*</span>
-              </label>
-              <button
-                type="button"
-                onClick={() => setCodigoManual(!codigoManual)}
-                className="text-xs text-[var(--surface-400)] hover:text-[var(--surface-600)] flex items-center gap-1"
-              >
-                <Pencil className="h-3 w-3" />
-                {codigoManual ? 'Auto-gerar' : 'Editar'}
+              <label className="text-xs font-medium text-[var(--surface-600)]">Código <span className="text-red-400">*</span></label>
+              <button type="button" onClick={() => setCodigoManual(!codigoManual)} className="text-[10px] text-[var(--surface-400)] hover:text-[var(--surface-600)] flex items-center gap-1">
+                <Pencil className="h-3 w-3" />{codigoManual ? 'Auto-gerar' : 'Editar'}
               </button>
             </div>
-            <input
-              type="text"
-              value={codigo}
-              onChange={(e) => setCodigo(e.target.value)}
-              readOnly={!codigoManual}
-              className={`input text-mono ${!codigoManual ? 'bg-[var(--surface-50)]' : ''}`}
-            />
+            <input type="text" value={codigo} onChange={e => setCodigo(e.target.value)} readOnly={!codigoManual} className={`input text-mono text-sm ${!codigoManual ? 'bg-[var(--surface-50)]' : ''}`} />
           </div>
 
-          {/* Valor + Desconto Pré-Venda */}
+          {/* Valor + Desconto */}
           <div>
-            <label className="block text-sm font-medium text-[var(--surface-600)] mb-1">
-              Valor do Plano (R$)
-            </label>
+            <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Valor do Plano (R$)</label>
             <div className="flex items-center gap-2">
-              <input
-                type="text"
-                inputMode="decimal"
-                value={valorPlano}
-                onChange={(e) => {
-                  const v = e.target.value.replace(/[^\d.,]/g, '').replace(',', '.')
-                  setValorPlano(v)
-                }}
-                placeholder="0.00"
-                className="input text-mono flex-1"
-              />
+              <input type="text" inputMode="decimal" value={valorPlano} onChange={e => setValorPlano(e.target.value.replace(/[^\d.,]/g, '').replace(',', '.'))} placeholder="0.00" className="input text-mono text-sm flex-1" />
               <span className="text-[var(--surface-400)] text-sm">−</span>
-              <div className="relative">
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={descontoPreVenda}
-                  onChange={(e) => {
-                    const v = e.target.value.replace(/[^\d.,]/g, '').replace(',', '.')
-                    setDescontoPreVenda(v)
-                  }}
-                  placeholder="Desconto"
-                  className="input text-mono w-24"
-                />
-              </div>
+              <input type="text" inputMode="decimal" value={descontoPreVenda} onChange={e => setDescontoPreVenda(e.target.value.replace(/[^\d.,]/g, '').replace(',', '.'))} placeholder="Desc." className="input text-mono text-sm w-20" />
               <span className="text-[var(--surface-400)] text-sm">=</span>
-              <span className="text-sm font-bold text-emerald-400 min-w-[70px] text-right">
-                {(() => {
-                  const v = parseFloat(valorPlano) || 0
-                  const d = parseFloat(descontoPreVenda) || 0
-                  const total = Math.max(v - d, 0)
-                  return total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-                })()}
+              <span className="text-sm font-bold text-emerald-400 min-w-[60px] text-right">
+                {(() => { const v = parseFloat(valorPlano) || 0; const d = parseFloat(descontoPreVenda) || 0; return Math.max(v - d, 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) })()}
               </span>
             </div>
           </div>
 
-          {/* Lacre */}
+          {/* Data do contrato */}
           <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-sm font-medium text-[var(--surface-600)]">
-                Numero do Lacre <span className="text-red-400">*</span>
-              </label>
-              <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={semLacre}
-                  onChange={(e) => {
-                    setSemLacre(e.target.checked)
-                    if (e.target.checked) setLacre('')
-                  }}
-                  className="h-3.5 w-3.5 rounded accent-amber-500"
-                />
-                <span className="text-xs text-amber-500">Sem lacre provisoriamente</span>
-              </label>
-            </div>
-            <input
-              type="text"
-              value={lacre}
-              onChange={(e) => setLacre(e.target.value)}
-              disabled={semLacre}
-              placeholder={semLacre ? 'Será preenchido depois...' : 'Número do lacre'}
-              className={`input ${semLacre ? 'opacity-50 bg-[var(--surface-50)]' : ''}`}
-            />
-            {semLacre && (
-              <p className="mt-1 text-xs text-amber-500">Lacre pendente — preencher depois no contrato</p>
-            )}
-          </div>
-
-          {/* Data */}
-          <div>
-            <label className="block text-sm font-medium text-[var(--surface-600)] mb-1">
-              Data do contrato <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="date"
-              value={dataContrato}
-              onChange={(e) => setDataContrato(e.target.value)}
-              className="input"
-            />
+            <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Data do contrato <span className="text-red-400">*</span></label>
+            <input type="date" value={dataContrato} onChange={e => setDataContrato(e.target.value)} className="input text-sm" />
           </div>
         </div>
       </div>
+      {/* Mini-modal de edição de campo */}
+      {editingField && (() => {
+        // Labels legíveis com acentuação correta
+        const FIELD_LABELS: Record<string, string> = {
+          nome_completo: 'Nome completo', cpf: 'CPF', telefone: 'Telefone', email: 'E-mail',
+          endereco: 'Endereço', numero: 'Número', bairro: 'Bairro', cidade: 'Cidade', cep: 'CEP',
+          nome_pet: 'Nome do pet', especie: 'Espécie', raca: 'Raça', genero: 'Gênero',
+          cor: 'Cor', peso: 'Peso', idade: 'Idade',
+          cremacao: 'Cremação', pagamento: 'Pagamento', velorio: 'Velório',
+          acompanhamento: 'Acompanhamento', localizacao: 'Localização', localizacao_outra: 'Local (outro)',
+        }
+
+        // Campos com opções fixas (não texto livre)
+        const FIELD_OPTIONS: Record<string, string[]> = {
+          cremacao: ['Individual', 'Coletiva'],
+          velorio: ['Sim', 'Não', 'A decidir'],
+          especie: ['Canina', 'Felina', 'Exótica'],
+          genero: ['Macho', 'Fêmea'],
+          acompanhamento: ['Presencial', 'On-line', 'Gravado', 'Não deseja'],
+          pagamento: ['Pix', 'Dinheiro', 'Cartão Débito', 'Cartão Crédito'],
+          localizacao: ['Residência', 'Hospital / Clínica', 'Unidade Canal 6', 'Outro'],
+        }
+
+        // Tipo de input e máscara por campo
+        const FIELD_INPUT: Record<string, { type: string; inputMode?: string; mask?: (v: string) => string; maxLength?: number; placeholder?: string }> = {
+          cpf: {
+            type: 'text', inputMode: 'numeric', maxLength: 14, placeholder: '000.000.000-00',
+            mask: (v) => v.replace(/\D/g, '').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2').slice(0, 14),
+          },
+          telefone: {
+            type: 'text', inputMode: 'tel', maxLength: 15, placeholder: '(00) 00000-0000',
+            mask: (v) => v.replace(/\D/g, '').replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15),
+          },
+          cep: {
+            type: 'text', inputMode: 'numeric', maxLength: 9, placeholder: '00000-000',
+            mask: (v) => v.replace(/\D/g, '').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 9),
+          },
+          email: { type: 'email', placeholder: 'email@exemplo.com' },
+          peso: { type: 'text', inputMode: 'decimal', placeholder: 'Ex: 12.5', mask: (v) => v.replace(/[^\d.,]/g, '') },
+          idade: { type: 'text', inputMode: 'numeric', placeholder: 'Ex: 8', mask: (v) => v.replace(/\D/g, '') },
+          numero: { type: 'text', inputMode: 'text', placeholder: 'Nº' },
+        }
+
+        const fieldKey = editingField.startsWith('outros_tutores_') ? 'outros_tutores' : editingField
+        const label = editingField.startsWith('outros_tutores_')
+          ? `Nome ${parseInt(editingField.split('_')[2]) + 2} (certificado)`
+          : FIELD_LABELS[editingField] || editingField
+        const options = FIELD_OPTIONS[fieldKey]
+        const inputConfig = FIELD_INPUT[fieldKey]
+
+        return (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+            <div className="w-full max-w-sm rounded-2xl shadow-2xl p-5 space-y-4" style={{ background: 'var(--surface-card, #1e293b)', border: '1px solid var(--surface-200)' }}>
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                  <Pencil className="h-4 w-4 text-amber-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-[var(--surface-800)]">Editar dados da ficha</h3>
+                  <p className="text-xs text-amber-400 mt-1">
+                    Estes são os dados originais do cliente. Qualquer alteração, confirme com o responsável.
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[var(--surface-500)] mb-2">{label}</label>
+                {options ? (
+                  <div className="flex flex-wrap gap-2">
+                    {options.map(opt => (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => { setEditingValue(opt) }}
+                        className={`px-3 py-2 rounded-lg text-sm font-medium border-2 transition-all ${
+                          editingValue === opt
+                            ? 'border-amber-500 bg-amber-500/10 text-amber-400'
+                            : 'border-[var(--surface-200)] text-[var(--surface-500)] hover:border-[var(--surface-300)]'
+                        }`}
+                      >
+                        {opt}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <input
+                    type={inputConfig?.type || 'text'}
+                    inputMode={inputConfig?.inputMode as React.HTMLAttributes<HTMLInputElement>['inputMode']}
+                    value={editingValue}
+                    onChange={e => {
+                      const v = inputConfig?.mask ? inputConfig.mask(e.target.value) : e.target.value
+                      setEditingValue(v)
+                    }}
+                    maxLength={inputConfig?.maxLength}
+                    placeholder={inputConfig?.placeholder}
+                    onKeyDown={e => { if (e.key === 'Enter') confirmEdit(); if (e.key === 'Escape') cancelEdit() }}
+                    className="input w-full"
+                    autoFocus
+                  />
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={cancelEdit}
+                  className="px-3 py-1.5 rounded-lg text-sm text-[var(--surface-600)] hover:bg-[var(--surface-100)] transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={confirmEdit}
+                  className="px-3 py-1.5 rounded-lg text-sm font-semibold text-white transition-colors"
+                  style={{ background: '#f59e0b' }}
+                >
+                  Confirmar alteração
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </Modal>
   )
 }
@@ -1039,13 +1241,26 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
 // ============================================
 // Helper
 // ============================================
-function InfoRow({ label, value, mono, bold }: { label: string; value: string; mono?: boolean; bold?: boolean }) {
+function InfoRow({ label, value, mono, bold, editKey, edited, onEdit }: {
+  label: string; value: string; mono?: boolean; bold?: boolean
+  editKey?: string; edited?: boolean; onEdit?: (key: string, value: string) => void
+}) {
   return (
-    <div className="flex items-baseline gap-2">
+    <div className="flex items-baseline gap-2 group">
       <span className="text-xs text-[var(--surface-400)] min-w-[70px] flex-shrink-0">{label}</span>
-      <span className={`text-sm text-[var(--surface-700)] ${mono ? 'text-mono' : ''} ${bold ? 'font-semibold' : ''}`}>
+      <span className={`text-sm ${edited ? 'text-amber-400 font-semibold' : 'text-[var(--surface-700)]'} ${mono ? 'text-mono' : ''} ${bold ? 'font-semibold' : ''}`}>
         {value || '-'}
       </span>
+      {editKey && onEdit && (
+        <button
+          type="button"
+          onClick={() => onEdit(editKey, value)}
+          className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-[var(--surface-100)] transition-all ml-auto"
+          title="Editar campo"
+        >
+          <Pencil className="h-3 w-3 text-[var(--surface-400)]" />
+        </button>
+      )}
     </div>
   )
 }

@@ -33,7 +33,7 @@ type ContratoAtivo = {
   urna_cor: string | null
   valor_total: number | null
   valor_pago: number | null
-  numero_supinda: number | null
+  numero_supinda: string | null
 }
 
 // Ícones de pet baseado em espécie e porte
@@ -61,7 +61,7 @@ function getPetIcon(especie: string | null, peso: number | null): { emoji: strin
 
 type Supinda = {
   id: string
-  numero: number
+  numero: string
   data_prevista: string | null
   status: string
 }

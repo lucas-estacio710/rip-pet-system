@@ -39,7 +39,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
   })
   const [salvando, setSalvando] = useState(false)
   const [funcionarios, setFuncionarios] = useState<{ id: string; nome: string }[]>([])
-  const [supindas, setSupindas] = useState<{ id: string; numero: number; data: string }[]>([])
+  const [supindas, setSupindas] = useState<{ id: string; numero: string; data: string }[]>([])
 
   // On open: reset form with current date/time and load auxiliary data
   useEffect(() => {

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ClipboardList, Search, X, Clock, CheckCircle2, Phone, MapPin, Stethoscope, ArrowRight } from 'lucide-react'
+import { ClipboardList, Search, X, Clock, CheckCircle2, Phone, MapPin, Stethoscope, ArrowRight, MessageCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useDebounce } from '@/hooks/useDebounce'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -123,6 +123,19 @@ export default function FichasPage() {
     carregarFichas()
   }, [currentUnit?.id])
 
+  // Realtime — escuta novas fichas e atualizações
+  useEffect(() => {
+    const channel = supabase
+      .channel('fichas-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'fichas' }, () => {
+        carregarFichas()
+        carregarContagens()
+      })
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [currentUnit?.id, filtro, buscaDebounced])
+
   useEffect(() => {
     carregarFichas()
   }, [filtro, buscaDebounced])
@@ -188,6 +201,39 @@ export default function FichasPage() {
     carregarFichas()
     carregarContagens()
     router.push(`/contratos/${contratoId}`)
+  }
+
+  function montarMsgWhatsApp(ficha: Ficha): string {
+    const nome = ficha.nome_completo?.split(' ')[0] || 'Tutor'
+    const pet = ficha.nome_pet || 'seu pet'
+    const cremacao = ficha.cremacao || ''
+    const valor = ficha.valor ? `R$ ${ficha.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''
+    const pagamento = ficha.pagamento || ''
+    const velorio = ficha.velorio || ''
+    const acompanhamento = ficha.acompanhamento || ''
+
+    let msg = `Olá, *${nome}*! Aqui é da *R.I.P. Pet*. 🐾\n\n`
+    msg += `Recebemos sua ficha de contratação e gostaríamos de confirmar os dados:\n\n`
+    msg += `🐾 *Pet:* ${pet}\n`
+    if (ficha.especie) msg += `   Espécie: ${ficha.especie}`
+    if (ficha.raca) msg += ` | Raça: ${ficha.raca}`
+    msg += `\n`
+    msg += `⚱️ *Cremação:* ${cremacao}\n`
+    if (valor) msg += `💰 *Valor:* ${valor}`
+    if (pagamento) msg += ` (${pagamento}${ficha.parcelas ? ` ${ficha.parcelas}` : ''})`
+    if (valor || pagamento) msg += `\n`
+    if (velorio && velorio !== 'Não') msg += `🕯️ *Velório:* ${velorio}\n`
+    if (acompanhamento && acompanhamento !== 'Não deseja') msg += `📹 *Acompanhamento:* ${acompanhamento}\n`
+    msg += `\n📋 *Endereço:* ${ficha.endereco}, ${ficha.numero}${ficha.complemento ? ` - ${ficha.complemento}` : ''} — ${ficha.bairro}, ${ficha.cidade}/${ficha.estado}\n`
+    msg += `\nPor favor, confirme se está tudo correto. ✅\nQualquer dúvida estamos à disposição. 🙏`
+
+    return msg
+  }
+
+  function abrirWhatsApp(ficha: Ficha) {
+    const tel = ficha.telefone?.replace(/\D/g, '') || ''
+    const msg = encodeURIComponent(montarMsgWhatsApp(ficha))
+    window.open(`https://wa.me/55${tel}?text=${msg}`, '_blank')
   }
 
   // ============================================
@@ -343,7 +389,12 @@ export default function FichasPage() {
 
                     {/* Tutor + phone */}
                     <div className="flex items-center gap-3 flex-wrap text-sm text-[var(--surface-600)] mb-1">
-                      <span>{ficha.nome_completo}</span>
+                      <span>
+                        {ficha.nome_completo}
+                        {ficha.outros_tutores && ficha.outros_tutores.filter(Boolean).length > 0 && (
+                          <span className="text-xs text-[var(--surface-400)]"> +{ficha.outros_tutores.filter(Boolean).length}</span>
+                        )}
+                      </span>
                       {ficha.telefone && (
                         <a
                           href={`https://wa.me/55${ficha.telefone.replace(/\D/g, '')}`}
@@ -391,12 +442,21 @@ export default function FichasPage() {
                         <ArrowRight className="h-4 w-4 ml-1" />
                       </button>
                     ) : ficha.contrato_id ? (
-                      <button
-                        onClick={() => router.push(`/contratos/${ficha.contrato_id}`)}
-                        className="btn-secondary text-sm py-2 px-3 whitespace-nowrap"
-                      >
-                        Ver contrato
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); abrirWhatsApp(ficha) }}
+                          className="flex items-center justify-center w-9 h-9 rounded-full bg-green-600 text-white hover:bg-green-700 transition-colors"
+                          title="Enviar confirmação por WhatsApp"
+                        >
+                          <MessageCircle className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => router.push(`/contratos/${ficha.contrato_id}`)}
+                          className="btn-secondary text-sm py-2 px-3 whitespace-nowrap"
+                        >
+                          Ver contrato
+                        </button>
+                      </div>
                     ) : null}
                   </div>
                 </div>

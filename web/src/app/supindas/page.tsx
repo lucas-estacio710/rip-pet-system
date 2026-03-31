@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Route, Plus, ChevronDown, ChevronUp, Truck, CheckCircle2, Clock, X, FileImage } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useUnit } from '@/contexts/UnitContext'
 import Link from 'next/link'
 import FichasBatchModal from '@/components/supindas/FichasBatchModal'
 
@@ -27,7 +28,7 @@ type SupindaItem = {
 
 type Supinda = {
   id: string
-  numero: number
+  numero: string
   data: string
   responsavel: string | null
   status: 'planejada' | 'em_andamento' | 'retornada' | null
@@ -51,6 +52,7 @@ const STATUS_CONFIG = {
 }
 
 export default function SupindasPage() {
+  const { currentUnit } = useUnit()
   const [supindas, setSupindas] = useState<Supinda[]>([])
   const [statusCounts, setStatusCounts] = useState<StatusCount>({ planejada: 0, em_andamento: 0, retornada: 0 })
   const [filtroStatus, setFiltroStatus] = useState<'planejada' | 'em_andamento' | 'retornada' | null>(null)
@@ -68,7 +70,7 @@ export default function SupindasPage() {
   const [salvando, setSalvando] = useState(false)
 
   // Modal fichas em lote
-  const [fichasModal, setFichasModal] = useState<{ id: string; numero: number } | null>(null)
+  const [fichasModal, setFichasModal] = useState<{ id: string; numero: string } | null>(null)
 
   // Modal adicionar/editar item avulso
   const [itemModal, setItemModal] = useState<string | null>(null) // supinda_id
@@ -302,16 +304,18 @@ export default function SupindasPage() {
     setSalvando(true)
 
     try {
-      // Buscar próximo número
-      const { data: ultimaSupinda } = await supabase
+      // Buscar próximo número com prefixo da unidade
+      const prefixo = currentUnit?.codigo || 'ST'
+      const { data: supindasUnidade } = await supabase
         .from('supindas')
         .select('numero')
-        .order('numero', { ascending: false })
-        .limit(1)
-        .single()
+        .like('numero', `${prefixo}%`)
 
-      const resultado = ultimaSupinda as { numero: number } | null
-      const proximoNumero = (resultado?.numero || 0) + 1
+      const maxNum = (supindasUnidade || []).reduce((max, s) => {
+        const num = parseInt((s as { numero: string }).numero.replace(prefixo, ''), 10)
+        return isNaN(num) ? max : Math.max(max, num)
+      }, 0)
+      const proximoNumero = `${prefixo}${maxNum + 1}`
 
       const { error } = await supabase
         .from('supindas')

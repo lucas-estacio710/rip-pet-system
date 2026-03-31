@@ -7,7 +7,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, User, Phone, Mail, MapPin, DollarSign, FileText, X, Search, Plus, Pencil, Trash2, Check, Package, AlertTriangle, Star, Download, Share2, Receipt, RefreshCw } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
-import { ProtocoloData, getNomeRetorno, isProtocoloExcluido, montarProtocoloData, normalizarProtocoloData } from '@/components/protocolo/protocolo-utils'
+import { ProtocoloData, getNomeRetorno, isProtocoloExcluido, montarProtocoloData, normalizarProtocoloData, formatarValor } from '@/components/protocolo/protocolo-utils'
 import ProtocoloEntrega from '@/components/protocolo/ProtocoloEntrega'
 import { printProtocolos } from '@/components/protocolo/ProtocoloPrint'
 import InteractiveTags from '@/components/contratos/InteractiveTags'
@@ -210,6 +210,8 @@ type Contrato = {
   certificado_nome_3: string | null
   certificado_nome_4: string | null
   certificado_nome_5: string | null
+  certificado_nome_6: string | null
+  certificado_nome_7: string | null
   certificado_confirmado: boolean | null
   // Seguradora
   seguradora: string | null
@@ -4514,18 +4516,24 @@ ${petNome}`
                       ))}
                     </tbody>
                   </table>
-                  <button
-                    onClick={addProd}
-                    className="mt-1.5 flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 hover:bg-blue-900/30 px-2 py-1 rounded transition-colors"
-                  >
-                    <Plus className="h-3.5 w-3.5" /> Adicionar item
-                  </button>
+                  {/* Soma real-time dos itens + botão adicionar */}
+                  <div className="flex items-center justify-between mt-1.5">
+                    <button
+                      onClick={addProd}
+                      className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 hover:bg-blue-900/30 px-2 py-1 rounded transition-colors"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Adicionar item
+                    </button>
+                    <div className="text-xs font-mono text-gray-500 pr-10">
+                      Soma itens: <span className="font-bold text-gray-800">{formatarValor(pe.produtos.reduce((acc, p) => acc + (p.valor || 0), 0))}</span>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Resumo financeiro (editável) */}
                 {(() => {
-                  const saldoEsperado = Math.round((pe.totalAPagar - pe.totalPago) * 100) / 100
-                  const batendo = Math.abs(pe.saldo - saldoEsperado) < 0.01
+                  const somaItens = Math.round(pe.produtos.reduce((acc, p) => acc + (p.valor || 0), 0) * 100) / 100
+                  const batendo = Math.abs((pe.totalPago + pe.saldo) - somaItens) < 0.01
                   return (
                     <div className={`flex items-center justify-between text-sm rounded-lg p-2 gap-2 border ${batendo ? 'bg-slate-700/50 border-transparent' : 'bg-red-900/20 border-red-500/40'}`}>
                       <div className="flex flex-col">
@@ -4558,8 +4566,8 @@ ${petNome}`
                           className={`w-24 bg-slate-600/50 border border-slate-500 rounded px-1.5 py-0.5 text-sm font-bold text-right focus:outline-none focus:border-blue-400 ${pe.saldo > 0 ? 'text-red-400' : 'text-green-400'}`}
                         />
                       </div>
-                      <div className="flex flex-col items-center justify-center" title={batendo ? 'Total − Pago = Saldo ✓' : `Esperado: ${saldoEsperado.toFixed(2)}`}>
-                        <span className="text-[10px] text-slate-500">T−P=S</span>
+                      <div className="flex flex-col items-center justify-center" title={batendo ? 'Pago + Saldo = Soma Itens ✓' : `Soma itens: ${somaItens.toFixed(2)} | P+S: ${(pe.totalPago + pe.saldo).toFixed(2)}`}>
+                        <span className="text-[10px] text-slate-500">P+S=Σ</span>
                         <span className={`text-sm ${batendo ? 'text-green-400' : 'text-red-400 animate-pulse'}`}>{batendo ? '✓' : '✗'}</span>
                       </div>
                     </div>

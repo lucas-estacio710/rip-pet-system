@@ -6,7 +6,7 @@ import { FileText, Search, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Ar
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { useDebounce } from '@/hooks/useDebounce'
-import { ProtocoloData, getNomeRetorno, isProtocoloExcluido, montarProtocoloData, normalizarProtocoloData } from '@/components/protocolo/protocolo-utils'
+import { ProtocoloData, getNomeRetorno, isProtocoloExcluido, montarProtocoloData, normalizarProtocoloData, formatarValor } from '@/components/protocolo/protocolo-utils'
 import { computeAllTags, getPagamentoPendente, TAG_STATE_STYLES, type ComputedTag } from '@/lib/contrato-tags'
 import ProtocoloEntrega from '@/components/protocolo/ProtocoloEntrega'
 import { printProtocolos } from '@/components/protocolo/ProtocoloPrint'
@@ -66,6 +66,8 @@ type Contrato = {
   certificado_nome_3: string | null
   certificado_nome_4: string | null
   certificado_nome_5: string | null
+  certificado_nome_6: string | null
+  certificado_nome_7: string | null
   certificado_confirmado: boolean | null
   // Pelinho (rescaldo padrão)
   pelinho_quer: boolean | null
@@ -134,7 +136,7 @@ type Pagamento = {
 
 type Supinda = {
   id: string
-  numero: number
+  numero: string
   data: string
   responsavel: string | null
   status: 'planejada' | 'em_andamento' | 'retornada' | null
@@ -333,7 +335,7 @@ function ContratosContent() {
   })
   const [salvandoAtivacao, setSalvandoAtivacao] = useState(false)
   const [funcionarios, setFuncionarios] = useState<{ id: string; nome: string }[]>([])
-  const [supindas, setSupindas] = useState<{ id: string; numero: number; data: string }[]>([])
+  const [supindas, setSupindas] = useState<{ id: string; numero: string; data: string }[]>([])
 
   // Modal Chegamos (Ativo - pet chegou na unidade)
   const [chegamosModal, setChegamosModal] = useState(false)
@@ -2353,17 +2355,19 @@ ${petNome}`
     carregarSupindasDisponiveis()
   }
 
-  // Calcula próximo número de supinda
-  async function getProximoNumeroSupinda(): Promise<number> {
-    const { data } = await supabase
+  // Calcula próximo número de supinda com prefixo da unidade
+  async function getProximoNumeroSupinda(): Promise<string> {
+    const prefixo = currentUnit?.codigo || 'ST'
+    const { data: supindasUnidade } = await supabase
       .from('supindas')
       .select('numero')
-      .order('numero', { ascending: false })
-      .limit(1)
-      .single()
+      .like('numero', `${prefixo}%`)
 
-    const resultado = data as { numero: number } | null
-    return (resultado?.numero || 0) + 1
+    const maxNum = (supindasUnidade || []).reduce((max, s) => {
+      const num = parseInt((s as { numero: string }).numero.replace(prefixo, ''), 10)
+      return isNaN(num) ? max : Math.max(max, num)
+    }, 0)
+    return `${prefixo}${maxNum + 1}`
   }
 
   // Calcula próximos sábado e domingo
@@ -3229,8 +3233,8 @@ ${petNome}`
                 return <div className="space-y-2">{lista.map(renderFn)}</div>
               }
               // Agrupar por numero da supinda
-              const grupos: { numero: number | null; contratos: Contrato[] }[] = []
-              const mapaGrupos = new Map<number | null, Contrato[]>()
+              const grupos: { numero: string | null; contratos: Contrato[] }[] = []
+              const mapaGrupos = new Map<string | null, Contrato[]>()
               for (const c of lista) {
                 const num = c.supinda?.numero ?? null
                 if (!mapaGrupos.has(num)) {
@@ -3246,7 +3250,9 @@ ${petNome}`
                 if (a.numero === null && b.numero === null) return 0
                 if (a.numero === null) return 1
                 if (b.numero === null) return -1
-                return supindaAsc ? a.numero - b.numero : b.numero - a.numero
+                const numA = parseInt(a.numero.replace(/^[A-Z]+/, ''), 10) || 0
+                const numB = parseInt(b.numero.replace(/^[A-Z]+/, ''), 10) || 0
+                return supindaAsc ? numA - numB : numB - numA
               })
 
               return (
@@ -4097,18 +4103,24 @@ ${petNome}`
                       ))}
                     </tbody>
                   </table>
-                  <button
-                    onClick={addProd}
-                    className="mt-1.5 flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 hover:bg-blue-900/30 px-2 py-1 rounded transition-colors"
-                  >
-                    <Plus className="h-3.5 w-3.5" /> Adicionar item
-                  </button>
+                  {/* Soma real-time dos itens + botão adicionar */}
+                  <div className="flex items-center justify-between mt-1.5">
+                    <button
+                      onClick={addProd}
+                      className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 hover:bg-blue-900/30 px-2 py-1 rounded transition-colors"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Adicionar item
+                    </button>
+                    <div className="text-xs font-mono text-gray-500 pr-10">
+                      Soma itens: <span className="font-bold text-gray-800">{formatarValor(pe.produtos.reduce((acc, p) => acc + (p.valor || 0), 0))}</span>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Resumo financeiro (editável) */}
                 {(() => {
-                  const saldoEsperado = Math.round((pe.totalAPagar - pe.totalPago) * 100) / 100
-                  const batendo = Math.abs(pe.saldo - saldoEsperado) < 0.01
+                  const somaItens = Math.round(pe.produtos.reduce((acc, p) => acc + (p.valor || 0), 0) * 100) / 100
+                  const batendo = Math.abs((pe.totalPago + pe.saldo) - somaItens) < 0.01
                   return (
                     <div className={`flex items-center justify-between text-sm rounded-lg p-2 gap-2 border ${batendo ? 'bg-gray-100 border-transparent' : 'bg-red-50 border-red-300'}`}>
                       <div className="flex flex-col">
@@ -4141,8 +4153,8 @@ ${petNome}`
                           className={`w-24 bg-white border border-gray-300 rounded px-1.5 py-0.5 text-sm font-bold text-right focus:outline-none focus:border-blue-400 ${pe.saldo > 0 ? 'text-red-500' : 'text-green-600'}`}
                         />
                       </div>
-                      <div className="flex flex-col items-center justify-center" title={batendo ? 'Total − Pago = Saldo ✓' : `Esperado: ${saldoEsperado.toFixed(2)}`}>
-                        <span className="text-[10px] text-gray-400">T−P=S</span>
+                      <div className="flex flex-col items-center justify-center" title={batendo ? 'Pago + Saldo = Soma Itens ✓' : `Soma itens: ${somaItens.toFixed(2)} | P+S: ${(pe.totalPago + pe.saldo).toFixed(2)}`}>
+                        <span className="text-[10px] text-gray-400">P+S=Σ</span>
                         <span className={`text-sm ${batendo ? 'text-green-500' : 'text-red-500 animate-pulse'}`}>{batendo ? '✓' : '✗'}</span>
                       </div>
                     </div>

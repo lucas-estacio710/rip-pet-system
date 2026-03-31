@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import {
-  Users, Search, X, Plus, Loader2, ToggleLeft, ToggleRight, History, ChevronDown, Pencil, Check
+  Users, Search, X, Plus, Loader2, ToggleLeft, ToggleRight, History, ChevronDown, Pencil
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
@@ -39,7 +39,12 @@ type LogEntry = {
 
 export default function AdminFuncionariosPage() {
   const supabase = createClient()
-  const { isSuperAdmin, currentUnit, currentRole, allUnidades } = useUnit()
+  const { isSuperAdmin, currentUnit, currentRole, allUnidades, userPerfis } = useUnit()
+
+  // Unidades que o usuário pode gerenciar
+  const unidadesGerenciaveis = isSuperAdmin
+    ? allUnidades
+    : allUnidades.filter(u => userPerfis.some(p => p.unidade.id === u.id && (p.role === 'gerente' || p.role === 'super_admin')))
 
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([])
   const [loading, setLoading] = useState(true)
@@ -50,13 +55,16 @@ export default function AdminFuncionariosPage() {
   const [togglingId, setTogglingId] = useState<string | null>(null)
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [showLogs, setShowLogs] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editingNome, setEditingNome] = useState('')
-  const [savingEdit, setSavingEdit] = useState(false)
+  const [sortBy, setSortBy] = useState<'nome' | 'unidade' | 'status'>('nome')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
-  // Form state
+  // Form state (criar/editar)
+  const [formId, setFormId] = useState<string | null>(null) // null = criar, string = editar
   const [formNome, setFormNome] = useState('')
-  const [formUnidadeId, setFormUnidadeId] = useState('')
+  const [formUnidadeId, setFormUnidadeId] = useState('') // edição: unidade única
+  const [formUnidadeIds, setFormUnidadeIds] = useState<string[]>([]) // criação: múltiplas
+  const [formOriginal, setFormOriginal] = useState<{ nome: string; unidadeId: string } | null>(null)
+  const [formOriginalUnidades, setFormOriginalUnidades] = useState<string[]>([])
 
   const canAccess = isSuperAdmin || currentRole === 'gerente'
 
@@ -127,7 +135,19 @@ export default function AdminFuncionariosPage() {
     if (canAccess) { carregar(); carregarLogs() }
   }, [carregar, canAccess])
 
-  // Filtrar e separar ativos/inativos
+  // Filtrar, ordenar e separar ativos/inativos
+  function toggleSort(col: 'nome' | 'unidade' | 'status') {
+    if (sortBy === col) {
+      setSortDir(prev => prev === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortBy(col)
+      setSortDir('asc')
+    }
+  }
+
+  const sortIndicator = (col: 'nome' | 'unidade' | 'status') =>
+    sortBy === col ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''
+
   const filtrados = funcionarios.filter(f => {
     if (busca) {
       const termo = busca.toLowerCase()
@@ -135,7 +155,20 @@ export default function AdminFuncionariosPage() {
     }
     if (filtroUnidade && f.unidade_id !== filtroUnidade) return false
     return true
+  }).sort((a, b) => {
+    let cmp = 0
+    if (sortBy === 'nome') {
+      cmp = a.nome.localeCompare(b.nome, 'pt-BR')
+    } else if (sortBy === 'unidade') {
+      const uA = (a.unidade as unknown as { nome: string } | null)?.nome || ''
+      const uB = (b.unidade as unknown as { nome: string } | null)?.nome || ''
+      cmp = uA.localeCompare(uB, 'pt-BR')
+    } else if (sortBy === 'status') {
+      cmp = (a.ativo === b.ativo) ? 0 : a.ativo ? -1 : 1
+    }
+    return sortDir === 'asc' ? cmp : -cmp
   })
+
   const ativos_list = filtrados.filter(f => f.ativo)
   const inativos_list = filtrados.filter(f => !f.ativo)
 
@@ -165,83 +198,132 @@ export default function AdminFuncionariosPage() {
     setTogglingId(null)
   }
 
-  // Editar nome
-  function iniciarEdicao(func: Funcionario) {
-    setEditingId(func.id)
-    setEditingNome(func.nome)
+  // Abrir modal para criar
+  function abrirModalCriar() {
+    setFormId(null)
+    setFormNome('')
+    setFormUnidadeId('')
+    setFormUnidadeIds(unidadesGerenciaveis.length === 1 ? [unidadesGerenciaveis[0].id] : [])
+    setFormOriginal(null)
+    setFormOriginalUnidades([])
+    setShowModal(true)
   }
 
-  async function salvarEdicao(func: Funcionario) {
-    const novoNome = editingNome.trim()
-    if (!novoNome || novoNome === func.nome) {
-      setEditingId(null)
-      return
-    }
-    setSavingEdit(true)
-    const { error } = await supabase
+  // Abrir modal para editar — busca no banco todas as unidades onde o nome já existe
+  async function abrirModalEditar(func: Funcionario) {
+    setFormId(func.id)
+    setFormNome(func.nome)
+    setFormUnidadeId(func.unidade_id)
+    setFormOriginal({ nome: func.nome, unidadeId: func.unidade_id })
+
+    // Buscar todas as unidades onde este nome já está cadastrado
+    const { data } = await supabase
       .from('funcionarios')
-      .update({ nome: novoNome } as never)
-      .eq('id', func.id)
+      .select('unidade_id')
+      .eq('nome', func.nome)
+    const existentes = (data || []).map((r: { unidade_id: string }) => r.unidade_id)
+    setFormUnidadeIds(existentes)
+    setFormOriginalUnidades(existentes)
 
-    if (!error) {
-      setFuncionarios(prev =>
-        prev.map(f => f.id === func.id ? { ...f, nome: novoNome } : f)
-      )
-      await registrarLog({
-        entidadeId: func.id,
-        entidadeNome: novoNome,
-        campo: 'nome',
-        campoLabel: 'Nome',
-        valorAnterior: func.nome,
-        valorNovo: novoNome,
-        tipo: 'alteracao',
-      })
-      await carregarLogs()
-      setShowLogs(true)
-    }
-    setEditingId(null)
-    setSavingEdit(false)
+    setShowModal(true)
   }
 
-  // Criar funcionário
+  // Salvar (criar ou editar)
   async function handleSalvar() {
-    if (!formNome.trim()) return
-    const unidadeId = isSuperAdmin ? formUnidadeId : currentUnit?.id
-    if (!unidadeId) return
+    const nome = formNome.trim()
+    if (!nome) return
 
     setSaving(true)
-    const nome = formNome.trim()
-    const { data: created, error } = await supabase
-      .from('funcionarios')
-      .insert({ nome, unidade_id: unidadeId, ativo: true } as never)
-      .select('id')
-      .single() as { data: { id: string } | null; error: unknown }
 
-    if (!error && created) {
-      await registrarLog({
-        entidadeId: created.id,
-        entidadeNome: nome,
-        campo: 'criacao',
-        campoLabel: 'Funcionário criado',
-        valorAnterior: null,
-        valorNovo: nome,
-        tipo: 'criacao',
-      })
+    if (formId) {
+      // === EDITAR ===
+      // 1. Atualizar nome se mudou
+      if (nome !== formOriginal?.nome) {
+        const { error } = await supabase
+          .from('funcionarios')
+          .update({ nome } as never)
+          .eq('id', formId)
+
+        if (!error) {
+          await registrarLog({
+            entidadeId: formId,
+            entidadeNome: nome,
+            campo: 'nome',
+            campoLabel: 'Nome',
+            valorAnterior: formOriginal?.nome || null,
+            valorNovo: nome,
+            tipo: 'alteracao',
+          })
+        }
+      }
+
+      // 2. Criar em novas unidades selecionadas (buscar no banco, não no state filtrado)
+      const { data: existentes } = await supabase
+        .from('funcionarios')
+        .select('unidade_id')
+        .eq('nome', formOriginal?.nome || nome)
+      const jaExiste = (existentes || []).map((r: { unidade_id: string }) => r.unidade_id)
+      const novasUnidades = formUnidadeIds.filter(uid => !jaExiste.includes(uid))
+
+      if (novasUnidades.length > 0) {
+        const rows = novasUnidades.map(uid => ({ nome, unidade_id: uid, ativo: true }))
+        const { data: created, error } = await supabase
+          .from('funcionarios')
+          .insert(rows as never)
+          .select('id, unidade_id') as { data: { id: string; unidade_id: string }[] | null; error: unknown }
+
+        if (!error && created) {
+          for (const row of created) {
+            const unidadeNova = allUnidades.find(u => u.id === row.unidade_id)?.nome || ''
+            await registrarLog({
+              entidadeId: row.id,
+              entidadeNome: nome,
+              campo: 'criacao',
+              campoLabel: 'Adicionado em unidade',
+              valorAnterior: null,
+              valorNovo: `${nome} (${unidadeNova})`,
+              tipo: 'criacao',
+            })
+          }
+        }
+      }
+
       setShowModal(false)
-      setFormNome('')
-      setFormUnidadeId('')
       await carregar()
       await carregarLogs()
+      if (nome !== formOriginal?.nome || novasUnidades.length > 0) setShowLogs(true)
     } else {
-      console.error('Erro ao criar funcionário:', error)
+      // === CRIAR (múltiplas unidades) ===
+      const ids = formUnidadeIds
+      if (ids.length === 0) { setSaving(false); return }
+
+      const rows = ids.map(uid => ({ nome, unidade_id: uid, ativo: true }))
+      const { data: created, error } = await supabase
+        .from('funcionarios')
+        .insert(rows as never)
+        .select('id, unidade_id') as { data: { id: string; unidade_id: string }[] | null; error: unknown }
+
+      if (!error && created) {
+        for (const row of created) {
+          const unidadeNome = allUnidades.find(u => u.id === row.unidade_id)?.nome || ''
+          await registrarLog({
+            entidadeId: row.id,
+            entidadeNome: nome,
+            campo: 'criacao',
+            campoLabel: 'Funcionário criado',
+            valorAnterior: null,
+            valorNovo: `${nome} (${unidadeNome})`,
+            tipo: 'criacao',
+          })
+        }
+        setShowModal(false)
+        await carregar()
+        await carregarLogs()
+      } else {
+        console.error('Erro ao criar funcionário:', error)
+      }
     }
     setSaving(false)
-  }
-
-  function abrirModal() {
-    setFormNome('')
-    setFormUnidadeId(currentUnit?.id || '')
-    setShowModal(true)
   }
 
   if (!canAccess) {
@@ -262,47 +344,7 @@ export default function AdminFuncionariosPage() {
     return (
       <tr key={func.id} className="transition-colors hover:bg-[var(--surface-50)]">
         <td className="px-4 py-3">
-          {editingId === func.id ? (
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={editingNome}
-                onChange={e => setEditingNome(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') salvarEdicao(func)
-                  if (e.key === 'Escape') setEditingId(null)
-                }}
-                className="input text-sm py-1 px-2 flex-1"
-                autoFocus
-              />
-              <button
-                onClick={() => salvarEdicao(func)}
-                disabled={savingEdit}
-                className="p-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors disabled:opacity-50"
-                title="Salvar"
-              >
-                {savingEdit ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-              </button>
-              <button
-                onClick={() => setEditingId(null)}
-                className="p-1 rounded-lg hover:bg-[var(--surface-100)] transition-colors"
-                title="Cancelar"
-              >
-                <X className="h-4 w-4 text-[var(--surface-400)]" />
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 group">
-              <span className="text-sm font-medium text-[var(--surface-800)]">{func.nome}</span>
-              <button
-                onClick={() => iniciarEdicao(func)}
-                className="p-1 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-[var(--surface-100)] transition-all"
-                title="Editar nome"
-              >
-                <Pencil className="h-3.5 w-3.5 text-[var(--surface-400)]" />
-              </button>
-            </div>
-          )}
+          <span className="text-sm font-medium text-[var(--surface-800)]">{func.nome}</span>
         </td>
         {isSuperAdmin && (
           <td className="px-4 py-3">
@@ -331,20 +373,29 @@ export default function AdminFuncionariosPage() {
           </span>
         </td>
         <td className="px-4 py-3 text-center">
-          <button
-            onClick={() => toggleAtivo(func)}
-            disabled={togglingId === func.id}
-            className="p-1.5 rounded-lg hover:bg-[var(--surface-100)] transition-colors disabled:opacity-50"
-            title={func.ativo ? 'Desativar' : 'Ativar'}
-          >
-            {togglingId === func.id ? (
-              <Loader2 className="h-5 w-5 animate-spin text-[var(--surface-400)]" />
-            ) : func.ativo ? (
-              <ToggleRight className="h-5 w-5 text-emerald-400" />
-            ) : (
-              <ToggleLeft className="h-5 w-5 text-[var(--surface-400)]" />
-            )}
-          </button>
+          <div className="flex items-center justify-center gap-1">
+            <button
+              onClick={() => abrirModalEditar(func)}
+              className="p-1.5 rounded-lg hover:bg-[var(--surface-100)] transition-colors"
+              title="Editar"
+            >
+              <Pencil className="h-4 w-4 text-[var(--surface-400)]" />
+            </button>
+            <button
+              onClick={() => toggleAtivo(func)}
+              disabled={togglingId === func.id}
+              className="p-1.5 rounded-lg hover:bg-[var(--surface-100)] transition-colors disabled:opacity-50"
+              title={func.ativo ? 'Desativar' : 'Ativar'}
+            >
+              {togglingId === func.id ? (
+                <Loader2 className="h-5 w-5 animate-spin text-[var(--surface-400)]" />
+              ) : func.ativo ? (
+                <ToggleRight className="h-5 w-5 text-emerald-400" />
+              ) : (
+                <ToggleLeft className="h-5 w-5 text-[var(--surface-400)]" />
+              )}
+            </button>
+          </div>
         </td>
       </tr>
     )
@@ -364,7 +415,7 @@ export default function AdminFuncionariosPage() {
           </p>
         </div>
         <button
-          onClick={abrirModal}
+          onClick={abrirModalCriar}
           className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-colors"
           style={{ background: '#7c3aed' }}
         >
@@ -423,11 +474,11 @@ export default function AdminFuncionariosPage() {
               <table className="w-full">
                 <thead>
                   <tr className="bg-[var(--surface-50)] border-b border-[var(--surface-200)]">
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-[var(--surface-500)] uppercase tracking-wider">Nome</th>
+                    <th onClick={() => toggleSort('nome')} className="text-left px-4 py-3 text-xs font-semibold text-[var(--surface-500)] uppercase tracking-wider cursor-pointer hover:text-[var(--surface-700)] select-none">Nome{sortIndicator('nome')}</th>
                     {isSuperAdmin && (
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-[var(--surface-500)] uppercase tracking-wider">Unidade</th>
+                      <th onClick={() => toggleSort('unidade')} className="text-left px-4 py-3 text-xs font-semibold text-[var(--surface-500)] uppercase tracking-wider cursor-pointer hover:text-[var(--surface-700)] select-none">Unidade{sortIndicator('unidade')}</th>
                     )}
-                    <th className="text-center px-4 py-3 text-xs font-semibold text-[var(--surface-500)] uppercase tracking-wider">Status</th>
+                    <th onClick={() => toggleSort('status')} className="text-center px-4 py-3 text-xs font-semibold text-[var(--surface-500)] uppercase tracking-wider cursor-pointer hover:text-[var(--surface-700)] select-none">Status{sortIndicator('status')}</th>
                     <th className="text-center px-4 py-3 text-xs font-semibold text-[var(--surface-500)] uppercase tracking-wider w-20">Ação</th>
                   </tr>
                 </thead>
@@ -521,7 +572,7 @@ export default function AdminFuncionariosPage() {
         )}
       </div>
 
-      {/* Modal Novo Funcionário */}
+      {/* Modal Criar/Editar Funcionário */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div
@@ -529,7 +580,7 @@ export default function AdminFuncionariosPage() {
             style={{ background: 'var(--surface-card, #1e293b)', border: '1px solid var(--surface-200)' }}
           >
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-[var(--surface-800)]">Novo Funcionário</h2>
+              <h2 className="text-lg font-bold text-[var(--surface-800)]">{formId ? 'Editar Funcionário' : 'Novo Funcionário'}</h2>
               <button onClick={() => setShowModal(false)} className="p-1 rounded-lg hover:bg-[var(--surface-100)]">
                 <X className="h-5 w-5 text-[var(--surface-400)]" />
               </button>
@@ -550,30 +601,53 @@ export default function AdminFuncionariosPage() {
                 />
               </div>
 
-              {isSuperAdmin && (
-                <div>
-                  <label className="block text-sm font-medium text-[var(--surface-600)] mb-1">
-                    Unidade <span className="text-red-400">*</span>
-                  </label>
-                  <select
-                    value={formUnidadeId}
-                    onChange={e => setFormUnidadeId(e.target.value)}
-                    className="input w-full"
-                  >
-                    <option value="">Selecione...</option>
-                    {allUnidades.map(u => (
-                      <option key={u.id} value={u.id}>{u.nome}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {!isSuperAdmin && currentUnit && (
-                <div className="px-3 py-2 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)]">
-                  <span className="text-sm text-[var(--surface-500)]">Unidade: </span>
-                  <span className="text-sm font-medium text-[var(--surface-700)]">{currentUnit.nome}</span>
-                </div>
-              )}
+              {/* Unidade(s) — checkboxes */}
+              <div>
+                <label className="block text-sm font-medium text-[var(--surface-600)] mb-2">
+                  Unidade{unidadesGerenciaveis.length > 1 ? 's' : ''} <span className="text-red-400">*</span>
+                </label>
+                {unidadesGerenciaveis.length > 1 ? (
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {unidadesGerenciaveis.map(u => {
+                      const checked = formUnidadeIds.includes(u.id)
+                      // Na edição, unidades já cadastradas no banco ficam travadas (foram carregadas no abrirModalEditar)
+                      const jaExisteNoBanco = formId ? formOriginalUnidades.includes(u.id) : false
+                      return (
+                        <label key={u.id} className={`flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors ${jaExisteNoBanco ? 'opacity-60' : 'cursor-pointer hover:bg-[var(--surface-50)]'}`}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={jaExisteNoBanco}
+                            onChange={() => {
+                              if (jaExisteNoBanco) return
+                              setFormUnidadeIds(prev =>
+                                checked ? prev.filter(id => id !== u.id) : [...prev, u.id]
+                              )
+                            }}
+                            className="h-4 w-4 rounded accent-purple-500"
+                          />
+                          <div
+                            className="w-5 h-5 rounded-full flex items-center justify-center font-bold shrink-0"
+                            style={{
+                              background: UNIT_COLORS[u.codigo] || '#6366f1',
+                              color: u.codigo === 'SJ' ? '#334155' : '#fff',
+                              fontSize: 8,
+                            }}
+                          >
+                            {u.codigo}
+                          </div>
+                          <span className="text-sm text-[var(--surface-700)]">{u.nome}</span>
+                          {jaExisteNoBanco && <span className="text-[10px] text-[var(--surface-400)] ml-auto">já cadastrado</span>}
+                        </label>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div className="px-3 py-2 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)]">
+                    <span className="text-sm font-medium text-[var(--surface-700)]">{unidadesGerenciaveis[0]?.nome}</span>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
@@ -585,7 +659,7 @@ export default function AdminFuncionariosPage() {
               </button>
               <button
                 onClick={handleSalvar}
-                disabled={saving || !formNome.trim() || (isSuperAdmin && !formUnidadeId)}
+                disabled={saving || !formNome.trim() || (!formId && formUnidadeIds.length === 0)}
                 className="px-4 py-2 rounded-lg text-sm font-semibold text-white transition-colors disabled:opacity-50"
                 style={{ background: '#7c3aed' }}
               >
@@ -593,7 +667,7 @@ export default function AdminFuncionariosPage() {
                   <span className="flex items-center gap-2">
                     <Loader2 className="h-4 w-4 animate-spin" /> Salvando...
                   </span>
-                ) : 'Criar'}
+                ) : formId ? 'Salvar' : 'Criar'}
               </button>
             </div>
           </div>

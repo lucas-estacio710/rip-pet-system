@@ -20,7 +20,7 @@ type FichaResult = {
 
 type Props = {
   supindaId: string
-  supindaNumero: number
+  supindaNumero: string
   onClose: () => void
 }
 

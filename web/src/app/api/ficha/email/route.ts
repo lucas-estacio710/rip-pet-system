@@ -187,9 +187,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // TODO: quando domínio rippet.com.br estiver verificado no Resend,
+    // trocar from para 'R.I.P. Pet <ficha@rippet.com.br>' e restaurar EMAILS_UNIDADE por destinatário
     const { error } = await resend.emails.send({
-      from: 'R.I.P. Pet <onboarding@resend.dev>',  // TODO: trocar para ficha@rippet.com.br quando domínio verificar
-      to: [EMAILS_UNIDADE[data.unidade] || FALLBACK_EMAIL],
+      from: 'R.I.P. Pet <onboarding@resend.dev>',
+      to: ['lucasmestacio@gmail.com'],
       subject: `Nova Ficha: ${data.nome_pet} (${data.nome_completo}) - ${data.unidade}${data.fallback ? ' [FALLBACK]' : ''}`,
       html: buildEmailHTML(data),
     })
