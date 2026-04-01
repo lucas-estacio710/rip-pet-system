@@ -121,16 +121,7 @@ export const CAMPOS_BOTOES: ChildItemDef[] = [
   { key: 'btn_gerar_pdf', tela: 'tela_pipeline', label: 'Gerar PDF' },
 
   // --- FICHAS ---
-  { key: 'btn_processar', tela: 'tela_fichas', label: 'Processar Ficha', desc: 'Abre modal de tratativa' },
-  { key: 'btn_whatsapp', tela: 'tela_fichas', label: 'Enviar WhatsApp' },
-  { key: 'codigo_contrato', tela: 'tela_fichas', label: 'Código do Contrato', desc: 'Código gerado ou manual' },
-  { key: 'local_coleta', tela: 'tela_fichas', label: 'Local de Coleta' },
-  { key: 'clinica_coleta', tela: 'tela_fichas', label: 'Clínica de Coleta' },
-  { key: 'valor_plano_ficha', tela: 'tela_fichas', label: 'Valor do Plano' },
-  { key: 'desconto_pre_venda', tela: 'tela_fichas', label: 'Desconto Pré-Venda' },
-  { key: 'numero_lacre_ficha', tela: 'tela_fichas', label: 'Número do Lacre' },
-  { key: 'indicacao', tela: 'tela_fichas', label: 'Indicação', desc: 'Estabelecimento/contato que indicou' },
-  { key: 'funcionario', tela: 'tela_fichas', label: 'Funcionário Responsável' },
+  { key: 'btn_pdf_ficha', tela: 'tela_fichas', label: 'Gerar PDF', desc: 'Botão azul de gerar PDF do contrato no card da ficha', modo: 'toggle' },
 
   // --- SUPINDAS ---
   { key: 'btn_criar_supinda', tela: 'tela_entregas', label: 'Criar Supinda' },
@@ -175,11 +166,13 @@ export function getCamposByTela(telaKey: string): ChildItemDef[] {
 }
 
 /** Resolve o modo de um item (toggle ou full).
- *  - Telas: sempre toggle
- *  - Objetos: toggle por default, pode ser overridden com modo: 'full'
- *  - Campos/Botões: full por default, pode ser overridden com modo: 'toggle'
+ *  Prioridade: override do banco > item.modo no catálogo > default da categoria
+ *  - Telas: toggle por default
+ *  - Objetos: toggle por default
+ *  - Campos/Botões: full por default
  */
-export function getItemMode(item: ItemDef, category: 'telas' | 'objetos' | 'campos'): PermMode {
+export function getItemMode(item: ItemDef, category: 'telas' | 'objetos' | 'campos', modoOverrides?: Record<string, PermMode>): PermMode {
+  if (modoOverrides?.[item.key]) return modoOverrides[item.key]
   if (item.modo) return item.modo
   return category === 'campos' ? 'full' : 'toggle'
 }

@@ -41,7 +41,11 @@ export default function VisibilidadePage() {
   const [perms, setPerms] = useState<Record<string, PermissionLevel>>({})
   const [originalPerms, setOriginalPerms] = useState<Record<string, PermissionLevel>>({})
 
-  useEffect(() => { loadUnidades(); loadLogs() }, [])
+  // Modo overrides: campo → 'toggle' | 'full' (persistido em configuracoes)
+  const [modoOverrides, setModoOverrides] = useState<Record<string, PermMode>>({})
+  const [originalModoOverrides, setOriginalModoOverrides] = useState<Record<string, PermMode>>({})
+
+  useEffect(() => { loadUnidades(); loadLogs(); loadModos() }, [])
   useEffect(() => { if (unidades.length > 0) loadPerms() }, [unidades])
 
   async function loadLogs() {
@@ -73,6 +77,27 @@ export default function VisibilidadePage() {
     setSaved(false)
   }
 
+  async function loadModos() {
+    const { data } = await supabase
+      .from('configuracoes')
+      .select('valor')
+      .eq('chave', 'fls_modos')
+      .maybeSingle() as { data: { valor: Record<string, PermMode> } | null }
+    if (data?.valor && typeof data.valor === 'object') {
+      setModoOverrides(data.valor)
+      setOriginalModoOverrides({ ...data.valor })
+    }
+  }
+
+  function toggleModo(campo: string, category: 'telas' | 'objetos' | 'campos') {
+    const item = [...TELAS, ...OBJETOS, ...CAMPOS_BOTOES].find(i => i.key === campo)
+    if (!item) return
+    const current = getItemMode(item, category, modoOverrides)
+    const next: PermMode = current === 'toggle' ? 'full' : 'toggle'
+    setModoOverrides(prev => ({ ...prev, [campo]: next }))
+    setSaved(false)
+  }
+
   function getPerm(unidadeId: string, role: string, campo: string): PermissionLevel {
     return perms[`${unidadeId}:${role}:${campo}`] ?? 'edit'
   }
@@ -101,7 +126,7 @@ export default function VisibilidadePage() {
     return perms[`${unidadeId}:${role}:${campo}`] ?? getDefaultPerm(modo)
   }
 
-  const hasChanges = JSON.stringify(perms) !== JSON.stringify(originalPerms)
+  const hasChanges = JSON.stringify(perms) !== JSON.stringify(originalPerms) || JSON.stringify(modoOverrides) !== JSON.stringify(originalModoOverrides)
 
   async function handleSave() {
     setSaving(true)
@@ -160,8 +185,22 @@ export default function VisibilidadePage() {
       await supabase.from('historico_alteracoes').insert(logEntries as never)
     }
 
+    // Salvar modo overrides
+    if (JSON.stringify(modoOverrides) !== JSON.stringify(originalModoOverrides)) {
+      // Limpar overrides que são iguais ao default (não precisa persistir)
+      const cleanOverrides: Record<string, string> = {}
+      for (const [key, modo] of Object.entries(modoOverrides)) {
+        cleanOverrides[key] = modo
+      }
+      await supabase.from('configuracoes').upsert(
+        { chave: 'fls_modos', valor: cleanOverrides, descricao: 'Overrides de modo (toggle/full) do FLS' } as never,
+        { onConflict: 'chave' }
+      )
+    }
+
     await refetch()
     await loadPerms()
+    await loadModos()
     await loadLogs()
     setSaving(false)
     setSaved(true)
@@ -245,10 +284,18 @@ export default function VisibilidadePage() {
                   Unidade
                 </th>
                 {items.map(m => {
-                  const modo = getItemMode(m, category)
+                  const modo = getItemMode(m, category, modoOverrides)
                   return (
                     <th key={m.key} className="px-1 py-2 text-center" style={{ minWidth: 70 }}>
-                      <span className="text-[9px] font-semibold text-[var(--surface-600)] leading-tight block mb-1" style={{ maxWidth: 70, wordBreak: 'break-word' }}>{m.label}</span>
+                      <span className="text-[9px] font-semibold text-[var(--surface-600)] leading-tight block" style={{ maxWidth: 70, wordBreak: 'break-word' }}>{m.label}</span>
+                      <button
+                        onClick={() => toggleModo(m.key, category)}
+                        className="text-[8px] px-1 rounded hover:opacity-70 transition-opacity mb-0.5"
+                        style={{ color: modo === 'toggle' ? '#64748b' : '#8b5cf6' }}
+                        title={`Modo: ${modo === 'toggle' ? 'On/Off (clique → 3 estados)' : '3 estados (clique → On/Off)'}`}
+                      >
+                        {modo === 'toggle' ? '⚡on/off' : '🎚️ 3'}
+                      </button>
                       <div className="flex items-center justify-center gap-0.5">
                         {FLS_ROLES.map(role => {
                           const dflt = getDefaultPerm(modo)
@@ -297,7 +344,7 @@ export default function VisibilidadePage() {
               {[...unidades].sort((a, b) => {
                 // Unidades com mais itens ativos (não hidden) primeiro
                 const score = (uid: string) => items.reduce((sum, m) => {
-                  const modo = getItemMode(m, category)
+                  const modo = getItemMode(m, category, modoOverrides)
                   return sum + FLS_ROLES.reduce((s, role) => s + (getPermWithMode(uid, role, m.key, modo) !== 'hidden' ? 1 : 0), 0)
                 }, 0)
                 return score(b.id) - score(a.id)
@@ -308,7 +355,7 @@ export default function VisibilidadePage() {
                   </td>
                   {items.map(m => (
                     <td key={m.key} className="px-1 py-1 text-center">
-                      <PermCell unidadeId={u.id} campo={m.key} modo={getItemMode(m, category)} />
+                      <PermCell unidadeId={u.id} campo={m.key} modo={getItemMode(m, category, modoOverrides)} />
                     </td>
                   ))}
                 </tr>
