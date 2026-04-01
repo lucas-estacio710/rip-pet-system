@@ -14,34 +14,17 @@ const UNIT_COLORS: Record<string, string> = {
 }
 
 const FLS_ROLES = ['gerente', 'operador'] as const
+const ROLE_LABELS: Record<string, string> = { gerente: 'G', operador: 'O' }
 
-const PERM_DISPLAY: Record<PermissionLevel, { label: string; icon: string; bg: string; text: string; border: string }> = {
-  edit: { label: '✏️', icon: '✏️', bg: 'rgba(34,197,94,0.15)', text: '#22c55e', border: '#22c55e' },
-  read: { label: '👁️', icon: '👁️', bg: 'rgba(245,158,11,0.15)', text: '#f59e0b', border: '#f59e0b' },
-  hidden: { label: '🚫', icon: '🚫', bg: 'rgba(239,68,68,0.15)', text: '#ef4444', border: '#ef4444' },
+const PERM_STYLES: Record<PermissionLevel, { icon: string; bg: string; text: string; border: string }> = {
+  edit: { icon: '✏️', bg: 'rgba(34,197,94,0.15)', text: '#22c55e', border: '#22c55e' },
+  read: { icon: '👁️', bg: 'rgba(245,158,11,0.15)', text: '#f59e0b', border: '#f59e0b' },
+  hidden: { icon: '🚫', bg: 'rgba(239,68,68,0.15)', text: '#ef4444', border: '#ef4444' },
 }
 
-type Unidade = {
-  id: string
-  codigo: string
-  nome: string
-  is_matriz: boolean
-  ordem: number
-}
+type Unidade = { id: string; codigo: string; nome: string; is_matriz: boolean; ordem: number }
+type LogEntry = { id: string; entidade_nome: string; valor_anterior: string | null; valor_novo: string | null; nota: string | null; criado_em: string; alterado_por_email: string | null }
 
-type LogEntry = {
-  id: string
-  entidade_nome: string
-  valor_anterior: string | null
-  valor_novo: string | null
-  nota: string | null
-  criado_em: string
-  alterado_por_email: string | null
-}
-
-// ============================================
-// Page
-// ============================================
 export default function VisibilidadePage() {
   const supabase = createClient()
   const { isSuperAdmin, refetch } = useUnit()
@@ -50,16 +33,16 @@ export default function VisibilidadePage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [selectedRole, setSelectedRole] = useState<typeof FLS_ROLES[number]>('gerente')
+  const [selectedTela, setSelectedTela] = useState<string>(TELAS[0]?.key || '')
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [showLogs, setShowLogs] = useState(false)
 
-  // Permissões: { "unidadeId:campo": permissao }
+  // Permissões: "unidadeId:role:campo" → permissao
   const [perms, setPerms] = useState<Record<string, PermissionLevel>>({})
   const [originalPerms, setOriginalPerms] = useState<Record<string, PermissionLevel>>({})
 
   useEffect(() => { loadUnidades(); loadLogs() }, [])
-  useEffect(() => { if (unidades.length > 0) loadPerms() }, [unidades, selectedRole])
+  useEffect(() => { if (unidades.length > 0) loadPerms() }, [unidades])
 
   async function loadLogs() {
     const { data } = await supabase
@@ -73,63 +56,32 @@ export default function VisibilidadePage() {
 
   async function loadUnidades() {
     setLoading(true)
-    const { data } = await supabase
-      .from('unidades')
-      .select('id, codigo, nome, is_matriz, ordem')
-      .order('ordem')
-      .order('nome')
+    const { data } = await supabase.from('unidades').select('id, codigo, nome, is_matriz, ordem').order('ordem').order('nome')
     if (data) setUnidades(data as Unidade[])
     setLoading(false)
   }
 
   async function loadPerms() {
-    const { data } = await supabase
-      .from('field_permissions')
-      .select('unidade_id, campo, permissao')
-      .eq('role', selectedRole)
-
+    // Carrega TUDO de todas as unidades e roles de uma vez
+    const { data } = await supabase.from('field_permissions').select('unidade_id, campo, role, permissao')
     const map: Record<string, PermissionLevel> = {}
-    for (const row of (data || []) as { unidade_id: string; campo: string; permissao: string }[]) {
-      map[`${row.unidade_id}:${row.campo}`] = row.permissao as PermissionLevel
+    for (const row of (data || []) as { unidade_id: string; campo: string; role: string; permissao: string }[]) {
+      map[`${row.unidade_id}:${row.role}:${row.campo}`] = row.permissao as PermissionLevel
     }
     setPerms(map)
     setOriginalPerms({ ...map })
     setSaved(false)
   }
 
-  function getPerm(unidadeId: string, campo: string): PermissionLevel {
-    return perms[`${unidadeId}:${campo}`] ?? 'edit'
+  function getPerm(unidadeId: string, role: string, campo: string): PermissionLevel {
+    return perms[`${unidadeId}:${role}:${campo}`] ?? 'edit'
   }
 
-  function cyclePerm(unidadeId: string, campo: string) {
-    const key = `${unidadeId}:${campo}`
+  function cyclePerm(unidadeId: string, role: string, campo: string) {
+    const key = `${unidadeId}:${role}:${campo}`
     const current = perms[key] ?? 'edit'
     const next: PermissionLevel = current === 'edit' ? 'read' : current === 'read' ? 'hidden' : 'edit'
     setPerms(prev => ({ ...prev, [key]: next }))
-    setSaved(false)
-  }
-
-  function toggleColumn(campo: string) {
-    const allEdit = unidades.every(u => getPerm(u.id, campo) === 'edit')
-    setPerms(prev => {
-      const next = { ...prev }
-      unidades.forEach(u => {
-        next[`${u.id}:${campo}`] = allEdit ? 'hidden' : 'edit'
-      })
-      return next
-    })
-    setSaved(false)
-  }
-
-  function toggleRow(unidadeId: string, items: (ItemDef | ChildItemDef)[]) {
-    const allEdit = items.every(m => getPerm(unidadeId, m.key) === 'edit')
-    setPerms(prev => {
-      const next = { ...prev }
-      items.forEach(m => {
-        next[`${unidadeId}:${m.key}`] = allEdit ? 'hidden' : 'edit'
-      })
-      return next
-    })
     setSaved(false)
   }
 
@@ -140,52 +92,50 @@ export default function VisibilidadePage() {
     const { data: { user } } = await supabase.auth.getUser()
 
     const toUpsert: { unidade_id: string; tela: string; campo: string; role: string; permissao: string }[] = []
-    const toDelete: { unidade_id: string; campo: string }[] = []
+    const toDelete: { unidade_id: string; role: string; campo: string }[] = []
     const logEntries: any[] = []
 
-    // Coletar todas as keys de itens
     const allItems = [...TELAS, ...OBJETOS, ...CAMPOS_BOTOES]
 
     for (const unit of unidades) {
-      for (const item of allItems) {
-        const key = `${unit.id}:${item.key}`
-        const perm = perms[key] ?? 'edit'
-        const original = originalPerms[key] ?? 'edit'
+      for (const role of FLS_ROLES) {
+        for (const item of allItems) {
+          const key = `${unit.id}:${role}:${item.key}`
+          const perm = perms[key] ?? 'edit'
+          const original = originalPerms[key] ?? 'edit'
 
-        if (perm !== original) {
-          logEntries.push({
-            entidade: 'field_permissions',
-            entidade_id: unit.id,
-            entidade_nome: unit.nome,
-            campo: item.key,
-            campo_label: item.label,
-            valor_anterior: original,
-            valor_novo: perm,
-            tipo: 'alteracao',
-            alterado_por: user?.id || null,
-            alterado_por_email: user?.email || null,
-            nota: `${selectedRole}: ${original} → ${perm}`,
-          })
-        }
+          if (perm !== original) {
+            logEntries.push({
+              entidade: 'field_permissions',
+              entidade_id: unit.id,
+              entidade_nome: unit.nome,
+              campo: item.key,
+              campo_label: item.label,
+              valor_anterior: original,
+              valor_novo: perm,
+              tipo: 'alteracao',
+              alterado_por: user?.id || null,
+              alterado_por_email: user?.email || null,
+              nota: `${role}: ${original} → ${perm}`,
+            })
+          }
 
-        // Determinar tela pra salvar no banco
-        const tela = 'tela' in item ? (item as ChildItemDef).tela : 'global'
+          const tela = 'tela' in item ? (item as ChildItemDef).tela : 'global'
 
-        if (perm === 'edit') {
-          toDelete.push({ unidade_id: unit.id, campo: item.key })
-        } else {
-          toUpsert.push({ unidade_id: unit.id, tela, campo: item.key, role: selectedRole, permissao: perm })
+          if (perm === 'edit') {
+            toDelete.push({ unidade_id: unit.id, role, campo: item.key })
+          } else {
+            toUpsert.push({ unidade_id: unit.id, tela, campo: item.key, role, permissao: perm })
+          }
         }
       }
     }
 
-    // Deletar rows que voltaram pra 'edit'
-    for (const { unidade_id, campo } of toDelete) {
+    for (const { unidade_id, role, campo } of toDelete) {
       await supabase.from('field_permissions').delete()
-        .eq('unidade_id', unidade_id).eq('campo', campo).eq('role', selectedRole)
+        .eq('unidade_id', unidade_id).eq('campo', campo).eq('role', role)
     }
 
-    // Upsert exceções
     if (toUpsert.length > 0) {
       await supabase.from('field_permissions').upsert(toUpsert as never, { onConflict: 'unidade_id,tela,campo,role' })
     }
@@ -202,19 +152,61 @@ export default function VisibilidadePage() {
     setTimeout(() => setSaved(false), 3000)
   }
 
-  const [selectedTela, setSelectedTela] = useState<string>(TELAS[0]?.key || '')
-
-  // Itens filtrados pela tela selecionada
-  const filteredObjetos = OBJETOS.filter(o => o.tela === selectedTela)
-  const filteredCampos = CAMPOS_BOTOES.filter(c => c.tela === selectedTela)
-  const selectedTelaItem = TELAS.find(t => t.key === selectedTela)
-
   if (!isSuperAdmin) {
     return <div className="animate-fade-in"><EmptyState icon={Shield} title="Acesso restrito" description="Somente administradores." /></div>
   }
 
+  const filteredObjetos = OBJETOS.filter(o => o.tela === selectedTela)
+  const filteredCampos = CAMPOS_BOTOES.filter(c => c.tela === selectedTela)
+  const selectedTelaItem = TELAS.find(t => t.key === selectedTela)
+
   // ============================================
-  // Render de uma matriz (unidades × itens)
+  // Célula de permissão: 2 botões (G | O) lado a lado
+  // ============================================
+  function PermCell({ unidadeId, campo }: { unidadeId: string; campo: string }) {
+    return (
+      <div className="flex items-center gap-0.5 justify-center">
+        {FLS_ROLES.map(role => {
+          const perm = getPerm(unidadeId, role, campo)
+          const style = PERM_STYLES[perm]
+          return (
+            <button
+              key={role}
+              onClick={() => cyclePerm(unidadeId, role, campo)}
+              className="flex items-center justify-center w-7 h-6 rounded text-[10px] font-bold transition-all hover:scale-110"
+              style={{ background: style.bg, color: style.text, border: `1.5px solid ${style.border}` }}
+              title={`${ROLE_LABELS[role]}: ${perm === 'edit' ? 'Editável' : perm === 'read' ? 'Leitura' : 'Oculto'}`}
+            >
+              {style.icon}
+            </button>
+          )
+        })}
+      </div>
+    )
+  }
+
+  // ============================================
+  // Linha de unidade
+  // ============================================
+  function UnitLabel({ u, onClick }: { u: Unidade; onClick?: () => void }) {
+    return (
+      <button onClick={onClick} className="flex items-center gap-2 hover:opacity-80 transition-opacity" title={onClick ? 'Marcar/desmarcar todos' : u.nome}>
+        <div
+          className="w-5 h-5 rounded-full flex items-center justify-center font-bold shrink-0"
+          style={{ background: UNIT_COLORS[u.codigo] || '#6366f1', color: u.codigo === 'SJ' ? '#334155' : '#fff', fontSize: 8 }}
+        >
+          {u.codigo}
+        </div>
+        <span className="font-medium text-[var(--surface-700)] text-xs">{u.nome}</span>
+        {u.is_matriz && (
+          <span className="text-[8px] px-1 py-0.5 rounded font-bold" style={{ background: 'rgba(245,158,11,0.2)', color: '#fbbf24' }}>MA</span>
+        )}
+      </button>
+    )
+  }
+
+  // ============================================
+  // Matrix: unidades (vertical) × itens (horizontal), cada célula = G|O
   // ============================================
   function renderMatrix(label: string, icon: typeof Monitor, color: string, items: (ItemDef | ChildItemDef)[]) {
     if (items.length === 0) return null
@@ -230,67 +222,28 @@ export default function VisibilidadePage() {
           <table className="w-full text-sm">
             <thead>
               <tr style={{ borderBottom: '2px solid var(--surface-200)' }}>
-                <th className="text-left px-3 py-2.5 text-xs font-semibold text-[var(--surface-500)] sticky left-0 bg-[var(--surface-0)] z-10" style={{ minWidth: 140 }}>
+                <th className="text-left px-3 py-2 text-xs font-semibold text-[var(--surface-500)] sticky left-0 bg-[var(--surface-0)] z-10" style={{ minWidth: 140 }}>
                   Unidade
                 </th>
-                {items.map((m) => (
-                  <th key={m.key} className="px-1 py-2.5 text-center" style={{ minWidth: 56 }}>
-                    <button
-                      onClick={() => toggleColumn(m.key)}
-                      className="flex flex-col items-center gap-0.5 mx-auto hover:opacity-80 transition-opacity"
-                      title={`${m.desc || m.label}\nClique para marcar/desmarcar todos`}
-                    >
-                      <span className="text-[9px] font-semibold text-[var(--surface-600)] leading-tight text-center" style={{ maxWidth: 60, wordBreak: 'break-word' }}>{m.label}</span>
-                    </button>
+                {items.map(m => (
+                  <th key={m.key} className="px-1 py-2 text-center" style={{ minWidth: 70 }}>
+                    <span className="text-[9px] font-semibold text-[var(--surface-600)] leading-tight block" style={{ maxWidth: 70, wordBreak: 'break-word' }}>{m.label}</span>
+                    <span className="text-[8px] text-[var(--surface-400)]">G | O</span>
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {[...unidades].sort((a, b) => {
-                const aCount = items.filter(m => getPerm(a.id, m.key) === 'edit').length
-                const bCount = items.filter(m => getPerm(b.id, m.key) === 'edit').length
-                return bCount - aCount
-              }).map(u => (
+              {unidades.map(u => (
                 <tr key={u.id} style={{ borderBottom: '1px solid var(--surface-100)' }} className="hover:bg-[var(--surface-50)] transition-colors">
-                  <td className="px-3 py-2 sticky left-0 bg-[var(--surface-0)] z-10">
-                    <button
-                      onClick={() => toggleRow(u.id, items)}
-                      className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-                      title="Marcar/desmarcar todos"
-                    >
-                      <div
-                        className="w-5 h-5 rounded-full flex items-center justify-center font-bold shrink-0"
-                        style={{
-                          background: UNIT_COLORS[u.codigo] || '#6366f1',
-                          color: u.codigo === 'SJ' ? '#334155' : '#fff',
-                          fontSize: 8,
-                        }}
-                      >
-                        {u.codigo}
-                      </div>
-                      <span className="font-medium text-[var(--surface-700)] text-xs">{u.nome}</span>
-                      {u.is_matriz && (
-                        <span className="text-[8px] px-1 py-0.5 rounded font-bold" style={{ background: 'rgba(245,158,11,0.2)', color: '#fbbf24' }}>MA</span>
-                      )}
-                    </button>
+                  <td className="px-3 py-1.5 sticky left-0 bg-[var(--surface-0)] z-10">
+                    <UnitLabel u={u} />
                   </td>
-                  {items.map((m) => {
-                    const perm = getPerm(u.id, m.key)
-                    const display = PERM_DISPLAY[perm]
-                    return (
-                      <td key={m.key} className="px-1 py-1.5 text-center">
-                        <button
-                          onClick={() => cyclePerm(u.id, m.key)}
-                          className="mx-auto flex items-center justify-center w-7 h-7 rounded-md border-2 transition-all hover:scale-110 text-sm"
-                          style={{ borderColor: display.border, background: display.bg }}
-                          title={`${m.label}: ${perm === 'edit' ? 'Editável' : perm === 'read' ? 'Somente leitura' : 'Oculto'}\nClique para alternar`}
-                        >
-                          {display.icon}
-                        </button>
-                      </td>
-                    )
-                  })}
+                  {items.map(m => (
+                    <td key={m.key} className="px-1 py-1 text-center">
+                      <PermCell unidadeId={u.id} campo={m.key} />
+                    </td>
+                  ))}
                 </tr>
               ))}
             </tbody>
@@ -303,7 +256,7 @@ export default function VisibilidadePage() {
   return (
     <div className="animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <div className="hidden md:flex w-10 h-10 rounded-[var(--radius-md)] bg-blue-900/30 items-center justify-center">
             <Eye className="h-5 w-5 text-blue-500" />
@@ -313,92 +266,61 @@ export default function VisibilidadePage() {
             <p className="text-small text-[var(--shell-text-muted)]">Permissões por unidade e perfil</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          {/* Seletor de role */}
-          <div className="relative">
-            <select
-              value={selectedRole}
-              onChange={e => setSelectedRole(e.target.value as typeof FLS_ROLES[number])}
-              className="appearance-none pl-3 pr-8 py-2 rounded-lg text-sm font-bold border-2 focus:outline-none cursor-pointer capitalize"
-              style={{ borderColor: 'var(--surface-200)', background: 'var(--surface-0)', color: 'var(--surface-700)' }}
-            >
-              {FLS_ROLES.map(r => (
-                <option key={r} value={r}>{r}</option>
-              ))}
-            </select>
-            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none" style={{ color: '#94a3b8' }} />
-          </div>
-
-          {/* Botão salvar */}
-          <button
-            onClick={handleSave}
-            disabled={saving || !hasChanges}
-            className={`btn-primary flex items-center gap-2 ${saved ? 'bg-emerald-600 hover:bg-emerald-700' : ''}`}
-          >
-            {saving ? (
-              <><Loader2 className="h-4 w-4 animate-spin" />Salvando...</>
-            ) : saved ? (
-              <><Check className="h-4 w-4" />Salvo!</>
-            ) : (
-              <><Save className="h-4 w-4" />Salvar</>
-            )}
-          </button>
-        </div>
+        <button
+          onClick={handleSave}
+          disabled={saving || !hasChanges}
+          className={`btn-primary flex items-center gap-2 ${saved ? 'bg-emerald-600 hover:bg-emerald-700' : ''}`}
+        >
+          {saving ? <><Loader2 className="h-4 w-4 animate-spin" />Salvando...</> : saved ? <><Check className="h-4 w-4" />Salvo!</> : <><Save className="h-4 w-4" />Salvar</>}
+        </button>
       </div>
 
       {/* Legenda */}
-      <div className="flex items-center gap-4 mb-4 text-xs" style={{ color: '#64748b' }}>
+      <div className="flex items-center gap-4 mb-4 text-xs flex-wrap" style={{ color: '#64748b' }}>
         <span>Clique para alternar:</span>
-        {Object.entries(PERM_DISPLAY).map(([key, d]) => (
+        {Object.entries(PERM_STYLES).map(([key, d]) => (
           <span key={key} className="flex items-center gap-1 px-2 py-0.5 rounded" style={{ background: d.bg, color: d.text }}>
-            {d.icon} {key === 'edit' ? 'Editável' : key === 'read' ? 'Somente leitura' : 'Oculto'}
+            {d.icon} {key === 'edit' ? 'Editável' : key === 'read' ? 'Leitura' : 'Oculto'}
           </span>
         ))}
+        <span className="text-[10px]">G = Gerente, O = Operador</span>
       </div>
 
       {loading ? (
         <div className="card p-8 text-center" style={{ color: '#94a3b8' }}>Carregando...</div>
       ) : (
         <>
-          {/* Seletor de tela */}
-          <div className="flex items-center gap-3 mb-4">
-            <Monitor className="h-4 w-4" style={{ color: '#3b82f6' }} />
-            <span className="text-sm font-bold uppercase tracking-wider" style={{ color: '#3b82f6' }}>Tela</span>
-            <div className="relative">
-              <select
-                value={selectedTela}
-                onChange={e => setSelectedTela(e.target.value)}
-                className="appearance-none pl-3 pr-8 py-1.5 rounded-lg text-sm font-medium border-2 focus:outline-none cursor-pointer"
-                style={{ borderColor: 'var(--surface-200)', background: 'var(--surface-0)', color: 'var(--surface-700)' }}
-              >
-                {TELAS.map(t => (
-                  <option key={t.key} value={t.key}>{t.label}</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none" style={{ color: '#94a3b8' }} />
+          {/* Seletor de tela + permissão da tela por unidade */}
+          <div className="mb-6">
+            <div className="flex items-center gap-2 mb-3">
+              <Monitor className="h-4 w-4" style={{ color: '#3b82f6' }} />
+              <h2 className="text-sm font-bold uppercase tracking-wider" style={{ color: '#3b82f6' }}>Tela</h2>
+              <div className="relative">
+                <select
+                  value={selectedTela}
+                  onChange={e => setSelectedTela(e.target.value)}
+                  className="appearance-none pl-3 pr-8 py-1.5 rounded-lg text-sm font-medium border-2 focus:outline-none cursor-pointer"
+                  style={{ borderColor: 'var(--surface-200)', background: 'var(--surface-0)', color: 'var(--surface-700)' }}
+                >
+                  {TELAS.map(t => (
+                    <option key={t.key} value={t.key}>{t.label}</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none" style={{ color: '#94a3b8' }} />
+              </div>
             </div>
 
-            {/* Permissão da tela selecionada (inline) */}
+            {/* Permissão da tela: unidades na vertical */}
             {selectedTelaItem && (
-              <div className="flex items-center gap-2 ml-2">
-                {unidades.map(u => {
-                  const perm = getPerm(u.id, selectedTelaItem.key)
-                  const display = PERM_DISPLAY[perm]
-                  return (
-                    <button
-                      key={u.id}
-                      onClick={() => cyclePerm(u.id, selectedTelaItem.key)}
-                      className="flex items-center gap-1 px-1.5 py-1 rounded-md border transition-all hover:scale-105 text-[10px] font-bold"
-                      style={{ borderColor: display.border, background: display.bg, color: display.text }}
-                      title={`${u.nome}: ${perm === 'edit' ? 'Editável' : perm === 'read' ? 'Leitura' : 'Oculto'}`}
-                    >
-                      <span className="w-3 h-3 rounded-full flex items-center justify-center shrink-0" style={{ background: UNIT_COLORS[u.codigo] || '#6366f1', color: u.codigo === 'SJ' ? '#334155' : '#fff', fontSize: 6 }}>
-                        {u.codigo}
-                      </span>
-                      {display.icon}
-                    </button>
-                  )
-                })}
+              <div className="card p-3">
+                <div className="space-y-1.5">
+                  {unidades.map(u => (
+                    <div key={u.id} className="flex items-center justify-between">
+                      <UnitLabel u={u} />
+                      <PermCell unidadeId={u.id} campo={selectedTelaItem.key} />
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -409,70 +331,46 @@ export default function VisibilidadePage() {
 
           {filteredObjetos.length === 0 && filteredCampos.length === 0 && (
             <div className="card p-6 text-center text-sm" style={{ color: '#94a3b8' }}>
-              Nenhum objeto ou campo configurável para a tela "{selectedTelaItem?.label}".
+              Nenhum objeto ou campo configurável para "{selectedTelaItem?.label}".
             </div>
           )}
         </>
       )}
 
-      {/* Histórico de alterações */}
+      {/* Histórico */}
       <div className="mt-8">
-        <button
-          onClick={() => setShowLogs(!showLogs)}
-          className="flex items-center gap-2 text-xs font-medium mb-3"
-          style={{ color: '#64748b' }}
-        >
+        <button onClick={() => setShowLogs(!showLogs)} className="flex items-center gap-2 text-xs font-medium mb-3" style={{ color: '#64748b' }}>
           <Clock className="h-3.5 w-3.5" />
-          Histórico de alterações ({logs.length})
+          Histórico ({logs.length})
           <span style={{ transform: showLogs ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}>▼</span>
         </button>
 
         {showLogs && logs.length > 0 && (
           <div className="card overflow-hidden">
             <div className="divide-y divide-[var(--surface-100)] max-h-80 overflow-y-auto">
-              {logs.map(log => {
-                const partes = (log.nota || '').split(' | ')
-                const adicionados = partes.find(p => p.startsWith('+'))?.replace('+ ', '').split(', ') || []
-                const removidos = partes.find(p => p.startsWith('−'))?.replace('− ', '').split(', ') || []
-                const isFlsLog = !adicionados.length && !removidos.length && log.nota
-
-                return (
-                  <div key={log.id} className="px-4 py-3 text-xs space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ background: '#7c3aed', color: '#fff' }}>
-                          {(log.alterado_por_email || '?')[0].toUpperCase()}
-                        </div>
-                        <span className="font-medium text-[var(--surface-600)]">{log.alterado_por_email || 'Sistema'}</span>
+              {logs.map(log => (
+                <div key={log.id} className="px-4 py-3 text-xs space-y-1">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold" style={{ background: '#7c3aed', color: '#fff' }}>
+                        {(log.alterado_por_email || '?')[0].toUpperCase()}
                       </div>
-                      <span style={{ color: '#475569' }}>
-                        {new Date(log.criado_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                      </span>
+                      <span className="font-medium text-[var(--surface-600)]">{log.alterado_por_email || 'Sistema'}</span>
                     </div>
-                    <div>
-                      <span className="font-semibold text-[var(--surface-700)] mr-2">{log.entidade_nome}</span>
-                      {isFlsLog ? (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: 'rgba(139,92,246,0.15)', color: '#8b5cf6' }}>
-                          {log.nota}
-                        </span>
-                      ) : (
-                        <div className="flex flex-wrap gap-1.5 mt-1">
-                          {adicionados.filter(Boolean).map(m => (
-                            <span key={m} className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e' }}>
-                              + {m}
-                            </span>
-                          ))}
-                          {removidos.filter(Boolean).map(m => (
-                            <span key={m} className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}>
-                              − {m}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                    <span style={{ color: '#475569' }}>
+                      {new Date(log.criado_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                    </span>
                   </div>
-                )
-              })}
+                  <div>
+                    <span className="font-semibold text-[var(--surface-700)] mr-2">{log.entidade_nome}</span>
+                    {log.nota && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: 'rgba(139,92,246,0.15)', color: '#8b5cf6' }}>
+                        {log.nota}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
