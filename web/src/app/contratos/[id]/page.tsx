@@ -2055,19 +2055,7 @@ ${petNome}`
               </button>
             )}
 
-            {/* Botão Gerar Contrato PDF */}
-            <button
-              onClick={gerarPdf}
-              disabled={gerandoPdf}
-              className="flex items-center justify-center w-7 h-7 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors disabled:opacity-50"
-              title="Gerar Contrato PDF"
-            >
-              {gerandoPdf ? (
-                <RefreshCw className="h-4 w-4 animate-spin" />
-              ) : (
-                <Download className="h-4 w-4" />
-              )}
-            </button>
+            {/* PDF movido para tela de fichas processadas */}
 
             {/* Botão Protocolo de Entrega - Retorno, Pendente, Finalizado (FLS: btn_protocolo) */}
             {(contrato.status === 'retorno' || contrato.status === 'pendente' || contrato.status === 'finalizado') && isVisible(T, 'btn_protocolo') && (

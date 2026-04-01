@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ClipboardList, Search, X, Clock, CheckCircle2, Phone, MapPin, Stethoscope, ArrowRight, MessageCircle } from 'lucide-react'
+import { ClipboardList, Search, X, Clock, CheckCircle2, Phone, MapPin, Stethoscope, ArrowRight, MessageCircle, Download } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useDebounce } from '@/hooks/useDebounce'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -10,6 +10,7 @@ import EmptyState from '@/components/ui/EmptyState'
 import Badge from '@/components/ui/Badge'
 import TratativaModal from '@/components/fichas/TratativaModal'
 import { useUnit } from '@/contexts/UnitContext'
+import { gerarContratoPDF, contratoFilename, getUnidade } from '@/lib/contrato-pdf'
 
 // ============================================
 // Types
@@ -205,12 +206,19 @@ export default function FichasPage() {
   }
 
   function montarMsgWhatsApp(ficha: Ficha): string {
+    const op = (ficha.op_dados || {}) as Record<string, unknown>
     const cremacao = ficha.cremacao || ''
-    const valor = ficha.valor ? `R$ ${ficha.valor.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}` : ''
+    // Valor: op_dados tem prioridade (operador pode ter ajustado)
+    const valorOp = op.valorPlano ? parseFloat(String(op.valorPlano)) : null
+    const descontoOp = op.descontoPreVenda ? parseFloat(String(op.descontoPreVenda)) : 0
+    const valorFinal = valorOp != null ? valorOp - descontoOp : (ficha.valor || 0)
+    const valor = valorFinal ? `R$ ${valorFinal.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}` : ''
     const pagamento = ficha.pagamento || ''
     const velorio = ficha.velorio || ''
     const acompanhamento = ficha.acompanhamento || ''
     const dataEnvio = new Date(ficha.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    // Telefone: sempre o original da ficha (troca principal/secundário é só interno)
+    const telPrincipal = ficha.telefone
 
     let msg = `Dados Enviados em ${dataEnvio}\nVerifique se as informações abaixo estão corretas:\n\n`
 
@@ -219,7 +227,7 @@ export default function FichasPage() {
 
     msg += `*- DADOS DO TUTOR:*\n`
     msg += `*Nome p/ Contrato e Certificado:* ${nomesCertificado}\n`
-    msg += `*Telefone Contato:* ${ficha.telefone} | *CPF:* ${ficha.cpf}\n`
+    msg += `*Telefone Contato:* ${telPrincipal} | *CPF:* ${ficha.cpf}\n`
     if (ficha.email) msg += `*Email:* ${ficha.email}\n`
     msg += `*Endereço:* ${ficha.endereco} ${ficha.numero}${ficha.complemento ? ` - ${ficha.complemento}` : ''} - ${ficha.bairro}\n`
     msg += `*CEP:* ${ficha.cep} | *Cidade:* ${ficha.cidade} | *UF:* ${ficha.estado}\n`
@@ -247,6 +255,51 @@ export default function FichasPage() {
     }
 
     return msg
+  }
+
+  async function gerarPdfFicha(ficha: Ficha) {
+    const op = (ficha.op_dados || {}) as Record<string, unknown>
+    const nomeUnidade = currentUnit ? `${currentUnit.cidade} - ${currentUnit.estado}` : 'Santos - SP'
+
+    try {
+      const blob = await gerarContratoPDF({
+        codigo: String(op.codigo || ''),
+        lacre: op.lacre ? String(op.lacre) : null,
+        tutorNome: ficha.nome_completo || '',
+        tutorTelefone: ficha.telefone || '',
+        tutorCpf: ficha.cpf || '',
+        tutorEmail: ficha.email,
+        tutorEndereco: ficha.endereco ? `${ficha.endereco}, ${ficha.numero}${ficha.complemento ? ` - ${ficha.complemento}` : ''}` : null,
+        tutorEstado: ficha.estado,
+        tutorCidade: ficha.cidade,
+        tutorBairro: ficha.bairro,
+        tutorCep: ficha.cep,
+        petNome: ficha.nome_pet || '',
+        petEspecie: ficha.especie,
+        petRaca: ficha.raca,
+        petIdade: ficha.idade ? parseInt(ficha.idade) || null : null,
+        petCor: ficha.cor,
+        petGenero: ficha.genero,
+        petPeso: ficha.peso ? parseFloat(ficha.peso) || null : null,
+        localColeta: ficha.localizacao,
+        tipoCremacao: ficha.cremacao?.toLowerCase() as 'individual' | 'coletiva',
+        valorPlano: op.valorPlano ? parseFloat(String(op.valorPlano)) : ficha.valor,
+        metodoPagamento: ficha.pagamento,
+        parcelas: ficha.parcelas ? parseInt(ficha.parcelas) || null : null,
+        velorioDeseja: ficha.velorio === 'Sim' ? true : ficha.velorio === 'Não' ? false : null,
+        acompanhamentoOnline: ficha.acompanhamento?.includes('On-line') || false,
+        acompanhamentoPresencial: ficha.acompanhamento?.includes('Presencial') || false,
+      }, nomeUnidade)
+
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = contratoFilename(String(op.codigo || 'FICHA'), ficha.nome_pet || 'PET')
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Erro ao gerar PDF:', err)
+    }
   }
 
   function abrirWhatsApp(ficha: Ficha) {
@@ -469,6 +522,15 @@ export default function FichasPage() {
                         >
                           <MessageCircle className="h-4 w-4" />
                         </button>
+                        {ficha.op_dados && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); gerarPdfFicha(ficha) }}
+                            className="flex items-center justify-center w-9 h-9 rounded-full bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                            title="Gerar Contrato PDF"
+                          >
+                            <Download className="h-4 w-4" />
+                          </button>
+                        )}
                         <button
                           onClick={() => setFichaModal(ficha)}
                           className="btn-primary text-sm py-2 px-3 whitespace-nowrap"

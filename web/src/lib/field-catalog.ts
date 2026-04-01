@@ -49,6 +49,7 @@ export const TELAS: ItemDef[] = [
   { key: 'tela_estoque', label: 'Estoque', desc: 'Controle de estoque' },
   { key: 'tela_tutores', label: 'Tutores', desc: 'Cadastro de tutores' },
   { key: 'tela_gc', label: 'GC', desc: 'Gerenciamento de Cremações (Matriz)' },
+  { key: 'tela_ads_shield', label: 'RIP Shield', desc: 'Detecção de fraude em cliques Google Ads' },
 ]
 
 // ============================================
@@ -130,6 +131,10 @@ export const CAMPOS_BOTOES: ChildItemDef[] = [
 
   // --- ESTOQUE ---
   { key: 'preco_produto', tela: 'tela_estoque', label: 'Preço do Produto', desc: 'Edição de preço no detalhe' },
+
+  // --- RIP SHIELD ---
+  { key: 'btn_exportar_ips', tela: 'tela_ads_shield', label: 'Exportar IPs', desc: 'Gerar arquivo .txt para exclusão no Google Ads' },
+  { key: 'btn_whitelist', tela: 'tela_ads_shield', label: 'Marcar como Seguro', desc: 'Adicionar IP à whitelist' },
 ]
 
 // ============================================

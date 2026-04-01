@@ -147,6 +147,14 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
     setEditingValue('')
   }
 
+  // Telefone2 completo com DDI
+  function getTelefone2Completo(): string {
+    const num = telefone2.replace(/\D/g, '')
+    if (!num) return ''
+    const ddi = telefone2DDI === 'outro' ? telefone2DDICustom : telefone2DDI
+    return ddi + num
+  }
+
   function cancelEdit() {
     // Se cancelou a adição de um nome vazio no certificado, remover o item
     if (editingField?.startsWith('outros_tutores_') && editingValue === '') {
@@ -187,11 +195,15 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   // Telefone — operador confirma ou adiciona secundário
   const [telefoneConfirmado, setTelefoneConfirmado] = useState(false)
   const [telefone2, setTelefone2] = useState('')
+  const [telefone2DDI, setTelefone2DDI] = useState('55')
+  const [telefone2DDICustom, setTelefone2DDICustom] = useState('')
+  const [mostrarTelefone2, setMostrarTelefone2] = useState(false)
   const [usarTelefone2ComoPrincipal, setUsarTelefone2ComoPrincipal] = useState(false)
   const [codigo, setCodigo] = useState('')
   const [codigoManual, setCodigoManual] = useState(false)
   const [valorPlano, setValorPlano] = useState('')
   const [descontoPreVenda, setDescontoPreVenda] = useState('')
+  const [descontoTipo, setDescontoTipo] = useState<'valor' | 'percentual'>('valor')
   const [localColeta, setLocalColeta] = useState<'residencia' | 'clinica' | 'unidade' | 'outro' | ''>('')
   const [enderecoOutro, setEnderecoOutro] = useState('')
   // Bloco Acolhimento
@@ -317,8 +329,12 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       setClinicaTextoLivre('')
       setEnderecoOutro('')
       setDescontoPreVenda('')
+      setDescontoTipo('valor')
       setTelefoneConfirmado(false)
       setTelefone2('')
+      setTelefone2DDI('55')
+      setTelefone2DDICustom('')
+      setMostrarTelefone2(false)
       setUsarTelefone2ComoPrincipal(false)
       setConfirmarRetorno(false)
       setSemLocal(false)
@@ -385,6 +401,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       if (op.semLacre) setSemLacre(true)
       if (op.valorPlano) setValorPlano(String(op.valorPlano))
       if (op.descontoPreVenda) setDescontoPreVenda(String(op.descontoPreVenda))
+      if (op.descontoTipo) setDescontoTipo(op.descontoTipo as 'valor' | 'percentual')
       if (op.dataContrato) setDataContrato(String(op.dataContrato))
       if (op.teveIndicacao) { setTeveIndicacao(true); setMostrarIndicacao(true) }
       if (op.indicNomeQuemIndicou) setIndicNomeQuemIndicou(String(op.indicNomeQuemIndicou))
@@ -395,7 +412,17 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       if (op.indicNome) { setIndicNome(String(op.indicNome)); setIndicBusca(String(op.indicNome)) }
       if (op.indicCargo) setIndicCargo(String(op.indicCargo))
       if (op.telefoneConfirmado) setTelefoneConfirmado(true)
-      if (op.telefone2) setTelefone2(String(op.telefone2))
+      if (op.mostrarTelefone2) setMostrarTelefone2(true)
+      if (op.telefone2DDI) setTelefone2DDI(String(op.telefone2DDI))
+      if (op.telefone2DDICustom) setTelefone2DDICustom(String(op.telefone2DDICustom))
+      if (op.telefone2) {
+        // Extrair só o número local (sem DDI) pra exibir formatado
+        const tel2Completo = String(op.telefone2)
+        const ddi = op.telefone2DDI ? String(op.telefone2DDI) : '55'
+        const numLocal = tel2Completo.startsWith(ddi) ? tel2Completo.slice(ddi.length) : tel2Completo
+        setTelefone2(numLocal.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2'))
+        setMostrarTelefone2(true)
+      }
       if (op.usarTelefone2ComoPrincipal) setUsarTelefone2ComoPrincipal(true)
     }
   }, [isOpen, ficha])
@@ -479,10 +506,11 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       }
 
       // Marcar como processada + salvar dados do operador
+      const { data: { user } } = await supabase.auth.getUser()
       await supabase.from('fichas').update({
         processada: true,
         processada_em: new Date().toISOString(),
-        processada_por: funcionarioId || null,
+        processada_por: user?.id || null,
         op_dados: opDados,
       } as never).eq('id', ficha.id)
 
@@ -517,8 +545,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
           .insert({
             nome: f.nome_completo,
             cpf: f.cpf,
-            telefone: usarTelefone2ComoPrincipal && telefone2.trim() ? telefone2.replace(/\D/g, '') : f.telefone,
-            telefone2: telefone2.trim() ? (usarTelefone2ComoPrincipal ? f.telefone : telefone2.replace(/\D/g, '')) : null,
+            telefone: usarTelefone2ComoPrincipal && getTelefone2Completo() ? getTelefone2Completo() : f.telefone,
+            telefone2: getTelefone2Completo() ? (usarTelefone2ComoPrincipal ? f.telefone : getTelefone2Completo()) : null,
             email: f.email || null,
             cep: f.cep, endereco: f.endereco, numero: f.numero, complemento: f.complemento || null,
             bairro: f.bairro, cidade: f.cidade, estado: f.estado, unidade_id: f.unidade_id,
@@ -586,8 +614,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         pet_idade_anos: f.idade ? parseInt(f.idade) || null : null,
         tutor_id: tutorId,
         tutor_nome: f.nome_completo?.toUpperCase() || '', tutor_cpf: f.cpf,
-        tutor_telefone: usarTelefone2ComoPrincipal && telefone2.trim() ? telefone2.replace(/\D/g, '') : f.telefone,
-        tutor_telefone2: telefone2.trim() ? (usarTelefone2ComoPrincipal ? f.telefone : telefone2.replace(/\D/g, '')) : null,
+        tutor_telefone: usarTelefone2ComoPrincipal && getTelefone2Completo() ? getTelefone2Completo() : f.telefone,
+        tutor_telefone2: getTelefone2Completo() ? (usarTelefone2ComoPrincipal ? f.telefone : getTelefone2Completo()) : null,
         tutor_email: f.email || null, tutor_cidade: f.cidade || null, tutor_bairro: f.bairro || null,
         tutor_endereco: f.endereco ? `${f.endereco}, ${f.numero}${f.complemento ? ` - ${f.complemento}` : ''}` : null,
         tutor_cep: f.cep || null,
@@ -604,7 +632,12 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         acompanhamento_online: f.acompanhamento?.includes('On-line') || false,
         acompanhamento_presencial: f.acompanhamento?.includes('Presencial') || false,
         valor_plano: valorPlano ? parseFloat(valorPlano) : null,
-        desconto_plano: descontoPreVenda ? parseFloat(descontoPreVenda) : 0,
+        desconto_plano: (() => {
+          const d = parseFloat(descontoPreVenda) || 0
+          if (!d) return 0
+          if (descontoTipo === 'percentual') return ((parseFloat(valorPlano) || 0) * d) / 100
+          return d
+        })(),
         local_coleta: semLocal ? null : localColetaValor,
         remocao_endereco: semLocal ? null : (localColeta === 'residencia' ? (f.endereco ? `${f.endereco}, ${f.numero}` : null) : localColeta === 'outro' ? enderecoOutro || null : null),
         remocao_bairro: semLocal ? null : (localColeta === 'residencia' ? f.bairro : null),
@@ -637,19 +670,58 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
     }
   }
 
+  // Salvar alterações nos dados do operador (ficha já processada)
+  async function salvarAlteracoes() {
+    if (!ficha) return
+    setSalvando(true)
+    try {
+      // Salvar edições nos dados do cliente
+      if (Object.keys(fichaEdits).length > 0) {
+        const editsParaSalvar = { ...fichaEdits }
+        if (editsParaSalvar.outros_tutores) {
+          editsParaSalvar.outros_tutores = JSON.parse(editsParaSalvar.outros_tutores)
+        }
+        await supabase.from('fichas').update(editsParaSalvar as never).eq('id', ficha.id)
+      }
+      // Atualizar op_dados
+      const opDados = {
+        codigo: codigo.trim(), codigoManual, tipoPlano,
+        funcionarioId: semResponsavel ? null : (funcionarioId || null), semResponsavel,
+        localColeta, enderecoOutro: enderecoOutro || null, semLocal,
+        clinicaTextoLivre: clinicaTextoLivre || null, estabId, estabNome: estabNome || null, autonomo,
+        dataHoraAcolhimento: dataHoraAcolhimento || null, semDataHora,
+        lacre: lacre || null, semLacre,
+        valorPlano: valorPlano || null, descontoPreVenda: descontoPreVenda || null, descontoTipo, dataContrato,
+        teveIndicacao, indicNomeQuemIndicou: indicNomeQuemIndicou || null, indicNomeAtivo,
+        indicHospClinica: indicHospClinica || null, indicHospAtivo,
+        indicId, indicNome: indicNome || null, indicCargo: indicCargo || null,
+        telefoneConfirmado, telefone2: getTelefone2Completo() || null, telefone2DDI, telefone2DDICustom, mostrarTelefone2, usarTelefone2ComoPrincipal,
+      }
+      await supabase.from('fichas').update({ op_dados: opDados } as never).eq('id', ficha.id)
+      toast('Alterações salvas!', 'success')
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Erro ao salvar', 'error')
+    } finally {
+      setSalvando(false)
+    }
+  }
+
   const footer = modoVisualizacao ? (
     <div className="flex gap-3 justify-between w-full">
       <button
         onClick={() => setConfirmarRetorno(true)}
         className="btn-secondary text-amber-400 border-amber-500/30 hover:bg-amber-900/20 text-sm"
       >
-        Retornar para Pendente
+        Retornar para Recebidas
       </button>
       <div className="flex gap-2">
+        <button onClick={salvarAlteracoes} disabled={salvando} className="btn-secondary text-sm">
+          {salvando ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvando...</> : 'Salvar'}
+        </button>
         {!ficha?.contrato_id && (
           <button
             onClick={criarContrato}
-            disabled={salvando || !codigo.trim()}
+            disabled={salvando || !codigo.trim() || !valorPlano.trim()}
             className="btn-primary disabled:opacity-50 text-sm"
           >
             {salvando ? <><Loader2 className="h-4 w-4 animate-spin" /> Criando...</> : 'Criar Contrato'}
@@ -665,7 +737,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       </button>
       <button
         onClick={processarFicha}
-        disabled={salvando || !codigo.trim() || (!lacre.trim() && !semLacre)}
+        disabled={salvando || !codigo.trim() || !valorPlano.trim() || (!lacre.trim() && !semLacre)}
         className="btn-primary disabled:opacity-50"
       >
         {salvando ? (
@@ -674,7 +746,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
             Processando...
           </>
         ) : (
-          'Criar Contrato'
+          'Processar'
         )}
       </button>
     </div>
@@ -688,9 +760,9 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       {confirmarRetorno && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-sm rounded-2xl shadow-2xl p-5 space-y-4" style={{ background: 'var(--surface-card, #1e293b)', border: '1px solid var(--surface-200)' }}>
-            <h3 className="text-sm font-bold text-amber-400">Retornar para Pendente?</h3>
+            <h3 className="text-sm font-bold text-amber-400">Retornar para Recebidas?</h3>
             <p className="text-xs text-[var(--surface-500)]">
-              Esta ficha será retornada para a fila de pendentes. O contrato vinculado será desvinculado, mas não será excluído. O operador precisará processar novamente.
+              Esta ficha será retornada para a fila de recebidas. Os dados preenchidos serão mantidos. O operador precisará processar novamente.
             </p>
             <div className="flex justify-end gap-2 pt-2">
               <button onClick={() => setConfirmarRetorno(false)} className="px-3 py-1.5 rounded-lg text-sm text-[var(--surface-600)] hover:bg-[var(--surface-100)]">
@@ -851,13 +923,69 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         </div>
 
         {/* ======== RIGHT COLUMN — Operator fields ======== */}
-        <div className="space-y-4">
-          <h3 className="text-sm font-semibold text-[var(--surface-500)] uppercase tracking-wide">Dados do Operador</h3>
+        <div className="space-y-4 p-4 rounded-xl" style={{ background: 'rgba(250, 204, 21, 0.06)', border: '1px solid rgba(250, 204, 21, 0.15)' }}>
+          <h3 className="text-sm font-semibold text-amber-500 uppercase tracking-wide">Dados do Operador</h3>
           <p className="text-[10px] font-bold text-[var(--surface-400)] uppercase tracking-widest">Padronização de Dados</p>
 
           {/* ═══════ BLOCO: ACOLHIMENTO ═══════ */}
           <div className="p-3 rounded-xl border border-[var(--surface-200)] space-y-3">
             <h4 className="text-xs font-bold text-[var(--surface-600)] uppercase tracking-wider">Acolhimento</h4>
+
+            {/* Telefone do Tutor */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-medium text-[var(--surface-600)]">Telefone do Tutor</label>
+              </div>
+              <div className="px-3 py-2 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)] text-sm text-mono text-[var(--surface-700)]">
+                {getFichaValue('telefone') || '-'}
+              </div>
+              <div className="mt-1.5 space-y-1.5">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={telefoneConfirmado} onChange={e => setTelefoneConfirmado(e.target.checked)} className="h-3.5 w-3.5 rounded accent-emerald-500" />
+                  <span className={`text-[10px] ${telefoneConfirmado ? 'text-emerald-400 font-medium' : 'text-[var(--surface-400)]'}`}>
+                    {telefoneConfirmado ? 'Telefone confirmado' : 'Confirmar que é o telefone correto'}
+                  </span>
+                </label>
+                {!mostrarTelefone2 ? (
+                  <button type="button" onClick={() => setMostrarTelefone2(true)} className="text-[10px] text-purple-400 hover:text-purple-300 flex items-center gap-1">
+                    <Plus className="h-3 w-3" /> Inserir telefone do contato atual
+                  </button>
+                ) : (
+                  <div className="space-y-1.5">
+                    <div className="flex gap-1.5">
+                      {telefone2DDI === 'outro' ? (
+                        <div className="flex gap-1 items-center">
+                          <span className="text-[var(--surface-400)] text-xs">+</span>
+                          <input value={telefone2DDICustom} onChange={e => setTelefone2DDICustom(e.target.value.replace(/\D/g, '').slice(0, 4))} className="input text-sm text-mono w-14 text-center" placeholder="DDI" inputMode="numeric" />
+                          <button type="button" onClick={() => setTelefone2DDI('55')} className="text-[10px] text-[var(--surface-400)] hover:text-[var(--surface-600)]">x</button>
+                        </div>
+                      ) : (
+                        <select value={telefone2DDI} onChange={e => setTelefone2DDI(e.target.value)} className="input text-sm w-24">
+                          <option value="55">+55</option>
+                          <option value="1">+1</option>
+                          <option value="351">+351</option>
+                          <option value="54">+54</option>
+                          <option value="598">+598</option>
+                          <option value="595">+595</option>
+                          <option value="56">+56</option>
+                          <option value="57">+57</option>
+                          <option value="52">+52</option>
+                          <option value="34">+34</option>
+                          <option value="39">+39</option>
+                          <option value="44">+44</option>
+                          <option value="outro">Outro</option>
+                        </select>
+                      )}
+                      <input type="text" inputMode="tel" value={telefone2} onChange={e => setTelefone2(e.target.value.replace(/\D/g, '').replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15))} placeholder="(00) 00000-0000" maxLength={15} className="input text-sm text-mono flex-1" />
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={usarTelefone2ComoPrincipal} onChange={e => setUsarTelefone2ComoPrincipal(e.target.checked)} className="h-3 w-3 rounded accent-amber-500" />
+                      <span className="text-[10px] text-amber-400">Usar este como principal (trocar)</span>
+                    </label>
+                  </div>
+                )}
+              </div>
+            </div>
 
             {/* Local de Acolhimento */}
             <div>
@@ -1028,50 +1156,18 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               )}
             </div>
 
-            {/* Confirmação de Telefone */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-medium text-[var(--surface-600)]">Telefone do Tutor</label>
-              </div>
-              <div className="px-3 py-2 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)] text-sm text-mono text-[var(--surface-700)]">
-                {getFichaValue('telefone') || '-'}
-              </div>
-              <div className="mt-1.5 space-y-1.5">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={telefoneConfirmado} onChange={e => setTelefoneConfirmado(e.target.checked)} className="h-3.5 w-3.5 rounded accent-emerald-500" />
-                  <span className={`text-[10px] ${telefoneConfirmado ? 'text-emerald-400 font-medium' : 'text-[var(--surface-400)]'}`}>
-                    {telefoneConfirmado ? 'Telefone confirmado' : 'Confirmar que é o telefone correto'}
-                  </span>
-                </label>
-                {!telefone2 ? (
-                  <button type="button" onClick={() => setTelefone2(' ')} className="text-[10px] text-purple-400 hover:text-purple-300 flex items-center gap-1">
-                    <Plus className="h-3 w-3" /> Adicionar telefone secundário
-                  </button>
-                ) : (
-                  <div className="space-y-1">
-                    <input type="text" inputMode="tel" value={telefone2.trim()} onChange={e => setTelefone2(e.target.value.replace(/\D/g, '').replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15))} placeholder="(00) 00000-0000" maxLength={15} className="input text-sm text-mono" />
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={usarTelefone2ComoPrincipal} onChange={e => setUsarTelefone2ComoPrincipal(e.target.checked)} className="h-3 w-3 rounded accent-amber-500" />
-                      <span className="text-[10px] text-amber-400">Usar este como principal (trocar)</span>
-                    </label>
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
 
           {/* ═══════ BLOCO: INDICAÇÃO ═══════ */}
           <div className="p-3 rounded-xl border border-[var(--surface-200)] space-y-3">
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-bold text-[var(--surface-600)] uppercase tracking-wider">Indicação</h4>
-              <label className="flex items-center gap-2 cursor-pointer">
+              <button type="button" onClick={() => setTeveIndicacao(!teveIndicacao)} className="flex items-center gap-2">
                 <span className="text-[10px] text-[var(--surface-400)]">{teveIndicacao ? 'Sim' : 'Não'}</span>
-                <button type="button" onClick={() => setTeveIndicacao(!teveIndicacao)}
-                  className={`relative w-8 h-4.5 rounded-full transition-colors ${teveIndicacao ? 'bg-purple-500' : 'bg-[var(--surface-300)]'}`}
-                  style={{ height: 18 }}>
-                  <span className={`absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white transition-transform ${teveIndicacao ? 'translate-x-4' : 'translate-x-0.5'}`} style={{ width: 14, height: 14 }} />
-                </button>
-              </label>
+                <div className={`relative rounded-full transition-colors ${teveIndicacao ? 'bg-purple-500' : 'bg-[var(--surface-300)]'}`} style={{ width: 36, height: 20 }}>
+                  <div className={`absolute top-[3px] rounded-full bg-white shadow transition-all`} style={{ width: 14, height: 14, left: teveIndicacao ? 19 : 3 }} />
+                </div>
+              </button>
             </div>
 
             {/* Contexto: o que o tutor informou */}
@@ -1146,29 +1242,68 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
 
           {/* ═══════ CAMPOS FINAIS ═══════ */}
 
-          {/* Código */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-xs font-medium text-[var(--surface-600)]">Código <span className="text-red-400">*</span></label>
-              <button type="button" onClick={() => setCodigoManual(!codigoManual)} className="text-[10px] text-[var(--surface-400)] hover:text-[var(--surface-600)] flex items-center gap-1">
-                <Pencil className="h-3 w-3" />{codigoManual ? 'Auto-gerar' : 'Editar'}
-              </button>
-            </div>
-            <input type="text" value={codigo} onChange={e => setCodigo(e.target.value)} readOnly={!codigoManual} className={`input text-mono text-sm ${!codigoManual ? 'bg-[var(--surface-50)]' : ''}`} />
-          </div>
+          {/* Código gerado automaticamente — não visível ao operador */}
 
           {/* Valor + Desconto */}
           <div>
-            <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Valor do Plano (R$)</label>
+            <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Valor do Plano (R$) <span className="text-red-400">*</span></label>
+            <div className="grid grid-cols-7 gap-1.5 mb-2">
+              {[990, 1090, 1190, 1390, 1490, 1590, 1690].map(v => (
+                <button key={v} type="button" onClick={() => setValorPlano(String(v))}
+                  className={`py-1.5 rounded-lg text-xs font-bold transition-all text-center ${
+                    valorPlano === String(v)
+                      ? 'bg-emerald-500 text-white'
+                      : 'bg-[var(--surface-100)] text-[var(--surface-500)] hover:bg-[var(--surface-200)]'
+                  }`}>
+                  {v.toLocaleString('pt-BR')}
+                </button>
+              ))}
+            </div>
+            <input type="text" inputMode="decimal" value={valorPlano} onChange={e => setValorPlano(e.target.value.replace(/[^\d.,]/g, '').replace(',', '.'))} placeholder="0.00" className="input text-mono text-sm mb-2" />
+
+            <p className="text-[10px] text-[var(--surface-400)] -mt-1 mb-1">Desconto Pré-Venda: Por Meio de Pagamento ou Parcerias</p>
             <div className="flex items-center gap-2">
-              <input type="text" inputMode="decimal" value={valorPlano} onChange={e => setValorPlano(e.target.value.replace(/[^\d.,]/g, '').replace(',', '.'))} placeholder="0.00" className="input text-mono text-sm flex-1" />
-              <span className="text-[var(--surface-400)] text-sm">−</span>
-              <input type="text" inputMode="decimal" value={descontoPreVenda} onChange={e => setDescontoPreVenda(e.target.value.replace(/[^\d.,]/g, '').replace(',', '.'))} placeholder="Desc." className="input text-mono text-sm w-20" />
+              <label className="text-xs text-[var(--surface-500)]">Desconto</label>
+              <div className="flex rounded-lg overflow-hidden border border-[var(--surface-200)]">
+                <button type="button" onClick={() => { setDescontoTipo('valor'); setDescontoPreVenda('') }}
+                  className={`px-2.5 py-1 text-[10px] font-bold transition-colors ${descontoTipo === 'valor' ? 'bg-purple-500 text-white' : 'text-[var(--surface-400)] hover:bg-[var(--surface-50)]'}`}>
+                  R$
+                </button>
+                <button type="button" onClick={() => { setDescontoTipo('percentual'); setDescontoPreVenda('') }}
+                  className={`px-2.5 py-1 text-[10px] font-bold transition-colors ${descontoTipo === 'percentual' ? 'bg-purple-500 text-white' : 'text-[var(--surface-400)] hover:bg-[var(--surface-50)]'}`}>
+                  %
+                </button>
+              </div>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={descontoPreVenda}
+                onChange={e => {
+                  let v = e.target.value.replace(/[^\d.,]/g, '').replace(',', '.')
+                  if (descontoTipo === 'percentual') {
+                    const num = parseFloat(v)
+                    if (num > 100) v = '100'
+                  }
+                  setDescontoPreVenda(v)
+                }}
+                placeholder={descontoTipo === 'percentual' ? '0' : '0.00'}
+                className="input text-mono text-sm w-20"
+              />
               <span className="text-[var(--surface-400)] text-sm">=</span>
-              <span className="text-sm font-bold text-emerald-400 min-w-[60px] text-right">
-                {(() => { const v = parseFloat(valorPlano) || 0; const d = parseFloat(descontoPreVenda) || 0; return Math.max(v - d, 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) })()}
+              <span className="text-sm font-bold text-emerald-400 min-w-[70px] text-right">
+                {(() => {
+                  const v = parseFloat(valorPlano) || 0
+                  const d = parseFloat(descontoPreVenda) || 0
+                  const descontoReal = descontoTipo === 'percentual' ? (v * d) / 100 : d
+                  return Math.max(v - descontoReal, 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                })()}
               </span>
             </div>
+            {descontoPreVenda && descontoTipo === 'percentual' && (
+              <p className="text-[10px] text-[var(--surface-400)] mt-1">
+                {parseFloat(descontoPreVenda) || 0}% = R$ {(((parseFloat(valorPlano) || 0) * (parseFloat(descontoPreVenda) || 0)) / 100).toFixed(2)} de desconto
+              </p>
+            )}
           </div>
 
           {/* Data do contrato */}

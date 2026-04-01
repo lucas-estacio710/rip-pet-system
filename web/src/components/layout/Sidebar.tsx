@@ -16,7 +16,8 @@ import {
   Users,
   Settings,
   LogOut,
-  Crown
+  Crown,
+  Shield
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
@@ -41,6 +42,7 @@ const navItems: NavItem[] = [
   { href: '/estoque', label: 'Estoque', icon: ShelvingUnit, countKey: null, module: 'tela_estoque' },
   { href: '/gc', label: 'GC', icon: Church, countKey: null, module: 'tela_gc' },
   { href: '/tutores', label: 'Tutores', icon: Users, countKey: null, module: 'tela_tutores' },
+  { href: '/ads-shield', label: 'RIP Shield', icon: Shield, countKey: null, module: 'tela_ads_shield', iconColor: '#ef4444' },
 ]
 
 type Props = {

@@ -14,8 +14,8 @@
 > **Como atualizar:** Edite a tabela afetada neste arquivo refletindo exatamente a alteracao feita no banco.
 > Atualize tambem a data de "Ultima atualizacao" abaixo.
 
-**Ultima atualizacao:** 2026-03-31
-**Total:** 42 tabelas/views
+**Ultima atualizacao:** 2026-04-01
+**Total:** 43 tabelas/views
 
 ## configuracoes (6 colunas)
 
@@ -627,7 +627,7 @@
 | unidade_id | uuid | FK->unidades.id |
 | updated_at | timestamp with time zone | default=now() |
 
-## sessions (30 colunas)
+## sessions (34 colunas)
 
 | Coluna | Tipo | Info |
 |--------|------|------|
@@ -661,6 +661,21 @@
 | utm_term | text |  |
 | viewport | text |  |
 | visitor_id | text |  |
+| ip_address | text |  |
+| fingerprint | text |  |
+| unidade_code | text |  |
+| is_ads | boolean | default=False |
+
+## ads_shield_whitelist (6 colunas)
+
+| Coluna | Tipo | Info |
+|--------|------|------|
+| id | uuid | PK default=gen_random_uuid() |
+| ip_address | text |  |
+| fingerprint | text |  |
+| reason | text |  |
+| created_at | timestamp with time zone | default=now() |
+| created_by | uuid | FK->auth.users.id |
 
 ## supinda_itens (6 colunas)
 
