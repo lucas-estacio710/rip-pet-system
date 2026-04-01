@@ -133,50 +133,74 @@ export default function VisibilidadePage() {
     const { data: { user } } = await supabase.auth.getUser()
 
     const toUpsert: { unidade_id: string; tela: string; campo: string; role: string; permissao: string }[] = []
-    const toDelete: { unidade_id: string; role: string; campo: string }[] = []
+    const deleteKeys: string[] = []  // campo keys to delete
     const logEntries: any[] = []
 
     const allItems = [...TELAS, ...OBJETOS, ...CAMPOS_BOTOES]
+    const itemMap = new Map(allItems.map(i => [i.key, i]))
 
-    for (const unit of unidades) {
-      for (const role of FLS_ROLES) {
-        for (const item of allItems) {
-          const key = `${unit.id}:${role}:${item.key}`
-          const perm = perms[key] ?? 'edit'
-          const original = originalPerms[key] ?? 'edit'
+    // Só processar mudanças (diff entre perms e originalPerms)
+    const allKeys = new Set([...Object.keys(perms), ...Object.keys(originalPerms)])
+    for (const key of allKeys) {
+      const perm = perms[key] ?? 'edit'
+      const original = originalPerms[key] ?? 'edit'
+      if (perm === original) continue
 
-          if (perm !== original) {
-            logEntries.push({
-              entidade: 'field_permissions',
-              entidade_id: unit.id,
-              entidade_nome: unit.nome,
-              campo: item.key,
-              campo_label: item.label,
-              valor_anterior: original,
-              valor_novo: perm,
-              tipo: 'alteracao',
-              alterado_por: user?.id || null,
-              alterado_por_email: user?.email || null,
-              nota: `${role}: ${original} → ${perm}`,
-            })
-          }
+      // Parse key: "unidadeId:role:campo"
+      const parts = key.split(':')
+      if (parts.length !== 3) continue
+      const [unidadeId, role, campo] = parts
 
-          const tela = 'tela' in item ? (item as ChildItemDef).tela : 'global'
+      const item = itemMap.get(campo)
+      const unit = unidades.find(u => u.id === unidadeId)
 
-          if (perm === 'edit') {
-            toDelete.push({ unidade_id: unit.id, role, campo: item.key })
-          } else {
-            toUpsert.push({ unidade_id: unit.id, tela, campo: item.key, role, permissao: perm })
-          }
-        }
+      if (item && unit) {
+        logEntries.push({
+          entidade: 'field_permissions',
+          entidade_id: unidadeId,
+          entidade_nome: unit.nome,
+          campo,
+          campo_label: item.label,
+          valor_anterior: original,
+          valor_novo: perm,
+          tipo: 'alteracao',
+          alterado_por: user?.id || null,
+          alterado_por_email: user?.email || null,
+          nota: `${role}: ${original} → ${perm}`,
+        })
+      }
+
+      const tela = item && 'tela' in item ? (item as ChildItemDef).tela : 'global'
+
+      if (perm === 'edit') {
+        // Default = deletar row
+        deleteKeys.push(campo)
+        // Delete individual (agrupamos depois)
+      } else {
+        toUpsert.push({ unidade_id: unidadeId, tela, campo, role, permissao: perm })
       }
     }
 
-    for (const { unidade_id, role, campo } of toDelete) {
-      await supabase.from('field_permissions').delete()
-        .eq('unidade_id', unidade_id).eq('campo', campo).eq('role', role)
+    // Batch delete: agrupar por campo e deletar de uma vez
+    if (deleteKeys.length > 0) {
+      const uniqueDeleteKeys = [...new Set(deleteKeys)]
+      // Deletar todas as rows que voltaram pra edit (em paralelo, max 5)
+      const deletePromises: PromiseLike<any>[] = []
+      for (const key of allKeys) {
+        const perm = perms[key] ?? 'edit'
+        const original = originalPerms[key] ?? 'edit'
+        if (perm === 'edit' && original !== 'edit') {
+          const [unidadeId, role, campo] = key.split(':')
+          deletePromises.push(
+            supabase.from('field_permissions').delete()
+              .eq('unidade_id', unidadeId).eq('campo', campo).eq('role', role).then()
+          )
+        }
+      }
+      await Promise.all(deletePromises)
     }
 
+    // Batch upsert
     if (toUpsert.length > 0) {
       await supabase.from('field_permissions').upsert(toUpsert as never, { onConflict: 'unidade_id,tela,campo,role' })
     }
