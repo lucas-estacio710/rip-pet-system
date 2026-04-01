@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ClipboardList, Search, X, Clock, CheckCircle2, Phone, MapPin, Stethoscope, ArrowRight, MessageCircle, Download } from 'lucide-react'
+import { ClipboardList, Search, X, Clock, CheckCircle2, Phone, MapPin, Stethoscope, ArrowRight, MessageCircle, Download, Pencil } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useDebounce } from '@/hooks/useDebounce'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -205,15 +205,24 @@ export default function FichasPage() {
     router.push(`/contratos/${contratoId}`)
   }
 
+  function formatarDisplay(valor: string | null | undefined): string {
+    if (!valor) return '-'
+    const map: Record<string, string> = {
+      pix: 'Pix', dinheiro: 'Dinheiro', debito: 'Cartão Débito', credito: 'Cartão Crédito',
+      individual: 'Individual', coletiva: 'Coletiva',
+    }
+    return map[valor.toLowerCase()] || valor.charAt(0).toUpperCase() + valor.slice(1)
+  }
+
   function montarMsgWhatsApp(ficha: Ficha): string {
     const op = (ficha.op_dados || {}) as Record<string, unknown>
-    const cremacao = ficha.cremacao || ''
+    const cremacao = formatarDisplay(ficha.cremacao)
     // Valor: op_dados tem prioridade (operador pode ter ajustado)
     const valorOp = op.valorPlano ? parseFloat(String(op.valorPlano)) : null
     const descontoOp = op.descontoPreVenda ? parseFloat(String(op.descontoPreVenda)) : 0
     const valorFinal = valorOp != null ? valorOp - descontoOp : (ficha.valor || 0)
     const valor = valorFinal ? `R$ ${valorFinal.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}` : ''
-    const pagamento = ficha.pagamento || ''
+    const pagamento = formatarDisplay(ficha.pagamento)
     const velorio = ficha.velorio || ''
     const acompanhamento = ficha.acompanhamento || ''
     const dataEnvio = new Date(ficha.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -434,81 +443,71 @@ export default function FichasPage() {
                 key={ficha.id}
                 className="card px-3 py-2 card-hover transition-all"
               >
-                <div className="flex items-center gap-3">
-                  {/* Info compacta */}
-                  <div className="min-w-0 flex-1 flex items-center gap-2 flex-wrap">
-                    {/* Pet + tipo */}
-                    <span className="text-sm font-semibold text-[var(--surface-800)] whitespace-nowrap">
-                      {especieEmoji(ficha.especie)} {ficha.nome_pet}
-                    </span>
-                    <span className="text-[9px] font-bold px-1 py-0.5 rounded" style={{
-                      background: ficha.cremacao?.toLowerCase() === 'individual' ? '#16a34a' : '#7c3aed',
-                      color: '#fff',
-                    }}>
-                      {ficha.cremacao?.toLowerCase() === 'individual' ? 'IND' : 'COL'}
-                    </span>
-                    {ficha.valor != null && (
-                      <span className="text-xs font-bold text-green-500 text-mono">
-                        R$ {ficha.valor.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}
-                      </span>
-                    )}
-                    <span className="text-[var(--surface-300)]">|</span>
-                    {/* Tutor */}
-                    <span className="text-xs text-[var(--surface-600)] truncate max-w-[150px]" title={ficha.nome_completo}>
-                      {ficha.nome_completo}
-                      {ficha.outros_tutores && ficha.outros_tutores.filter(Boolean).length > 0 && (
-                        <span className="text-[var(--surface-400)]"> +{ficha.outros_tutores.filter(Boolean).length}</span>
-                      )}
-                    </span>
-                    {ficha.telefone && (
-                      <a
-                        href={`https://wa.me/${getTelefoneAtuante(ficha)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-0.5 text-green-400 hover:text-green-300"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <Phone className="h-3 w-3" />
-                      </a>
-                    )}
-                    <span className="text-[var(--surface-300)] hidden sm:inline">|</span>
-                    {/* Local + tempo */}
-                    {(ficha.cidade || ficha.bairro) && (
-                      <span className="hidden sm:inline-flex items-center gap-0.5 text-[10px] text-[var(--surface-400)]">
-                        <MapPin className="h-2.5 w-2.5" />
-                        {ficha.bairro ? `${ficha.bairro}` : ficha.cidade}
-                      </span>
-                    )}
-                    <span className="text-[10px] text-[var(--surface-400)] inline-flex items-center gap-0.5">
-                      <Clock className="h-2.5 w-2.5" />
-                      {tempoRelativo(ficha.created_at)}
-                    </span>
-                    {isPendente ? (
-                      <Badge variant="warning" dot>Recebida</Badge>
-                    ) : (
-                      <Badge variant="success" dot>Processada</Badge>
-                    )}
-                    {/* Alertas de campos provisórios */}
-                    {!isPendente && ficha.op_dados && (() => {
-                      const op = ficha.op_dados as Record<string, unknown>
-                      const pendencias: string[] = []
-                      if (op.semLocal) pendencias.push('Local')
-                      if (op.semResponsavel) pendencias.push('Resp.')
-                      if (op.semDataHora) pendencias.push('Data/Hora')
-                      if (op.semLacre) pendencias.push('Lacre')
-                      if (!op.telefoneConfirmado && !op.mostrarTelefone2) pendencias.push('Tel.')
-                      return pendencias.length > 0 ? (
-                        <span className="text-[9px] font-semibold text-amber-400 bg-amber-900/20 px-1.5 py-0.5 rounded">
-                          Sem: {pendencias.join(', ')}
+                <div className="flex gap-2.5">
+                  {/* Badge IND/COL */}
+                  <div className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-white font-black text-[10px]" style={{
+                    background: ficha.cremacao?.toLowerCase() === 'individual' ? '#16a34a' : '#7c3aed',
+                  }}>
+                    {ficha.cremacao?.toLowerCase() === 'individual' ? 'IND' : 'COL'}
+                  </div>
+
+                  {/* Info + Actions */}
+                  <div className="min-w-0 flex-1">
+                    {/* Linha 1: Pet + tags inline */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                        <span className="text-sm font-bold text-[var(--surface-800)] truncate">
+                          {especieEmoji(ficha.especie)} {ficha.nome_pet?.toUpperCase()}
                         </span>
-                      ) : null
-                    })()}
-                  </div>
+                        {ficha.peso && <span className="text-[9px] font-semibold text-[var(--surface-400)] bg-[var(--surface-100)] px-1 py-0.5 rounded">{ficha.peso}kg</span>}
+                        {ficha.valor != null && <span className="text-[10px] font-bold text-green-500 text-mono">R${ficha.valor.toLocaleString('pt-BR')}</span>}
+                        <span className="text-[9px] text-[var(--surface-500)]">{formatarDisplay(ficha.pagamento)}{ficha.parcelas ? ` ${ficha.parcelas}x` : ''}</span>
+                      </div>
+                      {/* Status badge */}
+                      {isPendente ? <Badge variant="warning" dot>Recebida</Badge> : <Badge variant="success" dot>Processada</Badge>}
+                    </div>
 
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    {/* Linha 2: Tutor + meta */}
+                    <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-[var(--surface-500)] flex-wrap">
+                      <span className="truncate max-w-[130px] sm:max-w-[200px]" title={ficha.nome_completo}>{ficha.nome_completo}</span>
+                      {ficha.telefone && (
+                        <a href={`https://wa.me/${getTelefoneAtuante(ficha)}`} target="_blank" rel="noopener noreferrer"
+                          className="text-green-400 hover:text-green-300" onClick={e => e.stopPropagation()}>
+                          <Phone className="h-3 w-3" />
+                        </a>
+                      )}
+                      <span className="text-[var(--surface-200)]">|</span>
+                      <span className="inline-flex items-center gap-0.5"><MapPin className="h-2.5 w-2.5" />{ficha.localizacao || '-'}</span>
+                      <span className="inline-flex items-center gap-0.5 text-[var(--surface-400)]"><Clock className="h-2.5 w-2.5" />{tempoRelativo(ficha.created_at)}</span>
+                      {/* Processado por */}
+                      {!isPendente && ficha.op_dados && (() => {
+                        const nome = (ficha.op_dados as Record<string, unknown>).processadoPorNome
+                        return nome ? <span className="text-[var(--surface-400)] italic">por {String(nome)}</span> : null
+                      })()}
+                      {/* Acolhimento + alertas (só processadas) */}
+                      {!isPendente && ficha.op_dados && (() => {
+                        const op = ficha.op_dados as Record<string, unknown>
+                        const tags: React.ReactNode[] = []
+                        // Data/hora
+                        if (op.semDataHora) tags.push(<span key="dh" className="text-amber-400">Acolhimento: a definir</span>)
+                        else if (op.dataHoraAcolhimento) tags.push(
+                          <span key="dh" className="font-semibold text-amber-400 bg-amber-900/20 px-1 py-0.5 rounded">
+                            Acolhido em: {new Date(String(op.dataHoraAcolhimento)).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )
+                        // Pendências
+                        const p: string[] = []
+                        if (op.semLocal) p.push('Local')
+                        if (op.semResponsavel) p.push('Resp.')
+                        if (op.semDataHora) p.push('D/H')
+                        if (op.semLacre) p.push('Lacre')
+                        if (!op.telefoneConfirmado && !op.mostrarTelefone2) p.push('Tel.')
+                        if (p.length > 0) tags.push(<span key="pend" className="font-semibold text-amber-400 bg-amber-900/20 px-1 py-0.5 rounded">Sem: {p.join(', ')}</span>)
+                        return tags.length > 0 ? <>{tags}</> : null
+                      })()}
+                    </div>
+                    {/* Linha 3: Actions */}
+                    <div className="flex items-center gap-1.5 mt-1">
                     {isPendente ? (
                       <button
                         onClick={() => setFichaModal(ficha)}
@@ -520,41 +519,39 @@ export default function FichasPage() {
                     ) : (
                       <div className="flex items-center gap-1.5">
                         <button
-                          onClick={(e) => { e.stopPropagation(); abrirWhatsAppComMsg(ficha) }}
-                          className="flex items-center justify-center w-7 h-7 rounded-full bg-green-600 text-white hover:bg-green-700 transition-colors"
-                          title="WhatsApp"
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            const supabaseLocal = createClient()
+                            await supabaseLocal.from('fichas').update({ processada: false } as never).eq('id', ficha.id)
+                            carregarFichas()
+                            carregarContagens()
+                            setTimeout(() => setFichaModal({ ...ficha, processada: false } as Ficha), 300)
+                          }}
+                          className="flex items-center justify-center w-8 h-8 rounded-full border border-amber-500/30 text-amber-400 hover:bg-amber-900/20 transition-colors"
+                          title="Reprocessar"
                         >
-                          <MessageCircle className="h-3.5 w-3.5" />
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); abrirWhatsAppComMsg(ficha) }}
+                          className="flex items-center justify-center w-8 h-8 rounded-full bg-green-600 text-white hover:bg-green-700 transition-colors" title="WhatsApp">
+                          <MessageCircle className="h-4 w-4" />
                         </button>
                         {ficha.op_dados && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); gerarPdfFicha(ficha) }}
-                            className="flex items-center justify-center w-7 h-7 rounded-full bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-                            title="PDF"
-                          >
-                            <Download className="h-3.5 w-3.5" />
+                          <button onClick={(e) => { e.stopPropagation(); gerarPdfFicha(ficha) }}
+                            className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-600 text-white hover:bg-blue-700 transition-colors" title="PDF">
+                            <Download className="h-4 w-4" />
                           </button>
                         )}
-                        <button
-                          onClick={() => setFichaModal(ficha)}
-                          className="btn-primary text-xs py-1.5 px-3 whitespace-nowrap"
-                          style={{ background: ficha.contrato_id ? 'var(--surface-500)' : 'var(--brand-600)' }}
-                        >
+                        <button onClick={() => setFichaModal(ficha)}
+                          className="btn-primary text-xs py-1.5 px-3 whitespace-nowrap" style={{ background: 'var(--brand-600)' }}>
                           Visualizar Ficha
                         </button>
-                        {/* TODO: Iniciar Pipeline — habilitar quando pipeline estiver pronto */}
-                        {false && ficha.contrato_id && (
-                          <button
-                            onClick={() => router.push(`/contratos/${ficha.contrato_id}`)}
-                            className="btn-secondary text-sm py-2 px-3 whitespace-nowrap"
-                          >
-                            Iniciar Pipeline
-                          </button>
-                        )}
                       </div>
                     )}
+                    </div>
                   </div>
                 </div>
+              </div>
             )
           })}
         </div>

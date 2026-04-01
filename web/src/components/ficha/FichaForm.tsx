@@ -391,8 +391,10 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
     // Values must match exactly what DB stores (capitalized, full text)
     const capitalize = (s: string) => s ? s.charAt(0).toUpperCase() + s.slice(1) : ''
     const pagamentoMap: Record<string, string> = {
-      pix: 'À Vista por Pix/Dinheiro',
-      cartao: 'Cartão de Débito/Crédito',
+      pix: 'Pix',
+      dinheiro: 'Dinheiro',
+      debito: 'Cartão Débito',
+      credito: 'Cartão Crédito',
     }
 
     const payload = {
