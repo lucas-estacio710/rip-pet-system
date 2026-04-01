@@ -233,14 +233,15 @@ export default function VisibilidadePage() {
                         // Determinar o estado "majoritário" da coluna pra esse role
                         const colPerms = unidades.map(u => getPerm(u.id, role, m.key))
                         const allEdit = colPerms.every(p => p === 'edit')
+                        const allRead = colPerms.every(p => p === 'read')
                         const allHidden = colPerms.every(p => p === 'hidden')
-                        const colStyle = allHidden ? PERM_STYLES.hidden : allEdit ? PERM_STYLES.edit : PERM_STYLES.read
+                        const colStyle = allEdit ? PERM_STYLES.edit : allRead ? PERM_STYLES.read : allHidden ? PERM_STYLES.hidden : PERM_STYLES.read
                         return (
                           <button
                             key={role}
                             onClick={() => {
-                              // Cicla toda a coluna pra esse role: edit→hidden, hidden→edit, misto→hidden
-                              const nextPerm: PermissionLevel = allHidden ? 'edit' : 'hidden'
+                              // Cicla: edit→read→hidden→edit
+                              const nextPerm: PermissionLevel = allEdit ? 'read' : allRead ? 'hidden' : 'edit'
                               setPerms(prev => {
                                 const next = { ...prev }
                                 unidades.forEach(u => { next[`${u.id}:${role}:${m.key}`] = nextPerm })
@@ -250,7 +251,7 @@ export default function VisibilidadePage() {
                             }}
                             className="w-5 h-4 rounded text-[8px] font-bold transition-all hover:scale-110"
                             style={{ background: colStyle.bg, color: colStyle.text, border: `1px solid ${colStyle.border}` }}
-                            title={`${ROLE_LABELS[role]} coluna: ${allEdit ? 'Todos editável → Ocultar todos' : allHidden ? 'Todos oculto → Liberar todos' : 'Misto → Ocultar todos'}`}
+                            title={`${ROLE_LABELS[role]} coluna: ${allEdit ? '→ Leitura' : allRead ? '→ Oculto' : '→ Editável'}`}
                           >
                             {ROLE_LABELS[role]}
                           </button>
@@ -347,14 +348,15 @@ export default function VisibilidadePage() {
                   <div className="flex items-center gap-1">
                     {FLS_ROLES.map(role => {
                       const colPerms = unidades.map(u => getPerm(u.id, role, selectedTelaItem.key))
-                      const allHidden = colPerms.every(p => p === 'hidden')
                       const allEdit = colPerms.every(p => p === 'edit')
-                      const colStyle = allHidden ? PERM_STYLES.hidden : allEdit ? PERM_STYLES.edit : PERM_STYLES.read
+                      const allRead = colPerms.every(p => p === 'read')
+                      const allHidden = colPerms.every(p => p === 'hidden')
+                      const colStyle = allEdit ? PERM_STYLES.edit : allRead ? PERM_STYLES.read : allHidden ? PERM_STYLES.hidden : PERM_STYLES.read
                       return (
                         <button
                           key={role}
                           onClick={() => {
-                            const nextPerm: PermissionLevel = allHidden ? 'edit' : 'hidden'
+                            const nextPerm: PermissionLevel = allEdit ? 'read' : allRead ? 'hidden' : 'edit'
                             setPerms(prev => {
                               const next = { ...prev }
                               unidades.forEach(u => { next[`${u.id}:${role}:${selectedTelaItem.key}`] = nextPerm })
@@ -364,7 +366,7 @@ export default function VisibilidadePage() {
                           }}
                           className="px-2 py-1 rounded text-[10px] font-bold transition-all hover:scale-105"
                           style={{ background: colStyle.bg, color: colStyle.text, border: `1.5px solid ${colStyle.border}` }}
-                          title={`${role}: ${allEdit ? 'Ocultar todos' : allHidden ? 'Liberar todos' : 'Ocultar todos'}`}
+                          title={`${role}: ${allEdit ? '→ Leitura' : allRead ? '→ Oculto' : '→ Editável'}`}
                         >
                           {ROLE_LABELS[role]} {colStyle.icon}
                         </button>
