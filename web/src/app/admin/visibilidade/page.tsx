@@ -294,7 +294,14 @@ export default function VisibilidadePage() {
               </tr>
             </thead>
             <tbody>
-              {unidades.map(u => (
+              {[...unidades].sort((a, b) => {
+                // Unidades com mais itens ativos (não hidden) primeiro
+                const score = (uid: string) => items.reduce((sum, m) => {
+                  const modo = getItemMode(m, category)
+                  return sum + FLS_ROLES.reduce((s, role) => s + (getPermWithMode(uid, role, m.key, modo) !== 'hidden' ? 1 : 0), 0)
+                }, 0)
+                return score(b.id) - score(a.id)
+              }).map(u => (
                 <tr key={u.id} style={{ borderBottom: '1px solid var(--surface-100)' }} className="hover:bg-[var(--surface-50)] transition-colors">
                   <td className="px-3 py-1.5 sticky left-0 bg-[var(--surface-0)] z-10">
                     <UnitLabel u={u} />
@@ -404,7 +411,10 @@ export default function VisibilidadePage() {
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  {unidades.map(u => (
+                  {[...unidades].sort((a, b) => {
+                    const score = (uid: string) => FLS_ROLES.reduce((s, role) => s + (getPermWithMode(uid, role, selectedTelaItem.key, 'toggle') !== 'hidden' ? 1 : 0), 0)
+                    return score(b.id) - score(a.id)
+                  }).map(u => (
                     <div key={u.id} className="flex items-center justify-between">
                       <UnitLabel u={u} />
                       <PermCell unidadeId={u.id} campo={selectedTelaItem.key} modo="toggle" />
