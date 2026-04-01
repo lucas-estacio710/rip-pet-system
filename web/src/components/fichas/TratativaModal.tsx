@@ -520,11 +520,9 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       }
 
       // Marcar como processada + salvar dados do operador
-      const { data: { user } } = await supabase.auth.getUser()
       const { error: errUpdate } = await supabase.from('fichas').update({
         processada: true,
         processada_em: new Date().toISOString(),
-        processada_por: user?.id || null,
         op_dados: opDados,
       } as never).eq('id', ficha.id)
 
@@ -723,6 +721,15 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
     }
   }
 
+  // Validação do bloco de acolhimento
+  const telefoneOk = telefoneConfirmado || mostrarTelefone2
+  const localOk = semLocal || !!localColeta
+  const responsavelOk = semResponsavel || !!funcionarioId
+  const dataHoraOk = semDataHora || !!dataHoraAcolhimento
+  const lacreOk = semLacre || !!lacre.trim()
+  const valorOk = !!valorPlano.trim()
+  const acolhimentoValido = telefoneOk && localOk && responsavelOk && dataHoraOk && lacreOk && valorOk
+
   const footer = modoVisualizacao ? (
     <div className="flex gap-3 justify-between w-full">
       <button
@@ -738,7 +745,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         {!ficha?.contrato_id && (
           <button
             onClick={criarContrato}
-            disabled={salvando || !valorPlano.trim()}
+            disabled={salvando || !acolhimentoValido}
             className="btn-primary disabled:opacity-50 text-sm"
           >
             {salvando ? <><Loader2 className="h-4 w-4 animate-spin" /> Criando...</> : 'Criar Contrato'}
@@ -754,7 +761,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       </button>
       <button
         onClick={processarFicha}
-        disabled={salvando || !valorPlano.trim() || (!lacre.trim() && !semLacre)}
+        disabled={salvando || !acolhimentoValido}
         className="btn-primary disabled:opacity-50"
       >
         {salvando ? (
@@ -950,19 +957,19 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
 
             {/* Telefone do Tutor */}
             <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-medium text-[var(--surface-600)]">Telefone do Tutor</label>
-              </div>
-              <div className="px-3 py-2 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)] text-sm text-mono text-[var(--surface-700)]">
-                {getFichaValue('telefone') || '-'}
-              </div>
-              <div className="mt-1.5 space-y-1.5">
-                <label className="flex items-center gap-2 cursor-pointer">
+              <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Telefone do Tutor</label>
+              <div className="flex items-center gap-2">
+                <div className="px-3 py-2 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)] text-sm text-mono text-[var(--surface-700)] flex-1">
+                  {getFichaValue('telefone') || '-'}
+                </div>
+                <label className="flex items-center gap-1.5 cursor-pointer shrink-0">
                   <input type="checkbox" checked={telefoneConfirmado} onChange={e => setTelefoneConfirmado(e.target.checked)} className="h-3.5 w-3.5 rounded accent-emerald-500" />
                   <span className={`text-[10px] ${telefoneConfirmado ? 'text-emerald-400 font-medium' : 'text-[var(--surface-400)]'}`}>
-                    {telefoneConfirmado ? 'Telefone confirmado' : 'Confirmar que é o telefone correto'}
+                    {telefoneConfirmado ? 'Confirmado' : 'Confirmar'}
                   </span>
                 </label>
+              </div>
+              <div className="mt-1.5 space-y-1.5">
                 {!mostrarTelefone2 ? (
                   <button type="button" onClick={() => setMostrarTelefone2(true)} className="text-[10px] text-purple-400 hover:text-purple-300 flex items-center gap-1">
                     <Plus className="h-3 w-3" /> Inserir telefone do contato atual
@@ -1201,56 +1208,66 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               <div className="space-y-3">
                 {/* Nome de quem indicou */}
                 <div>
-                  <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Nome de quem indicou</label>
-                  {temPadronizacaoClinicas ? (
-                    <div ref={indicRef} className="relative">
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--surface-400)]" />
-                        <input type="text" value={indicBusca} onChange={e => { setIndicBusca(e.target.value); setIndicNome(e.target.value); setIndicNomeQuemIndicou(e.target.value); setIndicId(null); setIndicAberto(true) }} onFocus={() => setIndicAberto(true)} placeholder="ex: Dra. Maria ou Recep. João" className="input pl-9 text-sm" />
-                      </div>
-                      {indicAberto && (contatosFiltrados.length > 0 || indicBusca.trim()) && (
-                        <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-[var(--surface-0)] border border-[var(--surface-200)] rounded-lg shadow-lg">
-                          {contatosFiltrados.map(c => (
-                            <button key={c.id} type="button" onClick={() => { setIndicId(c.id); setIndicNome(c.nome); setIndicBusca(c.nome); setIndicNomeQuemIndicou(c.nome); setIndicCargo(c.cargo || ''); setIndicAberto(false) }}
-                              className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-50)] transition-colors flex items-center justify-between ${indicId === c.id ? 'bg-[var(--surface-50)] font-medium' : 'text-[var(--surface-600)]'}`}>
-                              <span>{c.nome}</span>
-                              {c.cargo && <span className="text-xs text-[var(--surface-400)]">{c.cargo}</span>}
-                            </button>
-                          ))}
-                          {indicBusca.trim() && !contatosFiltrados.some(c => c.nome.toLowerCase() === indicBusca.toLowerCase()) && (
-                            <button type="button" onClick={() => { setIndicId(null); setIndicNome(indicBusca.trim()); setIndicNomeQuemIndicou(indicBusca.trim()); setIndicAberto(false) }}
-                              className="w-full text-left px-3 py-2 text-sm text-amber-500 hover:bg-amber-900/10 flex items-center gap-2 border-t border-[var(--surface-100)]">
-                              <Plus className="h-3.5 w-3.5" />Criar &quot;{indicBusca.trim()}&quot;
-                            </button>
-                          )}
+                  <label className="flex items-center gap-2 cursor-pointer mb-1.5">
+                    <input type="checkbox" checked={indicNomeAtivo} onChange={e => setIndicNomeAtivo(e.target.checked)} className="h-3.5 w-3.5 rounded accent-purple-500" />
+                    <span className="text-xs font-medium text-[var(--surface-600)]">Nome de quem indicou</span>
+                  </label>
+                  {indicNomeAtivo && (
+                    temPadronizacaoClinicas ? (
+                      <div ref={indicRef} className="relative">
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--surface-400)]" />
+                          <input type="text" value={indicBusca} onChange={e => { setIndicBusca(e.target.value); setIndicNome(e.target.value); setIndicNomeQuemIndicou(e.target.value); setIndicId(null); setIndicAberto(true) }} onFocus={() => setIndicAberto(true)} placeholder="ex: Dra. Maria ou Recep. João" className="input pl-9 text-sm" />
                         </div>
-                      )}
-                      {indicId && <p className="mt-1 text-xs text-green-500 flex items-center gap-1"><Check className="h-3 w-3" />Selecionado</p>}
-                      {!indicId && indicNome.trim() && !indicAberto && (
-                        <>
-                          <p className="mt-1 text-xs text-amber-500">Novo contato será criado</p>
-                          <input type="text" value={indicCargo} onChange={e => setIndicCargo(e.target.value)} placeholder="Cargo (ex: Veterinária, Recepcionista)..." className="input mt-1 text-sm" />
-                        </>
-                      )}
-                    </div>
-                  ) : (
-                    <input type="text" value={indicNomeQuemIndicou} onChange={e => setIndicNomeQuemIndicou(e.target.value)} placeholder="ex: Dra. Maria ou Recep. João" className="input text-sm" />
+                        {indicAberto && (contatosFiltrados.length > 0 || indicBusca.trim()) && (
+                          <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-[var(--surface-0)] border border-[var(--surface-200)] rounded-lg shadow-lg">
+                            {contatosFiltrados.map(c => (
+                              <button key={c.id} type="button" onClick={() => { setIndicId(c.id); setIndicNome(c.nome); setIndicBusca(c.nome); setIndicNomeQuemIndicou(c.nome); setIndicCargo(c.cargo || ''); setIndicAberto(false) }}
+                                className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-50)] transition-colors flex items-center justify-between ${indicId === c.id ? 'bg-[var(--surface-50)] font-medium' : 'text-[var(--surface-600)]'}`}>
+                                <span>{c.nome}</span>
+                                {c.cargo && <span className="text-xs text-[var(--surface-400)]">{c.cargo}</span>}
+                              </button>
+                            ))}
+                            {indicBusca.trim() && !contatosFiltrados.some(c => c.nome.toLowerCase() === indicBusca.toLowerCase()) && (
+                              <button type="button" onClick={() => { setIndicId(null); setIndicNome(indicBusca.trim()); setIndicNomeQuemIndicou(indicBusca.trim()); setIndicAberto(false) }}
+                                className="w-full text-left px-3 py-2 text-sm text-amber-500 hover:bg-amber-900/10 flex items-center gap-2 border-t border-[var(--surface-100)]">
+                                <Plus className="h-3.5 w-3.5" />Criar &quot;{indicBusca.trim()}&quot;
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {indicId && <p className="mt-1 text-xs text-green-500 flex items-center gap-1"><Check className="h-3 w-3" />Selecionado</p>}
+                        {!indicId && indicNome.trim() && !indicAberto && (
+                          <>
+                            <p className="mt-1 text-xs text-amber-500">Novo contato será criado</p>
+                            <input type="text" value={indicCargo} onChange={e => setIndicCargo(e.target.value)} placeholder="Cargo (ex: Veterinária, Recepcionista)..." className="input mt-1 text-sm" />
+                          </>
+                        )}
+                      </div>
+                    ) : (
+                      <input type="text" value={indicNomeQuemIndicou} onChange={e => setIndicNomeQuemIndicou(e.target.value)} placeholder="ex: Dra. Maria ou Recep. João" className="input text-sm" />
+                    )
                   )}
                 </div>
 
                 {/* Hospital / Clínica */}
                 <div>
-                  <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Hospital / Clínica</label>
-                  {temPadronizacaoClinicas ? (
-                    <div>
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--surface-400)]" />
-                        <input type="text" value={estabBusca} onChange={e => { setEstabBusca(e.target.value); setEstabNome(e.target.value); setEstabId(null); setEstabAberto(true) }} onFocus={() => setEstabAberto(true)} placeholder="Buscar clínica..." className="input pl-9 text-sm" />
+                  <label className="flex items-center gap-2 cursor-pointer mb-1.5">
+                    <input type="checkbox" checked={indicHospAtivo} onChange={e => setIndicHospAtivo(e.target.checked)} className="h-3.5 w-3.5 rounded accent-purple-500" />
+                    <span className="text-xs font-medium text-[var(--surface-600)]">Hospital / Clínica</span>
+                  </label>
+                  {indicHospAtivo && (
+                    temPadronizacaoClinicas ? (
+                      <div>
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--surface-400)]" />
+                          <input type="text" value={estabBusca} onChange={e => { setEstabBusca(e.target.value); setEstabNome(e.target.value); setEstabId(null); setEstabAberto(true) }} onFocus={() => setEstabAberto(true)} placeholder="Buscar clínica..." className="input pl-9 text-sm" />
+                        </div>
+                        {estabId && <p className="mt-1 text-xs text-green-500 flex items-center gap-1"><Check className="h-3 w-3" />Selecionado: {estabNome}</p>}
                       </div>
-                      {estabId && <p className="mt-1 text-xs text-green-500 flex items-center gap-1"><Check className="h-3 w-3" />Selecionado: {estabNome}</p>}
-                    </div>
-                  ) : (
-                    <input type="text" value={indicHospClinica} onChange={e => setIndicHospClinica(e.target.value)} placeholder="Nome do hospital ou clínica" className="input text-sm" />
+                    ) : (
+                      <input type="text" value={indicHospClinica} onChange={e => setIndicHospClinica(e.target.value)} placeholder="Nome do hospital ou clínica" className="input text-sm" />
+                    )
                   )}
                 </div>
               </div>
