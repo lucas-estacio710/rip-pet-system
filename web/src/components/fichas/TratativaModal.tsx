@@ -456,7 +456,20 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   // processarFicha — salva dados do operador e marca como processada (NÃO cria contrato)
   // ============================================
   async function processarFicha() {
-    if (!ficha || !codigo.trim()) return
+    if (!ficha) return
+    // Gerar código se ainda vazio
+    let codigoFinal = codigo.trim()
+    if (!codigoFinal) {
+      const now = new Date(dataContrato + 'T12:00:00')
+      const yy = String(now.getFullYear()).slice(-2)
+      const mm = String(now.getMonth() + 1).padStart(2, '0')
+      const dd = String(now.getDate()).padStart(2, '0')
+      const sc = ficha.cremacao?.toLowerCase() === 'individual' ? 'IND' : 'COL'
+      const t3 = (ficha.nome_completo || '').trim().slice(0, 3).toUpperCase()
+      const p3 = (ficha.nome_pet || '').trim().slice(0, 3).toUpperCase()
+      codigoFinal = `${currentUnit?.codigo || ''}${yy}${mm}${dd}${sc}${t3}${p3}`
+      setCodigo(codigoFinal)
+    }
     setSalvando(true)
 
     try {
@@ -466,7 +479,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         if (editsParaSalvar.outros_tutores) {
           editsParaSalvar.outros_tutores = JSON.parse(editsParaSalvar.outros_tutores)
         }
-        await supabase.from('fichas').update(editsParaSalvar as never).eq('id', ficha.id)
+        const { error: errEdits } = await supabase.from('fichas').update(editsParaSalvar as never).eq('id', ficha.id)
+        if (errEdits) throw new Error(`Erro ao salvar edições: ${errEdits.message}`)
       }
 
       // Montar op_dados com tudo que o operador preencheu
@@ -507,14 +521,16 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
 
       // Marcar como processada + salvar dados do operador
       const { data: { user } } = await supabase.auth.getUser()
-      await supabase.from('fichas').update({
+      const { error: errUpdate } = await supabase.from('fichas').update({
         processada: true,
         processada_em: new Date().toISOString(),
         processada_por: user?.id || null,
         op_dados: opDados,
       } as never).eq('id', ficha.id)
 
-      toast('Ficha processada! Aguardando criação do contrato.', 'success')
+      if (errUpdate) throw new Error(`Erro ao salvar: ${errUpdate.message}`)
+
+      toast('Ficha processada!', 'success')
       onClose()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Erro desconhecido'
@@ -681,7 +697,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         if (editsParaSalvar.outros_tutores) {
           editsParaSalvar.outros_tutores = JSON.parse(editsParaSalvar.outros_tutores)
         }
-        await supabase.from('fichas').update(editsParaSalvar as never).eq('id', ficha.id)
+        const { error: errEdits } = await supabase.from('fichas').update(editsParaSalvar as never).eq('id', ficha.id)
+        if (errEdits) throw new Error(`Erro ao salvar edições: ${errEdits.message}`)
       }
       // Atualizar op_dados
       const opDados = {
@@ -721,7 +738,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         {!ficha?.contrato_id && (
           <button
             onClick={criarContrato}
-            disabled={salvando || !codigo.trim() || !valorPlano.trim()}
+            disabled={salvando || !valorPlano.trim()}
             className="btn-primary disabled:opacity-50 text-sm"
           >
             {salvando ? <><Loader2 className="h-4 w-4 animate-spin" /> Criando...</> : 'Criar Contrato'}
@@ -737,7 +754,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       </button>
       <button
         onClick={processarFicha}
-        disabled={salvando || !codigo.trim() || !valorPlano.trim() || (!lacre.trim() && !semLacre)}
+        disabled={salvando || !valorPlano.trim() || (!lacre.trim() && !semLacre)}
         className="btn-primary disabled:opacity-50"
       >
         {salvando ? (
