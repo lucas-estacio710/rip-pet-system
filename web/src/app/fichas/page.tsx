@@ -474,6 +474,21 @@ export default function FichasPage() {
                     ) : (
                       <Badge variant="success" dot>Processada</Badge>
                     )}
+                    {/* Alertas de campos provisórios */}
+                    {!isPendente && ficha.op_dados && (() => {
+                      const op = ficha.op_dados as Record<string, unknown>
+                      const pendencias: string[] = []
+                      if (op.semLocal) pendencias.push('Local')
+                      if (op.semResponsavel) pendencias.push('Resp.')
+                      if (op.semDataHora) pendencias.push('Data/Hora')
+                      if (op.semLacre) pendencias.push('Lacre')
+                      if (!op.telefoneConfirmado && !op.mostrarTelefone2) pendencias.push('Tel.')
+                      return pendencias.length > 0 ? (
+                        <span className="text-[9px] font-semibold text-amber-400 bg-amber-900/20 px-1.5 py-0.5 rounded">
+                          Sem: {pendencias.join(', ')}
+                        </span>
+                      ) : null
+                    })()}
                   </div>
 
                   </div>
@@ -511,7 +526,7 @@ export default function FichasPage() {
                           className="btn-primary text-xs py-1.5 px-3 whitespace-nowrap"
                           style={{ background: ficha.contrato_id ? 'var(--surface-500)' : 'var(--brand-600)' }}
                         >
-                          {ficha.contrato_id ? 'Ver' : 'Criar Contrato'}
+                          Visualizar Ficha
                         </button>
                         {/* TODO: Iniciar Pipeline — habilitar quando pipeline estiver pronto */}
                         {false && ficha.contrato_id && (

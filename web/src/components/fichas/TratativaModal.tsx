@@ -386,7 +386,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
     }
 
     // Se ficha já processada, carregar op_dados do operador
-    if (ficha.processada && ficha.op_dados) {
+    if (ficha.op_dados) {
       const op = ficha.op_dados as Record<string, unknown>
       if (op.codigo) setCodigo(String(op.codigo))
       if (op.codigoManual) setCodigoManual(true)
@@ -518,7 +518,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         indicCargo: indicCargo || null,
         // Telefone
         telefoneConfirmado,
-        telefone2: telefone2.trim() || null,
+        telefone2: getTelefone2Completo() || null,
         usarTelefone2ComoPrincipal,
       }
 
@@ -734,39 +734,34 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   const acolhimentoValido = telefoneOk && localOk && responsavelOk && dataHoraOk && lacreOk && valorOk
 
   const footer = modoVisualizacao ? (
-    <div className="flex gap-2 justify-between w-full flex-wrap">
-      <div className="flex gap-2">
-        <button
-          onClick={async () => {
-            if (!ficha) return
-            const supabaseLocal = createClient()
-            await supabaseLocal.from('fichas').update({
-              processada: false,
-            } as never).eq('id', ficha.id)
-            onClose()
-            onReprocessar?.(ficha)
-          }}
-          className="btn-secondary text-amber-400 border-amber-500/30 hover:bg-amber-900/20 text-xs"
-        >
-          Reprocessar
-        </button>
-        <button
-          onClick={() => setConfirmarCancelamento(true)}
-          className="btn-secondary text-red-400 border-red-500/30 hover:bg-red-900/20 text-xs"
-        >
-          Cancelar Ficha
-        </button>
-      </div>
-      <div className="flex gap-2">
-        {/* Iniciar Fluxo — desabilitado por enquanto */}
-        <button
-          disabled
-          className="btn-primary text-xs opacity-40 cursor-not-allowed"
-        >
-          Iniciar Fluxo
-        </button>
-        <button onClick={onClose} className="btn-secondary text-xs">Fechar</button>
-      </div>
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full">
+      <button
+        onClick={async () => {
+          if (!ficha) return
+          const supabaseLocal = createClient()
+          await supabaseLocal.from('fichas').update({ processada: false } as never).eq('id', ficha.id)
+          onClose()
+          onReprocessar?.(ficha)
+        }}
+        className="py-2 px-3 rounded-lg text-xs font-semibold text-amber-400 border border-amber-500/30 hover:bg-amber-900/20 transition-colors"
+      >
+        Reprocessar
+      </button>
+      <button
+        onClick={() => setConfirmarCancelamento(true)}
+        className="py-2 px-3 rounded-lg text-xs font-semibold text-red-400 border border-red-500/30 hover:bg-red-900/20 transition-colors"
+      >
+        Cancelar Ficha
+      </button>
+      <button onClick={onClose} className="py-2 px-3 rounded-lg text-xs font-semibold text-[var(--surface-600)] border border-[var(--surface-200)] hover:bg-[var(--surface-50)] transition-colors">
+        Fechar
+      </button>
+      <button
+        disabled
+        className="py-2 px-3 rounded-lg text-xs font-semibold text-white bg-emerald-600 opacity-40 cursor-not-allowed"
+      >
+        Iniciar Fluxo
+      </button>
     </div>
   ) : (
     <div className="flex gap-3 justify-end">
@@ -860,6 +855,124 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
           </div>
         </div>
       )}
+      {modoVisualizacao ? (
+        /* ═══════ MODO RESUMO (ficha processada) ═══════ */
+        <div className="space-y-4">
+          {/* Resumo dos dados */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Tutor */}
+            <div className="p-3 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)] space-y-1">
+              <h4 className="text-[10px] font-bold text-[var(--surface-500)] uppercase tracking-wider mb-1">Tutor</h4>
+              <p className="text-sm font-semibold text-[var(--surface-800)]">{ficha?.nome_completo}</p>
+              <p className="text-xs text-[var(--surface-600)] text-mono">{ficha?.cpf} | {ficha?.telefone}</p>
+              {ficha?.email && <p className="text-xs text-[var(--surface-500)]">{ficha.email}</p>}
+              <p className="text-xs text-[var(--surface-500)]">{ficha?.endereco}, {ficha?.numero} — {ficha?.bairro}, {ficha?.cidade}/{ficha?.estado}</p>
+              {ficha?.outros_tutores && ficha.outros_tutores.filter(Boolean).length > 0 && (
+                <p className="text-xs text-[var(--surface-400)]">Certificado: {ficha.outros_tutores.filter(Boolean).join(', ')}</p>
+              )}
+            </div>
+            {/* Pet */}
+            <div className="p-3 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)] space-y-1">
+              <h4 className="text-[10px] font-bold text-[var(--surface-500)] uppercase tracking-wider mb-1">Pet</h4>
+              <p className="text-sm font-semibold text-[var(--surface-800)]">{ficha?.nome_pet}</p>
+              <p className="text-xs text-[var(--surface-600)]">{ficha?.especie} | {ficha?.raca || '-'} | {ficha?.genero}</p>
+              <p className="text-xs text-[var(--surface-500)]">Cor: {ficha?.cor} | Peso: {ficha?.peso || '-'} | Idade: {ficha?.idade || '-'}</p>
+            </div>
+          </div>
+
+          {/* Serviço + Acolhimento */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="p-3 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)] space-y-1">
+              <h4 className="text-[10px] font-bold text-[var(--surface-500)] uppercase tracking-wider mb-1">Serviço</h4>
+              <p className="text-xs text-[var(--surface-600)]"><strong>Cremação:</strong> {ficha?.cremacao}</p>
+              <p className="text-xs text-[var(--surface-600)]"><strong>Valor:</strong> {valorPlano ? `R$ ${parseFloat(valorPlano).toLocaleString('pt-BR')}` : '-'}{descontoPreVenda ? ` (desc: ${descontoTipo === 'percentual' ? descontoPreVenda + '%' : 'R$ ' + descontoPreVenda})` : ''}</p>
+              <p className="text-xs text-[var(--surface-600)]"><strong>Pagamento:</strong> {ficha?.pagamento}{ficha?.parcelas ? ` ${ficha.parcelas}` : ''}</p>
+              <p className="text-xs text-[var(--surface-600)]"><strong>Velório:</strong> {ficha?.velorio} | <strong>Acomp.:</strong> {ficha?.acompanhamento}</p>
+            </div>
+            <div className="p-3 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)] space-y-1">
+              <h4 className="text-[10px] font-bold text-[var(--surface-500)] uppercase tracking-wider mb-1">Acolhimento</h4>
+              <p className="text-xs text-[var(--surface-600)]"><strong>Local:</strong> {semLocal ? <span className="text-amber-400">A definir</span> : (localColeta || '-')}</p>
+              <p className="text-xs text-[var(--surface-600)]"><strong>Responsável:</strong> {semResponsavel ? <span className="text-amber-400">A definir</span> : (funcionarios.find(f => f.id === funcionarioId)?.nome || '-')}</p>
+              <p className="text-xs text-[var(--surface-600)]"><strong>Data/Hora:</strong> {semDataHora ? <span className="text-amber-400">A definir</span> : (dataHoraAcolhimento ? new Date(dataHoraAcolhimento).toLocaleString('pt-BR') : '-')}</p>
+              <p className="text-xs text-[var(--surface-600)]"><strong>Lacre:</strong> {semLacre ? <span className="text-amber-400">A definir</span> : (lacre || '-')}</p>
+              <p className="text-xs text-[var(--surface-600)]"><strong>Telefone:</strong> {telefoneConfirmado ? <span className="text-emerald-400">Confirmado</span> : mostrarTelefone2 ? `Tel.2: ${telefone2}` : <span className="text-amber-400">Não confirmado</span>}</p>
+            </div>
+          </div>
+
+          {ficha?.observacoes && (
+            <div className="p-3 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)]">
+              <h4 className="text-[10px] font-bold text-[var(--surface-500)] uppercase tracking-wider mb-1">Observações</h4>
+              <p className="text-xs text-[var(--surface-600)] whitespace-pre-wrap">{ficha.observacoes}</p>
+            </div>
+          )}
+
+          {/* Campos provisórios — editáveis */}
+          {(semLocal || semResponsavel || semDataHora || semLacre || (!telefoneConfirmado && !mostrarTelefone2)) && (
+            <div className="p-4 rounded-xl space-y-3" style={{ background: 'rgba(250, 204, 21, 0.08)', border: '1px solid rgba(250, 204, 21, 0.2)' }}>
+              <h4 className="text-xs font-bold text-amber-500 uppercase tracking-wider">Campos Pendentes (provisórios)</h4>
+              <p className="text-[10px] text-amber-400/70">Preencha abaixo quando tiver as informações</p>
+
+              {semLocal && (
+                <div>
+                  <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Local de Acolhimento</label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {[
+                      { key: 'residencia', label: 'Residência' },
+                      { key: 'clinica', label: 'Clínica / Hospital' },
+                      { key: 'unidade', label: 'Unidade RIP PET' },
+                      { key: 'outro', label: 'Outro endereço' },
+                    ].map(opt => (
+                      <button key={opt.key} type="button" onClick={() => { setLocalColeta(opt.key as typeof localColeta); setSemLocal(false) }}
+                        className="py-1.5 px-2 rounded-lg text-[10px] font-medium border border-[var(--surface-200)] text-[var(--surface-500)] hover:border-amber-400 transition-all">
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {semResponsavel && (
+                <div>
+                  <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Responsável pelo Acolhimento</label>
+                  <select value={funcionarioId} onChange={e => { setFuncionarioId(e.target.value); if (e.target.value) setSemResponsavel(false) }} className="input text-sm">
+                    <option value="">Selecione...</option>
+                    {funcionarios.map(f => (<option key={f.id} value={f.id}>{f.nome}</option>))}
+                  </select>
+                </div>
+              )}
+
+              {semDataHora && (
+                <div>
+                  <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Data e Hora do Acolhimento</label>
+                  <input type="datetime-local" step="1800" value={dataHoraAcolhimento} onChange={e => { setDataHoraAcolhimento(e.target.value); if (e.target.value) setSemDataHora(false) }} className="input text-sm" />
+                </div>
+              )}
+
+              {semLacre && (
+                <div>
+                  <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Número do Lacre</label>
+                  <input type="text" value={lacre} onChange={e => { setLacre(e.target.value); if (e.target.value.trim()) setSemLacre(false) }} placeholder="Número do lacre" className="input text-sm" />
+                </div>
+              )}
+
+              {(!telefoneConfirmado && !mostrarTelefone2) && (
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={telefoneConfirmado} onChange={e => setTelefoneConfirmado(e.target.checked)} className="h-3.5 w-3.5 rounded accent-emerald-500" />
+                    <span className="text-xs text-[var(--surface-600)]">Confirmar telefone: {ficha?.telefone}</span>
+                  </label>
+                </div>
+              )}
+
+              <button onClick={salvarAlteracoes} disabled={salvando} className="btn-secondary text-xs mt-2">
+                {salvando ? <><Loader2 className="h-3 w-3 animate-spin" /> Salvando...</> : 'Salvar Pendências'}
+              </button>
+            </div>
+          )}
+        </div>
+      ) : (
+      /* ═══════ MODO EDIÇÃO (ficha recebida) ═══════ */
+      <>
       {/* Tutor detection banner — só se tela_tutores habilitada */}
       {hasModule('tela_tutores') && tutorChecked && (
         <div className={`mb-4 px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 ${
@@ -1393,6 +1506,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
           </div>
         </div>
       </div>
+      </>
+      )}
       {/* Mini-modal de edição de campo */}
       {editingField && (() => {
         // Labels legíveis com acentuação correta
