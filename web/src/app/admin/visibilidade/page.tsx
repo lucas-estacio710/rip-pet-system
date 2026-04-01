@@ -5,7 +5,7 @@ import { Eye, Save, Loader2, Check, Shield, Monitor, Wrench, FormInput, Clock, C
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import EmptyState from '@/components/ui/EmptyState'
-import { TELAS, OBJETOS, CAMPOS_BOTOES, type ItemDef, type ChildItemDef } from '@/lib/field-catalog'
+import { TELAS, OBJETOS, CAMPOS_BOTOES, getItemMode, type ItemDef, type ChildItemDef, type PermMode } from '@/lib/field-catalog'
 import { type PermissionLevel } from '@/hooks/useFieldPermission'
 
 const UNIT_COLORS: Record<string, string> = {
@@ -77,12 +77,28 @@ export default function VisibilidadePage() {
     return perms[`${unidadeId}:${role}:${campo}`] ?? 'edit'
   }
 
-  function cyclePerm(unidadeId: string, role: string, campo: string) {
+  function cyclePerm(unidadeId: string, role: string, campo: string, modo: PermMode = 'full') {
     const key = `${unidadeId}:${role}:${campo}`
-    const current = perms[key] ?? 'edit'
-    const next: PermissionLevel = current === 'edit' ? 'read' : current === 'read' ? 'hidden' : 'edit'
+    const current = perms[key] ?? (modo === 'toggle' ? 'read' : 'edit')
+    let next: PermissionLevel
+    if (modo === 'toggle') {
+      // toggle: visível (read) ↔ oculto (hidden). Sem row = visível.
+      next = current === 'hidden' ? 'read' : 'hidden'
+    } else {
+      // full: edit → read → hidden → edit
+      next = current === 'edit' ? 'read' : current === 'read' ? 'hidden' : 'edit'
+    }
     setPerms(prev => ({ ...prev, [key]: next }))
     setSaved(false)
+  }
+
+  /** Default de um item sem row no banco */
+  function getDefaultPerm(modo: PermMode): PermissionLevel {
+    return modo === 'toggle' ? 'read' : 'edit'
+  }
+
+  function getPermWithMode(unidadeId: string, role: string, campo: string, modo: PermMode): PermissionLevel {
+    return perms[`${unidadeId}:${role}:${campo}`] ?? getDefaultPerm(modo)
   }
 
   const hasChanges = JSON.stringify(perms) !== JSON.stringify(originalPerms)
@@ -163,19 +179,22 @@ export default function VisibilidadePage() {
   // ============================================
   // Célula de permissão: 2 botões (G | O) lado a lado
   // ============================================
-  function PermCell({ unidadeId, campo }: { unidadeId: string; campo: string }) {
+  function PermCell({ unidadeId, campo, modo = 'full' }: { unidadeId: string; campo: string; modo?: PermMode }) {
     return (
       <div className="flex items-center gap-0.5 justify-center">
         {FLS_ROLES.map(role => {
-          const perm = getPerm(unidadeId, role, campo)
+          const perm = getPermWithMode(unidadeId, role, campo, modo)
           const style = PERM_STYLES[perm]
+          const label = modo === 'toggle'
+            ? (perm === 'hidden' ? 'Oculto' : 'Visível')
+            : (perm === 'edit' ? 'Editável' : perm === 'read' ? 'Leitura' : 'Oculto')
           return (
             <button
               key={role}
-              onClick={() => cyclePerm(unidadeId, role, campo)}
+              onClick={() => cyclePerm(unidadeId, role, campo, modo)}
               className="flex items-center justify-center w-7 h-6 rounded text-[10px] font-bold transition-all hover:scale-110"
               style={{ background: style.bg, color: style.text, border: `1.5px solid ${style.border}` }}
-              title={`${ROLE_LABELS[role]}: ${perm === 'edit' ? 'Editável' : perm === 'read' ? 'Leitura' : 'Oculto'}`}
+              title={`${ROLE_LABELS[role]}: ${label}`}
             >
               {style.icon}
             </button>
@@ -208,7 +227,7 @@ export default function VisibilidadePage() {
   // ============================================
   // Matrix: unidades (vertical) × itens (horizontal), cada célula = G|O
   // ============================================
-  function renderMatrix(label: string, icon: typeof Monitor, color: string, items: (ItemDef | ChildItemDef)[]) {
+  function renderMatrix(label: string, icon: typeof Monitor, color: string, items: (ItemDef | ChildItemDef)[], category: 'telas' | 'objetos' | 'campos') {
     if (items.length === 0) return null
     return (
       <div className="mb-6">
@@ -225,41 +244,53 @@ export default function VisibilidadePage() {
                 <th className="text-left px-3 py-2 text-xs font-semibold text-[var(--surface-500)] sticky left-0 bg-[var(--surface-0)] z-10" style={{ minWidth: 140 }}>
                   Unidade
                 </th>
-                {items.map(m => (
-                  <th key={m.key} className="px-1 py-2 text-center" style={{ minWidth: 70 }}>
-                    <span className="text-[9px] font-semibold text-[var(--surface-600)] leading-tight block mb-1" style={{ maxWidth: 70, wordBreak: 'break-word' }}>{m.label}</span>
-                    <div className="flex items-center justify-center gap-0.5">
-                      {FLS_ROLES.map(role => {
-                        // Determinar o estado "majoritário" da coluna pra esse role
-                        const colPerms = unidades.map(u => getPerm(u.id, role, m.key))
-                        const allEdit = colPerms.every(p => p === 'edit')
-                        const allRead = colPerms.every(p => p === 'read')
-                        const allHidden = colPerms.every(p => p === 'hidden')
-                        const colStyle = allEdit ? PERM_STYLES.edit : allRead ? PERM_STYLES.read : allHidden ? PERM_STYLES.hidden : PERM_STYLES.read
-                        return (
-                          <button
-                            key={role}
-                            onClick={() => {
-                              // Cicla: edit→read→hidden→edit
-                              const nextPerm: PermissionLevel = allEdit ? 'read' : allRead ? 'hidden' : 'edit'
-                              setPerms(prev => {
-                                const next = { ...prev }
-                                unidades.forEach(u => { next[`${u.id}:${role}:${m.key}`] = nextPerm })
-                                return next
-                              })
-                              setSaved(false)
-                            }}
-                            className="w-5 h-4 rounded text-[8px] font-bold transition-all hover:scale-110"
-                            style={{ background: colStyle.bg, color: colStyle.text, border: `1px solid ${colStyle.border}` }}
-                            title={`${ROLE_LABELS[role]} coluna: ${allEdit ? '→ Leitura' : allRead ? '→ Oculto' : '→ Editável'}`}
-                          >
-                            {ROLE_LABELS[role]}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </th>
-                ))}
+                {items.map(m => {
+                  const modo = getItemMode(m, category)
+                  return (
+                    <th key={m.key} className="px-1 py-2 text-center" style={{ minWidth: 70 }}>
+                      <span className="text-[9px] font-semibold text-[var(--surface-600)] leading-tight block mb-1" style={{ maxWidth: 70, wordBreak: 'break-word' }}>{m.label}</span>
+                      <div className="flex items-center justify-center gap-0.5">
+                        {FLS_ROLES.map(role => {
+                          const dflt = getDefaultPerm(modo)
+                          const colPerms = unidades.map(u => getPermWithMode(u.id, role, m.key, modo))
+                          const allDefault = colPerms.every(p => p === dflt)
+                          const allHidden = colPerms.every(p => p === 'hidden')
+                          const allRead = colPerms.every(p => p === 'read')
+                          const colStyle = allHidden ? PERM_STYLES.hidden : allDefault ? PERM_STYLES[dflt] : allRead ? PERM_STYLES.read : PERM_STYLES.read
+
+                          let nextPerm: PermissionLevel
+                          let nextLabel: string
+                          if (modo === 'toggle') {
+                            nextPerm = allHidden ? 'read' : 'hidden'
+                            nextLabel = allHidden ? '→ Visível' : '→ Oculto'
+                          } else {
+                            nextPerm = allDefault ? 'read' : allRead ? 'hidden' : 'edit'
+                            nextLabel = allDefault ? '→ Leitura' : allRead ? '→ Oculto' : '→ Editável'
+                          }
+
+                          return (
+                            <button
+                              key={role}
+                              onClick={() => {
+                                setPerms(prev => {
+                                  const next = { ...prev }
+                                  unidades.forEach(u => { next[`${u.id}:${role}:${m.key}`] = nextPerm })
+                                  return next
+                                })
+                                setSaved(false)
+                              }}
+                              className="w-5 h-4 rounded text-[8px] font-bold transition-all hover:scale-110"
+                              style={{ background: colStyle.bg, color: colStyle.text, border: `1px solid ${colStyle.border}` }}
+                              title={`${ROLE_LABELS[role]} coluna: ${nextLabel}`}
+                            >
+                              {ROLE_LABELS[role]}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </th>
+                  )
+                })}
               </tr>
             </thead>
             <tbody>
@@ -270,7 +301,7 @@ export default function VisibilidadePage() {
                   </td>
                   {items.map(m => (
                     <td key={m.key} className="px-1 py-1 text-center">
-                      <PermCell unidadeId={u.id} campo={m.key} />
+                      <PermCell unidadeId={u.id} campo={m.key} modo={getItemMode(m, category)} />
                     </td>
                   ))}
                 </tr>
@@ -347,16 +378,14 @@ export default function VisibilidadePage() {
                   <span className="text-[10px] font-semibold uppercase text-[var(--surface-400)]">Aplicar a todas:</span>
                   <div className="flex items-center gap-1">
                     {FLS_ROLES.map(role => {
-                      const colPerms = unidades.map(u => getPerm(u.id, role, selectedTelaItem.key))
-                      const allEdit = colPerms.every(p => p === 'edit')
-                      const allRead = colPerms.every(p => p === 'read')
+                      const colPerms = unidades.map(u => getPermWithMode(u.id, role, selectedTelaItem.key, 'toggle'))
                       const allHidden = colPerms.every(p => p === 'hidden')
-                      const colStyle = allEdit ? PERM_STYLES.edit : allRead ? PERM_STYLES.read : allHidden ? PERM_STYLES.hidden : PERM_STYLES.read
+                      const colStyle = allHidden ? PERM_STYLES.hidden : PERM_STYLES.read
                       return (
                         <button
                           key={role}
                           onClick={() => {
-                            const nextPerm: PermissionLevel = allEdit ? 'read' : allRead ? 'hidden' : 'edit'
+                            const nextPerm: PermissionLevel = allHidden ? 'read' : 'hidden'
                             setPerms(prev => {
                               const next = { ...prev }
                               unidades.forEach(u => { next[`${u.id}:${role}:${selectedTelaItem.key}`] = nextPerm })
@@ -366,7 +395,7 @@ export default function VisibilidadePage() {
                           }}
                           className="px-2 py-1 rounded text-[10px] font-bold transition-all hover:scale-105"
                           style={{ background: colStyle.bg, color: colStyle.text, border: `1.5px solid ${colStyle.border}` }}
-                          title={`${role}: ${allEdit ? '→ Leitura' : allRead ? '→ Oculto' : '→ Editável'}`}
+                          title={`${role}: ${allHidden ? '→ Visível' : '→ Oculto'}`}
                         >
                           {ROLE_LABELS[role]} {colStyle.icon}
                         </button>
@@ -378,7 +407,7 @@ export default function VisibilidadePage() {
                   {unidades.map(u => (
                     <div key={u.id} className="flex items-center justify-between">
                       <UnitLabel u={u} />
-                      <PermCell unidadeId={u.id} campo={selectedTelaItem.key} />
+                      <PermCell unidadeId={u.id} campo={selectedTelaItem.key} modo="toggle" />
                     </div>
                   ))}
                 </div>
@@ -387,8 +416,8 @@ export default function VisibilidadePage() {
           </div>
 
           {/* Matrizes filtradas pela tela */}
-          {renderMatrix('Objetos Relacionados', Wrench, '#f59e0b', filteredObjetos)}
-          {renderMatrix('Campos e Botões', FormInput, '#8b5cf6', filteredCampos)}
+          {renderMatrix('Objetos Relacionados', Wrench, '#f59e0b', filteredObjetos, 'objetos')}
+          {renderMatrix('Campos e Botões', FormInput, '#8b5cf6', filteredCampos, 'campos')}
 
           {filteredObjetos.length === 0 && filteredCampos.length === 0 && (
             <div className="card p-6 text-center text-sm" style={{ color: '#94a3b8' }}>

@@ -7,10 +7,16 @@
  *   2. OBJETOS     → Seções/áreas dentro de uma tela (ex: Financeiro, Produtos, GC)
  *   3. CAMPOS/BTNS → Campos de dados e botões de ação individuais
  *
+ * MODOS DE PERMISSÃO:
+ *   - 'toggle' → 2 estados: visível (👁️) ou oculto (🚫). Sem row = visível.
+ *                 Usado em: Telas e Objetos Relacionados (ver ou não ver)
+ *   - 'full'   → 3 estados: editável (✏️), leitura (👁️), oculto (🚫). Sem row = editável.
+ *                 Usado em: Campos e Botões (editar, ver ou esconder)
+ *
  * REGRA PARA MANUTENÇÃO (ler antes de alterar!):
- *   - Ao criar nova TELA: adicionar em TELAS
- *   - Ao criar nova SEÇÃO dentro de uma tela: adicionar em OBJETOS
- *   - Ao criar novo CAMPO ou BOTÃO: adicionar em CAMPOS_BOTOES
+ *   - Ao criar nova TELA: adicionar em TELAS (modo sempre 'toggle')
+ *   - Ao criar nova SEÇÃO dentro de uma tela: adicionar em OBJETOS (modo default 'toggle')
+ *   - Ao criar novo CAMPO ou BOTÃO: adicionar em CAMPOS_BOTOES (modo default 'full')
  *   - O campo `tela` em OBJETOS e CAMPOS_BOTOES indica a qual tela pertencem
  *   - Atualizar SCHEMA.md e CLAUDE.md quando adicionar itens novos
  */
@@ -19,10 +25,17 @@
 // TIPOS
 // ============================================
 
+/** Modo de permissão:
+ *  - 'toggle' = 2 estados (visível/oculto) — sem row = visível
+ *  - 'full'   = 3 estados (edit/read/hidden) — sem row = edit
+ */
+export type PermMode = 'toggle' | 'full'
+
 export type ItemDef = {
   key: string       // Identificador único (armazenado em field_permissions.campo)
   label: string     // Nome amigável para a UI admin
   desc?: string     // Tooltip/descrição
+  modo?: PermMode   // 'toggle' (default pra telas/objetos) ou 'full' (default pra campos)
 }
 
 export type ChildItemDef = ItemDef & {
@@ -61,10 +74,6 @@ export const OBJETOS: ChildItemDef[] = [
   { key: 'obj_produtos', tela: 'tela_pipeline', label: 'Produtos/Acessórios', desc: 'Área de produtos e acessórios vinculados ao contrato' },
   { key: 'func_tutores', tela: 'tela_pipeline', label: 'Tutores', desc: 'Link "Ver cadastro" no card do tutor' },
   { key: 'func_gc', tela: 'tela_pipeline', label: 'GC', desc: 'Tracking de cremação dentro do contrato' },
-
-  // Dashboard
-  { key: 'obj_kpis_financeiros', tela: 'tela_dashboard', label: 'KPIs Financeiros', desc: 'Cards de receita, custo, resultado' },
-  { key: 'obj_graficos', tela: 'tela_dashboard', label: 'Gráficos', desc: 'Todos os gráficos de análise' },
 
   // Fichas
   { key: 'cb_padronizacao_clinicas', tela: 'tela_fichas', label: 'Padronização Clínicas', desc: 'Autocomplete de estabelecimentos no processamento de ficha' },
@@ -163,4 +172,14 @@ export function getObjetosByTela(telaKey: string): ChildItemDef[] {
 /** Campos/botões de uma tela */
 export function getCamposByTela(telaKey: string): ChildItemDef[] {
   return CAMPOS_BOTOES.filter(c => c.tela === telaKey)
+}
+
+/** Resolve o modo de um item (toggle ou full).
+ *  - Telas: sempre toggle
+ *  - Objetos: toggle por default, pode ser overridden com modo: 'full'
+ *  - Campos/Botões: full por default, pode ser overridden com modo: 'toggle'
+ */
+export function getItemMode(item: ItemDef, category: 'telas' | 'objetos' | 'campos'): PermMode {
+  if (item.modo) return item.modo
+  return category === 'campos' ? 'full' : 'toggle'
 }
