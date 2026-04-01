@@ -370,7 +370,7 @@ export default function VisibilidadePage() {
   return (
     <div className="animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3 sticky top-0 z-30 py-3 -mx-4 px-4" style={{ background: 'var(--shell-bg, #0f172a)' }}>
         <div className="flex items-center gap-3">
           <div className="hidden md:flex w-10 h-10 rounded-[var(--radius-md)] bg-blue-900/30 items-center justify-center">
             <Eye className="h-5 w-5 text-blue-500" />
