@@ -217,7 +217,6 @@ export default function FichasPage() {
     const velorio = ficha.velorio || ''
     const acompanhamento = ficha.acompanhamento || ''
     const dataEnvio = new Date(ficha.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-    // Telefone: sempre o original da ficha (troca principal/secundário é só interno)
     const telPrincipal = ficha.telefone
 
     let msg = `Dados Enviados em ${dataEnvio}\nVerifique se as informações abaixo estão corretas:\n\n`
@@ -302,10 +301,25 @@ export default function FichasPage() {
     }
   }
 
+  // Telefone atuante: se operador marcou tel2 como principal, usa tel2. Senão usa o original.
+  function getTelefoneAtuante(ficha: Ficha): string {
+    const op = (ficha.op_dados || {}) as Record<string, unknown>
+    if (op.usarTelefone2ComoPrincipal && op.telefone2) {
+      return String(op.telefone2).replace(/\D/g, '')
+    }
+    return ficha.telefone?.replace(/\D/g, '') || ''
+  }
+
   function abrirWhatsApp(ficha: Ficha) {
-    const tel = ficha.telefone?.replace(/\D/g, '') || ''
+    const tel = getTelefoneAtuante(ficha)
     const msg = encodeURIComponent(montarMsgWhatsApp(ficha))
-    window.open(`https://wa.me/55${tel}?text=${msg}`, '_blank')
+    window.open(`https://wa.me/${tel}`, '_blank')
+  }
+
+  function abrirWhatsAppComMsg(ficha: Ficha) {
+    const tel = getTelefoneAtuante(ficha)
+    const msg = encodeURIComponent(montarMsgWhatsApp(ficha))
+    window.open(`https://wa.me/${tel}?text=${msg}`, '_blank')
   }
 
   // ============================================
@@ -448,7 +462,7 @@ export default function FichasPage() {
                     </span>
                     {ficha.telefone && (
                       <a
-                        href={`https://wa.me/55${ficha.telefone.replace(/\D/g, '')}`}
+                        href={`https://wa.me/${getTelefoneAtuante(ficha)}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-0.5 text-green-400 hover:text-green-300"
@@ -506,7 +520,7 @@ export default function FichasPage() {
                     ) : (
                       <div className="flex items-center gap-1.5">
                         <button
-                          onClick={(e) => { e.stopPropagation(); abrirWhatsApp(ficha) }}
+                          onClick={(e) => { e.stopPropagation(); abrirWhatsAppComMsg(ficha) }}
                           className="flex items-center justify-center w-7 h-7 rounded-full bg-green-600 text-white hover:bg-green-700 transition-colors"
                           title="WhatsApp"
                         >
