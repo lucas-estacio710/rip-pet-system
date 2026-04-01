@@ -119,12 +119,12 @@ export default function AdsShieldPage() {
         ? (isSuperAdmin ? null : currentUnit?.codigo || null)
         : unidadeFilter
 
-      const { data, error } = await supabase.rpc('get_ads_suspects', {
+      const { data, error } = await supabase.rpc('get_ads_suspects' as never, {
         p_unidade_code: uc,
         p_from: periodoToDate(periodo),
         p_to: new Date().toISOString(),
         p_min_score: minScore
-      })
+      } as never)
 
       if (error) {
         console.error('get_ads_suspects error:', error)
@@ -166,7 +166,7 @@ export default function AdsShieldPage() {
       await supabase.from('ads_shield_whitelist').insert({
         ip_address: ip,
         reason: 'Marcado como seguro via CRM'
-      })
+      } as never)
       setSuspects(prev => prev.filter(s => s.ip_address !== ip))
     } catch (e) {
       console.error(e)
@@ -303,7 +303,7 @@ export default function AdsShieldPage() {
         </div>
       ) : suspects.length === 0 ? (
         <EmptyState
-          icon={<Shield className="w-12 h-12 text-emerald-400" />}
+          icon={Shield}
           title="Nenhum IP suspeito encontrado"
           description="Nenhuma atividade fraudulenta detectada no periodo selecionado."
         />
@@ -331,7 +331,7 @@ export default function AdsShieldPage() {
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-sm text-white">{s.ip_address}</span>
                       {s.ever_converted && (
-                        <Badge variant="success" size="sm">converteu</Badge>
+                        <Badge variant="success" >converteu</Badge>
                       )}
                     </div>
                     <div className="flex items-center gap-3 text-xs text-slate-400 mt-0.5">
@@ -415,7 +415,7 @@ export default function AdsShieldPage() {
                     {s.unidade_codes && s.unidade_codes.length > 0 && (
                       <div className="flex items-center gap-1.5 text-xs text-slate-400">
                         Unidades: {s.unidade_codes.map((uc, i) => (
-                          <Badge key={i} variant="default" size="sm">{uc}</Badge>
+                          <Badge key={i} variant="default" >{uc}</Badge>
                         ))}
                       </div>
                     )}
