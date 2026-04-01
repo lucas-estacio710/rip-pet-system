@@ -1,61 +1,81 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import FichaForm, { type FichaUnidadeConfig } from '@/components/ficha/FichaForm'
+
+// Mapa estático de unidades — não depende de query no banco (RLS bloqueia anon)
+const UNIDADES: Record<string, FichaUnidadeConfig> = {
+  santos: {
+    unidade_id: '94278414-ad10-4463-ba49-274474adb271',
+    codigo: 'ST',
+    nome: 'Santos',
+    cidade: 'Santos',
+    estado: 'SP',
+    label: 'Unidade Santos',
+    unidadeCompleta: 'Santos - SP',
+  },
+  'sao-paulo': {
+    unidade_id: 'd2a2b491-036a-4091-a5b5-e3d31f103337',
+    codigo: 'SP',
+    nome: 'São Paulo',
+    cidade: 'São Paulo',
+    estado: 'SP',
+    label: 'Unidade São Paulo',
+    unidadeCompleta: 'São Paulo - SP',
+  },
+  campinas: {
+    unidade_id: '4c737cfd-6ee6-4919-af54-7bbbd4ded38d',
+    codigo: 'CP',
+    nome: 'Campinas',
+    cidade: 'Campinas',
+    estado: 'SP',
+    label: 'Unidade Campinas',
+    unidadeCompleta: 'Campinas - SP',
+  },
+  sjc: {
+    unidade_id: '883bcc04-7885-4c46-93ee-696f452cc07c',
+    codigo: 'SJ',
+    nome: 'São José dos Campos',
+    cidade: 'São José dos Campos',
+    estado: 'SP',
+    label: 'Unidade São José dos Campos',
+    unidadeCompleta: 'São José dos Campos - SP',
+  },
+  pinda: {
+    unidade_id: '69c5ed84-0aaa-424b-90c5-34221774e47b',
+    codigo: 'PI',
+    nome: 'Pindamonhangaba',
+    cidade: 'Pindamonhangaba',
+    estado: 'SP',
+    label: 'Unidade Pindamonhangaba',
+    unidadeCompleta: 'Pindamonhangaba - SP',
+  },
+  'pouso-alegre': {
+    unidade_id: '0064285f-82f1-4146-971a-2a60b1350605',
+    codigo: 'PA',
+    nome: 'Pouso Alegre',
+    cidade: 'Pouso Alegre',
+    estado: 'MG',
+    label: 'Unidade Pouso Alegre',
+    unidadeCompleta: 'Pouso Alegre - MG',
+  },
+  resende: {
+    unidade_id: '74bb7f77-3e68-480b-8b29-4b52f37c2e47',
+    codigo: 'RS',
+    nome: 'Resende',
+    cidade: 'Resende',
+    estado: 'RJ',
+    label: 'Unidade Resende',
+    unidadeCompleta: 'Resende - RJ',
+  },
+}
 
 export default function FichaUnidade() {
   const params = useParams()
   const slug = params.slug as string
-  const [config, setConfig] = useState<FichaUnidadeConfig | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(false)
+  const config = UNIDADES[slug]
 
-  useEffect(() => {
-    async function loadUnit() {
-      const supabase = createClient()
-      const { data: rawData } = await supabase
-        .from('unidades')
-        .select('id, codigo, nome, cidade, estado, whatsapp, is_matriz')
-        .eq('slug', slug)
-        .eq('ativa', true)
-        .single()
-
-      const data = rawData as any
-      if (!data || data.is_matriz) {
-        setError(true)
-        setLoading(false)
-        return
-      }
-
-      setConfig({
-        unidade_id: data.id,
-        codigo: data.codigo,
-        nome: data.nome,
-        cidade: data.cidade || data.nome,
-        estado: data.estado || 'SP',
-        label: `Unidade ${data.nome}`,
-        unidadeCompleta: `${data.nome} - ${data.estado || 'SP'}`,
-      })
-      setLoading(false)
-    }
-
-    loadUnit()
-  }, [slug])
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-slate-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-slate-500">Carregando ficha...</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (error || !config) {
+  if (!config) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-slate-100 flex items-center justify-center">
         <div className="text-center max-w-md px-4">
