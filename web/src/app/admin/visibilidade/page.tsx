@@ -227,8 +227,36 @@ export default function VisibilidadePage() {
                 </th>
                 {items.map(m => (
                   <th key={m.key} className="px-1 py-2 text-center" style={{ minWidth: 70 }}>
-                    <span className="text-[9px] font-semibold text-[var(--surface-600)] leading-tight block" style={{ maxWidth: 70, wordBreak: 'break-word' }}>{m.label}</span>
-                    <span className="text-[8px] text-[var(--surface-400)]">G | O</span>
+                    <span className="text-[9px] font-semibold text-[var(--surface-600)] leading-tight block mb-1" style={{ maxWidth: 70, wordBreak: 'break-word' }}>{m.label}</span>
+                    <div className="flex items-center justify-center gap-0.5">
+                      {FLS_ROLES.map(role => {
+                        // Determinar o estado "majoritário" da coluna pra esse role
+                        const colPerms = unidades.map(u => getPerm(u.id, role, m.key))
+                        const allEdit = colPerms.every(p => p === 'edit')
+                        const allHidden = colPerms.every(p => p === 'hidden')
+                        const colStyle = allHidden ? PERM_STYLES.hidden : allEdit ? PERM_STYLES.edit : PERM_STYLES.read
+                        return (
+                          <button
+                            key={role}
+                            onClick={() => {
+                              // Cicla toda a coluna pra esse role: edit→hidden, hidden→edit, misto→hidden
+                              const nextPerm: PermissionLevel = allHidden ? 'edit' : 'hidden'
+                              setPerms(prev => {
+                                const next = { ...prev }
+                                unidades.forEach(u => { next[`${u.id}:${role}:${m.key}`] = nextPerm })
+                                return next
+                              })
+                              setSaved(false)
+                            }}
+                            className="w-5 h-4 rounded text-[8px] font-bold transition-all hover:scale-110"
+                            style={{ background: colStyle.bg, color: colStyle.text, border: `1px solid ${colStyle.border}` }}
+                            title={`${ROLE_LABELS[role]} coluna: ${allEdit ? 'Todos editável → Ocultar todos' : allHidden ? 'Todos oculto → Liberar todos' : 'Misto → Ocultar todos'}`}
+                          >
+                            {ROLE_LABELS[role]}
+                          </button>
+                        )
+                      })}
+                    </div>
                   </th>
                 ))}
               </tr>
@@ -313,6 +341,37 @@ export default function VisibilidadePage() {
             {/* Permissão da tela: unidades na vertical */}
             {selectedTelaItem && (
               <div className="card p-3">
+                {/* Botões de coluna pra tela */}
+                <div className="flex items-center justify-between mb-2 pb-2" style={{ borderBottom: '1px solid var(--surface-100)' }}>
+                  <span className="text-[10px] font-semibold uppercase text-[var(--surface-400)]">Aplicar a todas:</span>
+                  <div className="flex items-center gap-1">
+                    {FLS_ROLES.map(role => {
+                      const colPerms = unidades.map(u => getPerm(u.id, role, selectedTelaItem.key))
+                      const allHidden = colPerms.every(p => p === 'hidden')
+                      const allEdit = colPerms.every(p => p === 'edit')
+                      const colStyle = allHidden ? PERM_STYLES.hidden : allEdit ? PERM_STYLES.edit : PERM_STYLES.read
+                      return (
+                        <button
+                          key={role}
+                          onClick={() => {
+                            const nextPerm: PermissionLevel = allHidden ? 'edit' : 'hidden'
+                            setPerms(prev => {
+                              const next = { ...prev }
+                              unidades.forEach(u => { next[`${u.id}:${role}:${selectedTelaItem.key}`] = nextPerm })
+                              return next
+                            })
+                            setSaved(false)
+                          }}
+                          className="px-2 py-1 rounded text-[10px] font-bold transition-all hover:scale-105"
+                          style={{ background: colStyle.bg, color: colStyle.text, border: `1.5px solid ${colStyle.border}` }}
+                          title={`${role}: ${allEdit ? 'Ocultar todos' : allHidden ? 'Liberar todos' : 'Ocultar todos'}`}
+                        >
+                          {ROLE_LABELS[role]} {colStyle.icon}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
                 <div className="space-y-1.5">
                   {unidades.map(u => (
                     <div key={u.id} className="flex items-center justify-between">
