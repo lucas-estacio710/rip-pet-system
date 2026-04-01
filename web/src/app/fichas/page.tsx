@@ -247,7 +247,8 @@ export default function FichasPage() {
     msg += `*Espécie:* ${ficha.especie} | *Raça:* ${ficha.raca || 'Não tem'}\n`
     msg += `*Idade:* ${ficha.idade || '-'} | *Gênero:* ${ficha.genero}\n`
     msg += `*Cor:* ${ficha.cor} | *Peso Aproximado:* ${ficha.peso || '-'}\n`
-    msg += `*Localização:* ${ficha.localizacao}${ficha.localizacao_outra ? ` (${ficha.localizacao_outra})` : ficha.localizacao?.includes('Residência') ? ' (Endereço de Cadastro)' : ''}\n`
+    const opLocal = (op.enderecoOutro as string) || ficha.localizacao_outra
+    msg += `*Localização:* ${ficha.localizacao}${opLocal ? ` (${opLocal})` : ficha.localizacao?.includes('Residência') ? ' (Endereço de Cadastro)' : ''}\n`
 
     msg += `\n*- DADOS DA CREMAÇÃO:*\n`
     msg += `*Cremação Escolhida:* ${cremacao} | *Valor:* ${valor || '-'}\n`

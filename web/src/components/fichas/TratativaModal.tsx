@@ -950,11 +950,20 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
             </div>
             <div className="p-3 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)] space-y-1.5">
               <h4 className="text-[10px] font-bold text-[var(--surface-500)] uppercase tracking-wider mb-1">Acolhimento</h4>
-              <p className="text-xs text-[var(--surface-600)]"><strong>Local:</strong> {semLocal ? <span className="text-amber-400">A definir</span> : (localColeta || '-')}</p>
+              <p className="text-xs text-[var(--surface-600)]"><strong>Local:</strong> {semLocal ? <span className="text-amber-400">A definir</span> : localColeta === 'outro' ? (enderecoOutro || 'Outro endereço') : localColeta === 'clinica' ? (estabNome || clinicaTextoLivre || 'Clínica / Hospital') : ({ residencia: 'Residência (Endereço de Cadastro)', unidade: 'Unidade RIP PET' }[localColeta] || localColeta || '-')}</p>
               <p className="text-xs text-[var(--surface-600)]"><strong>Responsável:</strong> {semResponsavel ? <span className="text-amber-400">A definir</span> : (funcionarios.find(f => f.id === funcionarioId)?.nome || '-')}</p>
               <p className="text-xs text-[var(--surface-600)]"><strong>Data/Hora:</strong> {semDataHora ? <span className="text-amber-400">A definir</span> : (dataHoraAcolhimento ? new Date(dataHoraAcolhimento).toLocaleString('pt-BR') : '-')}</p>
               <p className="text-xs text-[var(--surface-600)]"><strong>Lacre:</strong> {semLacre ? <span className="text-amber-400">A definir</span> : (lacre || '-')}</p>
-              <p className="text-xs text-[var(--surface-600)]"><strong>Telefone:</strong> {telefoneConfirmado ? <span className="text-emerald-400">Confirmado ({formatarTel(ficha?.telefone)})</span> : mostrarTelefone2 ? <span>Tel.2: {formatarTel(getTelefone2Completo())}</span> : <span className="text-amber-400">Não confirmado</span>}</p>
+              <p className="text-xs text-[var(--surface-600)]">
+                <strong>Contato ativo:</strong>{' '}
+                {telefoneConfirmado && !mostrarTelefone2 ? (
+                  <span className="text-emerald-400">{formatarTel(ficha?.telefone)} (mesmo da ficha)</span>
+                ) : mostrarTelefone2 && getTelefone2Completo() ? (
+                  <span className="text-amber-400">{formatarTel(getTelefone2Completo())} <span className="text-[var(--surface-400)]">(ficha: {formatarTel(ficha?.telefone)})</span></span>
+                ) : (
+                  <span className="text-amber-400">Não definido</span>
+                )}
+              </p>
             </div>
           </div>
             </>
@@ -1000,7 +1009,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               msg += `*Espécie:* ${ficha.especie} | *Raça:* ${ficha.raca || 'Não tem'}\n`
               msg += `*Idade:* ${ficha.idade || '-'} | *Gênero:* ${ficha.genero}\n`
               msg += `*Cor:* ${ficha.cor} | *Peso Aproximado:* ${ficha.peso || '-'}\n`
-              msg += `*Localização:* ${ficha.localizacao}${ficha.localizacao_outra ? ` (${ficha.localizacao_outra})` : ficha.localizacao?.includes('Residência') ? ' (Endereço de Cadastro)' : ''}\n`
+              msg += `*Localização:* ${ficha.localizacao}${enderecoOutro ? ` (${enderecoOutro})` : ficha.localizacao_outra ? ` (${ficha.localizacao_outra})` : ficha.localizacao?.includes('Residência') ? ' (Endereço de Cadastro)' : ''}\n`
               msg += `\n*- DADOS DA CREMAÇÃO:*\n`
               msg += `*Cremação Escolhida:* ${cremacao} | *Valor:* ${valor || '-'}\n`
               msg += `*Forma de Pagamento:* ${formatarDisplay(ficha.pagamento)}${ficha.parcelas ? ` ${ficha.parcelas}` : ''}\n`
@@ -1266,60 +1275,58 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
           <div className="p-3 rounded-xl border border-[var(--surface-200)] space-y-3">
             <h4 className="text-xs font-bold text-[var(--surface-600)] uppercase tracking-wider">Acolhimento</h4>
 
-            {/* Telefone do Tutor */}
-            <div>
-              <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Telefone do Tutor</label>
-              <div className="flex items-center gap-2">
-                <div className="px-3 py-2 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)] text-sm text-mono text-[var(--surface-700)] flex-1">
-                  {formatarTel(getFichaValue('telefone'))}
-                </div>
-                <label className="flex items-center gap-1.5 cursor-pointer shrink-0">
-                  <input type="checkbox" checked={telefoneConfirmado} onChange={e => setTelefoneConfirmado(e.target.checked)} className="h-3.5 w-3.5 rounded accent-emerald-500" />
-                  <span className={`text-[10px] ${telefoneConfirmado ? 'text-emerald-400 font-medium' : 'text-[var(--surface-400)]'}`}>
-                    {telefoneConfirmado ? 'Confirmado' : 'Confirmar'}
-                  </span>
-                </label>
+            {/* Telefone — quem é o contato ativo? */}
+            <div className="p-3 rounded-lg border border-[var(--surface-200)] space-y-2">
+              <label className="text-xs font-medium text-[var(--surface-600)]">Telefone da Ficha</label>
+              <div className="px-3 py-2 rounded-lg bg-[var(--surface-50)] text-sm text-mono text-[var(--surface-700)]">
+                {formatarTel(getFichaValue('telefone'))}
               </div>
-              <div className="mt-1.5 space-y-1.5">
-                {!mostrarTelefone2 ? (
-                  <button type="button" onClick={() => setMostrarTelefone2(true)} className="text-[10px] text-purple-400 hover:text-purple-300 flex items-center gap-1">
-                    <Plus className="h-3 w-3" /> Inserir telefone do contato atual
-                  </button>
-                ) : (
-                  <div className="space-y-1.5">
-                    <div className="flex gap-1.5">
-                      {telefone2DDI === 'outro' ? (
-                        <div className="flex gap-1 items-center">
-                          <span className="text-[var(--surface-400)] text-xs">+</span>
-                          <input value={telefone2DDICustom} onChange={e => setTelefone2DDICustom(e.target.value.replace(/\D/g, '').slice(0, 4))} className="input text-sm text-mono w-14 text-center" placeholder="DDI" inputMode="numeric" />
-                          <button type="button" onClick={() => setTelefone2DDI('55')} className="text-[10px] text-[var(--surface-400)] hover:text-[var(--surface-600)]">x</button>
-                        </div>
-                      ) : (
-                        <select value={telefone2DDI} onChange={e => setTelefone2DDI(e.target.value)} className="input text-sm w-24">
-                          <option value="55">+55</option>
-                          <option value="1">+1</option>
-                          <option value="351">+351</option>
-                          <option value="54">+54</option>
-                          <option value="598">+598</option>
-                          <option value="595">+595</option>
-                          <option value="56">+56</option>
-                          <option value="57">+57</option>
-                          <option value="52">+52</option>
-                          <option value="34">+34</option>
-                          <option value="39">+39</option>
-                          <option value="44">+44</option>
-                          <option value="outro">Outro</option>
-                        </select>
-                      )}
-                      <input type="text" inputMode="tel" value={telefone2} onChange={e => setTelefone2(e.target.value.replace(/\D/g, '').replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15))} placeholder="(00) 00000-0000" maxLength={15} className="input text-sm text-mono flex-1" />
-                    </div>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={usarTelefone2ComoPrincipal} onChange={e => setUsarTelefone2ComoPrincipal(e.target.checked)} className="h-3 w-3 rounded accent-amber-500" />
-                      <span className="text-[10px] text-amber-400">Usar este como principal (trocar)</span>
-                    </label>
+
+              <p className="text-[10px] text-[var(--surface-500)]">Está conversando com este número?</p>
+
+              <div className="flex gap-2">
+                <button type="button" onClick={() => { setTelefoneConfirmado(true); setMostrarTelefone2(false); setTelefone2(''); setUsarTelefone2ComoPrincipal(false) }}
+                  className={`flex-1 py-2 rounded-lg text-xs font-semibold border-2 transition-all ${
+                    telefoneConfirmado && !mostrarTelefone2
+                      ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400'
+                      : 'border-[var(--surface-200)] text-[var(--surface-500)] hover:border-[var(--surface-300)]'
+                  }`}>
+                  Sim, é este
+                </button>
+                <button type="button" onClick={() => { setTelefoneConfirmado(false); setMostrarTelefone2(true); setUsarTelefone2ComoPrincipal(true) }}
+                  className={`flex-1 py-2 rounded-lg text-xs font-semibold border-2 transition-all ${
+                    mostrarTelefone2
+                      ? 'border-amber-500 bg-amber-500/10 text-amber-400'
+                      : 'border-[var(--surface-200)] text-[var(--surface-500)] hover:border-[var(--surface-300)]'
+                  }`}>
+                  Não, é outro
+                </button>
+              </div>
+
+              {mostrarTelefone2 && (
+                <div className="space-y-1.5">
+                  <label className="text-[10px] text-amber-400 font-medium">Telefone do contato atual (quem está no WhatsApp)</label>
+                  <div className="flex gap-1.5">
+                    {telefone2DDI === 'outro' ? (
+                      <div className="flex gap-1 items-center">
+                        <span className="text-[var(--surface-400)] text-xs">+</span>
+                        <input value={telefone2DDICustom} onChange={e => setTelefone2DDICustom(e.target.value.replace(/\D/g, '').slice(0, 4))} className="input text-sm text-mono w-14 text-center" placeholder="DDI" inputMode="numeric" />
+                        <button type="button" onClick={() => setTelefone2DDI('55')} className="text-[10px] text-[var(--surface-400)]">x</button>
+                      </div>
+                    ) : (
+                      <select value={telefone2DDI} onChange={e => setTelefone2DDI(e.target.value)} className="input text-sm w-24">
+                        <option value="55">+55</option>
+                        <option value="1">+1</option>
+                        <option value="351">+351</option>
+                        <option value="54">+54</option>
+                        <option value="outro">Outro</option>
+                      </select>
+                    )}
+                    <input type="text" inputMode="tel" value={telefone2} onChange={e => setTelefone2(e.target.value.replace(/\D/g, '').replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15))} placeholder="(00) 00000-0000" maxLength={15} className="input text-sm text-mono flex-1" />
                   </div>
-                )}
-              </div>
+                  <p className="text-[9px] text-[var(--surface-400)]">Este número será usado nos botões de WhatsApp. O telefone da ficha fica salvo como secundário.</p>
+                </div>
+              )}
             </div>
 
             {/* Local de Acolhimento */}
