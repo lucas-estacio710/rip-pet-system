@@ -62,6 +62,7 @@ type Props = {
   ficha: Ficha | null
   onSuccess: (contratoId: string) => void
   onRetornarPendente?: () => void
+  onReprocessar?: (ficha: Ficha) => void
 }
 
 // Nomes compostos: se o primeiro nome é um desses prefixos, inclui o segundo nome
@@ -88,7 +89,7 @@ function getPrimeiroNome(nomeCompleto: string | null | undefined): string {
 // ============================================
 // Component
 // ============================================
-export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRetornarPendente }: Props) {
+export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRetornarPendente, onReprocessar }: Props) {
   const { toast } = useToast()
   const supabase = createClient()
   const { hasModule, currentUnit } = useUnit()
@@ -228,6 +229,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
 
   const [salvando, setSalvando] = useState(false)
   const [confirmarRetorno, setConfirmarRetorno] = useState(false)
+  const [confirmarCancelamento, setConfirmarCancelamento] = useState(false)
 
   // Modo visualização: ficha já processada
   const modoVisualizacao = !!(ficha?.processada)
@@ -337,6 +339,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       setMostrarTelefone2(false)
       setUsarTelefone2ComoPrincipal(false)
       setConfirmarRetorno(false)
+      setConfirmarCancelamento(false)
       setSemLocal(false)
       setSemResponsavel(false)
       setDataHoraAcolhimento('')
@@ -731,27 +734,38 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   const acolhimentoValido = telefoneOk && localOk && responsavelOk && dataHoraOk && lacreOk && valorOk
 
   const footer = modoVisualizacao ? (
-    <div className="flex gap-3 justify-between w-full">
-      <button
-        onClick={() => setConfirmarRetorno(true)}
-        className="btn-secondary text-amber-400 border-amber-500/30 hover:bg-amber-900/20 text-sm"
-      >
-        Retornar para Recebidas
-      </button>
+    <div className="flex gap-2 justify-between w-full flex-wrap">
       <div className="flex gap-2">
-        <button onClick={salvarAlteracoes} disabled={salvando} className="btn-secondary text-sm">
-          {salvando ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvando...</> : 'Salvar'}
+        <button
+          onClick={async () => {
+            if (!ficha) return
+            const supabaseLocal = createClient()
+            await supabaseLocal.from('fichas').update({
+              processada: false,
+            } as never).eq('id', ficha.id)
+            onClose()
+            onReprocessar?.(ficha)
+          }}
+          className="btn-secondary text-amber-400 border-amber-500/30 hover:bg-amber-900/20 text-xs"
+        >
+          Reprocessar
         </button>
-        {!ficha?.contrato_id && (
-          <button
-            onClick={criarContrato}
-            disabled={salvando || !acolhimentoValido}
-            className="btn-primary disabled:opacity-50 text-sm"
-          >
-            {salvando ? <><Loader2 className="h-4 w-4 animate-spin" /> Criando...</> : 'Criar Contrato'}
-          </button>
-        )}
-        <button onClick={onClose} className="btn-secondary text-sm">Fechar</button>
+        <button
+          onClick={() => setConfirmarCancelamento(true)}
+          className="btn-secondary text-red-400 border-red-500/30 hover:bg-red-900/20 text-xs"
+        >
+          Cancelar Ficha
+        </button>
+      </div>
+      <div className="flex gap-2">
+        {/* Iniciar Fluxo — desabilitado por enquanto */}
+        <button
+          disabled
+          className="btn-primary text-xs opacity-40 cursor-not-allowed"
+        >
+          Iniciar Fluxo
+        </button>
+        <button onClick={onClose} className="btn-secondary text-xs">Fechar</button>
       </div>
     </div>
   ) : (
@@ -809,6 +823,38 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                 className="px-3 py-1.5 rounded-lg text-sm font-semibold text-white bg-amber-600 hover:bg-amber-700"
               >
                 Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Popup confirmar cancelamento */}
+      {confirmarCancelamento && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl shadow-2xl p-5 space-y-4" style={{ background: 'var(--surface-card, #1e293b)', border: '1px solid var(--surface-200)' }}>
+            <h3 className="text-sm font-bold text-red-400">Cancelar esta ficha?</h3>
+            <p className="text-xs text-[var(--surface-500)]">
+              A ficha será marcada como cancelada e não poderá mais ser processada. Esta ação não pode ser desfeita.
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setConfirmarCancelamento(false)} className="px-3 py-1.5 rounded-lg text-sm text-[var(--surface-600)] hover:bg-[var(--surface-100)]">
+                Voltar
+              </button>
+              <button
+                onClick={async () => {
+                  if (!ficha) return
+                  const supabaseLocal = createClient()
+                  await supabaseLocal.from('fichas').update({
+                    processada: false,
+                    op_dados: { ...(ficha.op_dados || {}), cancelada: true, cancelada_em: new Date().toISOString() },
+                  } as never).eq('id', ficha.id)
+                  setConfirmarCancelamento(false)
+                  onClose()
+                  onRetornarPendente?.()
+                }}
+                className="px-3 py-1.5 rounded-lg text-sm font-semibold text-white bg-red-600 hover:bg-red-700"
+              >
+                Cancelar Ficha
               </button>
             </div>
           </div>

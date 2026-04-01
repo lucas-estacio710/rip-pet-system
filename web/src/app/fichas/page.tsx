@@ -371,20 +371,7 @@ export default function FichasPage() {
         </button>
       </div>
 
-      {/* Filtro ativo indicator */}
-      {filtro !== 'pendentes' && (
-        <div className="mb-4 flex items-center justify-between bg-[var(--surface-50)] rounded-lg px-4 py-2 border border-[var(--surface-200)]">
-          <span className="text-sm text-[var(--surface-500)]">
-            Filtrando: <strong>{filtro === 'processadas' ? 'Processadas' : 'Todas'}</strong>
-          </span>
-          <button
-            onClick={() => setFiltro('pendentes')}
-            className="text-sm text-amber-500 hover:text-amber-400 font-medium"
-          >
-            Voltar para recebidas
-          </button>
-        </div>
-      )}
+      {/* Filtro ativo indicator — removido, navegação pelos cards é suficiente */}
 
       {/* Busca */}
       <div className="mb-4 relative">
@@ -431,112 +418,100 @@ export default function FichasPage() {
             return (
               <div
                 key={ficha.id}
-                className="card p-4 card-hover transition-all"
+                className="card px-3 py-2 card-hover transition-all"
               >
-                <div className="flex items-start justify-between gap-3">
-                  {/* Content */}
-                  <div className="min-w-0 flex-1">
-                    {/* Pet name + badges */}
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <span className="text-base font-semibold text-[var(--surface-800)]">
-                        {especieEmoji(ficha.especie)} {ficha.nome_pet}
+                <div className="flex items-center gap-3">
+                  {/* Info compacta */}
+                  <div className="min-w-0 flex-1 flex items-center gap-2 flex-wrap">
+                    {/* Pet + tipo */}
+                    <span className="text-sm font-semibold text-[var(--surface-800)] whitespace-nowrap">
+                      {especieEmoji(ficha.especie)} {ficha.nome_pet}
+                    </span>
+                    <span className="text-[9px] font-bold px-1 py-0.5 rounded" style={{
+                      background: ficha.cremacao?.toLowerCase() === 'individual' ? '#16a34a' : '#7c3aed',
+                      color: '#fff',
+                    }}>
+                      {ficha.cremacao?.toLowerCase() === 'individual' ? 'IND' : 'COL'}
+                    </span>
+                    {ficha.valor != null && (
+                      <span className="text-xs font-bold text-green-500 text-mono">
+                        R$ {ficha.valor.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}
                       </span>
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{
-                        background: ficha.cremacao?.toLowerCase() === 'individual' ? '#16a34a' : '#7c3aed',
-                        color: '#fff',
-                      }}>
-                        {ficha.cremacao?.toLowerCase() === 'individual' ? 'IND' : 'COL'}
+                    )}
+                    <span className="text-[var(--surface-300)]">|</span>
+                    {/* Tutor */}
+                    <span className="text-xs text-[var(--surface-600)] truncate max-w-[150px]" title={ficha.nome_completo}>
+                      {ficha.nome_completo}
+                      {ficha.outros_tutores && ficha.outros_tutores.filter(Boolean).length > 0 && (
+                        <span className="text-[var(--surface-400)]"> +{ficha.outros_tutores.filter(Boolean).length}</span>
+                      )}
+                    </span>
+                    {ficha.telefone && (
+                      <a
+                        href={`https://wa.me/55${ficha.telefone.replace(/\D/g, '')}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-0.5 text-green-400 hover:text-green-300"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Phone className="h-3 w-3" />
+                      </a>
+                    )}
+                    <span className="text-[var(--surface-300)] hidden sm:inline">|</span>
+                    {/* Local + tempo */}
+                    {(ficha.cidade || ficha.bairro) && (
+                      <span className="hidden sm:inline-flex items-center gap-0.5 text-[10px] text-[var(--surface-400)]">
+                        <MapPin className="h-2.5 w-2.5" />
+                        {ficha.bairro ? `${ficha.bairro}` : ficha.cidade}
                       </span>
-                      {ficha.valor != null && (
-                        <span className="text-xs font-bold text-green-500 text-mono">
-                          R$ {ficha.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                        </span>
-                      )}
-                      {isPendente ? (
-                        <Badge variant="warning" dot>Recebida</Badge>
-                      ) : (
-                        <Badge variant="success" dot>Processada</Badge>
-                      )}
-                    </div>
-
-                    {/* Tutor + phone */}
-                    <div className="flex items-center gap-3 flex-wrap text-sm text-[var(--surface-600)] mb-1">
-                      <span>
-                        {ficha.nome_completo}
-                        {ficha.outros_tutores && ficha.outros_tutores.filter(Boolean).length > 0 && (
-                          <span className="text-xs text-[var(--surface-400)]"> +{ficha.outros_tutores.filter(Boolean).length}</span>
-                        )}
-                      </span>
-                      {ficha.telefone && (
-                        <a
-                          href={`https://wa.me/55${ficha.telefone.replace(/\D/g, '')}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-green-400 hover:text-green-300"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <Phone className="h-3.5 w-3.5" />
-                          <span className="text-mono text-xs">{formatarTelefone(ficha.telefone)}</span>
-                        </a>
-                      )}
-                    </div>
-
-                    {/* Location + time */}
-                    <div className="flex items-center gap-3 flex-wrap text-xs text-[var(--surface-400)]">
-                      {(ficha.cidade || ficha.bairro) && (
-                        <span className="inline-flex items-center gap-1">
-                          <MapPin className="h-3 w-3" />
-                          {ficha.bairro ? `${ficha.bairro}, ` : ''}{ficha.cidade}
-                        </span>
-                      )}
-                      {ficha.veterinario_especificar && (
-                        <span className="inline-flex items-center gap-1">
-                          <Stethoscope className="h-3 w-3" />
-                          {ficha.veterinario_especificar}
-                        </span>
-                      )}
-                      <span className="inline-flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        {tempoRelativo(ficha.created_at)}
-                      </span>
-                    </div>
+                    )}
+                    <span className="text-[10px] text-[var(--surface-400)] inline-flex items-center gap-0.5">
+                      <Clock className="h-2.5 w-2.5" />
+                      {tempoRelativo(ficha.created_at)}
+                    </span>
+                    {isPendente ? (
+                      <Badge variant="warning" dot>Recebida</Badge>
+                    ) : (
+                      <Badge variant="success" dot>Processada</Badge>
+                    )}
                   </div>
 
-                  {/* Action button */}
-                  <div className="flex-shrink-0">
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
                     {isPendente ? (
                       <button
                         onClick={() => setFichaModal(ficha)}
-                        className="btn-primary text-sm py-2 px-4 whitespace-nowrap"
+                        className="btn-primary text-xs py-1.5 px-3 whitespace-nowrap"
                         style={{ background: 'var(--brand-600)' }}
                       >
                         Processar
-                        <ArrowRight className="h-4 w-4 ml-1" />
                       </button>
                     ) : (
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
                         <button
                           onClick={(e) => { e.stopPropagation(); abrirWhatsApp(ficha) }}
-                          className="flex items-center justify-center w-9 h-9 rounded-full bg-green-600 text-white hover:bg-green-700 transition-colors"
-                          title="Enviar confirmação por WhatsApp"
+                          className="flex items-center justify-center w-7 h-7 rounded-full bg-green-600 text-white hover:bg-green-700 transition-colors"
+                          title="WhatsApp"
                         >
-                          <MessageCircle className="h-4 w-4" />
+                          <MessageCircle className="h-3.5 w-3.5" />
                         </button>
                         {ficha.op_dados && (
                           <button
                             onClick={(e) => { e.stopPropagation(); gerarPdfFicha(ficha) }}
-                            className="flex items-center justify-center w-9 h-9 rounded-full bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-                            title="Gerar Contrato PDF"
+                            className="flex items-center justify-center w-7 h-7 rounded-full bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                            title="PDF"
                           >
-                            <Download className="h-4 w-4" />
+                            <Download className="h-3.5 w-3.5" />
                           </button>
                         )}
                         <button
                           onClick={() => setFichaModal(ficha)}
-                          className="btn-primary text-sm py-2 px-3 whitespace-nowrap"
+                          className="btn-primary text-xs py-1.5 px-3 whitespace-nowrap"
                           style={{ background: ficha.contrato_id ? 'var(--surface-500)' : 'var(--brand-600)' }}
                         >
-                          {ficha.contrato_id ? 'Visualizar' : 'Criar Contrato'}
+                          {ficha.contrato_id ? 'Ver' : 'Criar Contrato'}
                         </button>
                         {/* TODO: Iniciar Pipeline — habilitar quando pipeline estiver pronto */}
                         {false && ficha.contrato_id && (
@@ -551,7 +526,6 @@ export default function FichasPage() {
                     )}
                   </div>
                 </div>
-              </div>
             )
           })}
         </div>
@@ -567,6 +541,14 @@ export default function FichasPage() {
           setFichaModal(null)
           carregarFichas()
           carregarContagens()
+        }}
+        onReprocessar={(fichaReprocessar) => {
+          // Fecha, recarrega, e reabre a ficha em modo edição (agora como recebida)
+          setFichaModal(null)
+          carregarFichas()
+          carregarContagens()
+          // Reabrir com pequeno delay pra garantir que o state atualizou
+          setTimeout(() => setFichaModal({ ...fichaReprocessar, processada: false } as Ficha), 300)
         }}
       />
     </div>
