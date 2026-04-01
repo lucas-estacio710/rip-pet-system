@@ -95,7 +95,6 @@ export default function EntregaModal({ isOpen, onClose, contrato, onSuccess }: P
                   type="date"
                   value={entregaForm.data_entrega}
                   onChange={(e) => setEntregaForm({ ...entregaForm, data_entrega: e.target.value })}
-                  onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
                   className="px-1 py-0.5 rounded text-xs text-slate-300 w-28 bg-slate-700 cursor-pointer"
                 />
               ) : (

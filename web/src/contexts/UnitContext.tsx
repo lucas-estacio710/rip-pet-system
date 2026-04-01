@@ -52,6 +52,9 @@ type UnitContextType = {
   switchUnit: (unitId: string) => void
   hasModule: (module: string) => boolean
   refetch: () => Promise<void>
+
+  // FLS
+  flsPermissions: Map<string, string>  // campo → permissao ('read'|'hidden'), default 'edit' se ausente
 }
 
 const UnitContext = createContext<UnitContextType | null>(null)
@@ -72,6 +75,8 @@ export function UnitProvider({ children }: { children: ReactNode }) {
   const [impersonating, setImpersonating] = useState(false)
   const [impersonatedEmail, setImpersonatedEmail] = useState<string | null>(null)
   const [realUserData, setRealUserData] = useState<{ perfis: UserPerfil[]; allUnidades: Unidade[]; userName: string | null; userEmail: string | null } | null>(null)
+  // FLS: cache de permissões (field_permissions) — Map<campo, permissao> para unidade+role atual
+  const [flsPermissions, setFlsPermissions] = useState<Map<string, string>>(new Map())
 
   const isSuperAdmin = userPerfis.some(p => p.role === 'super_admin')
 
@@ -206,6 +211,26 @@ export function UnitProvider({ children }: { children: ReactNode }) {
     fetchData()
   }, [fetchData])
 
+  // FLS: carregar permissões quando unidade/role muda
+  useEffect(() => {
+    if (!currentUnit?.id || !currentRole || isSuperAdmin) {
+      setFlsPermissions(new Map())
+      return
+    }
+    supabase
+      .from('field_permissions')
+      .select('campo, permissao')
+      .eq('unidade_id', currentUnit.id)
+      .eq('role', currentRole)
+      .then(({ data }) => {
+        const map = new Map<string, string>()
+        for (const row of (data || []) as { campo: string; permissao: string }[]) {
+          map.set(row.campo, row.permissao)
+        }
+        setFlsPermissions(map)
+      })
+  }, [currentUnit?.id, currentRole, isSuperAdmin])
+
   const switchUnit = useCallback((unitId: string) => {
     const perfil = userPerfis.find(p => p.unidade.id === unitId)
     if (perfil) {
@@ -227,8 +252,12 @@ export function UnitProvider({ children }: { children: ReactNode }) {
 
   const hasModule = useCallback((module: string): boolean => {
     if (!currentUnit) return false
-    return currentUnit.modulos_ativos?.includes(module) ?? false
-  }, [currentUnit])
+    if (isSuperAdmin) return true
+    // FLS: se o campo está como 'hidden', o módulo está desligado
+    const perm = flsPermissions.get(module)
+    // Default permissivo: sem row = 'edit' = true
+    return perm !== 'hidden'
+  }, [currentUnit, isSuperAdmin, flsPermissions])
 
   // Impersonação: ver a ferramenta como outro usuário veria
   // rpcPerfis vem da RPC list_users_with_profiles (SECURITY DEFINER, sem RLS)
@@ -342,6 +371,7 @@ export function UnitProvider({ children }: { children: ReactNode }) {
       switchUnit,
       hasModule,
       refetch: fetchData,
+      flsPermissions,
     }}>
       {children}
     </UnitContext.Provider>

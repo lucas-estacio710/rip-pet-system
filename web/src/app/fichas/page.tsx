@@ -58,6 +58,7 @@ type Ficha = {
   processada: boolean | null
   contrato_id: string | null
   processada_em: string | null
+  op_dados: Record<string, unknown> | null
 }
 
 type Filtro = 'pendentes' | 'processadas' | 'todas'
@@ -204,28 +205,46 @@ export default function FichasPage() {
   }
 
   function montarMsgWhatsApp(ficha: Ficha): string {
-    const nome = ficha.nome_completo?.split(' ')[0] || 'Tutor'
-    const pet = ficha.nome_pet || 'seu pet'
     const cremacao = ficha.cremacao || ''
-    const valor = ficha.valor ? `R$ ${ficha.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''
+    const valor = ficha.valor ? `R$ ${ficha.valor.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}` : ''
     const pagamento = ficha.pagamento || ''
     const velorio = ficha.velorio || ''
     const acompanhamento = ficha.acompanhamento || ''
+    const dataEnvio = new Date(ficha.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
-    let msg = `Olá, *${nome}*! Aqui é da *R.I.P. Pet*. 🐾\n\n`
-    msg += `Recebemos sua ficha de contratação e gostaríamos de confirmar os dados:\n\n`
-    msg += `🐾 *Pet:* ${pet}\n`
-    if (ficha.especie) msg += `   Espécie: ${ficha.especie}`
-    if (ficha.raca) msg += ` | Raça: ${ficha.raca}`
-    msg += `\n`
-    msg += `⚱️ *Cremação:* ${cremacao}\n`
-    if (valor) msg += `💰 *Valor:* ${valor}`
-    if (pagamento) msg += ` (${pagamento}${ficha.parcelas ? ` ${ficha.parcelas}` : ''})`
-    if (valor || pagamento) msg += `\n`
-    if (velorio && velorio !== 'Não') msg += `🕯️ *Velório:* ${velorio}\n`
-    if (acompanhamento && acompanhamento !== 'Não deseja') msg += `📹 *Acompanhamento:* ${acompanhamento}\n`
-    msg += `\n📋 *Endereço:* ${ficha.endereco}, ${ficha.numero}${ficha.complemento ? ` - ${ficha.complemento}` : ''} — ${ficha.bairro}, ${ficha.cidade}/${ficha.estado}\n`
-    msg += `\nPor favor, confirme se está tudo correto. ✅\nQualquer dúvida estamos à disposição. 🙏`
+    let msg = `Dados Enviados em ${dataEnvio}\nVerifique se as informações abaixo estão corretas:\n\n`
+
+    const outrosNomes = ficha.outros_tutores?.filter(Boolean)
+    const nomesCertificado = [ficha.nome_completo?.toUpperCase(), ...(outrosNomes || []).map(n => n.toUpperCase())].filter(Boolean).join(', ')
+
+    msg += `*- DADOS DO TUTOR:*\n`
+    msg += `*Nome p/ Contrato e Certificado:* ${nomesCertificado}\n`
+    msg += `*Telefone Contato:* ${ficha.telefone} | *CPF:* ${ficha.cpf}\n`
+    if (ficha.email) msg += `*Email:* ${ficha.email}\n`
+    msg += `*Endereço:* ${ficha.endereco} ${ficha.numero}${ficha.complemento ? ` - ${ficha.complemento}` : ''} - ${ficha.bairro}\n`
+    msg += `*CEP:* ${ficha.cep} | *Cidade:* ${ficha.cidade} | *UF:* ${ficha.estado}\n`
+
+    msg += `\n*- DADOS DO PET:*\n`
+    msg += `*Nome:* ${ficha.nome_pet?.toUpperCase()}\n`
+    msg += `*Espécie:* ${ficha.especie} | *Raça:* ${ficha.raca || 'Não tem'}\n`
+    msg += `*Idade:* ${ficha.idade || '-'} | *Gênero:* ${ficha.genero}\n`
+    msg += `*Cor:* ${ficha.cor} | *Peso Aproximado:* ${ficha.peso || '-'}\n`
+    msg += `*Localização:* ${ficha.localizacao}${ficha.localizacao_outra ? ` (${ficha.localizacao_outra})` : ficha.localizacao?.includes('Residência') ? ' (Endereço de Cadastro)' : ''}\n`
+
+    msg += `\n*- DADOS DA CREMAÇÃO:*\n`
+    msg += `*Cremação Escolhida:* ${cremacao} | *Valor:* ${valor || '-'}\n`
+    msg += `*Forma de Pagamento:* ${pagamento}${ficha.parcelas ? ` ${ficha.parcelas}` : ''}\n`
+    msg += `*Velório:* ${velorio}\n`
+    msg += `*Acompanhamento da Cremação:* ${acompanhamento}\n`
+
+    if (ficha.como_conheceu && ficha.como_conheceu.length > 0) {
+      msg += `\n*Como nos Conheceu:* ${ficha.como_conheceu.join(', ')}`
+      if (ficha.veterinario_especificar) msg += ` (${ficha.veterinario_especificar})`
+    }
+
+    if (ficha.observacoes) {
+      msg += `\n\n*Observações:* ${ficha.observacoes}`
+    }
 
     return msg
   }
@@ -273,7 +292,7 @@ export default function FichasPage() {
               <Clock className="h-5 w-5" />
             </div>
             <div className="text-left">
-              <p className={`text-sm font-medium ${filtro === 'pendentes' ? 'text-amber-400' : 'text-[var(--shell-text-muted)]'}`}>Pendentes</p>
+              <p className={`text-sm font-medium ${filtro === 'pendentes' ? 'text-amber-400' : 'text-[var(--shell-text-muted)]'}`}>Recebidas</p>
               <p className="text-2xl font-bold text-[var(--shell-text)]">{pendentesCount}</p>
             </div>
           </div>
@@ -309,7 +328,7 @@ export default function FichasPage() {
             onClick={() => setFiltro('pendentes')}
             className="text-sm text-amber-500 hover:text-amber-400 font-medium"
           >
-            Voltar para pendentes
+            Voltar para recebidas
           </button>
         </div>
       )}
@@ -349,7 +368,7 @@ export default function FichasPage() {
         <EmptyState
           icon={ClipboardList}
           title="Nenhuma ficha encontrada"
-          description={busca ? 'Tente ajustar o termo de busca' : filtro === 'pendentes' ? 'Nenhuma ficha pendente de processamento' : 'Nenhuma ficha registrada'}
+          description={busca ? 'Tente ajustar o termo de busca' : filtro === 'pendentes' ? 'Nenhuma ficha recebida para processamento' : 'Nenhuma ficha registrada'}
         />
       ) : (
         <div className="space-y-2 stagger-children">
@@ -381,7 +400,7 @@ export default function FichasPage() {
                         </span>
                       )}
                       {isPendente ? (
-                        <Badge variant="warning" dot>Pendente</Badge>
+                        <Badge variant="warning" dot>Recebida</Badge>
                       ) : (
                         <Badge variant="success" dot>Processada</Badge>
                       )}
@@ -441,7 +460,7 @@ export default function FichasPage() {
                         Processar
                         <ArrowRight className="h-4 w-4 ml-1" />
                       </button>
-                    ) : ficha.contrato_id ? (
+                    ) : (
                       <div className="flex items-center gap-2">
                         <button
                           onClick={(e) => { e.stopPropagation(); abrirWhatsApp(ficha) }}
@@ -451,13 +470,23 @@ export default function FichasPage() {
                           <MessageCircle className="h-4 w-4" />
                         </button>
                         <button
-                          onClick={() => router.push(`/contratos/${ficha.contrato_id}`)}
-                          className="btn-secondary text-sm py-2 px-3 whitespace-nowrap"
+                          onClick={() => setFichaModal(ficha)}
+                          className="btn-primary text-sm py-2 px-3 whitespace-nowrap"
+                          style={{ background: ficha.contrato_id ? 'var(--surface-500)' : 'var(--brand-600)' }}
                         >
-                          Ver contrato
+                          {ficha.contrato_id ? 'Visualizar' : 'Criar Contrato'}
                         </button>
+                        {/* TODO: Iniciar Pipeline — habilitar quando pipeline estiver pronto */}
+                        {false && ficha.contrato_id && (
+                          <button
+                            onClick={() => router.push(`/contratos/${ficha.contrato_id}`)}
+                            className="btn-secondary text-sm py-2 px-3 whitespace-nowrap"
+                          >
+                            Iniciar Pipeline
+                          </button>
+                        )}
                       </div>
-                    ) : null}
+                    )}
                   </div>
                 </div>
               </div>
@@ -469,9 +498,14 @@ export default function FichasPage() {
       {/* Modal de tratativa */}
       <TratativaModal
         isOpen={!!fichaModal}
-        onClose={() => setFichaModal(null)}
+        onClose={() => { setFichaModal(null); carregarFichas(); carregarContagens() }}
         ficha={fichaModal}
         onSuccess={handleSuccess}
+        onRetornarPendente={() => {
+          setFichaModal(null)
+          carregarFichas()
+          carregarContagens()
+        }}
       />
     </div>
   )

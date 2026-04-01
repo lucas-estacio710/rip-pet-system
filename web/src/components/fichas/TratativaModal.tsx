@@ -46,6 +46,9 @@ type Ficha = {
   outro_especificar: string | null
   observacoes: string | null
   unidade_id: string
+  processada: boolean | null
+  contrato_id: string | null
+  op_dados: Record<string, unknown> | null
 }
 
 type Estabelecimento = { id: string; nome: string; tipo: string | null }
@@ -58,6 +61,7 @@ type Props = {
   onClose: () => void
   ficha: Ficha | null
   onSuccess: (contratoId: string) => void
+  onRetornarPendente?: () => void
 }
 
 // Nomes compostos: se o primeiro nome é um desses prefixos, inclui o segundo nome
@@ -84,7 +88,7 @@ function getPrimeiroNome(nomeCompleto: string | null | undefined): string {
 // ============================================
 // Component
 // ============================================
-export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Props) {
+export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRetornarPendente }: Props) {
   const { toast } = useToast()
   const supabase = createClient()
   const { hasModule, currentUnit } = useUnit()
@@ -211,6 +215,10 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
   const [dataContrato, setDataContrato] = useState(new Date().toISOString().split('T')[0])
 
   const [salvando, setSalvando] = useState(false)
+  const [confirmarRetorno, setConfirmarRetorno] = useState(false)
+
+  // Modo visualização: ficha já processada
+  const modoVisualizacao = !!(ficha?.processada)
 
   // ============================================
   // Data loading
@@ -312,6 +320,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
       setTelefoneConfirmado(false)
       setTelefone2('')
       setUsarTelefone2ComoPrincipal(false)
+      setConfirmarRetorno(false)
       setSemLocal(false)
       setSemResponsavel(false)
       setDataHoraAcolhimento('')
@@ -356,6 +365,39 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
       setIndicNomeQuemIndicou(ficha.veterinario_especificar)
       setIndicNomeAtivo(true)
     }
+
+    // Se ficha já processada, carregar op_dados do operador
+    if (ficha.processada && ficha.op_dados) {
+      const op = ficha.op_dados as Record<string, unknown>
+      if (op.codigo) setCodigo(String(op.codigo))
+      if (op.codigoManual) setCodigoManual(true)
+      if (op.funcionarioId) setFuncionarioId(String(op.funcionarioId))
+      if (op.semResponsavel) setSemResponsavel(true)
+      if (op.localColeta) setLocalColeta(op.localColeta as typeof localColeta)
+      if (op.enderecoOutro) setEnderecoOutro(String(op.enderecoOutro))
+      if (op.semLocal) setSemLocal(true)
+      if (op.clinicaTextoLivre) setClinicaTextoLivre(String(op.clinicaTextoLivre))
+      if (op.estabId) { setEstabId(String(op.estabId)); setEstabNome(String(op.estabNome || '')) }
+      if (op.autonomo) setAutonomo(true)
+      if (op.dataHoraAcolhimento) setDataHoraAcolhimento(String(op.dataHoraAcolhimento))
+      if (op.semDataHora) setSemDataHora(true)
+      if (op.lacre) setLacre(String(op.lacre))
+      if (op.semLacre) setSemLacre(true)
+      if (op.valorPlano) setValorPlano(String(op.valorPlano))
+      if (op.descontoPreVenda) setDescontoPreVenda(String(op.descontoPreVenda))
+      if (op.dataContrato) setDataContrato(String(op.dataContrato))
+      if (op.teveIndicacao) { setTeveIndicacao(true); setMostrarIndicacao(true) }
+      if (op.indicNomeQuemIndicou) setIndicNomeQuemIndicou(String(op.indicNomeQuemIndicou))
+      if (op.indicNomeAtivo) setIndicNomeAtivo(true)
+      if (op.indicHospClinica) setIndicHospClinica(String(op.indicHospClinica))
+      if (op.indicHospAtivo) setIndicHospAtivo(true)
+      if (op.indicId) setIndicId(String(op.indicId))
+      if (op.indicNome) { setIndicNome(String(op.indicNome)); setIndicBusca(String(op.indicNome)) }
+      if (op.indicCargo) setIndicCargo(String(op.indicCargo))
+      if (op.telefoneConfirmado) setTelefoneConfirmado(true)
+      if (op.telefone2) setTelefone2(String(op.telefone2))
+      if (op.usarTelefone2ComoPrincipal) setUsarTelefone2ComoPrincipal(true)
+    }
   }, [isOpen, ficha])
 
   // Close dropdowns on outside click
@@ -384,220 +426,68 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
   })()
 
   // ============================================
-  // processarFicha
+  // processarFicha — salva dados do operador e marca como processada (NÃO cria contrato)
   // ============================================
   async function processarFicha() {
     if (!ficha || !codigo.trim()) return
     setSalvando(true)
 
-    // Usar ficha com edições aplicadas
-    const f = fichaAtual!
-
     try {
-      // Step 0: Salvar edições na ficha original (se houve)
+      // Salvar edições nos dados do cliente (se houve)
       if (Object.keys(fichaEdits).length > 0) {
         const editsParaSalvar = { ...fichaEdits }
-        // outros_tutores: converter JSON string de volta pra array
         if (editsParaSalvar.outros_tutores) {
           editsParaSalvar.outros_tutores = JSON.parse(editsParaSalvar.outros_tutores)
         }
         await supabase.from('fichas').update(editsParaSalvar as never).eq('id', ficha.id)
       }
 
-      // Step 1: Find or create tutor
-      let tutorId = tutorExistente?.id || null
-      if (!tutorId) {
-        const { data: novoTutor, error: errTutor } = await supabase
-          .from('tutores')
-          .insert({
-            nome: f.nome_completo,
-            cpf: f.cpf,
-            telefone: usarTelefone2ComoPrincipal && telefone2.trim() ? telefone2.replace(/\D/g, '') : f.telefone,
-            telefone2: telefone2.trim() ? (usarTelefone2ComoPrincipal ? f.telefone : telefone2.replace(/\D/g, '')) : null,
-            email: f.email || null,
-            cep: f.cep,
-            endereco: f.endereco,
-            numero: f.numero,
-            complemento: f.complemento || null,
-            bairro: f.bairro,
-            cidade: f.cidade,
-            estado: f.estado,
-            unidade_id: f.unidade_id,
-          } as never)
-          .select('id')
-          .single() as { data: { id: string } | null; error: { message: string } | null }
-        if (errTutor) throw new Error(`Erro ao criar tutor: ${errTutor.message}`)
-        tutorId = novoTutor!.id
-      }
-
-      // Step 2: Map fonte_conhecimento (ficha → nome exato no banco)
-      let fonteConhecimentoId: string | null = null
-      if (f.como_conheceu && f.como_conheceu.length > 0) {
-        const fonteMap: Record<string, string> = {
-          'Google': 'Google',
-          'Instagram/Facebook': 'Instagram/Facebook',
-          'Veterinário': 'Indicação em Clínica',
-          'Parente/Amigo': 'Parente/Amigo',
-          'Já utilizei a R.I.P. Pet': 'Cliente',
-          'Outro': 'Outro',
-        }
-        const nomeExato = fonteMap[f.como_conheceu[0]] || f.como_conheceu[0]
-        const { data: fonte } = await supabase
-          .from('fontes_conhecimento')
-          .select('id')
-          .eq('nome', nomeExato)
-          .maybeSingle() as { data: { id: string } | null }
-        if (fonte) fonteConhecimentoId = fonte.id
-      }
-
-      // Step 3 & 4: Resolve estabelecimento + contato
-      let resolvedEstabId: string | null = null
-      let resolvedContatoId: string | null = null
-      let clinicaColetaNome: string | null = null
-
-      if (temPadronizacaoClinicas) {
-        // COM padronização — autocomplete de estabelecimentos
-        const AUTONOMOS_ESTAB_ID = 'b4eedcff-7ccf-4cfb-bf3a-1978eeec6382'
-        if (autonomo) {
-          resolvedEstabId = AUTONOMOS_ESTAB_ID
-          clinicaColetaNome = 'Autônomo'
-        } else {
-          resolvedEstabId = estabId
-          clinicaColetaNome = estabNome.trim() || null
-          if (!resolvedEstabId && estabNome.trim()) {
-            const { data: novoEstab } = await supabase
-              .from('estabelecimentos')
-              .insert({ nome: estabNome.trim(), tipo: 'clinica' } as never)
-              .select('id')
-              .single() as { data: { id: string } | null }
-            if (novoEstab) resolvedEstabId = novoEstab.id
-          }
-        }
-
-        // Resolve contato (quem indicou)
-        resolvedContatoId = indicId
-        if (!resolvedContatoId && indicNome.trim()) {
-          let query = supabase
-            .from('contatos')
-            .select('id')
-            .ilike('nome', indicNome.trim())
-            .limit(1)
-          if (resolvedEstabId) {
-            query = query.eq('estabelecimento_id', resolvedEstabId)
-          }
-          const { data: contatoExist } = await query.maybeSingle() as { data: { id: string } | null }
-
-          if (contatoExist) {
-            resolvedContatoId = contatoExist.id
-          } else {
-            const { data: novoContato } = await supabase
-              .from('contatos')
-              .insert({
-                nome: indicNome.trim(),
-                cargo: indicCargo.trim() || null,
-                estabelecimento_id: resolvedEstabId,
-                unidade_id: f.unidade_id,
-              } as never)
-              .select('id')
-              .single() as { data: { id: string } | null }
-            if (novoContato) resolvedContatoId = novoContato.id
-          }
-        }
-      } else {
-        // SEM padronização — texto livre
-        clinicaColetaNome = clinicaTextoLivre.trim() || null
-      }
-
-      // Step 5: Build observacoes (apenas obs originais da ficha)
-      const observacoes = f.observacoes || null
-
-      // Step 6: Map local_coleta (selecionado pelo operador)
-      const localColetaMap: Record<string, string> = {
-        residencia: 'Residência',
-        clinica: 'Clínica',
-        unidade: 'Unidade',
-        outro: 'Outro',
-      }
-      const localColetaValor = localColetaMap[localColeta] || null
-
-      // Step 7: Insert contrato
-      const status = tipoPlano === 'emergencial' ? 'ativo' : 'preventivo'
-
-      const contratoData = {
+      // Montar op_dados com tudo que o operador preencheu
+      const opDados = {
         codigo: codigo.trim(),
-        unidade_id: f.unidade_id,
-        status,
-        tipo_plano: tipoPlano,
-        tipo_cremacao: f.cremacao.toLowerCase() as 'individual' | 'coletiva',
-        pet_nome: f.nome_pet?.toUpperCase() || '',
-        pet_especie: f.especie.toLowerCase(),
-        pet_raca: f.raca || null,
-        pet_genero: f.genero ? f.genero.toLowerCase() : null,
-        pet_cor: f.cor || null,
-        pet_peso: f.peso ? parseFloat(f.peso) || null : null,
-        pet_idade_anos: f.idade ? parseInt(f.idade) || null : null,
-        tutor_id: tutorId,
-        tutor_nome: f.nome_completo?.toUpperCase() || '',
-        tutor_cpf: f.cpf,
-        tutor_telefone: usarTelefone2ComoPrincipal && telefone2.trim() ? telefone2.replace(/\D/g, '') : f.telefone,
-        tutor_telefone2: telefone2.trim() ? (usarTelefone2ComoPrincipal ? f.telefone : telefone2.replace(/\D/g, '')) : null,
-        tutor_email: f.email || null,
-        tutor_cidade: f.cidade || null,
-        tutor_bairro: f.bairro || null,
-        tutor_endereco: f.endereco ? `${f.endereco}, ${f.numero}${f.complemento ? ` - ${f.complemento}` : ''}` : null,
-        tutor_cep: f.cep || null,
-        clinica_coleta: clinicaColetaNome,
-        contato_id: resolvedContatoId || null,
-        estabelecimento_id: resolvedEstabId || null,
-        funcionario_id: semResponsavel ? null : (funcionarioId || null),
-        fonte_conhecimento_id: fonteConhecimentoId,
-        indicacao_clinica: teveIndicacao ? (temPadronizacaoClinicas ? (estabNome.trim() || null) : (indicHospClinica.trim() || null)) : null,
-        indicacao_contato: teveIndicacao ? (indicNomeQuemIndicou.trim() || null) : null,
-        data_contrato: dataContrato,
-        data_acolhimento: semDataHora ? null : (dataHoraAcolhimento ? new Date(dataHoraAcolhimento).toISOString() : null),
-        pelinho_quer: true,
-        pelinho_feito: false,
-        pelinho_quantidade: 1,
-        velorio_deseja: f.velorio === 'Sim' ? true : f.velorio === 'Não' ? false : null,
-        acompanhamento_online: f.acompanhamento?.includes('On-line') || false,
-        acompanhamento_presencial: f.acompanhamento?.includes('Presencial') || false,
-        valor_plano: valorPlano ? parseFloat(valorPlano) : null,
-        desconto_plano: descontoPreVenda ? parseFloat(descontoPreVenda) : 0,
-        local_coleta: semLocal ? null : localColetaValor,
-        remocao_endereco: semLocal ? null : (localColeta === 'residencia' ? (f.endereco ? `${f.endereco}, ${f.numero}` : null) : localColeta === 'outro' ? enderecoOutro || null : null),
-        remocao_bairro: semLocal ? null : (localColeta === 'residencia' ? f.bairro : null),
-        remocao_cidade: semLocal ? null : (localColeta === 'residencia' ? f.cidade : null),
-        remocao_cep: semLocal ? null : (localColeta === 'residencia' ? f.cep : null),
-        numero_lacre: lacre || null,
-        observacoes,
-        // Nomes do certificado: tutor principal + outros tutores da ficha (até 6 extras)
-        certificado_nome_1: f.nome_completo || null,
-        ...(f.outros_tutores ? Object.fromEntries(
-          f.outros_tutores.filter(Boolean).slice(0, 6).map((nome, i) => [`certificado_nome_${i + 2}`, nome])
-        ) : {}),
+        codigoManual,
+        tipoPlano,
+        funcionarioId: semResponsavel ? null : (funcionarioId || null),
+        semResponsavel,
+        localColeta,
+        enderecoOutro: enderecoOutro || null,
+        semLocal,
+        clinicaTextoLivre: clinicaTextoLivre || null,
+        estabId,
+        estabNome: estabNome || null,
+        autonomo,
+        dataHoraAcolhimento: dataHoraAcolhimento || null,
+        semDataHora,
+        lacre: lacre || null,
+        semLacre,
+        valorPlano: valorPlano || null,
+        descontoPreVenda: descontoPreVenda || null,
+        dataContrato,
+        // Indicação
+        teveIndicacao,
+        indicNomeQuemIndicou: indicNomeQuemIndicou || null,
+        indicNomeAtivo,
+        indicHospClinica: indicHospClinica || null,
+        indicHospAtivo,
+        indicId,
+        indicNome: indicNome || null,
+        indicCargo: indicCargo || null,
+        // Telefone
+        telefoneConfirmado,
+        telefone2: telefone2.trim() || null,
+        usarTelefone2ComoPrincipal,
       }
 
-      const { data: contrato, error: errContrato } = await supabase
-        .from('contratos')
-        .insert(contratoData as never)
-        .select('id')
-        .single() as { data: { id: string } | null; error: { message: string } | null }
+      // Marcar como processada + salvar dados do operador
+      await supabase.from('fichas').update({
+        processada: true,
+        processada_em: new Date().toISOString(),
+        processada_por: funcionarioId || null,
+        op_dados: opDados,
+      } as never).eq('id', ficha.id)
 
-      if (errContrato) throw new Error(`Erro ao criar contrato: ${errContrato.message}`)
-
-      // Step 8: Mark ficha as processed
-      await supabase
-        .from('fichas')
-        .update({
-          processada: true,
-          contrato_id: contrato!.id,
-          processada_em: new Date().toISOString(),
-          processada_por: funcionarioId || null,
-        } as never)
-        .eq('id', ficha.id)
-
-      toast('Contrato criado com sucesso!', 'success')
-      onSuccess(contrato!.id)
+      toast('Ficha processada! Aguardando criação do contrato.', 'success')
+      onClose()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Erro desconhecido'
       toast(message, 'error')
@@ -612,7 +502,163 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
   // ============================================
   // Render
   // ============================================
-  const footer = (
+  // Criar contrato a partir de ficha processada
+  async function criarContrato() {
+    if (!ficha) return
+    setSalvando(true)
+    const f = fichaAtual!
+
+    try {
+      // Step 1: Find or create tutor
+      let tutorId = tutorExistente?.id || null
+      if (!tutorId) {
+        const { data: novoTutor, error: errTutor } = await supabase
+          .from('tutores')
+          .insert({
+            nome: f.nome_completo,
+            cpf: f.cpf,
+            telefone: usarTelefone2ComoPrincipal && telefone2.trim() ? telefone2.replace(/\D/g, '') : f.telefone,
+            telefone2: telefone2.trim() ? (usarTelefone2ComoPrincipal ? f.telefone : telefone2.replace(/\D/g, '')) : null,
+            email: f.email || null,
+            cep: f.cep, endereco: f.endereco, numero: f.numero, complemento: f.complemento || null,
+            bairro: f.bairro, cidade: f.cidade, estado: f.estado, unidade_id: f.unidade_id,
+          } as never).select('id').single() as { data: { id: string } | null; error: { message: string } | null }
+        if (errTutor) throw new Error(`Erro ao criar tutor: ${errTutor.message}`)
+        tutorId = novoTutor!.id
+      }
+
+      // Step 2: Fonte de conhecimento
+      let fonteConhecimentoId: string | null = null
+      if (f.como_conheceu && f.como_conheceu.length > 0) {
+        const fonteMap: Record<string, string> = {
+          'Google': 'Google', 'Instagram/Facebook': 'Instagram/Facebook',
+          'Veterinário': 'Indicação em Clínica', 'Parente/Amigo': 'Parente/Amigo',
+          'Já utilizei a R.I.P. Pet': 'Cliente', 'Outro': 'Outro',
+        }
+        const nomeExato = fonteMap[f.como_conheceu[0]] || f.como_conheceu[0]
+        const { data: fonte } = await supabase.from('fontes_conhecimento').select('id').eq('nome', nomeExato).maybeSingle() as { data: { id: string } | null }
+        if (fonte) fonteConhecimentoId = fonte.id
+      }
+
+      // Step 3: Resolve estabelecimento + contato
+      let resolvedEstabId: string | null = estabId
+      let resolvedContatoId: string | null = indicId
+      let clinicaColetaNome: string | null = null
+
+      if (temPadronizacaoClinicas) {
+        const AUTONOMOS_ESTAB_ID = 'b4eedcff-7ccf-4cfb-bf3a-1978eeec6382'
+        if (autonomo) { resolvedEstabId = AUTONOMOS_ESTAB_ID; clinicaColetaNome = 'Autônomo' }
+        else {
+          clinicaColetaNome = estabNome.trim() || null
+          if (!resolvedEstabId && estabNome.trim()) {
+            const { data: novoEstab } = await supabase.from('estabelecimentos').insert({ nome: estabNome.trim(), tipo: 'clinica' } as never).select('id').single() as { data: { id: string } | null }
+            if (novoEstab) resolvedEstabId = novoEstab.id
+          }
+        }
+        if (!resolvedContatoId && indicNome.trim()) {
+          let query = supabase.from('contatos').select('id').ilike('nome', indicNome.trim()).limit(1)
+          if (resolvedEstabId) query = query.eq('estabelecimento_id', resolvedEstabId)
+          const { data: contatoExist } = await query.maybeSingle() as { data: { id: string } | null }
+          if (contatoExist) resolvedContatoId = contatoExist.id
+          else {
+            const { data: novoContato } = await supabase.from('contatos').insert({ nome: indicNome.trim(), cargo: indicCargo.trim() || null, estabelecimento_id: resolvedEstabId, unidade_id: f.unidade_id } as never).select('id').single() as { data: { id: string } | null }
+            if (novoContato) resolvedContatoId = novoContato.id
+          }
+        }
+      } else {
+        clinicaColetaNome = clinicaTextoLivre.trim() || null
+      }
+
+      // Step 4: Map local_coleta
+      const localColetaMap: Record<string, string> = { residencia: 'Residência', clinica: 'Clínica', unidade: 'Unidade', outro: 'Outro' }
+      const localColetaValor = localColetaMap[localColeta] || null
+
+      // Step 5: Insert contrato
+      const contratoData = {
+        codigo: codigo.trim(),
+        unidade_id: f.unidade_id,
+        status: tipoPlano === 'emergencial' ? 'ativo' : 'preventivo',
+        tipo_plano: tipoPlano,
+        tipo_cremacao: f.cremacao.toLowerCase() as 'individual' | 'coletiva',
+        pet_nome: f.nome_pet?.toUpperCase() || '', pet_especie: f.especie.toLowerCase(),
+        pet_raca: f.raca || null, pet_genero: f.genero ? f.genero.toLowerCase() : null,
+        pet_cor: f.cor || null, pet_peso: f.peso ? parseFloat(f.peso) || null : null,
+        pet_idade_anos: f.idade ? parseInt(f.idade) || null : null,
+        tutor_id: tutorId,
+        tutor_nome: f.nome_completo?.toUpperCase() || '', tutor_cpf: f.cpf,
+        tutor_telefone: usarTelefone2ComoPrincipal && telefone2.trim() ? telefone2.replace(/\D/g, '') : f.telefone,
+        tutor_telefone2: telefone2.trim() ? (usarTelefone2ComoPrincipal ? f.telefone : telefone2.replace(/\D/g, '')) : null,
+        tutor_email: f.email || null, tutor_cidade: f.cidade || null, tutor_bairro: f.bairro || null,
+        tutor_endereco: f.endereco ? `${f.endereco}, ${f.numero}${f.complemento ? ` - ${f.complemento}` : ''}` : null,
+        tutor_cep: f.cep || null,
+        clinica_coleta: clinicaColetaNome,
+        contato_id: resolvedContatoId || null, estabelecimento_id: resolvedEstabId || null,
+        funcionario_id: semResponsavel ? null : (funcionarioId || null),
+        fonte_conhecimento_id: fonteConhecimentoId,
+        indicacao_clinica: teveIndicacao ? (temPadronizacaoClinicas ? (estabNome.trim() || null) : (indicHospClinica.trim() || null)) : null,
+        indicacao_contato: teveIndicacao ? (indicNomeQuemIndicou.trim() || null) : null,
+        data_contrato: dataContrato,
+        data_acolhimento: semDataHora ? null : (dataHoraAcolhimento ? new Date(dataHoraAcolhimento).toISOString() : null),
+        pelinho_quer: true, pelinho_feito: false, pelinho_quantidade: 1,
+        velorio_deseja: f.velorio === 'Sim' ? true : f.velorio === 'Não' ? false : null,
+        acompanhamento_online: f.acompanhamento?.includes('On-line') || false,
+        acompanhamento_presencial: f.acompanhamento?.includes('Presencial') || false,
+        valor_plano: valorPlano ? parseFloat(valorPlano) : null,
+        desconto_plano: descontoPreVenda ? parseFloat(descontoPreVenda) : 0,
+        local_coleta: semLocal ? null : localColetaValor,
+        remocao_endereco: semLocal ? null : (localColeta === 'residencia' ? (f.endereco ? `${f.endereco}, ${f.numero}` : null) : localColeta === 'outro' ? enderecoOutro || null : null),
+        remocao_bairro: semLocal ? null : (localColeta === 'residencia' ? f.bairro : null),
+        remocao_cidade: semLocal ? null : (localColeta === 'residencia' ? f.cidade : null),
+        remocao_cep: semLocal ? null : (localColeta === 'residencia' ? f.cep : null),
+        numero_lacre: lacre || null,
+        observacoes: f.observacoes || null,
+        certificado_nome_1: f.nome_completo || null,
+        ...(f.outros_tutores ? Object.fromEntries(
+          f.outros_tutores.filter(Boolean).slice(0, 6).map((nome, i) => [`certificado_nome_${i + 2}`, nome])
+        ) : {}),
+      }
+
+      const { data: contrato, error: errContrato } = await supabase
+        .from('contratos').insert(contratoData as never).select('id')
+        .single() as { data: { id: string } | null; error: { message: string } | null }
+      if (errContrato) throw new Error(`Erro ao criar contrato: ${errContrato.message}`)
+
+      // Vincular contrato à ficha
+      await supabase.from('fichas').update({ contrato_id: contrato!.id } as never).eq('id', ficha.id)
+
+      toast('Contrato criado com sucesso!', 'success')
+      onSuccess(contrato!.id)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Erro desconhecido'
+      toast(message, 'error')
+      console.error('Erro ao criar contrato:', err)
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  const footer = modoVisualizacao ? (
+    <div className="flex gap-3 justify-between w-full">
+      <button
+        onClick={() => setConfirmarRetorno(true)}
+        className="btn-secondary text-amber-400 border-amber-500/30 hover:bg-amber-900/20 text-sm"
+      >
+        Retornar para Pendente
+      </button>
+      <div className="flex gap-2">
+        {!ficha?.contrato_id && (
+          <button
+            onClick={criarContrato}
+            disabled={salvando || !codigo.trim()}
+            className="btn-primary disabled:opacity-50 text-sm"
+          >
+            {salvando ? <><Loader2 className="h-4 w-4 animate-spin" /> Criando...</> : 'Criar Contrato'}
+          </button>
+        )}
+        <button onClick={onClose} className="btn-secondary text-sm">Fechar</button>
+      </div>
+    </div>
+  ) : (
     <div className="flex gap-3 justify-end">
       <button onClick={onClose} className="btn-secondary" disabled={salvando}>
         Cancelar
@@ -634,8 +680,44 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
     </div>
   )
 
+  const modalTitle = modoVisualizacao ? 'Ficha Processada' : 'Processar Ficha'
+
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Processar Ficha" footer={footer} size="xl">
+    <Modal isOpen={isOpen} onClose={onClose} title={modalTitle} footer={footer} size="xl">
+      {/* Popup confirmar retorno */}
+      {confirmarRetorno && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl shadow-2xl p-5 space-y-4" style={{ background: 'var(--surface-card, #1e293b)', border: '1px solid var(--surface-200)' }}>
+            <h3 className="text-sm font-bold text-amber-400">Retornar para Pendente?</h3>
+            <p className="text-xs text-[var(--surface-500)]">
+              Esta ficha será retornada para a fila de pendentes. O contrato vinculado será desvinculado, mas não será excluído. O operador precisará processar novamente.
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setConfirmarRetorno(false)} className="px-3 py-1.5 rounded-lg text-sm text-[var(--surface-600)] hover:bg-[var(--surface-100)]">
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  if (!ficha) return
+                  const supabaseLocal = createClient()
+                  await supabaseLocal.from('fichas').update({
+                    processada: false,
+                    contrato_id: null,
+                    processada_em: null,
+                    processada_por: null,
+                  } as never).eq('id', ficha.id)
+                  setConfirmarRetorno(false)
+                  onClose()
+                  onRetornarPendente?.()
+                }}
+                className="px-3 py-1.5 rounded-lg text-sm font-semibold text-white bg-amber-600 hover:bg-amber-700"
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Tutor detection banner — só se tela_tutores habilitada */}
       {hasModule('tela_tutores') && tutorChecked && (
         <div className={`mb-4 px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 ${
@@ -666,54 +748,6 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
             <InfoRow label="Nome" value={getFichaValue('nome_completo')} editKey="nome_completo" edited={!!fichaEdits.nome_completo} onEdit={startEdit} />
             <InfoRow label="CPF" value={getFichaValue('cpf')} mono editKey="cpf" edited={!!fichaEdits.cpf} onEdit={startEdit} />
             <InfoRow label="Telefone" value={getFichaValue('telefone')} mono editKey="telefone" edited={!!fichaEdits.telefone} onEdit={startEdit} />
-
-            {/* Confirmação de telefone pelo operador */}
-            <div className="ml-[78px] space-y-1.5">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={telefoneConfirmado}
-                  onChange={e => setTelefoneConfirmado(e.target.checked)}
-                  className="h-3.5 w-3.5 rounded accent-emerald-500"
-                />
-                <span className={`text-xs ${telefoneConfirmado ? 'text-emerald-400 font-medium' : 'text-[var(--surface-400)]'}`}>
-                  {telefoneConfirmado ? 'Telefone confirmado com o tutor' : 'Confirmar que é o telefone correto'}
-                </span>
-              </label>
-
-              {/* Adicionar telefone 2 */}
-              {!telefone2 ? (
-                <button
-                  type="button"
-                  onClick={() => setTelefone2(' ')}
-                  className="text-[10px] text-purple-400 hover:text-purple-300 flex items-center gap-1"
-                >
-                  <Plus className="h-3 w-3" /> Adicionar telefone secundário
-                </button>
-              ) : (
-                <div className="space-y-1">
-                  <input
-                    type="text"
-                    inputMode="tel"
-                    value={telefone2.trim()}
-                    onChange={e => setTelefone2(e.target.value.replace(/\D/g, '').replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15))}
-                    placeholder="(00) 00000-0000"
-                    maxLength={15}
-                    className="input text-sm text-mono"
-                  />
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={usarTelefone2ComoPrincipal}
-                      onChange={e => setUsarTelefone2ComoPrincipal(e.target.checked)}
-                      className="h-3 w-3 rounded accent-amber-500"
-                    />
-                    <span className="text-[10px] text-amber-400">Usar este como principal (trocar)</span>
-                  </label>
-                </div>
-              )}
-            </div>
-
             <InfoRow label="Email" value={getFichaValue('email')} editKey="email" edited={!!fichaEdits.email} onEdit={startEdit} />
             <InfoRow label="Endereço" value={getFichaValue('endereco')} editKey="endereco" edited={!!fichaEdits.endereco} onEdit={startEdit} />
             <InfoRow label="Número" value={getFichaValue('numero')} editKey="numero" edited={!!fichaEdits.numero} onEdit={startEdit} />
@@ -790,8 +824,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
             <InfoRow label="Pagamento" value={getFichaValue('pagamento')} editKey="pagamento" edited={!!fichaEdits.pagamento} onEdit={startEdit} />
             <InfoRow label="Velório" value={getFichaValue('velorio')} editKey="velorio" edited={!!fichaEdits.velorio} onEdit={startEdit} />
             <InfoRow label="Acompanhamento" value={getFichaValue('acompanhamento')} editKey="acompanhamento" edited={!!fichaEdits.acompanhamento} onEdit={startEdit} />
-            <InfoRow label="Local" value={getFichaValue('localizacao')} editKey="localizacao" edited={!!fichaEdits.localizacao} onEdit={startEdit} />
-            {ficha.localizacao_outra && <InfoRow label="Local (outro)" value={getFichaValue('localizacao_outra')} editKey="localizacao_outra" edited={!!fichaEdits.localizacao_outra} onEdit={startEdit} />}
+            <InfoRow label="Seleção de local" value={getFichaValue('localizacao')} editKey="localizacao" edited={!!fichaEdits.localizacao} onEdit={startEdit} />
+            {ficha.localizacao_outra && <InfoRow label="Local específico" value={getFichaValue('localizacao_outra')} editKey="localizacao_outra" edited={!!fichaEdits.localizacao_outra} onEdit={startEdit} />}
           </div>
 
           {/* Extras */}
@@ -974,7 +1008,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
               {semDataHora ? (
                 <div className="px-3 py-2 rounded-lg bg-amber-900/10 border border-amber-500/30 text-xs text-amber-400">A definir</div>
               ) : (
-                <input type="datetime-local" value={dataHoraAcolhimento} onChange={e => setDataHoraAcolhimento(e.target.value)} className="input text-sm" />
+                <input type="datetime-local" step="1800" value={dataHoraAcolhimento} onChange={e => setDataHoraAcolhimento(e.target.value)} className="input text-sm" />
               )}
             </div>
 
@@ -992,6 +1026,37 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
               ) : (
                 <input type="text" value={lacre} onChange={e => setLacre(e.target.value)} placeholder="Número do lacre" className="input text-sm" />
               )}
+            </div>
+
+            {/* Confirmação de Telefone */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-medium text-[var(--surface-600)]">Telefone do Tutor</label>
+              </div>
+              <div className="px-3 py-2 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)] text-sm text-mono text-[var(--surface-700)]">
+                {getFichaValue('telefone') || '-'}
+              </div>
+              <div className="mt-1.5 space-y-1.5">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={telefoneConfirmado} onChange={e => setTelefoneConfirmado(e.target.checked)} className="h-3.5 w-3.5 rounded accent-emerald-500" />
+                  <span className={`text-[10px] ${telefoneConfirmado ? 'text-emerald-400 font-medium' : 'text-[var(--surface-400)]'}`}>
+                    {telefoneConfirmado ? 'Telefone confirmado' : 'Confirmar que é o telefone correto'}
+                  </span>
+                </label>
+                {!telefone2 ? (
+                  <button type="button" onClick={() => setTelefone2(' ')} className="text-[10px] text-purple-400 hover:text-purple-300 flex items-center gap-1">
+                    <Plus className="h-3 w-3" /> Adicionar telefone secundário
+                  </button>
+                ) : (
+                  <div className="space-y-1">
+                    <input type="text" inputMode="tel" value={telefone2.trim()} onChange={e => setTelefone2(e.target.value.replace(/\D/g, '').replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15))} placeholder="(00) 00000-0000" maxLength={15} className="input text-sm text-mono" />
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={usarTelefone2ComoPrincipal} onChange={e => setUsarTelefone2ComoPrincipal(e.target.checked)} className="h-3 w-3 rounded accent-amber-500" />
+                      <span className="text-[10px] text-amber-400">Usar este como principal (trocar)</span>
+                    </label>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -1122,7 +1187,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess }: Pr
           nome_pet: 'Nome do pet', especie: 'Espécie', raca: 'Raça', genero: 'Gênero',
           cor: 'Cor', peso: 'Peso', idade: 'Idade',
           cremacao: 'Cremação', pagamento: 'Pagamento', velorio: 'Velório',
-          acompanhamento: 'Acompanhamento', localizacao: 'Localização', localizacao_outra: 'Local (outro)',
+          acompanhamento: 'Acompanhamento', localizacao: 'Seleção de local', localizacao_outra: 'Local específico',
         }
 
         // Campos com opções fixas (não texto livre)

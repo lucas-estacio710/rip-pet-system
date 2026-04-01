@@ -15,6 +15,7 @@ import ActionButtons from '@/components/contratos/ActionButtons'
 import EntregaModal from '@/components/contratos/modals/EntregaModal'
 import GCTracking from '@/components/contratos/gc/GCTracking'
 import { useUnit } from '@/contexts/UnitContext'
+import { useFieldPermission } from '@/hooks/useFieldPermission'
 import PelinhoModal from '@/components/contratos/modals/PelinhoModal'
 import CertificadoModal from '@/components/contratos/modals/CertificadoModal'
 import AtivarModal from '@/components/contratos/modals/AtivarModal'
@@ -389,6 +390,8 @@ export default function ContratoDetalhe() {
 
   const supabase = createClient()
   const { hasModule } = useUnit()
+  const { canEdit, isVisible } = useFieldPermission()
+  const T = 'tela_pipeline' // tela FLS (pipeline = lista + detalhe)
 
   // Função para obter URL da imagem local
   function getImagemUrl(codigo: string): string {
@@ -2030,19 +2033,19 @@ ${petNome}`
             <ActionButtons
               contrato={contrato}
               handlers={{
-                onPetGrato: () => abrirPetGrato(),
-                onChegamos: () => setChegamosModalOpen(true),
-                onChegaram: () => setChegaramModalOpen(true),
-                onFinalizadora: () => setFinalizadoraModalOpen(true),
-                onAtivar: () => setAtivarModalOpen(true),
-                onEntrega: () => setEntregaModalOpen(true),
+                ...(isVisible(T, 'btn_pet_grato') ? { onPetGrato: () => abrirPetGrato() } : {}),
+                ...(isVisible(T, 'btn_chegamos') ? { onChegamos: () => setChegamosModalOpen(true) } : {}),
+                ...(isVisible(T, 'btn_chegaram') ? { onChegaram: () => setChegaramModalOpen(true) } : {}),
+                ...(isVisible(T, 'btn_finalizadora') ? { onFinalizadora: () => setFinalizadoraModalOpen(true) } : {}),
+                ...(isVisible(T, 'btn_ativar') ? { onAtivar: () => setAtivarModalOpen(true) } : {}),
+                ...(isVisible(T, 'btn_entrega') ? { onEntrega: () => setEntregaModalOpen(true) } : {}),
               }}
               layout="detail"
               stopPropagation={false}
             />
 
-            {/* Botão Ficha de Remoção - só aparece em Ativo e Pinda */}
-            {(contrato.status === 'ativo' || contrato.status === 'pinda') && (
+            {/* Botão Ficha de Remoção - só aparece em Ativo e Pinda (FLS: btn_gerar_pdf) */}
+            {(contrato.status === 'ativo' || contrato.status === 'pinda') && isVisible(T, 'btn_gerar_pdf') && (
               <button
                 onClick={() => setFichaModal(true)}
                 className="flex items-center justify-center w-7 h-7 bg-orange-500 text-white rounded-full hover:bg-orange-600 transition-colors"
@@ -2066,8 +2069,8 @@ ${petNome}`
               )}
             </button>
 
-            {/* Botão Protocolo de Entrega - Retorno, Pendente, Finalizado */}
-            {(contrato.status === 'retorno' || contrato.status === 'pendente' || contrato.status === 'finalizado') && (
+            {/* Botão Protocolo de Entrega - Retorno, Pendente, Finalizado (FLS: btn_protocolo) */}
+            {(contrato.status === 'retorno' || contrato.status === 'pendente' || contrato.status === 'finalizado') && isVisible(T, 'btn_protocolo') && (
               <button
                 onClick={() => {
                   if (contrato.protocolo_data) {
@@ -2292,10 +2295,10 @@ ${petNome}`
                     </a>
                   )}
                 </div>
-              ) : valorTotal > 0 ? (
+              ) : valorTotal > 0 && isVisible(T, 'btn_emitir_nfse') ? (
                 <button
                   onClick={emitirNfse}
-                  disabled={emitindoNf}
+                  disabled={emitindoNf || !canEdit(T, 'btn_emitir_nfse')}
                   className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <FileText className="h-4 w-4" />
@@ -2303,14 +2306,17 @@ ${petNome}`
                 </button>
               ) : null}
 
-              {/* Botão Adicionar Pagamento */}
-              <button
-                onClick={() => abrirMegaPagamento(0, 0)}
-                className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors"
-              >
-                <Plus className="h-4 w-4" />
-                Pagamento
-              </button>
+              {/* Botão Adicionar Pagamento (FLS: btn_mega_pagamento) */}
+              {isVisible(T, 'btn_mega_pagamento') && (
+                <button
+                  onClick={() => abrirMegaPagamento(0, 0)}
+                  disabled={!canEdit(T, 'btn_mega_pagamento')}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+                >
+                  <Plus className="h-4 w-4" />
+                  Pagamento
+                </button>
+              )}
             </div>
           </div>
 
@@ -2323,8 +2329,8 @@ ${petNome}`
             </div>
           )}
 
-          {/* Resumo Financeiro */}
-          {(() => {
+          {/* Resumo Financeiro (FLS: obj_financeiro) */}
+          {isVisible(T, 'obj_financeiro') && (() => {
             // Calcular descontos pós-venda por tipo
             const descontoPosPlano = pagamentos
               .filter(p => p.tipo === 'plano')
@@ -2606,13 +2612,16 @@ ${petNome}`
                   </button>
                 )
               )}
-              <button
-                onClick={abrirAddProdutoModal}
-                className="flex items-center gap-1 px-3 py-1.5 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 transition-colors"
-              >
-                <Plus className="h-4 w-4" />
-                Adicionar
-              </button>
+              {isVisible(T, 'btn_add_produto') && (
+                <button
+                  onClick={abrirAddProdutoModal}
+                  disabled={!canEdit(T, 'btn_add_produto')}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50"
+                >
+                  <Plus className="h-4 w-4" />
+                  Adicionar
+                </button>
+              )}
             </div>
           </div>
 
@@ -3838,7 +3847,6 @@ ${petNome}`
                       type="date"
                       value={megaPagamentoForm.data_pagamento}
                       onChange={(e) => setMegaPagamentoForm({ ...megaPagamentoForm, data_pagamento: e.target.value })}
-                      onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
                       className="px-1 py-0.5 rounded text-xs text-slate-300 w-28 bg-slate-700 cursor-pointer"
                     />
                   ) : (

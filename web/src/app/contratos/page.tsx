@@ -4282,7 +4282,6 @@ ${petNome}`
                       type="date"
                       value={megaPagamentoForm.data_pagamento}
                       onChange={(e) => setMegaPagamentoForm({ ...megaPagamentoForm, data_pagamento: e.target.value })}
-                      onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
                       className="px-1 py-0.5 rounded text-xs text-slate-300 w-28 bg-slate-700 cursor-pointer"
                     />
                   ) : (
