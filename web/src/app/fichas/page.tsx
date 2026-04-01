@@ -10,6 +10,7 @@ import EmptyState from '@/components/ui/EmptyState'
 import Badge from '@/components/ui/Badge'
 import TratativaModal from '@/components/fichas/TratativaModal'
 import { useUnit } from '@/contexts/UnitContext'
+import { useFieldPermission } from '@/hooks/useFieldPermission'
 import { gerarContratoPDF, contratoFilename, getUnidade } from '@/lib/contrato-pdf'
 
 // ============================================
@@ -105,6 +106,7 @@ export default function FichasPage() {
   const router = useRouter()
   const supabase = createClient()
   const { currentUnit, isLoading: unitLoading } = useUnit()
+  const { isVisible } = useFieldPermission()
 
   const [fichas, setFichas] = useState<Ficha[]>([])
   const [loading, setLoading] = useState(true)
@@ -536,7 +538,7 @@ export default function FichasPage() {
                           className="flex items-center justify-center w-8 h-8 rounded-full bg-green-600 text-white hover:bg-green-700 transition-colors" title="WhatsApp">
                           <MessageCircle className="h-4 w-4" />
                         </button>
-                        {ficha.op_dados && (
+                        {ficha.op_dados && isVisible('tela_fichas', 'btn_pdf_ficha') && (
                           <button onClick={(e) => { e.stopPropagation(); gerarPdfFicha(ficha) }}
                             className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-600 text-white hover:bg-blue-700 transition-colors" title="PDF">
                             <Download className="h-4 w-4" />
