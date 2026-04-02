@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ClipboardList, Search, X, Clock, CheckCircle2, Phone, MapPin, Stethoscope, ArrowRight, MessageCircle, Download, Pencil } from 'lucide-react'
+import { ClipboardList, Search, X, Clock, CheckCircle2, Phone, MapPin, Stethoscope, ArrowRight, MessageCircle, Download, Pencil, Bell, BellOff } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useDebounce } from '@/hooks/useDebounce'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -11,6 +11,7 @@ import Badge from '@/components/ui/Badge'
 import TratativaModal from '@/components/fichas/TratativaModal'
 import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
+import { usePushNotification } from '@/hooks/usePushNotification'
 import { gerarContratoPDF, contratoFilename, getUnidade } from '@/lib/contrato-pdf'
 
 // ============================================
@@ -121,6 +122,14 @@ export default function FichasPage() {
   // Modal
   const [fichaModal, setFichaModal] = useState<Ficha | null>(null)
 
+  // User + Push
+  const [userId, setUserId] = useState<string | null>(null)
+  const { permission, isSubscribed, loading: pushLoading, subscribe, unsubscribe } = usePushNotification(userId, currentUnit?.id || null)
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id || null))
+  }, [])
+
   // Load data — recarrega quando muda de unidade
   useEffect(() => {
     carregarContagens()
@@ -131,14 +140,32 @@ export default function FichasPage() {
   useEffect(() => {
     const channel = supabase
       .channel('fichas-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'fichas' }, () => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'fichas' }, (payload) => {
+        carregarFichas()
+        carregarContagens()
+        // Dispara push notification para todos os inscritos da unidade
+        const novaFicha = payload.new as Partial<Ficha>
+        if (novaFicha.unidade_id === currentUnit?.id) {
+          fetch('/api/push/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              title: '📋 Nova Ficha Recebida',
+              body: `${novaFicha.nome_pet || 'Pet'} — ${novaFicha.nome_completo || 'Tutor'}`,
+              url: '/fichas',
+              unidadeId: novaFicha.unidade_id,
+            }),
+          }).catch(() => {})
+        }
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'fichas' }, () => {
         carregarFichas()
         carregarContagens()
       })
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [currentUnit?.id, filtro, buscaDebounced])
+  }, [currentUnit?.id])
 
   useEffect(() => {
     carregarFichas()
@@ -298,9 +325,21 @@ export default function FichasPage() {
     const nomeUnidade = currentUnit ? `${currentUnit.cidade} - ${currentUnit.estado}` : 'Santos - SP'
 
     try {
+      // Campos provisórios ficam em branco no PDF
+      const semLacre = op.semLacre as boolean
+      const semLocal = op.semLocal as boolean
+
+      // Local normalizado
+      const opLocalColeta = op.localColeta as string | null
+      const localPdf = semLocal ? '' : opLocalColeta === 'clinica' ? ((op.estabNome as string) || (op.clinicaTextoLivre as string) || ficha.localizacao)
+        : opLocalColeta === 'outro' ? ((op.enderecoOutro as string) || ficha.localizacao_outra || '')
+        : opLocalColeta === 'residencia' ? 'Residência (Endereço de Cadastro)'
+        : opLocalColeta === 'unidade' ? 'Unidade RIP PET'
+        : ficha.localizacao
+
       const blob = await gerarContratoPDF({
         codigo: String(op.codigo || ''),
-        lacre: op.lacre ? String(op.lacre) : null,
+        lacre: semLacre ? null : (op.lacre ? String(op.lacre) : null),
         tutorNome: ficha.nome_completo || '',
         tutorTelefone: ficha.telefone || '',
         tutorCpf: ficha.cpf || '',
@@ -317,7 +356,7 @@ export default function FichasPage() {
         petCor: ficha.cor,
         petGenero: ficha.genero,
         petPeso: ficha.peso ? parseFloat(ficha.peso) || null : null,
-        localColeta: ficha.localizacao,
+        localColeta: localPdf,
         tipoCremacao: ficha.cremacao?.toLowerCase() as 'individual' | 'coletiva',
         valorPlano: op.valorPlano ? parseFloat(String(op.valorPlano)) : ficha.valor,
         metodoPagamento: ficha.pagamento,
@@ -378,6 +417,31 @@ export default function FichasPage() {
             <h1 className="text-title text-[var(--shell-text)]">Fichas de Entrada</h1>
           </div>
         </div>
+
+        {/* Push notification toggle */}
+        {permission !== 'unsupported' && (
+          <button
+            onClick={() => isSubscribed ? unsubscribe() : subscribe()}
+            disabled={pushLoading || permission === 'denied'}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+              isSubscribed
+                ? 'bg-green-900/30 text-green-400 border border-green-500/30'
+                : permission === 'denied'
+                ? 'bg-red-900/20 text-red-400 border border-red-500/20 cursor-not-allowed'
+                : 'bg-[var(--surface-100)] text-[var(--surface-500)] border border-[var(--surface-200)] hover:border-amber-500/50 hover:text-amber-400'
+            }`}
+            title={
+              permission === 'denied'
+                ? 'Notificações bloqueadas no navegador. Vá em configurações do site para permitir.'
+                : isSubscribed ? 'Desativar notificações' : 'Ativar notificações de nova ficha'
+            }
+          >
+            {isSubscribed ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
+            <span className="hidden sm:inline">
+              {permission === 'denied' ? 'Bloqueado' : isSubscribed ? 'Notificações ON' : 'Notificar'}
+            </span>
+          </button>
+        )}
       </div>
 
       {/* Cards de contagem */}

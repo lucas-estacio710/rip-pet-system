@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rippet-v1'
+const CACHE_NAME = 'rippet-v2'
 
 // Arquivos essenciais para cache inicial
 const PRECACHE = [
@@ -42,5 +42,48 @@ self.addEventListener('fetch', (event) => {
         return response
       })
       .catch(() => caches.match(event.request))
+  )
+})
+
+// ============================================
+// Push Notifications
+// ============================================
+self.addEventListener('push', (event) => {
+  if (!event.data) return
+
+  const data = event.data.json()
+
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'R.I.P. Pet', {
+      body: data.body || '',
+      icon: data.icon || '/icon-192x192.png',
+      badge: data.badge || '/icon-96x96.png',
+      data: { url: data.url || '/fichas' },
+      vibrate: [200, 100, 200],
+      tag: 'rippet-notification',
+      renotify: true,
+    })
+  )
+})
+
+// Ao clicar na notificação, abre/foca a URL
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+
+  const url = event.notification.data?.url || '/fichas'
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      // Se já tem uma aba aberta, foca nela e navega
+      for (const client of clients) {
+        if (client.url.includes(self.location.origin)) {
+          client.focus()
+          client.navigate(url)
+          return
+        }
+      }
+      // Senão, abre uma nova
+      return self.clients.openWindow(url)
+    })
   )
 })
