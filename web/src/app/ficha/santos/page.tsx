@@ -11,6 +11,7 @@ const SANTOS_CONFIG: FichaUnidadeConfig = {
   estado: 'SP',
   label: 'Unidade Santos',
   unidadeCompleta: 'Santos - SP',
+  maxParcelas: 12,
 }
 
 export default function FichaSantos() {

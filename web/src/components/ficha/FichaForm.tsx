@@ -15,6 +15,7 @@ export type FichaUnidadeConfig = {
   estado: string           // 'SP'
   label: string            // 'Unidade Santos'
   unidadeCompleta: string  // 'Santos - SP'
+  maxParcelas?: number     // Máximo de parcelas no crédito (default 12)
 }
 
 // ============================================
@@ -906,7 +907,7 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
                     <select className={inputClass('parcelas')} value={form.parcelas} onChange={e => updateField('parcelas', e.target.value)}>
                       <option value="">Parcelas...</option>
                       <option value="1x">À vista</option>
-                      {[2,3,4,5,6,7,8,9,10,11,12].map(n => <option key={n} value={`${n}x`}>{n}x</option>)}
+                      {Array.from({length: (config.maxParcelas || 12) - 1}, (_, i) => i + 2).map(n => <option key={n} value={`${n}x`}>{n}x</option>)}
                     </select>
                     {errors.parcelas && <p className={errorClass}>{errors.parcelas}</p>}
                   </div>

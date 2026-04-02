@@ -13,6 +13,7 @@ const UNIDADES: Record<string, FichaUnidadeConfig> = {
     estado: 'SP',
     label: 'Unidade Santos',
     unidadeCompleta: 'Santos - SP',
+    maxParcelas: 12,
   },
   'sao-paulo': {
     unidade_id: 'd2a2b491-036a-4091-a5b5-e3d31f103337',
@@ -22,6 +23,7 @@ const UNIDADES: Record<string, FichaUnidadeConfig> = {
     estado: 'SP',
     label: 'Unidade São Paulo',
     unidadeCompleta: 'São Paulo - SP',
+    maxParcelas: 10,
   },
   campinas: {
     unidade_id: '4c737cfd-6ee6-4919-af54-7bbbd4ded38d',
@@ -31,6 +33,7 @@ const UNIDADES: Record<string, FichaUnidadeConfig> = {
     estado: 'SP',
     label: 'Unidade Campinas',
     unidadeCompleta: 'Campinas - SP',
+    maxParcelas: 10,
   },
   sjc: {
     unidade_id: '883bcc04-7885-4c46-93ee-696f452cc07c',
@@ -40,6 +43,7 @@ const UNIDADES: Record<string, FichaUnidadeConfig> = {
     estado: 'SP',
     label: 'Unidade São José dos Campos',
     unidadeCompleta: 'São José dos Campos - SP',
+    maxParcelas: 8,
   },
   pinda: {
     unidade_id: '69c5ed84-0aaa-424b-90c5-34221774e47b',
@@ -49,6 +53,7 @@ const UNIDADES: Record<string, FichaUnidadeConfig> = {
     estado: 'SP',
     label: 'Unidade Pindamonhangaba',
     unidadeCompleta: 'Pindamonhangaba - SP',
+    maxParcelas: 8,
   },
   'pouso-alegre': {
     unidade_id: '0064285f-82f1-4146-971a-2a60b1350605',
@@ -58,6 +63,7 @@ const UNIDADES: Record<string, FichaUnidadeConfig> = {
     estado: 'MG',
     label: 'Unidade Pouso Alegre',
     unidadeCompleta: 'Pouso Alegre - MG',
+    maxParcelas: 10,
   },
   resende: {
     unidade_id: '74bb7f77-3e68-480b-8b29-4b52f37c2e47',
@@ -67,6 +73,7 @@ const UNIDADES: Record<string, FichaUnidadeConfig> = {
     estado: 'RJ',
     label: 'Unidade Resende',
     unidadeCompleta: 'Resende - RJ',
+    maxParcelas: 10,
   },
 }
 
