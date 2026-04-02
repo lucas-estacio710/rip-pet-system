@@ -207,6 +207,16 @@ export default function FichasPage() {
     router.push(`/contratos/${contratoId}`)
   }
 
+  function formatarTel(tel: string | null | undefined): string {
+    if (!tel) return '-'
+    const n = tel.replace(/\D/g, '')
+    if (n.length === 13 && n.startsWith('55')) return `(${n.slice(2, 4)}) ${n.slice(4, 9)}-${n.slice(9)}`
+    if (n.length >= 12) return `+${n.slice(0, n.length - 11)} (${n.slice(-11, -9)}) ${n.slice(-9, -4)}-${n.slice(-4)}`
+    if (n.length === 11) return `(${n.slice(0, 2)}) ${n.slice(2, 7)}-${n.slice(7)}`
+    if (n.length === 10) return `(${n.slice(0, 2)}) ${n.slice(2, 6)}-${n.slice(6)}`
+    return tel
+  }
+
   function formatarDisplay(valor: string | null | undefined): string {
     if (!valor) return '-'
     const map: Record<string, string> = {
@@ -230,14 +240,14 @@ export default function FichasPage() {
     const dataEnvio = new Date(ficha.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
     const telPrincipal = ficha.telefone
 
-    let msg = `Dados Enviados em ${dataEnvio}\nVerifique se as informações abaixo estão corretas:\n\n`
+    let msg = `*Por favor, _confirme_ se as informações abaixo estão _corretas_*\n\n_Dados Enviados em ${dataEnvio}_\n\n`
 
     const outrosNomes = ficha.outros_tutores?.filter(Boolean)
     const nomesCertificado = [ficha.nome_completo?.toUpperCase(), ...(outrosNomes || []).map(n => n.toUpperCase())].filter(Boolean).join(', ')
 
     msg += `*- DADOS DO TUTOR:*\n`
     msg += `*Nome p/ Contrato e Certificado:* ${nomesCertificado}\n`
-    msg += `*Telefone Contato:* ${telPrincipal} | *CPF:* ${ficha.cpf}\n`
+    msg += `*Telefone Contato:* ${formatarTel(telPrincipal)} | *CPF:* ${ficha.cpf}\n`
     if (ficha.email) msg += `*Email:* ${ficha.email}\n`
     msg += `*Endereço:* ${ficha.endereco} ${ficha.numero}${ficha.complemento ? ` - ${ficha.complemento}` : ''} - ${ficha.bairro}\n`
     msg += `*CEP:* ${ficha.cep} | *Cidade:* ${ficha.cidade} | *UF:* ${ficha.estado}\n`
@@ -248,7 +258,15 @@ export default function FichasPage() {
     msg += `*Idade:* ${ficha.idade || '-'} | *Gênero:* ${ficha.genero}\n`
     msg += `*Cor:* ${ficha.cor} | *Peso Aproximado:* ${ficha.peso || '-'}\n`
     const opLocal = (op.enderecoOutro as string) || ficha.localizacao_outra
-    msg += `*Localização:* ${ficha.localizacao}${opLocal ? ` (${opLocal})` : ficha.localizacao?.includes('Residência') ? ' (Endereço de Cadastro)' : ''}\n`
+    const opEstabNome = op.estabNome as string | null
+    const opClinicaTexto = op.clinicaTextoLivre as string | null
+    const opLocalColeta = op.localColeta as string | null
+    const localNormalizado = opLocalColeta === 'clinica' ? (opEstabNome || opClinicaTexto || ficha.localizacao_outra || ficha.localizacao)
+      : opLocalColeta === 'outro' ? (opLocal || ficha.localizacao_outra || 'Outro endereço')
+      : opLocalColeta === 'residencia' ? 'Residência (Endereço de Cadastro)'
+      : opLocalColeta === 'unidade' ? 'Unidade RIP PET'
+      : `${ficha.localizacao}${ficha.localizacao_outra ? ` (${ficha.localizacao_outra})` : ficha.localizacao?.includes('Residência') ? ' (Endereço de Cadastro)' : ''}`
+    msg += `*Localização:* ${localNormalizado}\n`
 
     msg += `\n*- DADOS DA CREMAÇÃO:*\n`
     msg += `*Cremação Escolhida:* ${cremacao} | *Valor:* ${valor || '-'}\n`
@@ -257,8 +275,15 @@ export default function FichasPage() {
     msg += `*Acompanhamento da Cremação:* ${acompanhamento}\n`
 
     if (ficha.como_conheceu && ficha.como_conheceu.length > 0) {
-      msg += `\n*Como nos Conheceu:* ${ficha.como_conheceu.join(', ')}`
-      if (ficha.veterinario_especificar) msg += ` (${ficha.veterinario_especificar})`
+      const indNome = (op.indicNomeQuemIndicou as string) || ficha.veterinario_especificar
+      const indClinica = (op.indicEstabNome as string) || (op.indicHospClinica as string)
+      const indParts = [indNome, indClinica].filter(Boolean)
+      if (indParts.length > 0) {
+        msg += `\n*Como nos Conheceu:* ${indParts.join(' - ')}`
+      } else {
+        msg += `\n*Como nos Conheceu:* ${ficha.como_conheceu.join(', ')}`
+        if (ficha.outro_especificar) msg += ` (${ficha.outro_especificar})`
+      }
     }
 
     if (ficha.observacoes) {

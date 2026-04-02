@@ -215,6 +215,12 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   const [indicCargo, setIndicCargo] = useState('')
   const indicRef = useRef<HTMLDivElement>(null)
 
+  // Estabelecimento da indicação (separado do acolhimento)
+  const [indicEstabBusca, setIndicEstabBusca] = useState('')
+  const [indicEstabAberto, setIndicEstabAberto] = useState(false)
+  const [indicEstabId, setIndicEstabId] = useState<string | null>(null)
+  const [indicEstabNome, setIndicEstabNome] = useState('')
+
   // Form fields
   const tipoPlano = 'emergencial' as const
   const [funcionarioId, setFuncionarioId] = useState('')
@@ -376,6 +382,10 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       setIndicNomeAtivo(false)
       setIndicHospClinica('')
       setIndicHospAtivo(false)
+      setIndicEstabBusca('')
+      setIndicEstabAberto(false)
+      setIndicEstabId(null)
+      setIndicEstabNome('')
     }
   }, [isOpen])
 
@@ -436,6 +446,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       if (op.indicNomeAtivo) setIndicNomeAtivo(true)
       if (op.indicHospClinica) setIndicHospClinica(String(op.indicHospClinica))
       if (op.indicHospAtivo) setIndicHospAtivo(true)
+      if (op.indicEstabId) { setIndicEstabId(String(op.indicEstabId)); setIndicEstabNome(String(op.indicEstabNome || '')); setIndicEstabBusca(String(op.indicEstabNome || '')) }
+      if (op.indicEstabNome && !op.indicEstabId) setIndicEstabNome(String(op.indicEstabNome))
       if (op.indicId) setIndicId(String(op.indicId))
       if (op.indicNome) { setIndicNome(String(op.indicNome)); setIndicBusca(String(op.indicNome)) }
       if (op.indicCargo) setIndicCargo(String(op.indicCargo))
@@ -460,6 +472,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
     function handleClick(e: MouseEvent) {
       if (estabRef.current && !estabRef.current.contains(e.target as Node)) setEstabAberto(false)
       if (indicRef.current && !indicRef.current.contains(e.target as Node)) setIndicAberto(false)
+      setIndicEstabAberto(false)
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
@@ -538,6 +551,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         indicNomeAtivo,
         indicHospClinica: indicHospClinica || null,
         indicHospAtivo,
+        indicEstabId,
+        indicEstabNome: indicEstabNome || null,
         indicId,
         indicNome: indicNome || null,
         indicCargo: indicCargo || null,
@@ -669,7 +684,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         contato_id: resolvedContatoId || null, estabelecimento_id: resolvedEstabId || null,
         funcionario_id: semResponsavel ? null : (funcionarioId || null),
         fonte_conhecimento_id: fonteConhecimentoId,
-        indicacao_clinica: teveIndicacao ? (temPadronizacaoClinicas ? (estabNome.trim() || null) : (indicHospClinica.trim() || null)) : null,
+        indicacao_clinica: teveIndicacao ? (temPadronizacaoClinicas ? (indicEstabNome.trim() || null) : (indicHospClinica.trim() || null)) : null,
         indicacao_contato: teveIndicacao ? (indicNomeQuemIndicou.trim() || null) : null,
         data_contrato: dataContrato,
         data_acolhimento: semDataHora ? null : (dataHoraAcolhimento ? new Date(dataHoraAcolhimento).toISOString() : null),
@@ -740,7 +755,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         lacre: lacre || null, semLacre,
         valorPlano: valorPlano || null, descontoPreVenda: descontoPreVenda || null, descontoTipo, dataContrato,
         teveIndicacao, indicNomeQuemIndicou: indicNomeQuemIndicou || null, indicNomeAtivo,
-        indicHospClinica: indicHospClinica || null, indicHospAtivo,
+        indicHospClinica: indicHospClinica || null, indicHospAtivo, indicEstabId, indicEstabNome: indicEstabNome || null,
         indicId, indicNome: indicNome || null, indicCargo: indicCargo || null,
         telefoneConfirmado, telefone2: getTelefone2Completo() || null, telefone2DDI, telefone2DDICustom, mostrarTelefone2, usarTelefone2ComoPrincipal,
       }
@@ -1001,10 +1016,10 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               const outrosNomes = ficha.outros_tutores?.filter(Boolean)
               const nomesCert = [ficha.nome_completo?.toUpperCase(), ...(outrosNomes || []).map(n => n.toUpperCase())].filter(Boolean).join(', ')
 
-              let msg = `Dados Enviados em ${dataEnvio}\nVerifique se as informações abaixo estão corretas:\n\n`
+              let msg = `*Por favor, _confirme_ se as informações abaixo estão _corretas_*\n\n_Dados Enviados em ${dataEnvio}_\n\n`
               msg += `*- DADOS DO TUTOR:*\n`
               msg += `*Nome p/ Contrato e Certificado:* ${nomesCert}\n`
-              msg += `*Telefone Contato:* ${ficha.telefone} | *CPF:* ${ficha.cpf}\n`
+              msg += `*Telefone Contato:* ${formatarTel(ficha.telefone)} | *CPF:* ${ficha.cpf}\n`
               if (ficha.email) msg += `*Email:* ${ficha.email}\n`
               msg += `*Endereço:* ${ficha.endereco} ${ficha.numero}${ficha.complemento ? ` - ${ficha.complemento}` : ''} - ${ficha.bairro}\n`
               msg += `*CEP:* ${ficha.cep} | *Cidade:* ${ficha.cidade} | *UF:* ${ficha.estado}\n`
@@ -1013,15 +1028,27 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               msg += `*Espécie:* ${ficha.especie} | *Raça:* ${ficha.raca || 'Não tem'}\n`
               msg += `*Idade:* ${ficha.idade || '-'} | *Gênero:* ${ficha.genero}\n`
               msg += `*Cor:* ${ficha.cor} | *Peso Aproximado:* ${ficha.peso || '-'}\n`
-              msg += `*Localização:* ${ficha.localizacao}${enderecoOutro ? ` (${enderecoOutro})` : ficha.localizacao_outra ? ` (${ficha.localizacao_outra})` : ficha.localizacao?.includes('Residência') ? ' (Endereço de Cadastro)' : ''}\n`
+              const localMsg = localColeta === 'clinica' ? (estabNome || clinicaTextoLivre || ficha.localizacao_outra || ficha.localizacao)
+                : localColeta === 'outro' ? (enderecoOutro || ficha.localizacao_outra || 'Outro endereço')
+                : localColeta === 'residencia' ? 'Residência (Endereço de Cadastro)'
+                : localColeta === 'unidade' ? 'Unidade RIP PET'
+                : `${ficha.localizacao}${ficha.localizacao_outra ? ` (${ficha.localizacao_outra})` : ''}`
+              msg += `*Localização:* ${localMsg}\n`
               msg += `\n*- DADOS DA CREMAÇÃO:*\n`
               msg += `*Cremação Escolhida:* ${cremacao} | *Valor:* ${valor || '-'}\n`
               msg += `*Forma de Pagamento:* ${formatarDisplay(ficha.pagamento)}${ficha.parcelas ? ` ${ficha.parcelas}` : ''}\n`
               msg += `*Velório:* ${ficha.velorio}\n`
               msg += `*Acompanhamento da Cremação:* ${ficha.acompanhamento}\n`
               if (ficha.como_conheceu && ficha.como_conheceu.length > 0) {
-                msg += `\n*Como nos Conheceu:* ${ficha.como_conheceu.join(', ')}`
-                if (ficha.veterinario_especificar) msg += ` (${ficha.veterinario_especificar})`
+                const indNome = indicNomeQuemIndicou || ficha.veterinario_especificar
+                const indClinica = indicEstabNome || indicHospClinica
+                const indParts = [indNome, indClinica].filter(Boolean)
+                if (indParts.length > 0) {
+                  msg += `\n*Como nos Conheceu:* ${indParts.join(' - ')}`
+                } else {
+                  msg += `\n*Como nos Conheceu:* ${ficha.como_conheceu.join(', ')}`
+                  if (ficha.outro_especificar) msg += ` (${ficha.outro_especificar})`
+                }
               }
               if (ficha.observacoes) msg += `\n\n*Observações:* ${ficha.observacoes}`
 
@@ -1034,7 +1061,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
           </button>
 
           {/* Campos provisórios — editáveis */}
-          {(semLocal || semResponsavel || semDataHora || semLacre || (!telefoneConfirmado && !mostrarTelefone2)) && (
+          {(semLocal || semResponsavel || semDataHora || semLacre || !telefoneConfirmado) && (
             <div className="p-4 rounded-xl space-y-3" style={{ background: 'rgba(250, 204, 21, 0.08)', border: '1px solid rgba(250, 204, 21, 0.2)' }}>
               <h4 className="text-xs font-bold text-amber-500 uppercase tracking-wider">Campos Pendentes (provisórios)</h4>
               <p className="text-[10px] text-amber-400/70">Preencha abaixo quando tiver as informações e clique em Salvar</p>
@@ -1086,11 +1113,37 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                 </div>
               )}
 
-              {(!telefoneConfirmado && !mostrarTelefone2) && (
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={telefoneConfirmado} onChange={e => setTelefoneConfirmado(e.target.checked)} className="h-3.5 w-3.5 rounded accent-emerald-500" />
-                  <span className="text-xs text-[var(--surface-600)]">Confirmar telefone: {formatarTel(ficha?.telefone)}</span>
-                </label>
+              {!telefoneConfirmado && (
+                <div className="p-2 rounded-lg border border-[var(--surface-200)] space-y-2">
+                  <p className="text-[10px] text-[var(--surface-500)]">Está conversando com este número?</p>
+                  <div className="px-2 py-1.5 rounded bg-[var(--surface-50)] text-sm text-mono text-[var(--surface-700)]">{formatarTel(ficha?.telefone)}</div>
+                  {!mostrarTelefone2 ? (
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => setTelefoneConfirmado(true)}
+                        className="flex-1 py-1.5 rounded-lg text-[10px] font-semibold border border-emerald-500/30 text-emerald-400 hover:bg-emerald-900/10 transition-all">
+                        Sim, é este
+                      </button>
+                      <button type="button" onClick={() => { setMostrarTelefone2(true); setUsarTelefone2ComoPrincipal(true) }}
+                        className="flex-1 py-1.5 rounded-lg text-[10px] font-semibold border border-amber-500/30 text-amber-400 hover:bg-amber-900/10 transition-all">
+                        Não, é outro
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] text-amber-400 font-medium">Telefone do contato atual</label>
+                      <div className="flex gap-1.5">
+                        <select value={telefone2DDI} onChange={e => setTelefone2DDI(e.target.value)} className="input text-sm w-24">
+                          <option value="55">+55</option>
+                          <option value="1">+1</option>
+                          <option value="351">+351</option>
+                          <option value="54">+54</option>
+                          <option value="outro">Outro</option>
+                        </select>
+                        <input type="text" inputMode="tel" value={telefone2} onChange={e => setTelefone2(e.target.value.replace(/\D/g, '').replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15))} placeholder="(00) 00000-0000" maxLength={15} className="input text-sm text-mono flex-1" />
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
 
               <button
@@ -1112,6 +1165,10 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                       semLacre: lacre.trim() ? false : semLacre,
                       lacre: lacre.trim() || opAtual.lacre,
                       telefoneConfirmado: telefoneConfirmado || opAtual.telefoneConfirmado,
+                      mostrarTelefone2,
+                      usarTelefone2ComoPrincipal,
+                      telefone2: getTelefone2Completo() || opAtual.telefone2,
+                      telefone2DDI,
                     }
                     const { error } = await supabase.from('fichas').update({ op_dados: opAtualizado } as never).eq('id', ficha.id)
                     if (error) throw new Error(error.message)
@@ -1580,12 +1637,29 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                   </label>
                   {indicHospAtivo && (
                     temPadronizacaoClinicas ? (
-                      <div>
+                      <div className="relative">
                         <div className="relative">
                           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--surface-400)]" />
-                          <input type="text" value={estabBusca} onChange={e => { setEstabBusca(e.target.value); setEstabNome(e.target.value); setEstabId(null); setEstabAberto(true) }} onFocus={() => setEstabAberto(true)} placeholder="Buscar clínica..." className="input pl-9 text-sm" />
+                          <input type="text" value={indicEstabBusca} onChange={e => { setIndicEstabBusca(e.target.value); setIndicEstabNome(e.target.value); setIndicEstabId(null); setIndicEstabAberto(true) }} onFocus={() => setIndicEstabAberto(true)} placeholder="Buscar clínica da indicação..." className="input pl-9 text-sm" />
                         </div>
-                        {estabId && <p className="mt-1 text-xs text-green-500 flex items-center gap-1"><Check className="h-3 w-3" />Selecionado: {estabNome}</p>}
+                        {indicEstabAberto && (estabelecimentos.filter(e => e.nome.toLowerCase().includes(indicEstabBusca.toLowerCase())).length > 0 || indicEstabBusca.trim()) && (
+                          <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-[var(--surface-0)] border border-[var(--surface-200)] rounded-lg shadow-lg">
+                            {estabelecimentos.filter(e => e.nome.toLowerCase().includes(indicEstabBusca.toLowerCase())).slice(0, 15).map(e => (
+                              <button key={e.id} type="button" onClick={() => { setIndicEstabId(e.id); setIndicEstabNome(e.nome); setIndicEstabBusca(e.nome); setIndicEstabAberto(false) }}
+                                className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-50)] transition-colors ${indicEstabId === e.id ? 'bg-[var(--surface-50)] font-medium' : 'text-[var(--surface-600)]'}`}>
+                                {e.nome}
+                              </button>
+                            ))}
+                            {indicEstabBusca.trim() && !estabelecimentos.some(e => e.nome.toLowerCase() === indicEstabBusca.toLowerCase()) && (
+                              <button type="button" onClick={() => { setIndicEstabId(null); setIndicEstabNome(indicEstabBusca.trim()); setIndicEstabAberto(false) }}
+                                className="w-full text-left px-3 py-2 text-sm text-amber-500 hover:bg-amber-900/10 flex items-center gap-2 border-t border-[var(--surface-100)]">
+                                <Plus className="h-3.5 w-3.5" />Criar &quot;{indicEstabBusca.trim()}&quot;
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {indicEstabId && <p className="mt-1 text-xs text-green-500 flex items-center gap-1"><Check className="h-3 w-3" />Selecionado: {indicEstabNome}</p>}
+                        {!indicEstabId && indicEstabNome.trim() && !indicEstabAberto && <p className="mt-1 text-xs text-amber-500">Novo estabelecimento será criado</p>}
                       </div>
                     ) : (
                       <input type="text" value={indicHospClinica} onChange={e => setIndicHospClinica(e.target.value)} placeholder="Nome do hospital ou clínica" className="input text-sm" />
