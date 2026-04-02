@@ -351,7 +351,6 @@ export default function FichasPage() {
           </div>
           <div>
             <h1 className="text-title text-[var(--shell-text)]">Fichas de Entrada</h1>
-            <p className="text-small text-[var(--shell-text-muted)]">Fichas enviadas por tutores via WhatsApp</p>
           </div>
         </div>
       </div>
