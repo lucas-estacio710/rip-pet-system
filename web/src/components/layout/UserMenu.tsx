@@ -155,6 +155,21 @@ export function UserMenu() {
             </div>
           )}
 
+          {/* Minha Conta */}
+          <div style={{ borderBottom: '1px solid #334155' }}>
+            <Link
+              href="/minha-conta"
+              onClick={() => setIsOpen(false)}
+              className="flex items-center gap-3 px-4 py-2.5 transition-colors"
+              style={{ color: '#e2e8f0' }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+            >
+              <Settings className="h-4 w-4" style={{ color: '#94a3b8' }} />
+              <span className="text-sm">Minha Conta</span>
+            </Link>
+          </div>
+
           {/* Tema */}
           <div style={{ borderBottom: '1px solid #334155', padding: '8px 16px' }}>
             <p className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: '#64748b' }}>Tema</p>

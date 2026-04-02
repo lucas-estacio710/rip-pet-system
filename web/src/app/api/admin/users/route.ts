@@ -181,12 +181,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Não autorizado' }, { status: 403 })
     }
 
-    // Criar usuário via admin API
+    // Criar usuário via admin API (senha_alterada: false para forçar troca no primeiro login)
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
-      email_confirm: true, // Confirma email automaticamente
-      user_metadata: { nome },
+      email_confirm: true,
+      user_metadata: { nome, senha_alterada: false },
     })
 
     if (error) {

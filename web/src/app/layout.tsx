@@ -18,12 +18,29 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "R.I.P. Pet - CRM",
   description: "Sistema de gestão R.I.P. Pet Santos",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "R.I.P. Pet",
+  },
+  icons: {
+    icon: [
+      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+      { url: "/icon-192x192.png", sizes: "192x192", type: "image/png" },
+    ],
+    apple: "/apple-touch-icon.png",
+  },
+  other: {
+    "mobile-web-app-capable": "yes",
+  },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
+  themeColor: "#1a1614",
 };
 
 export default function RootLayout({
@@ -36,7 +53,7 @@ export default function RootLayout({
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('rippet-theme');if(t&&['dark','white','half-white','half-dark'].includes(t)){document.documentElement.setAttribute('data-theme',t)}}catch(e){}})()`,
+            __html: `(function(){try{var t=localStorage.getItem('rippet-theme');if(t&&['dark','white','half-white','half-dark'].includes(t)){document.documentElement.setAttribute('data-theme',t)}}catch(e){}})();if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js')})}`,
           }}
         />
       </head>

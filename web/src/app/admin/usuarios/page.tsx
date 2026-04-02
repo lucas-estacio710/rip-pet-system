@@ -55,6 +55,14 @@ export default function AdminUsuariosPage() {
   const [resetSent, setResetSent] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
+  // Modal de redefinição de senha
+  const [resetModal, setResetModal] = useState<{ userId: string; nome: string } | null>(null)
+  const [resetLoading, setResetLoading] = useState(false)
+  const [resetResult, setResetResult] = useState<{ senha: string; nome: string } | null>(null)
+
+  // Senhas temporárias (user_id → senha)
+  const [senhasTemp, setSenhasTemp] = useState<Record<string, string>>({})
+
   // Form state
   const [formEmail, setFormEmail] = useState('')
   const [formPassword, setFormPassword] = useState('')
@@ -66,11 +74,26 @@ export default function AdminUsuariosPage() {
     const { data, error } = await supabase.rpc('list_users_with_profiles')
 
     if (error) {
-      console.error('Erro ao carregar usuários:', error)
+      console.error('Erro ao carregar usuários:', error.message, error.code, error.details)
       setUsers([])
     } else {
       setUsers((data || []) as UserRow[])
     }
+
+    // Buscar senhas temporárias
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session) {
+        const res = await fetch('/api/admin/reset-password', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        })
+        if (res.ok) {
+          const senhas = await res.json()
+          setSenhasTemp(senhas)
+        }
+      }
+    } catch { /* silencioso */ }
+
     setLoading(false)
   }, [])
 
@@ -183,7 +206,7 @@ export default function AdminUsuariosPage() {
           },
           body: JSON.stringify({
             email: formEmail,
-            password: formPassword || 'RipPet2026!',
+            password: formPassword || 'novocrm2026!',
             nome: formNome,
           }),
         })
@@ -226,18 +249,36 @@ export default function AdminUsuariosPage() {
     setSaving(false)
   }
 
-  // Redefinir senha
-  async function handleResetPassword(email: string) {
-    setResetSent(false)
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: window.location.origin + '/auth/callback?next=/redefinir-senha',
+  // Redefinir senha via API admin
+  async function handleResetPassword(tipo: 'padrao' | 'aleatoria') {
+    if (!resetModal) return
+    setResetLoading(true)
+
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch('/api/admin/reset-password', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session?.access_token}`,
+      },
+      body: JSON.stringify({ user_id: resetModal.userId, tipo }),
     })
-    if (error) {
-      alert('Erro: ' + error.message)
+
+    if (!res.ok) {
+      const err = await res.json()
+      alert('Erro: ' + (err.error || 'Falha ao resetar senha'))
     } else {
+      const data = await res.json()
+      setResetResult({ senha: data.senha, nome: resetModal.nome })
+      // Atualizar senha temp no card imediatamente
+      setSenhasTemp(prev => ({ ...prev, [resetModal.userId]: data.senha }))
+      setResetPasswordUserId(resetModal.userId)
       setResetSent(true)
-      setTimeout(() => { setResetSent(false); setResetPasswordUserId(null) }, 3000)
+      setTimeout(() => { setResetSent(false); setResetPasswordUserId(null) }, 5000)
     }
+
+    setResetModal(null)
+    setResetLoading(false)
   }
 
   // Toggle ativo
@@ -411,6 +452,25 @@ export default function AdminUsuariosPage() {
                       )}
                     </div>
 
+                    {/* Senha temporária */}
+                    {senhasTemp[user.user_id] && (
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg" style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.2)' }}>
+                          <Key className="h-3 w-3" style={{ color: '#f59e0b' }} />
+                          <span style={{ color: '#fbbf24' }}>Senha temp:</span>
+                          <code className="font-mono font-bold select-all" style={{ color: '#fde68a' }}>{senhasTemp[user.user_id]}</code>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(senhasTemp[user.user_id]) }}
+                            className="ml-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors"
+                            style={{ background: 'rgba(251,191,36,0.2)', color: '#fbbf24' }}
+                            title="Copiar"
+                          >
+                            Copiar
+                          </button>
+                        </span>
+                      </div>
+                    )}
+
                     {/* Metadata */}
                     <div className="flex items-center gap-3 text-xs text-[var(--surface-400)]">
                       {user.last_sign_in_at && (
@@ -430,10 +490,7 @@ export default function AdminUsuariosPage() {
                       <Pencil className="h-4 w-4 text-[var(--surface-500)]" />
                     </button>
                     <button
-                      onClick={() => {
-                        setResetPasswordUserId(user.user_id)
-                        handleResetPassword(user.email)
-                      }}
+                      onClick={() => setResetModal({ userId: user.user_id, nome: user.perfis[0]?.nome || user.email })}
                       className="p-2 rounded-lg hover:bg-[var(--surface-100)] transition-colors"
                       title="Redefinir senha"
                     >
@@ -513,7 +570,7 @@ export default function AdminUsuariosPage() {
                     onChange={e => setFormPassword(e.target.value)}
                     className="w-full px-3 py-2.5 rounded-xl text-sm outline-none"
                     style={{ background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155' }}
-                    placeholder="RipPet2026!"
+                    placeholder="novocrm2026!"
                   />
                   <p className="text-xs mt-1" style={{ color: '#64748b' }}>O usuário pode alterar depois</p>
                 </div>
@@ -610,6 +667,123 @@ export default function AdminUsuariosPage() {
               >
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                 {editingUser ? 'Salvar' : 'Criar Usuário'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal: Escolher tipo de redefinição */}
+      {resetModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => !resetLoading && setResetModal(null)}>
+          <div className="rounded-2xl shadow-2xl w-full max-w-sm" style={{ background: '#1e293b', border: '1px solid #334155' }} onClick={e => e.stopPropagation()}>
+            <div className="p-5" style={{ borderBottom: '1px solid #334155' }}>
+              <h2 className="text-base font-semibold" style={{ color: '#e2e8f0' }}>Redefinir senha</h2>
+              <p className="text-xs mt-1" style={{ color: '#94a3b8' }}>
+                Escolha como redefinir a senha de <strong style={{ color: '#e2e8f0' }}>{resetModal.nome}</strong>
+              </p>
+            </div>
+
+            <div className="p-5 space-y-3">
+              <button
+                onClick={() => handleResetPassword('padrao')}
+                disabled={resetLoading}
+                className="w-full text-left p-4 rounded-xl transition-colors"
+                style={{ background: '#0f172a', border: '1px solid #334155' }}
+                onMouseEnter={e => (e.currentTarget.style.borderColor = '#7c3aed')}
+                onMouseLeave={e => (e.currentTarget.style.borderColor = '#334155')}
+              >
+                <div className="flex items-center gap-3">
+                  <Key className="h-5 w-5 shrink-0" style={{ color: '#a78bfa' }} />
+                  <div>
+                    <p className="text-sm font-medium" style={{ color: '#e2e8f0' }}>Senha padrão</p>
+                    <p className="text-xs mt-0.5" style={{ color: '#64748b' }}>
+                      Reseta para <code className="px-1 py-0.5 rounded text-xs" style={{ background: '#1e293b', color: '#94a3b8' }}>novocrm2026!</code>
+                    </p>
+                  </div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => handleResetPassword('aleatoria')}
+                disabled={resetLoading}
+                className="w-full text-left p-4 rounded-xl transition-colors"
+                style={{ background: '#0f172a', border: '1px solid #334155' }}
+                onMouseEnter={e => (e.currentTarget.style.borderColor = '#7c3aed')}
+                onMouseLeave={e => (e.currentTarget.style.borderColor = '#334155')}
+              >
+                <div className="flex items-center gap-3">
+                  <Shield className="h-5 w-5 shrink-0" style={{ color: '#10b981' }} />
+                  <div>
+                    <p className="text-sm font-medium" style={{ color: '#e2e8f0' }}>Senha aleatória</p>
+                    <p className="text-xs mt-0.5" style={{ color: '#64748b' }}>Gera uma senha segura. Será exibida uma única vez.</p>
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            {resetLoading && (
+              <div className="px-5 pb-4 flex items-center justify-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" style={{ color: '#a78bfa' }} />
+                <span className="text-xs" style={{ color: '#94a3b8' }}>Redefinindo...</span>
+              </div>
+            )}
+
+            <div className="p-4 flex justify-end" style={{ borderTop: '1px solid #334155' }}>
+              <button
+                onClick={() => setResetModal(null)}
+                disabled={resetLoading}
+                className="px-4 py-2 rounded-lg text-sm font-medium"
+                style={{ color: '#94a3b8', border: '1px solid #334155' }}
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Resultado — exibir a nova senha */}
+      {resetResult && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setResetResult(null)}>
+          <div className="rounded-2xl shadow-2xl w-full max-w-sm" style={{ background: '#1e293b', border: '1px solid #334155' }} onClick={e => e.stopPropagation()}>
+            <div className="p-5" style={{ borderBottom: '1px solid #334155' }}>
+              <div className="flex items-center gap-2">
+                <Check className="h-5 w-5 text-emerald-400" />
+                <h2 className="text-base font-semibold" style={{ color: '#e2e8f0' }}>Senha redefinida</h2>
+              </div>
+              <p className="text-xs mt-1" style={{ color: '#94a3b8' }}>
+                Nova senha de <strong style={{ color: '#e2e8f0' }}>{resetResult.nome}</strong>
+              </p>
+            </div>
+
+            <div className="p-5">
+              <div className="flex items-center gap-2 p-3 rounded-xl" style={{ background: '#0f172a', border: '1px solid #334155' }}>
+                <code className="flex-1 text-base font-mono font-bold tracking-wide select-all" style={{ color: '#e2e8f0' }}>
+                  {resetResult.senha}
+                </code>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(resetResult.senha)
+                  }}
+                  className="px-2 py-1 rounded-lg text-xs font-medium transition-colors"
+                  style={{ background: '#7c3aed', color: '#fff' }}
+                  title="Copiar"
+                >
+                  Copiar
+                </button>
+              </div>
+              <p className="text-xs mt-3 text-center" style={{ color: '#f59e0b' }}>
+                O usuário será obrigado a trocar no próximo login.
+              </p>
+            </div>
+
+            <div className="p-4 flex justify-end" style={{ borderTop: '1px solid #334155' }}>
+              <button
+                onClick={() => setResetResult(null)}
+                className="px-4 py-2 rounded-lg text-sm font-medium"
+                style={{ background: '#7c3aed', color: '#fff' }}
+              >
+                Entendi
               </button>
             </div>
           </div>

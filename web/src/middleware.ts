@@ -34,13 +34,16 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const isLoginPage = request.nextUrl.pathname === '/login'
-  const isAuthCallback = request.nextUrl.pathname.startsWith('/auth/callback')
-  const isFicha = request.nextUrl.pathname.startsWith('/ficha')
-  const isAuthPage = request.nextUrl.pathname === '/esqueci-senha' || request.nextUrl.pathname === '/redefinir-senha'
+  const pathname = request.nextUrl.pathname
+
+  const isLoginPage = pathname === '/login'
+  const isAuthCallback = pathname.startsWith('/auth/callback')
+  const isFicha = pathname.startsWith('/ficha')
+  const isPublicAuthPage = pathname === '/esqueci-senha' || pathname === '/redefinir-senha'
+  const isInstalarPage = pathname === '/instalar'
 
   // Se não autenticado e NÃO está em página pública → redireciona para login
-  if (!user && !isLoginPage && !isAuthCallback && !isFicha && !isAuthPage) {
+  if (!user && !isLoginPage && !isAuthCallback && !isFicha && !isPublicAuthPage && !isInstalarPage) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
@@ -48,10 +51,28 @@ export async function middleware(request: NextRequest) {
 
   // Se autenticado e está na página de login ou esqueci-senha → redireciona para dashboard
   // (mas permite /redefinir-senha pois o usuário pode estar trocando a senha via link)
-  if (user && (isLoginPage || request.nextUrl.pathname === '/esqueci-senha')) {
+  if (user && (isLoginPage || pathname === '/esqueci-senha')) {
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'
     return NextResponse.redirect(url)
+  }
+
+  // Forçar troca de senha no primeiro acesso
+  // Se logado, senha ainda não alterada, e não está na página de redefinir/minha-conta
+  if (user) {
+    // false explícito = criado com senha padrão e ainda não trocou
+    // undefined/true = usuário antigo ou que já trocou → libera
+    const senhaAlterada = user.user_metadata?.senha_alterada !== false
+    const isPasswordPage = pathname === '/redefinir-senha' || pathname === '/minha-conta'
+    const isApiRoute = pathname.startsWith('/api/')
+    const isLogout = pathname === '/logout'
+
+    if (!senhaAlterada && !isPasswordPage && !isApiRoute && !isLogout && !isAuthCallback) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/redefinir-senha'
+      url.searchParams.set('primeiro-acesso', '1')
+      return NextResponse.redirect(url)
+    }
   }
 
   return supabaseResponse
@@ -65,6 +86,6 @@ export const config = {
      * - _next/image (otimização de imagens)
      * - favicon.ico, logo.png, etc.
      */
-    '/((?!_next/static|_next/image|favicon\\.ico|logo\\.png|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon\\.ico|logo\\.png|sw\\.js|manifest\\.json|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
