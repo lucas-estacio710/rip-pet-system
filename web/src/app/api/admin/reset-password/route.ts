@@ -7,7 +7,10 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const DEFAULT_PASSWORD = 'novocrm2026!'
+const DEFAULT_PASSWORD = process.env.DEFAULT_RESET_PASSWORD
+if (!DEFAULT_PASSWORD) {
+  console.error('DEFAULT_RESET_PASSWORD não configurada no .env.local')
+}
 
 function gerarSenhaAleatoria(): string {
   // 12 caracteres: letras maiúsculas, minúsculas, números e símbolos
@@ -108,7 +111,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Use Minha Conta para trocar sua própria senha' }, { status: 400 })
     }
 
-    const senha = tipo === 'aleatoria' ? gerarSenhaAleatoria() : DEFAULT_PASSWORD
+    if (tipo !== 'aleatoria' && !DEFAULT_PASSWORD) {
+      return NextResponse.json({ error: 'Senha padrão não configurada no servidor' }, { status: 500 })
+    }
+
+    const senha = tipo === 'aleatoria' ? gerarSenhaAleatoria() : DEFAULT_PASSWORD!
 
     const { error } = await supabaseAdmin.auth.admin.updateUserById(user_id, {
       password: senha,

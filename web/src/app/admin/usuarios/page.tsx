@@ -206,7 +206,7 @@ export default function AdminUsuariosPage() {
           },
           body: JSON.stringify({
             email: formEmail,
-            password: formPassword || 'novocrm2026!',
+            password: formPassword,
             nome: formNome,
           }),
         })
@@ -570,9 +570,10 @@ export default function AdminUsuariosPage() {
                     onChange={e => setFormPassword(e.target.value)}
                     className="w-full px-3 py-2.5 rounded-xl text-sm outline-none"
                     style={{ background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155' }}
-                    placeholder="novocrm2026!"
+                    placeholder="Senha inicial do usuário"
+                    required
                   />
-                  <p className="text-xs mt-1" style={{ color: '#64748b' }}>O usuário pode alterar depois</p>
+                  <p className="text-xs mt-1" style={{ color: '#64748b' }}>Informe a senha ao usuário por WhatsApp</p>
                 </div>
               )}
 
@@ -697,7 +698,7 @@ export default function AdminUsuariosPage() {
                   <div>
                     <p className="text-sm font-medium" style={{ color: '#e2e8f0' }}>Senha padrão</p>
                     <p className="text-xs mt-0.5" style={{ color: '#64748b' }}>
-                      Reseta para <code className="px-1 py-0.5 rounded text-xs" style={{ background: '#1e293b', color: '#94a3b8' }}>novocrm2026!</code>
+                      Reseta para a senha padrão configurada
                     </p>
                   </div>
                 </div>
