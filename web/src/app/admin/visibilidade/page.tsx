@@ -301,10 +301,10 @@ export default function VisibilidadePage() {
         </div>
 
         <div className="card overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm" style={{ tableLayout: 'auto' }}>
             <thead>
               <tr style={{ borderBottom: '2px solid var(--surface-200)' }}>
-                <th className="text-left px-3 py-2 text-xs font-semibold text-[var(--surface-500)] sticky left-0 bg-[var(--surface-0)] z-10" style={{ minWidth: 140 }}>
+                <th className="text-left px-2 py-2 text-xs font-semibold text-[var(--surface-500)]" style={{ minWidth: 100 }}>
                   Unidade
                 </th>
                 {items.map(m => {
@@ -374,7 +374,7 @@ export default function VisibilidadePage() {
                 return score(b.id) - score(a.id)
               }).map(u => (
                 <tr key={u.id} style={{ borderBottom: '1px solid var(--surface-100)' }} className="hover:bg-[var(--surface-50)] transition-colors">
-                  <td className="px-3 py-1.5 sticky left-0 bg-[var(--surface-0)] z-10">
+                  <td className="px-2 py-1.5">
                     <UnitLabel u={u} />
                   </td>
                   {items.map(m => (
