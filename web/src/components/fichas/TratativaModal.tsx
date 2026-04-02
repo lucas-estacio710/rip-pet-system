@@ -1025,8 +1025,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               msg += `*CEP:* ${ficha.cep} | *Cidade:* ${ficha.cidade} | *UF:* ${ficha.estado}\n`
               msg += `\n*- DADOS DO PET:*\n`
               msg += `*Nome:* ${ficha.nome_pet?.toUpperCase()}\n`
-              msg += `*Espécie:* ${ficha.especie} | *Raça:* ${ficha.raca || 'Não tem'}\n`
-              msg += `*Idade:* ${ficha.idade || '-'} | *Gênero:* ${ficha.genero}\n`
+              msg += `*Espécie:* ${formatarDisplay(ficha.especie)} | *Raça:* ${ficha.raca || 'Não tem'}\n`
+              msg += `*Idade:* ${ficha.idade || '-'} | *Gênero:* ${formatarDisplay(ficha.genero)}\n`
               msg += `*Cor:* ${ficha.cor} | *Peso Aproximado:* ${ficha.peso || '-'}\n`
               const localMsg = localColeta === 'clinica' ? (estabNome || clinicaTextoLivre || ficha.localizacao_outra || ficha.localizacao)
                 : localColeta === 'outro' ? (enderecoOutro || ficha.localizacao_outra || 'Outro endereço')
@@ -1056,7 +1056,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
             }}
             className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-green-600 text-white font-semibold text-sm hover:bg-green-700 transition-colors"
           >
-            <MessageCircle className="h-4 w-4" />
+            <img src="/wts-icon.png" alt="WhatsApp" className="h-5 w-5 object-contain" />
             Enviar Confirmação
           </button>
 

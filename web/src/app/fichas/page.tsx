@@ -281,8 +281,8 @@ export default function FichasPage() {
 
     msg += `\n*- DADOS DO PET:*\n`
     msg += `*Nome:* ${ficha.nome_pet?.toUpperCase()}\n`
-    msg += `*Espécie:* ${ficha.especie} | *Raça:* ${ficha.raca || 'Não tem'}\n`
-    msg += `*Idade:* ${ficha.idade || '-'} | *Gênero:* ${ficha.genero}\n`
+    msg += `*Espécie:* ${formatarDisplay(ficha.especie)} | *Raça:* ${ficha.raca || 'Não tem'}\n`
+    msg += `*Idade:* ${ficha.idade || '-'} | *Gênero:* ${formatarDisplay(ficha.genero)}\n`
     msg += `*Cor:* ${ficha.cor} | *Peso Aproximado:* ${ficha.peso || '-'}\n`
     const opLocal = (op.enderecoOutro as string) || ficha.localizacao_outra
     const opEstabNome = op.estabNome as string | null
@@ -360,7 +360,7 @@ export default function FichasPage() {
         tipoCremacao: ficha.cremacao?.toLowerCase() as 'individual' | 'coletiva',
         valorPlano: op.valorPlano ? parseFloat(String(op.valorPlano)) : ficha.valor,
         metodoPagamento: ficha.pagamento,
-        parcelas: ficha.parcelas ? parseInt(ficha.parcelas) || null : null,
+        parcelas: ficha.parcelas ? parseInt(ficha.parcelas.replace(/\D/g, '')) || null : null,
         velorioDeseja: ficha.velorio === 'Sim' ? true : ficha.velorio === 'Não' ? false : null,
         acompanhamentoOnline: ficha.acompanhamento?.includes('On-line') || false,
         acompanhamentoPresencial: ficha.acompanhamento?.includes('Presencial') || false,
@@ -552,7 +552,7 @@ export default function FichasPage() {
                         </span>
                         {ficha.peso && <span className="text-[9px] font-semibold text-[var(--surface-400)] bg-[var(--surface-100)] px-1 py-0.5 rounded">{ficha.peso}kg</span>}
                         {ficha.valor != null && <span className="text-[10px] font-bold text-green-500 text-mono">R${ficha.valor.toLocaleString('pt-BR')}</span>}
-                        <span className="text-[9px] text-[var(--surface-500)]">{formatarDisplay(ficha.pagamento)}{ficha.parcelas ? ` ${ficha.parcelas}x` : ''}</span>
+                        <span className="text-[9px] text-[var(--surface-500)]">{formatarDisplay(ficha.pagamento)}{ficha.parcelas ? ` ${ficha.parcelas}` : ''}</span>
                       </div>
                       {/* Status badge */}
                       {isPendente ? <Badge variant="warning" dot>Recebida</Badge> : <Badge variant="success" dot>Processada</Badge>}
@@ -624,13 +624,13 @@ export default function FichasPage() {
                           <Pencil className="h-3.5 w-3.5" />
                         </button>
                         <button onClick={(e) => { e.stopPropagation(); abrirWhatsAppComMsg(ficha) }}
-                          className="flex items-center justify-center w-8 h-8 rounded-full bg-green-600 text-white hover:bg-green-700 transition-colors" title="WhatsApp">
-                          <MessageCircle className="h-4 w-4" />
+                          className="flex items-center justify-center w-8 h-8 rounded-full hover:opacity-80 transition-opacity" title="WhatsApp">
+                          <img src="/wts-icon.png" alt="WhatsApp" className="w-8 h-8 object-contain" />
                         </button>
                         {ficha.op_dados && isVisible('tela_fichas', 'btn_pdf_ficha') && (
                           <button onClick={(e) => { e.stopPropagation(); gerarPdfFicha(ficha) }}
-                            className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-600 text-white hover:bg-blue-700 transition-colors" title="PDF">
-                            <Download className="h-4 w-4" />
+                            className="flex items-center justify-center w-8 h-8 rounded-full hover:opacity-80 transition-opacity" title="PDF">
+                            <img src="/pdf-icon.png" alt="PDF" className="w-7 h-7 object-contain" />
                           </button>
                         )}
                         <button onClick={() => setFichaModal(ficha)}
