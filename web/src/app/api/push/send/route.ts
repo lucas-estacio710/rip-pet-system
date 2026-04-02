@@ -2,19 +2,31 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import webpush from 'web-push'
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+let vapidConfigured = false
 
-webpush.setVapidDetails(
-  'mailto:contato@rippet.com.br',
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-  process.env.VAPID_PRIVATE_KEY!
-)
+function ensureVapid() {
+  if (vapidConfigured) return
+  webpush.setVapidDetails(
+    'mailto:contato@rippet.com.br',
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
+    process.env.VAPID_PRIVATE_KEY!
+  )
+  vapidConfigured = true
+}
+
+function getSupabaseAdmin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+}
+
+export const dynamic = 'force-dynamic'
 
 export async function POST(request: NextRequest) {
   try {
+    ensureVapid()
+    const supabaseAdmin = getSupabaseAdmin()
     const { title, body, url, unidadeId } = await request.json()
 
     if (!title || !body) {
