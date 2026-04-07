@@ -263,7 +263,7 @@ export default function FichasPage() {
 
     msg += `*- DADOS DO TUTOR:*\n`
     msg += `*Nome p/ Contrato e Certificado:* ${nomesCertificado}\n`
-    msg += `*Telefone Contato:* ${formatarTel(telPrincipal)} | *CPF:* ${ficha.cpf}\n`
+    msg += `*Telefone Contato:* ${formatarTel(telPrincipal)} | *${ficha.cpf?.replace(/\D/g, '').length > 11 ? 'CNPJ' : 'CPF'}:* ${ficha.cpf}\n`
     if (ficha.email) msg += `*Email:* ${ficha.email}\n`
     msg += `*Endereço:* ${ficha.endereco} ${ficha.numero}${ficha.complemento ? ` - ${ficha.complemento}` : ''} - ${ficha.bairro}\n`
     msg += `*CEP:* ${ficha.cep} | *Cidade:* ${ficha.cidade} | *UF:* ${ficha.estado}\n`

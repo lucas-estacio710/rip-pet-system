@@ -17,7 +17,7 @@ type Ficha = {
   id: string
   created_at: string
   nome_completo: string
-  cpf: string
+  cpf: string // CPF ou CNPJ
   telefone: string
   email: string | null
   cep: string
@@ -74,6 +74,20 @@ const PREFIXOS_NOME_COMPOSTO = [
   'joao', 'joão', 'jose', 'josé',
   'pedro', 'luiz', 'luis', 'luís', 'carlos', 'marco',
 ]
+
+// Detecta CPF vs CNPJ pelo número de dígitos
+function labelDocumento(valor: string | null | undefined): string {
+  if (!valor) return 'CPF'
+  return valor.replace(/\D/g, '').length > 11 ? 'CNPJ' : 'CPF'
+}
+
+function maskDocumento(v: string): string {
+  const d = v.replace(/\D/g, '')
+  if (d.length > 11) {
+    return d.slice(0, 14).replace(/(\d{2})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1/$2').replace(/(\d{4})(\d{1,2})$/, '$1-$2')
+  }
+  return d.slice(0, 11).replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2')
+}
 
 function capitalizarNome(nome: string): string {
   if (!nome) return ''
@@ -1098,7 +1112,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               let msg = `*Por favor, _confirme_ se as informações abaixo estão _corretas_*\n\n_Dados Enviados em ${dataEnvio}_\n\n`
               msg += `*- DADOS DO TUTOR:*\n`
               msg += `*Nome p/ Contrato e Certificado:* ${nomesCert}\n`
-              msg += `*Telefone Contato:* ${formatarTel(ficha.telefone)} | *CPF:* ${ficha.cpf}\n`
+              msg += `*Telefone Contato:* ${formatarTel(ficha.telefone)} | *${labelDocumento(ficha.cpf)}:* ${ficha.cpf}\n`
               if (ficha.email) msg += `*Email:* ${ficha.email}\n`
               msg += `*Endereço:* ${ficha.endereco} ${ficha.numero}${ficha.complemento ? ` - ${ficha.complemento}` : ''} - ${ficha.bairro}\n`
               msg += `*CEP:* ${ficha.cep} | *Cidade:* ${ficha.cidade} | *UF:* ${ficha.estado}\n`
@@ -1414,7 +1428,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               <User className="h-4 w-4" />Tutor
             </div>
             <InfoRow label="Nome" value={getFichaValue('nome_completo')} editKey="nome_completo" edited={!!fichaEdits.nome_completo} onEdit={startEdit} />
-            <InfoRow label="CPF" value={getFichaValue('cpf')} mono editKey="cpf" edited={!!fichaEdits.cpf} onEdit={startEdit} />
+            <InfoRow label={labelDocumento(getFichaValue('cpf'))} value={getFichaValue('cpf')} mono editKey="cpf" edited={!!fichaEdits.cpf} onEdit={startEdit} />
             <InfoRow label="Telefone" value={getFichaValue('telefone')} mono editKey="telefone" edited={!!fichaEdits.telefone} onEdit={startEdit} />
             <InfoRow label="Email" value={getFichaValue('email')} editKey="email" edited={!!fichaEdits.email} onEdit={startEdit} />
             <InfoRow label="Endereço" value={getFichaValue('endereco')} editKey="endereco" edited={!!fichaEdits.endereco} onEdit={startEdit} />
@@ -1949,7 +1963,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       {editingField && (() => {
         // Labels legíveis com acentuação correta
         const FIELD_LABELS: Record<string, string> = {
-          nome_completo: 'Nome completo', cpf: 'CPF', telefone: 'Telefone', email: 'E-mail',
+          nome_completo: 'Nome completo', cpf: labelDocumento(getFichaValue('cpf')), telefone: 'Telefone', email: 'E-mail',
           endereco: 'Endereço', numero: 'Número', bairro: 'Bairro', cidade: 'Cidade', cep: 'CEP',
           nome_pet: 'Nome do pet', especie: 'Espécie', raca: 'Raça', genero: 'Gênero',
           cor: 'Cor', peso: 'Peso', idade: 'Idade',
@@ -1971,8 +1985,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         // Tipo de input e máscara por campo
         const FIELD_INPUT: Record<string, { type: string; inputMode?: string; mask?: (v: string) => string; maxLength?: number; placeholder?: string }> = {
           cpf: {
-            type: 'text', inputMode: 'numeric', maxLength: 14, placeholder: '000.000.000-00',
-            mask: (v) => v.replace(/\D/g, '').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2').slice(0, 14),
+            type: 'text', inputMode: 'numeric', maxLength: 18, placeholder: '000.000.000-00',
+            mask: maskDocumento,
           },
           telefone: {
             type: 'text', inputMode: 'tel', maxLength: 15, placeholder: '(00) 00000-0000',

@@ -167,7 +167,7 @@ export default function TutorDetalhe() {
           <div className="flex-1">
             <h1 className="text-2xl font-bold text-slate-200 mb-1">{tutor.nome}</h1>
             {tutor.cpf && (
-              <p className="text-slate-400 text-sm mb-3">CPF: {tutor.cpf}</p>
+              <p className="text-slate-400 text-sm mb-3">{tutor.cpf?.replace(/\D/g, '').length > 11 ? 'CNPJ' : 'CPF'}: {tutor.cpf}</p>
             )}
 
             <div className="flex flex-wrap gap-4">

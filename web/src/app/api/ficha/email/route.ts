@@ -118,7 +118,7 @@ function buildEmailHTML(data: FichaPayload): string {
         ${sectionHeader('Tutor', '👤')}
         ${row('Nome', data.nome_completo)}
         ${data.outros_tutores.length > 0 ? row('Outros nomes', data.outros_tutores.join(', ')) : ''}
-        ${row('CPF', data.cpf)}
+        ${row(data.cpf?.replace(/\D/g, '').length > 11 ? 'CNPJ' : 'CPF', data.cpf)}
         ${row('Telefone', data.telefone)}
         ${row('E-mail', data.email)}
         ${row('CEP', data.cep)}
