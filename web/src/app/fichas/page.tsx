@@ -259,7 +259,9 @@ export default function FichasPage() {
     // Valor: op_dados tem prioridade (operador pode ter ajustado)
     const valorOp = op.valorPlano ? parseFloat(String(op.valorPlano)) : null
     const descontoOp = op.descontoPreVenda ? parseFloat(String(op.descontoPreVenda)) : 0
-    const valorFinal = valorOp != null ? valorOp - descontoOp : (ficha.valor || 0)
+    const descontoTipoOp = (op.descontoTipo as string) || 'valor'
+    const descontoReal = descontoTipoOp === 'percentual' && valorOp ? (valorOp * descontoOp) / 100 : descontoOp
+    const valorFinal = valorOp != null ? valorOp - descontoReal : (ficha.valor || 0)
     const valor = valorFinal ? `R$ ${valorFinal.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}` : ''
     const pagamento = formatarDisplay(ficha.pagamento)
     const velorio = ficha.velorio || ''
@@ -358,12 +360,21 @@ export default function FichasPage() {
         petPeso: ficha.peso ? parseFloat(ficha.peso) || null : null,
         localColeta: localPdf,
         tipoCremacao: ficha.cremacao?.toLowerCase() as 'individual' | 'coletiva',
-        valorPlano: op.valorPlano ? parseFloat(String(op.valorPlano)) : ficha.valor,
+        valorPlano: (() => {
+          const vp = op.valorPlano ? parseFloat(String(op.valorPlano)) : ficha.valor
+          if (!vp) return null
+          const dp = op.descontoPreVenda ? parseFloat(String(op.descontoPreVenda)) : 0
+          const dt = (op.descontoTipo as string) || 'valor'
+          const dr = dt === 'percentual' ? (vp * dp) / 100 : dp
+          return Math.max(vp - dr, 0)
+        })(),
         metodoPagamento: ficha.pagamento,
         parcelas: ficha.parcelas ? parseInt(ficha.parcelas.replace(/\D/g, '')) || null : null,
         velorioDeseja: ficha.velorio === 'Sim' ? true : ficha.velorio === 'Não' ? false : null,
         acompanhamentoOnline: ficha.acompanhamento?.includes('On-line') || false,
         acompanhamentoPresencial: ficha.acompanhamento?.includes('Presencial') || false,
+        temDesconto: !!(op.descontoPreVenda && parseFloat(String(op.descontoPreVenda)) > 0),
+        dataAcolhimento: op.semDataHora ? null : (op.dataHoraAcolhimento as string) || null,
       }, nomeUnidade)
 
       const url = URL.createObjectURL(blob)
