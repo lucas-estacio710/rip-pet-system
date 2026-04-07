@@ -121,6 +121,7 @@ export default function FichasPage() {
 
   // Modal
   const [fichaModal, setFichaModal] = useState<Ficha | null>(null)
+  const [modalSomenteLeitura, setModalSomenteLeitura] = useState(false)
 
   // User + Push
   const [userId, setUserId] = useState<string | null>(null)
@@ -606,13 +607,13 @@ export default function FichasPage() {
                     {isPendente ? (
                       <div className="flex items-center gap-1.5">
                         <button
-                          onClick={() => setFichaModal(ficha)}
+                          onClick={() => { setModalSomenteLeitura(true); setFichaModal(ficha) }}
                           className="btn-secondary text-xs py-1.5 px-3 whitespace-nowrap"
                         >
                           Visualizar Ficha
                         </button>
                         <button
-                          onClick={() => setFichaModal(ficha)}
+                          onClick={() => { setModalSomenteLeitura(false); setFichaModal(ficha) }}
                           className="btn-primary text-xs py-1.5 px-3 whitespace-nowrap"
                           style={{ background: 'var(--brand-600)' }}
                         >
@@ -663,9 +664,10 @@ export default function FichasPage() {
       {/* Modal de tratativa */}
       <TratativaModal
         isOpen={!!fichaModal}
-        onClose={() => { setFichaModal(null); carregarFichas(); carregarContagens() }}
+        onClose={() => { setFichaModal(null); setModalSomenteLeitura(false); carregarFichas(); carregarContagens() }}
         ficha={fichaModal}
         onSuccess={handleSuccess}
+        somenteLeitura={modalSomenteLeitura}
         onRetornarPendente={() => {
           setFichaModal(null)
           carregarFichas()

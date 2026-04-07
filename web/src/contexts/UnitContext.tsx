@@ -16,6 +16,7 @@ export type Unidade = {
   telefone: string | null
   cidade: string | null
   estado: string | null
+  endereco: string | null
   is_matriz: boolean
   modulos_ativos: string[]
   ativa: boolean
