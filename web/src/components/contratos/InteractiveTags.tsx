@@ -1,6 +1,7 @@
 'use client'
 
 import { computeAllTags, TAG_STATE_STYLES, type ContratoTagData, type ComputedTag, type TagStyle } from '@/lib/contrato-tags'
+import { useFieldPermission } from '@/hooks/useFieldPermission'
 
 const AMBER_STYLE: TagStyle = { bg: 'rgba(254,243,199,0.6)', color: '#f59e0b', borderColor: '#d97706' }
 
@@ -29,7 +30,8 @@ function isNoClick(tag: ComputedTag, status: string) {
 }
 
 export default function InteractiveTags({ contrato, handlers, layout, stopPropagation = true }: Props) {
-  const allTags = computeAllTags(contrato)
+  const { isVisible } = useFieldPermission()
+  const allTags = computeAllTags(contrato).filter(tag => isVisible('tela_pipeline', `tag_${tag.id}`))
 
   const handleClick = (handler: (() => void) | undefined, e: React.MouseEvent) => {
     if (!handler) return

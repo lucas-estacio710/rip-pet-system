@@ -81,7 +81,14 @@ export const OBJETOS: ChildItemDef[] = [
 // 3. CAMPOS E BOTÕES (granular, por tela)
 // ============================================
 export const CAMPOS_BOTOES: ChildItemDef[] = [
-  // --- PIPELINE (lista + detalhe) ---
+  // --- PIPELINE (faróis/tags do kanban) ---
+  { key: 'tag_pelinho', tela: 'tela_pipeline', label: 'Pelinho', desc: 'Farol 🫙 definir pelinho', modo: 'toggle' },
+  { key: 'tag_urna', tela: 'tela_pipeline', label: 'Urna', desc: 'Farol ⚱️ selecionar urna', modo: 'toggle' },
+  { key: 'tag_certificado', tela: 'tela_pipeline', label: 'Certificado', desc: 'Farol 📜 nomes do certificado', modo: 'toggle' },
+  { key: 'tag_foto', tela: 'tela_pipeline', label: 'Foto', desc: 'Farol 📷 fotos pendentes', modo: 'toggle' },
+  { key: 'tag_pagamento', tela: 'tela_pipeline', label: 'Pagamento', desc: 'Farol 💵 status pagamento', modo: 'toggle' },
+  { key: 'tag_protocolo', tela: 'tela_pipeline', label: 'Protocolo', desc: 'Farol 📋 protocolo de entrega', modo: 'toggle' },
+  { key: 'tag_rescaldo', tela: 'tela_pipeline', label: 'Rescaldo', desc: 'Farol 💎 rescaldos do contrato', modo: 'toggle' },
 
   // --- FICHAS ---
   { key: 'btn_pdf_ficha', tela: 'tela_fichas', label: 'Gerar PDF', desc: 'Botão azul de gerar PDF do contrato no card da ficha', modo: 'toggle' },
