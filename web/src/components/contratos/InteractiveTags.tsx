@@ -31,7 +31,8 @@ function isNoClick(tag: ComputedTag, status: string) {
 
 export default function InteractiveTags({ contrato, handlers, layout, stopPropagation = true }: Props) {
   const { isVisible } = useFieldPermission()
-  const allTags = computeAllTags(contrato).filter(tag => isVisible('tela_pipeline', `tag_${tag.id}`))
+  const showFarois = isVisible('tela_pipeline', 'btn_farois')
+  const allTags = showFarois ? computeAllTags(contrato) : []
 
   const handleClick = (handler: (() => void) | undefined, e: React.MouseEvent) => {
     if (!handler) return
