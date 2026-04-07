@@ -39,6 +39,8 @@ export type DadosContrato = {
   velorioDeseja: boolean | null
   acompanhamentoOnline: boolean
   acompanhamentoPresencial: boolean
+  temDesconto?: boolean
+  dataAcolhimento?: string | null
 }
 
 const UNIDADES: Record<string, DadosUnidade> = {
@@ -259,31 +261,31 @@ export async function gerarContratoPDF(dados: DadosContrato, nomeUnidade: string
   txt(fmtTel(dados.tutorTelefone), 167.5, 50.25, 8)
 
   // Linha 2: E-mail | Endereço
-  txtFit(dados.tutorEmail || '', 26, 55.5, 57, 8)  // max até h83
+  txtFit(dados.tutorEmail || '', 25, 55.5, 58, 8)  // max até h83
   txtFit(dados.tutorEndereco || '', 102, 55.5, 93, 8)  // max até h195
 
   // Linha 3: Bairro | Cidade | Estado | CEP
-  txtFit(dados.tutorBairro || '', 24.5, 60.75, 48.5, 8)  // max até h73
-  txtFit(dados.tutorCidade || '', 90, 60.75, 63, 8)  // max até h153
-  txt(dados.tutorEstado || '', 155, 60.75, 8)
-  txt(dados.tutorCep || '', 172, 60.75, 8)
+  txtFit(dados.tutorBairro || '', 24.5, 60.85, 48.5, 8)  // max até h73
+  txtFit(dados.tutorCidade || '', 90, 60.85, 63, 8)  // max até h153
+  txt(dados.tutorEstado || '', 155, 60.85, 8)
+  txt(dados.tutorCep || '', 173, 60.85, 8)
 
   // ── TABELA PET (y base ~68mm) ──
   const pY = 68.5
 
   // Linha 1: Nome do Pet | Espécie | Gênero
   txtFit(dados.petNome.toUpperCase(), 32.5, 66, 102.5, 8)  // max até h135
-  txt(cap(dados.petEspecie), 151, 66, 8)
-  txt(cap(dados.petGenero), 181.5, 66, 8)
+  txt(cap(dados.petEspecie), 152, 66, 8)
+  txt(cap(dados.petGenero), 183.5, 66, 8)
 
   // Linha 2: Raça | Cor | Anos Completos
-  txtFit(dados.petRaca || '', 22, 71.25, 60, 8)  // max até h82
-  txtFit(dados.petCor || '', 94, 71.25, 66, 8)  // max até h160
-  txt(dados.petIdade ? `${dados.petIdade}` : '', 190, 71.25, 8)
+  txtFit(dados.petRaca || '', 22, 71.35, 60, 8)  // max até h82
+  txtFit(dados.petCor || '', 94, 71.35, 66, 8)  // max até h160
+  txt(dados.petIdade ? `${dados.petIdade}` : '', 191, 71.35, 8)
 
   // Linha 3: Peso | Localização
   txt(dados.petPeso ? `${dados.petPeso} kg` : '', 31.5, 76.5, 8)
-  txtFit(dados.localColeta || '', 64, 76.5, 131, 8)  // max até h195
+  txtFit(dados.localColeta || '', 64, 76.7, 131, 8)  // max até h195
 
   // ── PLANO DE CREMAÇÃO (box grande ~100mm) ──
   const planoY = 98.4
@@ -328,9 +330,9 @@ export async function gerarContratoPDF(dados: DadosContrato, nomeUnidade: string
   })
 
   // Valor — alinhar à direita em h195
-  const valorTexto = `Valor: ${fmt$(dados.valorPlano)}`
+  const valorTexto = `${dados.temDesconto ? 'Valor c/ desc.:' : 'Valor:'} ${fmt$(dados.valorPlano)}`
   const valorW = fontBold.widthOfTextAtSize(valorTexto, 9) / mmToPt
-  txt(valorTexto, 193 - valorW, 102.5, 9, true)
+  txt(valorTexto, 193 - valorW, 102.6, 9, true)
 
   // Forma de pagamento — mesmo v do plano, h135
   const pgMap: Record<string, string> = { pix: 'Pix', dinheiro: 'Dinheiro', debito: 'Cartão Débito', credito: 'Cartão Crédito' }
@@ -340,8 +342,8 @@ export async function gerarContratoPDF(dados: DadosContrato, nomeUnidade: string
   const pgLabelW = fontBold.widthOfTextAtSize('Forma de Pagamento: ', 8) / mmToPt
   const pgValorW = font.widthOfTextAtSize(pgFull, 8) / mmToPt
   const pgStartX = 193 - pgLabelW - pgValorW
-  txt('Forma de Pagamento: ', pgStartX, 97.5, 8, true)
-  txt(pgFull, pgStartX + pgLabelW, 97.5, 8)
+  txt('Forma de Pagamento: ', pgStartX, 97.6, 8, true)
+  txt(pgFull, pgStartX + pgLabelW, 97.6, 8)
 
   // Barra horizontal em h146 v236, 25mm
   page.drawLine({
@@ -350,6 +352,16 @@ export async function gerarContratoPDF(dados: DadosContrato, nomeUnidade: string
     thickness: 0.5,
     color: rgb(0, 0, 0),
   })
+
+  // Data/hora acolhimento
+  const meses = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro']
+  if (dados.dataAcolhimento) {
+    const dt = new Date(dados.dataAcolhimento)
+    const dataTexto = `${u.cidade}, ${dt.getDate()} de ${meses[dt.getMonth()]} de ${dt.getFullYear()}, ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`
+    txt(dataTexto, 125, 220, 7)
+  } else {
+    txt(`${u.cidade}, _____ de __________________ de _______, _____:_____`, 105, 220, 7)
+  }
 
   // Rodapé CONTRATADA — centralizado entre h112 e h170
   const rodapeCenterX = (112 + 170) / 2 // h141
