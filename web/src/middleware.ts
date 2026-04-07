@@ -41,9 +41,10 @@ export async function middleware(request: NextRequest) {
   const isFicha = pathname.startsWith('/ficha')
   const isPublicAuthPage = pathname === '/esqueci-senha' || pathname === '/redefinir-senha'
   const isInstalarPage = pathname === '/instalar'
+  const isWebhook = pathname.startsWith('/api/push/webhook')
 
   // Se não autenticado e NÃO está em página pública → redireciona para login
-  if (!user && !isLoginPage && !isAuthCallback && !isFicha && !isPublicAuthPage && !isInstalarPage) {
+  if (!user && !isLoginPage && !isAuthCallback && !isFicha && !isPublicAuthPage && !isInstalarPage && !isWebhook) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)

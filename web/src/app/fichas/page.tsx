@@ -140,23 +140,9 @@ export default function FichasPage() {
   useEffect(() => {
     const channel = supabase
       .channel('fichas-realtime')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'fichas' }, (payload) => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'fichas' }, () => {
         carregarFichas()
         carregarContagens()
-        // Dispara push notification para todos os inscritos da unidade
-        const novaFicha = payload.new as Partial<Ficha>
-        if (novaFicha.unidade_id === currentUnit?.id) {
-          fetch('/api/push/send', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              title: '📋 Nova Ficha Recebida',
-              body: `${novaFicha.nome_pet || 'Pet'} — ${novaFicha.nome_completo || 'Tutor'}`,
-              url: '/fichas',
-              unidadeId: novaFicha.unidade_id,
-            }),
-          }).catch(() => {})
-        }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'fichas' }, () => {
         carregarFichas()
@@ -618,13 +604,21 @@ export default function FichasPage() {
                     {/* Linha 3: Actions */}
                     <div className="flex items-center gap-1.5 mt-1">
                     {isPendente ? (
-                      <button
-                        onClick={() => setFichaModal(ficha)}
-                        className="btn-primary text-xs py-1.5 px-3 whitespace-nowrap"
-                        style={{ background: 'var(--brand-600)' }}
-                      >
-                        Processar
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => setFichaModal(ficha)}
+                          className="btn-secondary text-xs py-1.5 px-3 whitespace-nowrap"
+                        >
+                          Visualizar Ficha
+                        </button>
+                        <button
+                          onClick={() => setFichaModal(ficha)}
+                          className="btn-primary text-xs py-1.5 px-3 whitespace-nowrap"
+                          style={{ background: 'var(--brand-600)' }}
+                        >
+                          Processar
+                        </button>
+                      </div>
                     ) : (
                       <div className="flex items-center gap-1.5">
                         <button
