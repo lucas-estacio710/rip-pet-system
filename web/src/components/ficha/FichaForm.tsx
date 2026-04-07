@@ -25,6 +25,7 @@ type FormData = {
   // Honeypot (anti-bot)
   _hp: string
   // Tutor
+  tipoDocumento: 'cpf' | 'cnpj'
   nomeCompleto: string
   outrosTutores: string[]
   cpf: string
@@ -64,6 +65,7 @@ type FormData = {
 
 const INITIAL_FORM: FormData = {
   _hp: '',
+  tipoDocumento: 'cpf',
   nomeCompleto: '', outrosTutores: [], cpf: '', codigoPais: '55', codigoPaisCustom: '', telefone: '', email: '',
   cep: '', estado: '', cidade: '', bairro: '', endereco: '', numero: '', complemento: '',
   nomePet: '', idade: '', especie: '', genero: '', raca: '', cor: '', peso: '',
@@ -83,6 +85,11 @@ const UF_LIST = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT
 function maskCPF(v: string) {
   const d = v.replace(/\D/g, '').slice(0, 11)
   return d.replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2')
+}
+
+function maskCNPJ(v: string) {
+  const d = v.replace(/\D/g, '').slice(0, 14)
+  return d.replace(/(\d{2})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1/$2').replace(/(\d{4})(\d{1,2})$/, '$1-$2')
 }
 
 function maskPhone(v: string) {
@@ -106,6 +113,21 @@ function validarCPF(cpf: string) {
   for (let i = 0; i < 10; i++) s += parseInt(d[i]) * (11 - i)
   r = 11 - (s % 11)
   return (r >= 10 ? 0 : r) === parseInt(d[10])
+}
+
+function validarCNPJ(cnpj: string) {
+  const d = cnpj.replace(/\D/g, '')
+  if (d.length !== 14 || /^(\d)\1+$/.test(d)) return false
+  const pesos1 = [5,4,3,2,9,8,7,6,5,4,3,2]
+  const pesos2 = [6,5,4,3,2,9,8,7,6,5,4,3,2]
+  let s = 0
+  for (let i = 0; i < 12; i++) s += parseInt(d[i]) * pesos1[i]
+  let r = s % 11; const d1 = r < 2 ? 0 : 11 - r
+  if (parseInt(d[12]) !== d1) return false
+  s = 0
+  for (let i = 0; i < 13; i++) s += parseInt(d[i]) * pesos2[i]
+  r = s % 11; const d2 = r < 2 ? 0 : 11 - r
+  return parseInt(d[13]) === d2
 }
 
 // ============================================
@@ -222,6 +244,7 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
 
     const randomForm: FormData = {
       _hp: '',
+      tipoDocumento: 'cpf',
       nomeCompleto: pick(nomes),
       outrosTutores: [],
       cpf: maskCPF(cpfRaw),
@@ -299,7 +322,7 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
 
   // Labels legíveis para campos obrigatórios
   const FIELD_LABELS: Record<string, string> = {
-    nomeCompleto: 'Nome Completo', cpf: 'CPF', telefone: 'Telefone',
+    nomeCompleto: 'Nome Completo / Razão Social', cpf: 'CPF/CNPJ', telefone: 'Telefone',
     cep: 'CEP', estado: 'UF', cidade: 'Cidade', bairro: 'Bairro',
     endereco: 'Endereço', numero: 'Número',
     nomePet: 'Nome do Pet', idade: 'Idade', especie: 'Espécie',
@@ -318,7 +341,8 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
     if (s === 1) {
       if (!form.nomeCompleto.trim()) errs.nomeCompleto = 'Obrigatório'
       if (!form.cpf.trim()) errs.cpf = 'Obrigatório'
-      else if (!validarCPF(form.cpf)) errs.cpf = 'CPF inválido'
+      else if (form.tipoDocumento === 'cpf' && !validarCPF(form.cpf)) errs.cpf = 'CPF inválido'
+      else if (form.tipoDocumento === 'cnpj' && !validarCNPJ(form.cpf)) errs.cpf = 'CNPJ inválido'
       if (!form.telefone.trim()) errs.telefone = 'Obrigatório'
       if (!form.cep.trim()) errs.cep = 'Obrigatório'
       if (!form.estado) errs.estado = 'Obrigatório'
@@ -628,8 +652,8 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
               <h2 className="text-lg font-bold text-slate-800 pb-3 border-b-2 border-slate-100">Dados do Tutor</h2>
 
               <div>
-                <label className={labelClass}>Nome Completo <span className="text-red-400">*</span></label>
-                <input className={inputClass('nomeCompleto')} value={form.nomeCompleto} onChange={e => updateField('nomeCompleto', e.target.value)} placeholder="Nome para o contrato e certificado" />
+                <label className={labelClass}>{form.tipoDocumento === 'cnpj' ? 'Razão Social / Nome Fantasia' : 'Nome Completo'} <span className="text-red-400">*</span></label>
+                <input className={inputClass('nomeCompleto')} value={form.nomeCompleto} onChange={e => updateField('nomeCompleto', e.target.value)} placeholder={form.tipoDocumento === 'cnpj' ? 'Razão Social ou Nome Fantasia' : 'Nome para o contrato e certificado'} />
                 {errors.nomeCompleto && <p className={errorClass}>{errors.nomeCompleto}</p>}
               </div>
 
@@ -658,8 +682,13 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
               </div>
 
               <div>
-                <label className={labelClass}>CPF <span className="text-red-400">*</span></label>
-                <input className={inputClass('cpf')} value={form.cpf} onChange={e => updateField('cpf', maskCPF(e.target.value))} placeholder="000.000.000-00" inputMode="numeric" />
+                <div className="flex items-baseline justify-between mb-1.5">
+                  <label className="text-sm font-medium text-slate-600">{form.tipoDocumento === 'cnpj' ? 'CNPJ' : 'CPF'} <span className="text-red-400">*</span></label>
+                  <button type="button" onClick={() => { updateField('tipoDocumento', form.tipoDocumento === 'cpf' ? 'cnpj' : 'cpf'); updateField('cpf', '') }} className="text-xs text-blue-500 hover:text-blue-700 hover:underline">
+                    Usar {form.tipoDocumento === 'cpf' ? 'CNPJ' : 'CPF'}
+                  </button>
+                </div>
+                <input className={inputClass('cpf')} value={form.cpf} onChange={e => updateField('cpf', form.tipoDocumento === 'cnpj' ? maskCNPJ(e.target.value) : maskCPF(e.target.value))} placeholder={form.tipoDocumento === 'cnpj' ? '00.000.000/0001-00' : '000.000.000-00'} inputMode="numeric" />
                 {errors.cpf && <p className={errorClass}>{errors.cpf}</p>}
               </div>
 
@@ -977,7 +1006,7 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
                   {form.outrosTutores.filter(Boolean).length > 0 && (
                     <p className="text-sm"><span className="font-medium text-slate-600">Outros:</span> <span className="text-slate-800">{form.outrosTutores.filter(Boolean).join(', ')}</span></p>
                   )}
-                  <p className="text-sm"><span className="font-medium text-slate-600">CPF:</span> <span className="text-slate-800">{form.cpf}</span></p>
+                  <p className="text-sm"><span className="font-medium text-slate-600">{form.tipoDocumento === 'cnpj' ? 'CNPJ' : 'CPF'}:</span> <span className="text-slate-800">{form.cpf}</span></p>
                   <p className="text-sm"><span className="font-medium text-slate-600">Telefone:</span> <span className="text-slate-800">{form.telefone}</span></p>
                   {form.email && <p className="text-sm"><span className="font-medium text-slate-600">E-mail:</span> <span className="text-slate-800">{form.email}</span></p>}
                   <p className="text-sm"><span className="font-medium text-slate-600">Endereço:</span> <span className="text-slate-800">{form.endereco}, {form.numero}{form.complemento ? ` - ${form.complemento}` : ''}</span></p>
