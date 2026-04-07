@@ -2548,8 +2548,8 @@ ${petNome}`
           </div>
         </div>
 
-        {/* Card Produtos do Contrato */}
-        <div className="bg-slate-800 rounded-xl shadow-md p-5 border border-slate-700 md:col-span-2">
+        {/* Card Produtos do Contrato (FLS: obj_produtos) */}
+        {isVisible(T, 'obj_produtos') && <div className="bg-slate-800 rounded-xl shadow-md p-5 border border-slate-700 md:col-span-2">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-purple-900/40 flex items-center justify-center">
@@ -2814,7 +2814,7 @@ ${petNome}`
               ))}
             </div>
           )}
-        </div>
+        </div>}
 
         {/* Card GC — aparece quando status é 'pinda' ou posterior E func_gc habilitado */}
         {hasModule('func_gc') && (['pinda', 'retorno', 'pendente', 'finalizado'].includes(contrato.status)) && (

@@ -70,6 +70,8 @@ export const TELAS: ItemDef[] = [
 // ============================================
 export const OBJETOS: ChildItemDef[] = [
   // Pipeline / Contrato Detalhe
+  { key: 'obj_financeiro', tela: 'tela_pipeline', label: 'Financeiro', desc: 'Resumo valores, descontos, pagamentos e NFS-e' },
+  { key: 'obj_produtos', tela: 'tela_pipeline', label: 'Produtos/Acessórios', desc: 'Card de produtos e acessórios vinculados ao contrato' },
 
   // Fichas
   { key: 'cb_padronizacao_clinicas', tela: 'tela_fichas', label: 'Padronização Clínicas', desc: 'Autocomplete de estabelecimentos no processamento de ficha' },
