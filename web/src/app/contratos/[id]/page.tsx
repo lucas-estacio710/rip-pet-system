@@ -2256,8 +2256,8 @@ ${petNome}`
         </div>
 
 
-        {/* Card Financeiro + Pagamentos - Ocupa 2 colunas */}
-        <div className="bg-slate-800 rounded-xl shadow-md p-5 border border-slate-700 md:col-span-2">
+        {/* Card Financeiro + Pagamentos - Ocupa 2 colunas (FLS: obj_financeiro) */}
+        {isVisible(T, 'obj_financeiro') && <div className="bg-slate-800 rounded-xl shadow-md p-5 border border-slate-700 md:col-span-2">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-emerald-900/40 flex items-center justify-center">
@@ -2317,8 +2317,8 @@ ${petNome}`
             </div>
           )}
 
-          {/* Resumo Financeiro (FLS: obj_financeiro) */}
-          {isVisible(T, 'obj_financeiro') && (() => {
+          {/* Resumo Financeiro */}
+          {(() => {
             // Calcular descontos pós-venda por tipo
             const descontoPosPlano = pagamentos
               .filter(p => p.tipo === 'plano')
@@ -2546,7 +2546,7 @@ ${petNome}`
               )
             })()}
           </div>
-        </div>
+        </div>}
 
         {/* Card Produtos do Contrato (FLS: obj_produtos) */}
         {isVisible(T, 'obj_produtos') && <div className="bg-slate-800 rounded-xl shadow-md p-5 border border-slate-700 md:col-span-2">
