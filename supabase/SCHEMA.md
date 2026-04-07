@@ -14,8 +14,8 @@
 > **Como atualizar:** Edite a tabela afetada neste arquivo refletindo exatamente a alteracao feita no banco.
 > Atualize tambem a data de "Ultima atualizacao" abaixo.
 
-**Ultima atualizacao:** 2026-04-01
-**Total:** 43 tabelas/views
+**Ultima atualizacao:** 2026-04-07
+**Total:** 44 tabelas/views
 
 ## configuracoes (6 colunas)
 
@@ -562,6 +562,22 @@
 | valor | numeric |  |
 | valor_liquido | numeric |  |
 | valor_liquido_sem_taxa | numeric |  |
+
+## push_subscriptions (7 colunas)
+
+| Coluna | Tipo | Info |
+|--------|------|------|
+| id | uuid | PK default=gen_random_uuid() |
+| user_id | uuid | FK->auth.users.id ON DELETE CASCADE |
+| endpoint | text | NOT NULL |
+| keys_p256dh | text | NOT NULL |
+| keys_auth | text | NOT NULL |
+| unidade_id | uuid | FK->unidades.id ON DELETE SET NULL |
+| created_at | timestamptz | default=now() |
+
+**UNIQUE:** (user_id, endpoint)
+**Index:** idx_push_subscriptions_unidade (unidade_id)
+**RLS:** Users manage own (auth.uid() = user_id), Service role full access
 
 ## perfis (8 colunas)
 
