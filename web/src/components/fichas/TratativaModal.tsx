@@ -816,6 +816,9 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   const valorOk = !!valorPlano.trim()
   const acolhimentoValido = telefoneOk && localOk && responsavelOk && dataHoraOk && lacreOk && valorOk
 
+  // Iniciar Fluxo: mais rigoroso — local, responsável e data/hora NÃO podem ser provisórios (só lacre pode)
+  const fluxoValido = telefoneOk && !!localColeta && !!funcionarioId && !!dataHoraAcolhimento && lacreOk && valorOk
+
   const footer = somenteLeitura ? (
     /* Modo somente leitura (recebidas) — só Fechar e Processar */
     <div className="flex gap-2 justify-end w-full">
@@ -855,13 +858,11 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       </button>
       {isVisible('tela_fichas', 'btn_iniciar_fluxo') && (
         <button
-          onClick={() => {
-            // TODO: implementar criação do contrato a partir da ficha processada
-            alert('Iniciar Fluxo — em desenvolvimento')
-          }}
-          className="py-2 px-3 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors"
+          onClick={criarContrato}
+          disabled={salvando || !fluxoValido}
+          className="py-2 px-3 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          Iniciar Fluxo
+          {salvando ? 'Criando...' : 'Iniciar Fluxo'}
         </button>
       )}
     </div>
