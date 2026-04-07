@@ -70,10 +70,6 @@ export const TELAS: ItemDef[] = [
 // ============================================
 export const OBJETOS: ChildItemDef[] = [
   // Pipeline / Contrato Detalhe
-  { key: 'obj_financeiro', tela: 'tela_pipeline', label: 'Financeiro', desc: 'Área de valores, pagamentos, NFS-e e descontos' },
-  { key: 'obj_produtos', tela: 'tela_pipeline', label: 'Produtos/Acessórios', desc: 'Área de produtos e acessórios vinculados ao contrato' },
-  { key: 'func_tutores', tela: 'tela_pipeline', label: 'Tutores', desc: 'Link "Ver cadastro" no card do tutor' },
-  { key: 'func_gc', tela: 'tela_pipeline', label: 'GC', desc: 'Tracking de cremação dentro do contrato' },
 
   // Fichas
   { key: 'cb_padronizacao_clinicas', tela: 'tela_fichas', label: 'Padronização Clínicas', desc: 'Autocomplete de estabelecimentos no processamento de ficha' },
@@ -83,45 +79,11 @@ export const OBJETOS: ChildItemDef[] = [
 // 3. CAMPOS E BOTÕES (granular, por tela)
 // ============================================
 export const CAMPOS_BOTOES: ChildItemDef[] = [
-  // --- PIPELINE (lista) ---
-  { key: 'btn_novo_contrato', tela: 'tela_pipeline', label: 'Novo Contrato', desc: 'Botão para criar contrato manual' },
-  { key: 'btn_protocolo_batch', tela: 'tela_pipeline', label: 'Protocolo em Lote', desc: 'Imprimir protocolos selecionados' },
-  { key: 'btn_separar', tela: 'tela_pipeline', label: 'Separar/Montagem', desc: 'Toggle separado e montagem inline' },
-
-  // --- CONTRATO DETALHE (campos financeiros) ---
-  { key: 'valor_plano', tela: 'tela_pipeline', label: 'Valor do Plano' },
-  { key: 'desconto_plano', tela: 'tela_pipeline', label: 'Desconto do Plano' },
-  { key: 'valor_acessorios', tela: 'tela_pipeline', label: 'Valor Acessórios' },
-  { key: 'desconto_acessorios', tela: 'tela_pipeline', label: 'Desconto Acessórios' },
-  { key: 'custo_cremacao', tela: 'tela_pipeline', label: 'Custo Cremação' },
-
-  // --- CONTRATO DETALHE (campos tutor/pet) ---
-  { key: 'tutor_cpf', tela: 'tela_pipeline', label: 'CPF do Tutor' },
-  { key: 'tutor_telefone', tela: 'tela_pipeline', label: 'Telefone do Tutor' },
-  { key: 'tutor_endereco', tela: 'tela_pipeline', label: 'Endereço do Tutor' },
-  { key: 'pet_peso', tela: 'tela_pipeline', label: 'Peso do Pet' },
-  { key: 'numero_lacre', tela: 'tela_pipeline', label: 'Número do Lacre' },
-
-  // --- CONTRATO DETALHE (botões de ação) ---
-  { key: 'btn_ativar', tela: 'tela_pipeline', label: 'Ativar', desc: 'Ativar contrato preventivo' },
-  { key: 'btn_emitir_nfse', tela: 'tela_pipeline', label: 'Emitir NFS-e' },
-  { key: 'btn_entrega', tela: 'tela_pipeline', label: 'Marcar Entregue' },
-  { key: 'btn_chegamos', tela: 'tela_pipeline', label: 'Chegamos', desc: 'Mensagem de chegada na cremação' },
-  { key: 'btn_chegaram', tela: 'tela_pipeline', label: 'Chegaram', desc: 'Mensagem de retorno das cinzas' },
-  { key: 'btn_finalizadora', tela: 'tela_pipeline', label: 'Finalizadora', desc: 'Mensagem de finalização + avaliação' },
-  { key: 'btn_pet_grato', tela: 'tela_pipeline', label: 'Pet Grato' },
-  { key: 'btn_pelinho', tela: 'tela_pipeline', label: 'Pelinho' },
-  { key: 'btn_certificado', tela: 'tela_pipeline', label: 'Certificado' },
-  { key: 'btn_protocolo', tela: 'tela_pipeline', label: 'Protocolo' },
-  { key: 'btn_urna', tela: 'tela_pipeline', label: 'Selecionar Urna' },
-  { key: 'btn_rescaldo', tela: 'tela_pipeline', label: 'Rescaldo' },
-  { key: 'btn_foto', tela: 'tela_pipeline', label: 'Foto' },
-  { key: 'btn_mega_pagamento', tela: 'tela_pipeline', label: 'Mega Pagamento', desc: 'Editor de pagamentos em lote' },
-  { key: 'btn_add_produto', tela: 'tela_pipeline', label: 'Adicionar Produto' },
-  { key: 'btn_gerar_pdf', tela: 'tela_pipeline', label: 'Gerar PDF' },
+  // --- PIPELINE (lista + detalhe) ---
 
   // --- FICHAS ---
   { key: 'btn_pdf_ficha', tela: 'tela_fichas', label: 'Gerar PDF', desc: 'Botão azul de gerar PDF do contrato no card da ficha', modo: 'toggle' },
+  { key: 'btn_iniciar_fluxo', tela: 'tela_fichas', label: 'Iniciar Fluxo', desc: 'Botão para gerar contrato a partir da ficha processada', modo: 'toggle' },
 
   // --- SUPINDAS ---
   { key: 'btn_criar_supinda', tela: 'tela_entregas', label: 'Criar Supinda' },

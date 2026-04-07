@@ -7,6 +7,8 @@ import Modal from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
+import { useFieldPermission } from '@/hooks/useFieldPermission'
+import { gerarContratoPDF, contratoFilename } from '@/lib/contrato-pdf'
 
 // ============================================
 // Types
@@ -63,6 +65,7 @@ type Props = {
   onSuccess: (contratoId: string) => void
   onRetornarPendente?: () => void
   onReprocessar?: (ficha: Ficha) => void
+  somenteLeitura?: boolean
 }
 
 // Nomes compostos: se o primeiro nome é um desses prefixos, inclui o segundo nome
@@ -89,10 +92,11 @@ function getPrimeiroNome(nomeCompleto: string | null | undefined): string {
 // ============================================
 // Component
 // ============================================
-export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRetornarPendente, onReprocessar }: Props) {
+export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRetornarPendente, onReprocessar, somenteLeitura }: Props) {
   const { toast } = useToast()
   const supabase = createClient()
   const { hasModule, currentUnit, userName } = useUnit()
+  const { isVisible } = useFieldPermission()
   const temPadronizacaoClinicas = hasModule('cb_padronizacao_clinicas')
 
   // Lookups
@@ -253,6 +257,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   const [indicNomeAtivo, setIndicNomeAtivo] = useState(false)
   const [indicHospClinica, setIndicHospClinica] = useState('')
   const [indicHospAtivo, setIndicHospAtivo] = useState(false)
+  const [outroNormalizado, setOutroNormalizado] = useState('')
   // Legado (manter pra padronização com busca)
   const [clinicaTextoLivre, setClinicaTextoLivre] = useState('')
   // Outros
@@ -263,7 +268,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   const [confirmarCancelamento, setConfirmarCancelamento] = useState(false)
 
   // Modo visualização: ficha já processada
-  const modoVisualizacao = !!(ficha?.processada)
+  const modoVisualizacao = !!(ficha?.processada) || !!somenteLeitura
 
   // ============================================
   // Data loading
@@ -292,7 +297,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
     }
     async function checkTutor() {
       const cpfLimpo = ficha!.cpf.replace(/\D/g, '')
-      if (cpfLimpo.length !== 11 || !/^\d{11}$/.test(cpfLimpo)) {
+      if ((cpfLimpo.length !== 11 && cpfLimpo.length !== 14) || !/^\d+$/.test(cpfLimpo)) {
         setTutorExistente(null)
         setTutorChecked(true)
         return
@@ -329,10 +334,12 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
     const mm = String(now.getMonth() + 1).padStart(2, '0')
     const dd = String(now.getDate()).padStart(2, '0')
     const siglaCremacao = ficha.cremacao?.toLowerCase() === 'individual' ? 'IND' : 'COL'
-    const tutor3 = (ficha.nome_completo || '').trim().slice(0, 3).toUpperCase()
-    const pet3 = (ficha.nome_pet || '').trim().slice(0, 3).toUpperCase()
+    const semAcento = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    const tutor3 = semAcento((ficha.nome_completo || '').trim().slice(0, 3).toUpperCase())
+    const pet3 = semAcento((ficha.nome_pet || '').trim().slice(0, 3).toUpperCase())
     const unidadeCod = currentUnit?.codigo || ''
-    setCodigo(`${unidadeCod}${yy}${mm}${dd}${siglaCremacao}${tutor3}${pet3}`)
+    const rnd = Math.random().toString(36).slice(2, 4).toUpperCase()
+    setCodigo(`${unidadeCod}${yy}${mm}${dd}${siglaCremacao}${tutor3}${pet3}${rnd}`)
   }, [isOpen, ficha, dataContrato, codigoManual, currentUnit])
 
   // Reset form on close
@@ -382,6 +389,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       setIndicNomeAtivo(false)
       setIndicHospClinica('')
       setIndicHospAtivo(false)
+      setOutroNormalizado('')
       setIndicEstabBusca('')
       setIndicEstabAberto(false)
       setIndicEstabId(null)
@@ -446,6 +454,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       if (op.indicNomeAtivo) setIndicNomeAtivo(true)
       if (op.indicHospClinica) setIndicHospClinica(String(op.indicHospClinica))
       if (op.indicHospAtivo) setIndicHospAtivo(true)
+      if (op.outroNormalizado) setOutroNormalizado(String(op.outroNormalizado))
       if (op.indicEstabId) { setIndicEstabId(String(op.indicEstabId)); setIndicEstabNome(String(op.indicEstabNome || '')); setIndicEstabBusca(String(op.indicEstabNome || '')) }
       if (op.indicEstabNome && !op.indicEstabId) setIndicEstabNome(String(op.indicEstabNome))
       if (op.indicId) setIndicId(String(op.indicId))
@@ -506,9 +515,11 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       const mm = String(now.getMonth() + 1).padStart(2, '0')
       const dd = String(now.getDate()).padStart(2, '0')
       const sc = ficha.cremacao?.toLowerCase() === 'individual' ? 'IND' : 'COL'
-      const t3 = (ficha.nome_completo || '').trim().slice(0, 3).toUpperCase()
-      const p3 = (ficha.nome_pet || '').trim().slice(0, 3).toUpperCase()
-      codigoFinal = `${currentUnit?.codigo || ''}${yy}${mm}${dd}${sc}${t3}${p3}`
+      const rmAc = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      const t3 = rmAc((ficha.nome_completo || '').trim().slice(0, 3).toUpperCase())
+      const p3 = rmAc((ficha.nome_pet || '').trim().slice(0, 3).toUpperCase())
+      const rnd2 = Math.random().toString(36).slice(2, 4).toUpperCase()
+      codigoFinal = `${currentUnit?.codigo || ''}${yy}${mm}${dd}${sc}${t3}${p3}${rnd2}`
       setCodigo(codigoFinal)
     }
     setSalvando(true)
@@ -544,6 +555,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         semLacre,
         valorPlano: valorPlano || null,
         descontoPreVenda: descontoPreVenda || null,
+        descontoTipo,
         dataContrato,
         // Indicação
         teveIndicacao,
@@ -553,6 +565,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         indicHospAtivo,
         indicEstabId,
         indicEstabNome: indicEstabNome || null,
+        outroNormalizado: outroNormalizado || null,
         indicId,
         indicNome: indicNome || null,
         indicCargo: indicCargo || null,
@@ -662,6 +675,17 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       const localColetaMap: Record<string, string> = { residencia: 'Residência', clinica: 'Clínica', unidade: 'Unidade', outro: 'Outro' }
       const localColetaValor = localColetaMap[localColeta] || null
 
+      // Step 4b: Buscar endereço do estabelecimento (se local = clínica)
+      let estabEndereco: { endereco: string; bairro: string; cidade: string; cep: string } | null = null
+      if (localColeta === 'clinica' && resolvedEstabId) {
+        const { data: estabData } = await supabase
+          .from('estabelecimentos')
+          .select('endereco, bairro, cidade, cep')
+          .eq('id', resolvedEstabId)
+          .single() as { data: { endereco: string; bairro: string; cidade: string; cep: string } | null }
+        estabEndereco = estabData
+      }
+
       // Step 5: Insert contrato
       const contratoData = {
         codigo: codigo.trim(),
@@ -700,10 +724,25 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
           return d
         })(),
         local_coleta: semLocal ? null : localColetaValor,
-        remocao_endereco: semLocal ? null : (localColeta === 'residencia' ? (f.endereco ? `${f.endereco}, ${f.numero}` : null) : localColeta === 'outro' ? enderecoOutro || null : null),
-        remocao_bairro: semLocal ? null : (localColeta === 'residencia' ? f.bairro : null),
-        remocao_cidade: semLocal ? null : (localColeta === 'residencia' ? f.cidade : null),
-        remocao_cep: semLocal ? null : (localColeta === 'residencia' ? f.cep : null),
+        remocao_endereco: semLocal ? null
+          : localColeta === 'residencia' ? (f.endereco ? `${f.endereco}, ${f.numero}` : null)
+          : localColeta === 'clinica' ? (estabEndereco?.endereco || clinicaColetaNome || null)
+          : localColeta === 'outro' ? (enderecoOutro || null)
+          : localColeta === 'unidade' ? (currentUnit?.endereco || null)
+          : null,
+        remocao_bairro: semLocal ? null
+          : localColeta === 'residencia' ? f.bairro
+          : localColeta === 'clinica' ? (estabEndereco?.bairro || null)
+          : null,
+        remocao_cidade: semLocal ? null
+          : localColeta === 'residencia' ? f.cidade
+          : localColeta === 'clinica' ? (estabEndereco?.cidade || null)
+          : localColeta === 'unidade' ? (currentUnit?.cidade || null)
+          : null,
+        remocao_cep: semLocal ? null
+          : localColeta === 'residencia' ? f.cep
+          : localColeta === 'clinica' ? (estabEndereco?.cep || null)
+          : null,
         numero_lacre: lacre || null,
         observacoes: f.observacoes || null,
         certificado_nome_1: f.nome_completo || null,
@@ -777,7 +816,21 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   const valorOk = !!valorPlano.trim()
   const acolhimentoValido = telefoneOk && localOk && responsavelOk && dataHoraOk && lacreOk && valorOk
 
-  const footer = modoVisualizacao ? (
+  const footer = somenteLeitura ? (
+    /* Modo somente leitura (recebidas) — só Fechar e Processar */
+    <div className="flex gap-2 justify-end w-full">
+      <button onClick={onClose} className="py-2 px-4 rounded-lg text-xs font-semibold text-[var(--surface-600)] border border-[var(--surface-200)] hover:bg-[var(--surface-50)] transition-colors">
+        Fechar
+      </button>
+      <button
+        onClick={() => { onClose(); if (ficha) setTimeout(() => onReprocessar?.(ficha), 100) }}
+        className="py-2 px-4 rounded-lg text-xs font-semibold text-white bg-[var(--brand-600)] hover:bg-[var(--brand-700)] transition-colors"
+      >
+        Processar
+      </button>
+    </div>
+  ) : modoVisualizacao ? (
+    /* Modo processada — ações completas */
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full">
       <button
         onClick={() => setConfirmarCancelamento(true)}
@@ -800,12 +853,17 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       <button onClick={onClose} className="py-2 px-3 rounded-lg text-xs font-semibold text-[var(--surface-600)] border border-[var(--surface-200)] hover:bg-[var(--surface-50)] transition-colors">
         Fechar
       </button>
-      <button
-        disabled
-        className="py-2 px-3 rounded-lg text-xs font-semibold text-white bg-emerald-600 opacity-40 cursor-not-allowed"
-      >
-        Iniciar Fluxo
-      </button>
+      {isVisible('tela_fichas', 'btn_iniciar_fluxo') && (
+        <button
+          onClick={() => {
+            // TODO: implementar criação do contrato a partir da ficha processada
+            alert('Iniciar Fluxo — em desenvolvimento')
+          }}
+          className="py-2 px-3 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors"
+        >
+          Iniciar Fluxo
+        </button>
+      )}
     </div>
   ) : (
     <div className="flex gap-3 justify-end">
@@ -829,7 +887,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
     </div>
   )
 
-  const modalTitle = modoVisualizacao ? 'Ficha Processada' : 'Processar Ficha'
+  const modalTitle = somenteLeitura ? 'Visualizar Ficha' : modoVisualizacao ? 'Ficha Processada' : 'Processar Ficha'
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={modalTitle} footer={footer} size="xl">
@@ -937,6 +995,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                 <span className={`font-bold ${pesoColor}`}>Peso: {ficha?.peso ? `${ficha.peso}kg` : '-'}</span>
                 <span>Idade: {ficha?.idade || '-'}</span>
               </div>
+              <p className="text-xs text-[var(--surface-600)]"><strong>Localização:</strong> {ficha?.localizacao}{ficha?.localizacao_outra ? ` (${ficha.localizacao_outra})` : ''}</p>
             </div>
           </div>
 
@@ -948,23 +1007,49 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                 <strong>Cremação:</strong>{' '}
                 <span className={`font-bold ${isInd ? 'text-emerald-400' : 'text-purple-400'}`}>{formatarDisplay(ficha?.cremacao)}</span>
               </p>
-              <div className="text-xs text-[var(--surface-600)]">
-                <strong>Valor Plano:</strong>{' '}
-                <span className="font-bold text-emerald-400">R$ {vPlano.toLocaleString('pt-BR')}</span>
-                {descReal > 0 && (
-                  <span className="text-red-400 ml-1">
-                    − R$ {descReal.toLocaleString('pt-BR')} ({descontoTipo === 'percentual' ? `${descontoPreVenda}%` : 'desc.'})
-                  </span>
-                )}
-                {descReal > 0 && (
-                  <span className="font-bold text-emerald-400 ml-1">= R$ {vFinal.toLocaleString('pt-BR')}</span>
-                )}
-              </div>
+              {!somenteLeitura && (
+                <div className="text-xs text-[var(--surface-600)]">
+                  <strong>Valor Plano:</strong>{' '}
+                  <span className="font-bold text-emerald-400">R$ {vPlano.toLocaleString('pt-BR')}</span>
+                  {descReal > 0 && (
+                    <span className="text-red-400 ml-1">
+                      − R$ {descReal.toLocaleString('pt-BR')} ({descontoTipo === 'percentual' ? `${descontoPreVenda}%` : 'desc.'})
+                    </span>
+                  )}
+                  {descReal > 0 && (
+                    <span className="font-bold text-emerald-400 ml-1">= R$ {vFinal.toLocaleString('pt-BR')}</span>
+                  )}
+                </div>
+              )}
               <p className="text-xs text-[var(--surface-600)]"><strong>Pagamento:</strong> {formatarDisplay(ficha?.pagamento)}{ficha?.parcelas ? ` ${ficha.parcelas}` : ''}</p>
               <p className="text-xs text-[var(--surface-600)]"><strong>Velório:</strong> {ficha?.velorio} | <strong>Acomp.:</strong> {ficha?.acompanhamento}</p>
             </div>
+            {/* Info Adicional — como conheceu */}
             <div className="p-3 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)] space-y-1.5">
-              <h4 className="text-[10px] font-bold text-[var(--surface-500)] uppercase tracking-wider mb-1">Acolhimento</h4>
+              <h4 className="text-[10px] font-bold text-[var(--surface-500)] uppercase tracking-wider mb-1">Informações Adicionais</h4>
+              {ficha?.como_conheceu && ficha.como_conheceu.length > 0 && (
+                <p className="text-xs text-[var(--surface-600)]"><strong>Como conheceu:</strong> {ficha.como_conheceu.join(', ')}{ficha.veterinario_especificar ? ` (${ficha.veterinario_especificar})` : ''}{ficha.outro_especificar ? ` (${ficha.outro_especificar})` : ''}</p>
+              )}
+              {!somenteLeitura && teveIndicacao && (indicNomeQuemIndicou || indicEstabNome || indicHospClinica) && (
+                <p className="text-xs text-[var(--surface-600)]"><strong>Indicação normalizada:</strong> {[indicNomeQuemIndicou, indicEstabNome || indicHospClinica].filter(Boolean).join(' - ')}</p>
+              )}
+            </div>
+          </div>
+            </>
+            )
+          })()}
+
+          {ficha?.observacoes && (
+            <div className="p-3 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)]">
+              <h4 className="text-[10px] font-bold text-[var(--surface-500)] uppercase tracking-wider mb-1">Observações</h4>
+              <p className="text-xs text-[var(--surface-600)] whitespace-pre-wrap">{ficha.observacoes}</p>
+            </div>
+          )}
+
+          {/* Acolhimento — só processadas */}
+          {!somenteLeitura && (
+            <div className="p-3 rounded-lg border border-amber-500/20 space-y-1.5" style={{ background: 'rgba(250, 204, 21, 0.05)' }}>
+              <h4 className="text-[10px] font-bold text-amber-500 uppercase tracking-wider mb-1">Dados do Operador — Acolhimento</h4>
               {(() => {
                 const localMap: Record<string, string> = { residencia: 'Residência (Endereço de Cadastro)', unidade: 'Unidade RIP PET' }
                 const localLabel = semLocal ? null : localColeta === 'outro' ? (enderecoOutro || 'Outro endereço') : localColeta === 'clinica' ? (estabNome || clinicaTextoLivre || 'Clínica / Hospital') : (localMap[localColeta] || localColeta || '-')
@@ -984,19 +1069,10 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                 )}
               </p>
             </div>
-          </div>
-            </>
-            )
-          })()}
-
-          {ficha?.observacoes && (
-            <div className="p-3 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)]">
-              <h4 className="text-[10px] font-bold text-[var(--surface-500)] uppercase tracking-wider mb-1">Observações</h4>
-              <p className="text-xs text-[var(--surface-600)] whitespace-pre-wrap">{ficha.observacoes}</p>
-            </div>
           )}
 
-          {/* Botão enviar confirmação WhatsApp */}
+          {/* Botão enviar confirmação WhatsApp — só processadas */}
+          {!somenteLeitura && (<>
           <button
             type="button"
             onClick={() => {
@@ -1010,7 +1086,9 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               const cremacao = ficha.cremacao || ''
               const valorOp = op.valorPlano ? parseFloat(String(op.valorPlano)) : null
               const descontoOp = op.descontoPreVenda ? parseFloat(String(op.descontoPreVenda)) : 0
-              const valorFinal = valorOp != null ? valorOp - descontoOp : (ficha.valor || 0)
+              const descontoTipoOp = (op.descontoTipo as string) || 'valor'
+              const descontoRealOp = descontoTipoOp === 'percentual' && valorOp ? (valorOp * descontoOp) / 100 : descontoOp
+              const valorFinal = valorOp != null ? valorOp - descontoRealOp : (ficha.valor || 0)
               const valor = valorFinal ? `R$ ${valorFinal.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}` : ''
               const dataEnvio = new Date(ficha.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
               const outrosNomes = ficha.outros_tutores?.filter(Boolean)
@@ -1060,8 +1138,77 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
             Enviar Confirmação
           </button>
 
-          {/* Campos provisórios — editáveis */}
-          {(semLocal || semResponsavel || semDataHora || semLacre || !telefoneConfirmado) && (
+          {/* Gerar Contrato PDF */}
+          <button
+            type="button"
+            onClick={async () => {
+              if (!ficha) return
+              const op = (ficha.op_dados || {}) as Record<string, unknown>
+              const nomeUnidade = currentUnit ? `${currentUnit.cidade} - ${currentUnit.estado}` : 'Santos - SP'
+              const semLocalOp = op.semLocal as boolean
+              const opLocalColeta = op.localColeta as string | null
+              const localPdf = semLocalOp ? '' : opLocalColeta === 'clinica' ? ((op.estabNome as string) || (op.clinicaTextoLivre as string) || ficha.localizacao)
+                : opLocalColeta === 'outro' ? ((op.enderecoOutro as string) || ficha.localizacao_outra || '')
+                : opLocalColeta === 'residencia' ? 'Residência (Endereço de Cadastro)'
+                : opLocalColeta === 'unidade' ? 'Unidade RIP PET'
+                : ficha.localizacao
+              const vp = op.valorPlano ? parseFloat(String(op.valorPlano)) : ficha.valor
+              const dp = op.descontoPreVenda ? parseFloat(String(op.descontoPreVenda)) : 0
+              const dt = (op.descontoTipo as string) || 'valor'
+              const dr = dt === 'percentual' && vp ? (vp * dp) / 100 : dp
+              const valorFinal = vp ? Math.max(vp - dr, 0) : null
+
+              try {
+                const blob = await gerarContratoPDF({
+                  codigo: String(op.codigo || codigo),
+                  lacre: op.semLacre ? null : (op.lacre ? String(op.lacre) : null),
+                  tutorNome: ficha.nome_completo || '',
+                  tutorTelefone: ficha.telefone || '',
+                  tutorCpf: ficha.cpf || '',
+                  tutorEmail: ficha.email,
+                  tutorEndereco: ficha.endereco ? `${ficha.endereco}, ${ficha.numero}${ficha.complemento ? ` - ${ficha.complemento}` : ''}` : null,
+                  tutorEstado: ficha.estado,
+                  tutorCidade: ficha.cidade,
+                  tutorBairro: ficha.bairro,
+                  tutorCep: ficha.cep,
+                  petNome: ficha.nome_pet || '',
+                  petEspecie: ficha.especie,
+                  petRaca: ficha.raca,
+                  petIdade: ficha.idade ? parseInt(ficha.idade) || null : null,
+                  petCor: ficha.cor,
+                  petGenero: ficha.genero,
+                  petPeso: ficha.peso ? parseFloat(ficha.peso) || null : null,
+                  localColeta: localPdf,
+                  tipoCremacao: ficha.cremacao?.toLowerCase() as 'individual' | 'coletiva',
+                  valorPlano: valorFinal,
+                  metodoPagamento: ficha.pagamento,
+                  parcelas: ficha.parcelas ? parseInt(ficha.parcelas.replace(/\D/g, '')) || null : null,
+                  velorioDeseja: ficha.velorio === 'Sim' ? true : ficha.velorio === 'Não' ? false : null,
+                  acompanhamentoOnline: ficha.acompanhamento?.includes('On-line') || false,
+                  acompanhamentoPresencial: ficha.acompanhamento?.includes('Presencial') || false,
+                  temDesconto: dp > 0,
+                  dataAcolhimento: op.semDataHora ? null : (op.dataHoraAcolhimento as string) || null,
+                }, nomeUnidade)
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = contratoFilename(String(op.codigo || codigo), ficha.nome_pet || 'PET')
+                a.click()
+                URL.revokeObjectURL(url)
+              } catch (err) {
+                console.error('Erro ao gerar PDF:', err)
+              }
+            }}
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-red-600 text-white font-semibold text-sm hover:bg-red-700 transition-colors"
+          >
+            <img src="/pdf-icon.png" alt="PDF" className="h-5 w-5 object-contain" />
+            Gerar Contrato PDF
+          </button>
+
+          </>)}
+
+          {/* Campos provisórios — editáveis (só processadas) */}
+          {!somenteLeitura && (semLocal || semResponsavel || semDataHora || semLacre || !telefoneConfirmado) && (
             <div className="p-4 rounded-xl space-y-3" style={{ background: 'rgba(250, 204, 21, 0.08)', border: '1px solid rgba(250, 204, 21, 0.2)' }}>
               <h4 className="text-xs font-bold text-amber-500 uppercase tracking-wider">Campos Pendentes (provisórios)</h4>
               <p className="text-[10px] text-amber-400/70">Preencha abaixo quando tiver as informações e clique em Salvar</p>
@@ -1086,6 +1233,49 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                       </button>
                     ))}
                   </div>
+                  {localColeta === 'clinica' && (
+                    temPadronizacaoClinicas ? (
+                      <div ref={estabRef} className="relative mt-1.5">
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[10px] font-medium text-[var(--surface-500)]">Estabelecimento</label>
+                          <label className="flex items-center gap-1 cursor-pointer">
+                            <input type="checkbox" checked={autonomo} onChange={e => { setAutonomo(e.target.checked); if (e.target.checked) { setEstabId(null); setEstabNome(''); setEstabBusca('') } }} className="h-3 w-3 rounded accent-blue-500" />
+                            <span className="text-[9px] text-blue-400">Autônomo</span>
+                          </label>
+                        </div>
+                        {autonomo ? (
+                          <div className="px-2 py-1.5 rounded-lg border-2 border-dashed border-blue-500/30 bg-blue-900/10 text-[10px] text-blue-400">Profissional autônomo</div>
+                        ) : (
+                          <>
+                            <div className="relative">
+                              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-[var(--surface-400)]" />
+                              <input type="text" value={estabBusca} onChange={e => { setEstabBusca(e.target.value); setEstabNome(e.target.value); setEstabId(null); setEstabAberto(true) }} onFocus={() => setEstabAberto(true)} placeholder="Buscar clínica..." className="input pl-8 text-sm" />
+                            </div>
+                            {estabAberto && (estabsFiltrados.length > 0 || estabBusca.trim()) && (
+                              <div className="absolute z-20 mt-1 w-full max-h-40 overflow-y-auto bg-[var(--surface-0)] border border-[var(--surface-200)] rounded-lg shadow-lg">
+                                {estabsFiltrados.map(e => (
+                                  <button key={e.id} type="button" onClick={() => { setEstabId(e.id); setEstabNome(e.nome); setEstabBusca(e.nome); setEstabAberto(false) }}
+                                    className="w-full text-left px-3 py-1.5 text-sm hover:bg-[var(--surface-50)] text-[var(--surface-600)]">{e.nome}</button>
+                                ))}
+                                {estabBusca.trim() && !estabsFiltrados.some(e => e.nome.toLowerCase() === estabBusca.toLowerCase()) && (
+                                  <button type="button" onClick={() => { setEstabId(null); setEstabNome(estabBusca.trim()); setEstabAberto(false) }}
+                                    className="w-full text-left px-3 py-1.5 text-sm text-amber-500 hover:bg-amber-900/10 border-t border-[var(--surface-100)]">
+                                    <Plus className="h-3 w-3 inline mr-1" />Criar &quot;{estabBusca.trim()}&quot;
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                            {estabId && <p className="mt-1 text-[10px] text-green-500"><Check className="h-3 w-3 inline" /> Selecionado</p>}
+                          </>
+                        )}
+                      </div>
+                    ) : (
+                      <input type="text" value={clinicaTextoLivre} onChange={e => setClinicaTextoLivre(e.target.value)} placeholder="Nome da clínica ou hospital" className="input text-sm mt-1.5" />
+                    )
+                  )}
+                  {localColeta === 'outro' && (
+                    <input type="text" value={enderecoOutro} onChange={e => setEnderecoOutro(e.target.value)} placeholder="Endereço completo" className="input text-sm mt-1.5" />
+                  )}
                 </div>
               )}
 
@@ -1338,7 +1528,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
 
             {/* Telefone — quem é o contato ativo? */}
             <div className="p-3 rounded-lg border border-[var(--surface-200)] space-y-2">
-              <label className="text-xs font-medium text-[var(--surface-600)]">Telefone da Ficha</label>
+              <label className="text-xs font-medium text-[var(--surface-600)]">Telefone da Ficha <span className="text-red-400">*</span></label>
               <div className="px-3 py-2 rounded-lg bg-[var(--surface-50)] text-sm text-mono text-[var(--surface-700)]">
                 {formatarTel(getFichaValue('telefone'))}
               </div>
@@ -1393,7 +1583,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
             {/* Local de Acolhimento */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-medium text-[var(--surface-600)]">Local de Acolhimento</label>
+                <label className="text-xs font-medium text-[var(--surface-600)]">Local de Acolhimento <span className="text-red-400">*</span></label>
                 <label className="flex items-center gap-1.5 cursor-pointer select-none">
                   <input type="checkbox" checked={semLocal} onChange={e => { setSemLocal(e.target.checked); if (e.target.checked) setLocalColeta('') }} className="h-3 w-3 rounded accent-amber-500" />
                   <span className="text-[10px] text-amber-500">Sem local provisoriamente</span>
@@ -1511,7 +1701,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
             {/* Responsável pelo Acolhimento */}
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-medium text-[var(--surface-600)]">Responsável pelo Acolhimento</label>
+                <label className="text-xs font-medium text-[var(--surface-600)]">Responsável pelo Acolhimento <span className="text-red-400">*</span></label>
                 <label className="flex items-center gap-1.5 cursor-pointer select-none">
                   <input type="checkbox" checked={semResponsavel} onChange={e => { setSemResponsavel(e.target.checked); if (e.target.checked) setFuncionarioId('') }} className="h-3 w-3 rounded accent-amber-500" />
                   <span className="text-[10px] text-amber-500">Sem responsável provisoriamente</span>
@@ -1530,7 +1720,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
             {/* Data e Hora do Acolhimento */}
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-medium text-[var(--surface-600)]">Data e Hora do Acolhimento</label>
+                <label className="text-xs font-medium text-[var(--surface-600)]">Data e Hora do Acolhimento <span className="text-red-400">*</span></label>
                 <label className="flex items-center gap-1.5 cursor-pointer select-none">
                   <input type="checkbox" checked={semDataHora} onChange={e => { setSemDataHora(e.target.checked); if (e.target.checked) setDataHoraAcolhimento('') }} className="h-3 w-3 rounded accent-amber-500" />
                   <span className="text-[10px] text-amber-500">Sem data/hora provisoriamente</span>
@@ -1546,7 +1736,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
             {/* Lacre */}
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-medium text-[var(--surface-600)]">Número do Lacre</label>
+                <label className="text-xs font-medium text-[var(--surface-600)]">Número do Lacre <span className="text-red-400">*</span></label>
                 <label className="flex items-center gap-1.5 cursor-pointer select-none">
                   <input type="checkbox" checked={semLacre} onChange={e => { setSemLacre(e.target.checked); if (e.target.checked) setLacre('') }} className="h-3 w-3 rounded accent-amber-500" />
                   <span className="text-[10px] text-amber-500">Sem lacre provisoriamente</span>
@@ -1580,6 +1770,15 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                 <span className="text-purple-300">
                   &quot;{ficha.veterinario_especificar || ficha.outro_especificar || (ficha.como_conheceu || []).join(', ')}&quot;
                 </span>
+              </div>
+            )}
+
+            {/* Campo normalização "outro" — quando tutor escreveu algo genérico */}
+            {(ficha.outro_especificar || (ficha.como_conheceu || []).some(c => c === 'Outro' || c === 'Seguradora' || c === 'Seguro')) && (
+              <div>
+                <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Normalizar "Como conheceu"</label>
+                <p className="text-[9px] text-[var(--surface-400)] mb-1">Tutor escreveu: "{ficha.outro_especificar || (ficha.como_conheceu || []).join(', ')}"</p>
+                <input type="text" value={outroNormalizado} onChange={e => setOutroNormalizado(e.target.value)} placeholder="Ex: Seguradora Porto Seguro, Rádio Cultura, etc." className="input text-sm" />
               </div>
             )}
 
