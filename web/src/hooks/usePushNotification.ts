@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 type PermissionState = 'default' | 'granted' | 'denied' | 'unsupported'
 
@@ -19,8 +19,16 @@ export function usePushNotification(userId: string | null, unidadeId: string | n
   const [permission, setPermission] = useState<PermissionState>('default')
   const [isSubscribed, setIsSubscribed] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Refs para ter valor atualizado dentro do callback
+  const userIdRef = useRef(userId)
+  const unidadeIdRef = useRef(unidadeId)
+  useEffect(() => { userIdRef.current = userId }, [userId])
+  useEffect(() => { unidadeIdRef.current = unidadeId }, [unidadeId])
 
   useEffect(() => {
+    if (typeof window === 'undefined') return
     if (!('Notification' in window) || !('serviceWorker' in navigator)) {
       setPermission('unsupported')
       return
@@ -36,13 +44,28 @@ export function usePushNotification(userId: string | null, unidadeId: string | n
   }, [])
 
   const subscribe = useCallback(async () => {
-    if (!userId || permission === 'unsupported') return false
+    const uid = userIdRef.current
+    if (!uid) {
+      setError('Usuário não identificado. Recarregue a página.')
+      return false
+    }
+    if (permission === 'unsupported') {
+      setError('Seu navegador não suporta notificações.')
+      return false
+    }
+    if (!VAPID_PUBLIC_KEY) {
+      setError('Chave de notificação não configurada.')
+      return false
+    }
+
     setLoading(true)
+    setError(null)
 
     try {
       const perm = await Notification.requestPermission()
       setPermission(perm as PermissionState)
       if (perm !== 'granted') {
+        setError('Permissão de notificação negada. Verifique as configurações do navegador.')
         setLoading(false)
         return false
       }
@@ -63,27 +86,32 @@ export function usePushNotification(userId: string | null, unidadeId: string | n
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           subscription: sub.toJSON(),
-          userId,
-          unidadeId,
+          userId: uid,
+          unidadeId: unidadeIdRef.current,
         }),
       })
 
-      if (res.ok) {
-        setIsSubscribed(true)
-        setLoading(false)
-        return true
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || `Erro ${res.status}`)
       }
+
+      setIsSubscribed(true)
+      setLoading(false)
+      return true
     } catch (err) {
       console.error('Erro ao ativar notificações:', err)
+      setError(err instanceof Error ? err.message : 'Erro ao ativar notificações')
+      setLoading(false)
+      return false
     }
-
-    setLoading(false)
-    return false
-  }, [userId, unidadeId, permission])
+  }, [permission])
 
   const unsubscribe = useCallback(async () => {
-    if (!userId) return
+    const uid = userIdRef.current
+    if (!uid) return
     setLoading(true)
+    setError(null)
 
     try {
       const reg = await navigator.serviceWorker.ready
@@ -97,7 +125,7 @@ export function usePushNotification(userId: string | null, unidadeId: string | n
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             endpoint: sub.endpoint,
-            userId,
+            userId: uid,
           }),
         })
       }
@@ -105,10 +133,11 @@ export function usePushNotification(userId: string | null, unidadeId: string | n
       setIsSubscribed(false)
     } catch (err) {
       console.error('Erro ao desativar notificações:', err)
+      setError(err instanceof Error ? err.message : 'Erro ao desativar')
     }
 
     setLoading(false)
-  }, [userId])
+  }, [])
 
-  return { permission, isSubscribed, loading, subscribe, unsubscribe }
+  return { permission, isSubscribed, loading, error, subscribe, unsubscribe }
 }

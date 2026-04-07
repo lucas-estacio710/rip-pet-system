@@ -124,7 +124,7 @@ export default function FichasPage() {
 
   // User + Push
   const [userId, setUserId] = useState<string | null>(null)
-  const { permission, isSubscribed, loading: pushLoading, subscribe, unsubscribe } = usePushNotification(userId, currentUnit?.id || null)
+  const { permission, isSubscribed, loading: pushLoading, error: pushError, subscribe, unsubscribe } = usePushNotification(userId, currentUnit?.id || null)
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id || null))
@@ -443,6 +443,13 @@ export default function FichasPage() {
           </button>
         )}
       </div>
+
+      {/* Push error */}
+      {pushError && (
+        <div className="mb-4 px-4 py-3 rounded-lg bg-red-900/20 border border-red-500/30 text-red-400 text-sm">
+          {pushError}
+        </div>
+      )}
 
       {/* Cards de contagem */}
       <div className="grid grid-cols-2 gap-3 mb-6">

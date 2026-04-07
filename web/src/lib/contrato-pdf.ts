@@ -150,7 +150,10 @@ function fmtTel(t: string | null): string {
 
 export async function gerarContratoPDF(dados: DadosContrato, nomeUnidade: string): Promise<Blob> {
   // Carregar template PDF
-  const templateBytes = await fetch('/contrato-template.pdf').then(r => r.arrayBuffer())
+  // Template por unidade: PA e RS usam template específico
+  const u = getUnidade(nomeUnidade)
+  const templateFile = (u.sigla === 'PA' || u.sigla === 'RS') ? '/contrato-template-PA-RS.pdf' : '/contrato-template.pdf'
+  const templateBytes = await fetch(templateFile).then(r => r.arrayBuffer())
   const pdfDoc = await PDFDocument.load(templateBytes)
   const page = pdfDoc.getPages()[0]
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
@@ -186,8 +189,6 @@ export async function gerarContratoPDF(dados: DadosContrato, nomeUnidade: string
   // Para ajustar posições: mude DEBUG pra true, gera o PDF,
   // vê onde os pontos vermelhos caem, ajusta os números
   // ═══════════════════════════════════════════════
-
-  const u = getUnidade(nomeUnidade)
 
   // CÓDIGO INTERNO + LACRE (topo)
   txt(dados.codigo, 99, 25.45, 12, true, { r: 0, g: 0, b: 0.5 })
