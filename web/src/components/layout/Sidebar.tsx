@@ -33,7 +33,6 @@ type NavItem = {
 }
 
 const navItems: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, countKey: null, module: 'tela_dashboard' },
   { href: '/leads', label: 'Leads', icon: Zap, countKey: 'leads', module: 'tela_leads' },
   { href: '/fichas', label: 'Fichas', icon: TextSelect, countKey: 'fichas', module: 'tela_fichas' },
   { href: '/preventivos', label: 'Preventivos', icon: Heart, countKey: null, module: 'tela_preventivos' },
@@ -43,6 +42,7 @@ const navItems: NavItem[] = [
   { href: '/gc', label: 'GC', icon: Church, countKey: null, module: 'tela_gc' },
   { href: '/tutores', label: 'Tutores', icon: Users, countKey: null, module: 'tela_tutores' },
   { href: '/ads-shield', label: 'RIP Shield', icon: Shield, countKey: null, module: 'tela_ads_shield', iconColor: '#ef4444' },
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, countKey: null, module: 'tela_dashboard' },
 ]
 
 type Props = {
