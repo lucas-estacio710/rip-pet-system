@@ -631,7 +631,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         const { data: novoTutor, error: errTutor } = await supabase
           .from('tutores')
           .insert({
-            nome: f.nome_completo,
+            nome: f.nome_completo?.toUpperCase() || '',
             cpf: f.cpf,
             telefone: usarTelefone2ComoPrincipal && getTelefone2Completo() ? getTelefone2Completo() : f.telefone,
             telefone2: getTelefone2Completo() ? (usarTelefone2ComoPrincipal ? f.telefone : getTelefone2Completo()) : null,
@@ -722,6 +722,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         contato_id: resolvedContatoId || null, estabelecimento_id: resolvedEstabId || null,
         funcionario_id: semResponsavel ? null : (funcionarioId || null),
         fonte_conhecimento_id: fonteConhecimentoId,
+        estabelecimento_indicacao_id: teveIndicacao && temPadronizacaoClinicas ? (indicEstabId || null) : null,
         indicacao_clinica: teveIndicacao ? (temPadronizacaoClinicas ? (indicEstabNome.trim() || null) : (indicHospClinica.trim() || null)) : null,
         indicacao_contato: teveIndicacao ? (indicNomeQuemIndicou.trim() || null) : null,
         data_contrato: dataContrato,
