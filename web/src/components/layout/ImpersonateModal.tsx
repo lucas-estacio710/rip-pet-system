@@ -87,6 +87,11 @@ export function ImpersonateModal({ isOpen, onClose, onSelect }: Props) {
         )
       }
 
+      filtered.sort((a, b) => {
+        const nomeA = (a.perfis[0]?.nome || a.email).toLowerCase()
+        const nomeB = (b.perfis[0]?.nome || b.email).toLowerCase()
+        return nomeA.localeCompare(nomeB, 'pt-BR')
+      })
       setResults(filtered)
     } catch (e) {
       console.error('[ImpersonateModal] Erro:', e)
