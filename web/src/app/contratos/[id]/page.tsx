@@ -2057,18 +2057,7 @@ ${petNome}`
               />
             )}
 
-            {/* Botão Ficha de Remoção (FLS: btn_ficha_remocao) */}
-            {(contrato.status === 'ativo' || contrato.status === 'pinda') && isVisible(T, 'btn_ficha_remocao') && (
-              <button
-                onClick={() => setFichaModal(true)}
-                className="flex items-center justify-center w-7 h-7 bg-orange-500 text-white rounded-full hover:bg-orange-600 transition-colors"
-                title="Ficha de Remoção para Pinda"
-              >
-                <FileText className="h-4 w-4" />
-              </button>
-            )}
-
-            {/* PDF movido para tela de fichas processadas */}
+            {/* Ficha de Remoção — ELIMINADA */}
 
             {/* Botão Protocolo de Entrega (FLS: btn_protocolo_entrega) */}
             {(contrato.status === 'retorno' || contrato.status === 'pendente' || contrato.status === 'finalizado') && isVisible(T, 'btn_protocolo_entrega') && (
