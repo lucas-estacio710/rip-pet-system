@@ -2059,8 +2059,8 @@ ${petNome}`
 
             {/* Ficha de Remoção — ELIMINADA */}
 
-            {/* Botão Protocolo de Entrega (FLS: btn_protocolo_entrega) */}
-            {(contrato.status === 'retorno' || contrato.status === 'pendente' || contrato.status === 'finalizado') && isVisible(T, 'btn_protocolo_entrega') && (
+            {/* Botão Protocolo de Entrega (FLS: btn_fluxo_retorno) */}
+            {(contrato.status === 'retorno' || contrato.status === 'pendente' || contrato.status === 'finalizado') && isVisible(T, 'btn_fluxo_retorno') && (
               <button
                 onClick={() => {
                   if (contrato.protocolo_data) {
