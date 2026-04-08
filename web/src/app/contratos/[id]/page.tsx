@@ -2030,22 +2030,35 @@ ${petNome}`
 
           {/* Row 4: Actions + Copy ref */}
           <div className="flex items-center gap-2 flex-wrap">
-            <ActionButtons
-              contrato={contrato}
-              handlers={{
-                ...(isVisible(T, 'btn_pet_grato') ? { onPetGrato: () => abrirPetGrato() } : {}),
-                ...(isVisible(T, 'btn_chegamos') ? { onChegamos: () => setChegamosModalOpen(true) } : {}),
-                ...(isVisible(T, 'btn_chegaram') ? { onChegaram: () => setChegaramModalOpen(true) } : {}),
-                ...(isVisible(T, 'btn_finalizadora') ? { onFinalizadora: () => setFinalizadoraModalOpen(true) } : {}),
-                ...(isVisible(T, 'btn_ativar') ? { onAtivar: () => setAtivarModalOpen(true) } : {}),
-                ...(isVisible(T, 'btn_entrega') ? { onEntrega: () => setEntregaModalOpen(true) } : {}),
-              }}
-              layout="detail"
-              stopPropagation={false}
-            />
+            {/* Mensagens Personalizadas (FLS: btn_mensagens — 3-way com pipeline) */}
+            {isVisible(T, 'btn_mensagens') && (
+              <ActionButtons
+                contrato={contrato}
+                handlers={{
+                  onPetGrato: () => abrirPetGrato(),
+                  onChegamos: () => setChegamosModalOpen(true),
+                  onChegaram: () => setChegaramModalOpen(true),
+                  onFinalizadora: () => setFinalizadoraModalOpen(true),
+                }}
+                layout="detail"
+                stopPropagation={false}
+              />
+            )}
+            {/* Botões Alteração Fase (FLS: btn_alteracao_fase — 3-way com pipeline) */}
+            {isVisible(T, 'btn_alteracao_fase') && (
+              <ActionButtons
+                contrato={contrato}
+                handlers={{
+                  onAtivar: () => setAtivarModalOpen(true),
+                  onEntrega: () => setEntregaModalOpen(true),
+                }}
+                layout="detail"
+                stopPropagation={false}
+              />
+            )}
 
-            {/* Botão Ficha de Remoção - só aparece em Ativo e Pinda (FLS: btn_gerar_pdf) */}
-            {(contrato.status === 'ativo' || contrato.status === 'pinda') && isVisible(T, 'btn_gerar_pdf') && (
+            {/* Botão Ficha de Remoção (FLS: btn_ficha_remocao) */}
+            {(contrato.status === 'ativo' || contrato.status === 'pinda') && isVisible(T, 'btn_ficha_remocao') && (
               <button
                 onClick={() => setFichaModal(true)}
                 className="flex items-center justify-center w-7 h-7 bg-orange-500 text-white rounded-full hover:bg-orange-600 transition-colors"
@@ -2057,8 +2070,8 @@ ${petNome}`
 
             {/* PDF movido para tela de fichas processadas */}
 
-            {/* Botão Protocolo de Entrega - Retorno, Pendente, Finalizado (FLS: btn_protocolo) */}
-            {(contrato.status === 'retorno' || contrato.status === 'pendente' || contrato.status === 'finalizado') && isVisible(T, 'btn_protocolo') && (
+            {/* Botão Protocolo de Entrega (FLS: btn_protocolo_entrega) */}
+            {(contrato.status === 'retorno' || contrato.status === 'pendente' || contrato.status === 'finalizado') && isVisible(T, 'btn_protocolo_entrega') && (
               <button
                 onClick={() => {
                   if (contrato.protocolo_data) {

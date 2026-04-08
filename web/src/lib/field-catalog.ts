@@ -84,9 +84,15 @@ export const OBJETOS: ChildItemDef[] = [
 export const CAMPOS_BOTOES: ChildItemDef[] = [
   // --- PIPELINE ---
   { key: 'btn_farois', tela: 'tela_pipeline', label: 'Faróis Pipeline', desc: 'Todos os faróis do kanban (pelinho, urna, certificado, foto, pagamento, protocolo, rescaldo)', modo: 'toggle' },
-  { key: 'btn_mensagens', tela: 'tela_pipeline', label: 'Mensagens Personalizadas', desc: 'Pet Grato, Chegamos, Chegaram, Finalizadora', modo: 'toggle' },
-  { key: 'btn_alteracao_fase', tela: 'tela_pipeline', label: 'Botões Alteração Fase', desc: 'Ativar, Enviar pra Pinda, Marcar Entregue', modo: 'toggle' },
+  { key: 'btn_mensagens', tela: 'tela_pipeline', label: 'Mensagens Personalizadas', desc: '3-way: Pipeline ↔ Contrato. Pet Grato, Chegamos, Chegaram, Finalizadora', modo: 'toggle' },
+  { key: 'btn_alteracao_fase', tela: 'tela_pipeline', label: 'Botões Alteração Fase', desc: '3-way: Pipeline ↔ Contrato. Ativar, Pinda, Marcar Entregue', modo: 'toggle' },
   { key: 'btn_fluxo_retorno', tela: 'tela_pipeline', label: 'Fluxo Retorno', desc: 'Indicador de complexidade de montagem', modo: 'toggle' },
+
+  // --- CONTRATO DETALHE (3-way: mesma key = mesmo toggle do pipeline) ---
+  { key: 'btn_mensagens', tela: 'tela_contrato', label: 'Mensagens Personalizadas', desc: '3-way: Pipeline ↔ Contrato', modo: 'toggle' },
+  { key: 'btn_alteracao_fase', tela: 'tela_contrato', label: 'Botões Alteração Fase', desc: '3-way: Pipeline ↔ Contrato', modo: 'toggle' },
+  { key: 'btn_ficha_remocao', tela: 'tela_contrato', label: 'Ficha de Remoção', desc: 'Botão laranja de gerar ficha pra Pinda', modo: 'toggle' },
+  { key: 'btn_protocolo_entrega', tela: 'tela_contrato', label: 'Protocolo de Entrega', desc: 'Botão de protocolo de retorno', modo: 'toggle' },
 
   // --- FICHAS ---
   { key: 'btn_pdf_ficha', tela: 'tela_fichas', label: 'Gerar PDF', desc: 'Botão azul de gerar PDF do contrato no card da ficha', modo: 'toggle' },
