@@ -14,6 +14,7 @@ import InteractiveTags from '@/components/contratos/InteractiveTags'
 import ActionButtons from '@/components/contratos/ActionButtons'
 import EntregaModal from '@/components/contratos/modals/EntregaModal'
 import { useUnit } from '@/contexts/UnitContext'
+import { useFieldPermission } from '@/hooks/useFieldPermission'
 import PelinhoModal from '@/components/contratos/modals/PelinhoModal'
 import CertificadoModal from '@/components/contratos/modals/CertificadoModal'
 import AtivarModal from '@/components/contratos/modals/AtivarModal'
@@ -235,6 +236,8 @@ function ContratosContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const { currentUnit, isLoading: unitLoading } = useUnit()
+  const { isVisible } = useFieldPermission()
+  const T = 'tela_pipeline'
 
   // Inicializar estado a partir dos query params
   const [contratos, setContratos] = useState<Contrato[]>([])
@@ -3489,67 +3492,58 @@ ${petNome}`
                         </a>
                       )}
 
-                      {/* Action Buttons (Pet Grato, Chegamos, Chegaram, Finalizadora) */}
-                      {/* Ativar/Entrega vivem no status badge com → arrows */}
-                      <ActionButtons
-                        contrato={contrato}
-                        handlers={{
-                          onPetGrato: () => abrirPetGrato(contrato),
-                          onChegamos: () => abrirChegamosModal(contrato),
-                          onChegaram: () => abrirChegaramModal(contrato),
-                          onFinalizadora: () => abrirFinalizadoraModal(contrato),
-                        }}
-                        layout="pipeline"
-                      />
+                      {/* Action Buttons — Mensagens Personalizadas (FLS: btn_mensagens) */}
+                      {isVisible(T, 'btn_mensagens') && (
+                        <ActionButtons
+                          contrato={contrato}
+                          handlers={{
+                            onPetGrato: () => abrirPetGrato(contrato),
+                            onChegamos: () => abrirChegamosModal(contrato),
+                            onChegaram: () => abrirChegaramModal(contrato),
+                            onFinalizadora: () => abrirFinalizadoraModal(contrato),
+                          }}
+                          layout="pipeline"
+                        />
+                      )}
 
-                      {/* Status Badge + Complexidade */}
+                      {/* Botões Alteração Fase + Complexidade */}
                       <div className="flex flex-col items-end gap-1">
+                        {isVisible(T, 'btn_alteracao_fase') && (
                         <div className="flex items-center gap-1">
-                          <div className={`px-2 py-1 rounded-lg text-xs font-medium border ${statusColors?.bg} ${statusColors?.text} ${statusColors?.border}`}>
-                            {STATUS_FLOW.find(s => s.key === contrato.status)?.label || contrato.status}
-                          </div>
-                          {/* Botão Ativar - só para preventivo, com setinha */}
+                          {/* Botão Ativar - só para preventivo */}
                           {contrato.status === 'preventivo' && (
-                            <>
-                              <span className="text-slate-400 text-xs">→</span>
-                              <button
-                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); abrirAtivarModal(contrato) }}
-                                className="flex items-center justify-center w-9 h-9 bg-red-900 text-white rounded-full hover:bg-red-800 transition-colors"
-                                title="Ativar contrato preventivo"
-                              >
-                                <span className="text-base">✝️</span>
-                              </button>
-                            </>
+                            <button
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); abrirAtivarModal(contrato) }}
+                              className="flex items-center justify-center w-9 h-9 bg-red-900 text-white rounded-full hover:bg-red-800 transition-colors"
+                              title="Ativar contrato preventivo"
+                            >
+                              <span className="text-base">✝️</span>
+                            </button>
                           )}
-                          {/* Botão Pinda - só para ativo, com setinha */}
+                          {/* Botão Pinda - só para ativo */}
                           {contrato.status === 'ativo' && (
-                            <>
-                              <span className="text-slate-400 text-xs">→</span>
-                              <button
-                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); /* TODO: ação pinda */ }}
-                                className="flex items-center justify-center w-9 h-9 bg-orange-500 text-white rounded-full hover:bg-orange-600 transition-colors"
-                                title="Enviar para Pinda"
-                              >
-                                <span className="text-base">💛</span>
-                              </button>
-                            </>
+                            <button
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); /* TODO: ação pinda */ }}
+                              className="flex items-center justify-center w-9 h-9 bg-orange-500 text-white rounded-full hover:bg-orange-600 transition-colors"
+                              title="Enviar para Pinda"
+                            >
+                              <span className="text-base">💛</span>
+                            </button>
                           )}
                           {/* Botão Marcar Entregue - para retorno e pendente */}
                           {(contrato.status === 'retorno' || contrato.status === 'pendente') && (
-                            <>
-                              <span className="text-slate-400 text-xs">→</span>
-                              <button
-                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); abrirEntregaModal(contrato) }}
-                                className="flex items-center justify-center w-9 h-9 bg-emerald-600 text-white rounded-full hover:bg-emerald-700 transition-colors"
-                                title="Marcar entregue e finalizar"
-                              >
-                                <span className="text-base">📬</span>
-                              </button>
-                            </>
+                            <button
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); abrirEntregaModal(contrato) }}
+                              className="flex items-center justify-center w-9 h-9 bg-emerald-600 text-white rounded-full hover:bg-emerald-700 transition-colors"
+                              title="Marcar entregue e finalizar"
+                            >
+                              <span className="text-base">📬</span>
+                            </button>
                           )}
                         </div>
-                        {/* Indicador de complexidade - só Retorno */}
-                        {contrato.status === 'retorno' && (() => {
+                        )}
+                        {/* Indicador de complexidade - só Retorno (FLS: btn_fluxo_retorno) */}
+                        {contrato.status === 'retorno' && isVisible(T, 'btn_fluxo_retorno') && (() => {
                           const nivel = getComplexidadeMontagem(contrato)
                           const cores = {
                             1: 'bg-emerald-500 text-white',
@@ -3779,45 +3773,50 @@ ${petNome}`
                             </svg>
                           </a>
                         )}
-                        <ActionButtons
-                          contrato={contrato}
-                          handlers={{
-                            onPetGrato: () => abrirPetGrato(contrato),
-                            onChegamos: () => abrirChegamosModal(contrato),
-                            onChegaram: () => abrirChegaramModal(contrato),
-                            onFinalizadora: () => abrirFinalizadoraModal(contrato),
-                          }}
-                          layout="pipeline"
-                        />
+                        {/* Mensagens Personalizadas (FLS: btn_mensagens) */}
+                        {isVisible(T, 'btn_mensagens') && (
+                          <ActionButtons
+                            contrato={contrato}
+                            handlers={{
+                              onPetGrato: () => abrirPetGrato(contrato),
+                              onChegamos: () => abrirChegamosModal(contrato),
+                              onChegaram: () => abrirChegaramModal(contrato),
+                              onFinalizadora: () => abrirFinalizadoraModal(contrato),
+                            }}
+                            layout="pipeline"
+                          />
+                        )}
                         <div className="flex-1" />
-                        {/* Flow buttons */}
-                        {contrato.status === 'preventivo' && (
-                          <button
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); abrirAtivarModal(contrato) }}
-                            className="flex items-center justify-center w-8 h-8 bg-red-900 text-white rounded-full hover:bg-red-800 transition-colors"
-                            title="Ativar"
-                          >
-                            <span className="text-sm">✝️</span>
-                          </button>
-                        )}
-                        {contrato.status === 'ativo' && (
-                          <button
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); /* TODO: ação pinda */ }}
-                            className="flex items-center justify-center w-8 h-8 bg-orange-500 text-white rounded-full hover:bg-orange-600 transition-colors"
-                            title="Enviar para Pinda"
-                          >
-                            <span className="text-sm">💛</span>
-                          </button>
-                        )}
-                        {(contrato.status === 'retorno' || contrato.status === 'pendente') && (
-                          <button
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); abrirEntregaModal(contrato) }}
-                            className="flex items-center justify-center w-8 h-8 bg-emerald-600 text-white rounded-full hover:bg-emerald-700 transition-colors"
-                            title="Marcar entregue"
-                          >
-                            <span className="text-sm">📬</span>
-                          </button>
-                        )}
+                        {/* Botões Alteração Fase (FLS: btn_alteracao_fase) */}
+                        {isVisible(T, 'btn_alteracao_fase') && (<>
+                          {contrato.status === 'preventivo' && (
+                            <button
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); abrirAtivarModal(contrato) }}
+                              className="flex items-center justify-center w-8 h-8 bg-red-900 text-white rounded-full hover:bg-red-800 transition-colors"
+                              title="Ativar"
+                            >
+                              <span className="text-sm">✝️</span>
+                            </button>
+                          )}
+                          {contrato.status === 'ativo' && (
+                            <button
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); /* TODO: ação pinda */ }}
+                              className="flex items-center justify-center w-8 h-8 bg-orange-500 text-white rounded-full hover:bg-orange-600 transition-colors"
+                              title="Enviar para Pinda"
+                            >
+                              <span className="text-sm">💛</span>
+                            </button>
+                          )}
+                          {(contrato.status === 'retorno' || contrato.status === 'pendente') && (
+                            <button
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); abrirEntregaModal(contrato) }}
+                              className="flex items-center justify-center w-8 h-8 bg-emerald-600 text-white rounded-full hover:bg-emerald-700 transition-colors"
+                              title="Marcar entregue"
+                            >
+                              <span className="text-sm">📬</span>
+                            </button>
+                          )}
+                        </>)}
                       </div>
                     )}
                   </div>

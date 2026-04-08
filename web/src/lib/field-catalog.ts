@@ -84,6 +84,9 @@ export const OBJETOS: ChildItemDef[] = [
 export const CAMPOS_BOTOES: ChildItemDef[] = [
   // --- PIPELINE ---
   { key: 'btn_farois', tela: 'tela_pipeline', label: 'Faróis Pipeline', desc: 'Todos os faróis do kanban (pelinho, urna, certificado, foto, pagamento, protocolo, rescaldo)', modo: 'toggle' },
+  { key: 'btn_mensagens', tela: 'tela_pipeline', label: 'Mensagens Personalizadas', desc: 'Pet Grato, Chegamos, Chegaram, Finalizadora', modo: 'toggle' },
+  { key: 'btn_alteracao_fase', tela: 'tela_pipeline', label: 'Botões Alteração Fase', desc: 'Ativar, Enviar pra Pinda, Marcar Entregue', modo: 'toggle' },
+  { key: 'btn_fluxo_retorno', tela: 'tela_pipeline', label: 'Fluxo Retorno', desc: 'Indicador de complexidade de montagem', modo: 'toggle' },
 
   // --- FICHAS ---
   { key: 'btn_pdf_ficha', tela: 'tela_fichas', label: 'Gerar PDF', desc: 'Botão azul de gerar PDF do contrato no card da ficha', modo: 'toggle' },
