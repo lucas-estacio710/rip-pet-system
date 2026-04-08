@@ -152,6 +152,22 @@ export function UserMenu() {
                 <UserCheck className="h-4 w-4" style={{ color: '#f59e0b' }} />
                 <span className="text-sm">Logar como</span>
               </button>
+              <button
+                onClick={async () => {
+                  setIsOpen(false)
+                  const supabase = createClient()
+                  const { data } = await supabase.rpc('list_users_with_profiles') as { data: any[] | null }
+                  const kr = (data || []).find((u: any) => u.user_id === 'e8f8c47a-8150-4798-91c6-f5bf0d4403c9')
+                  if (kr) await startImpersonating(kr.user_id, kr.email, kr.perfis)
+                }}
+                className="w-full flex items-center gap-3 px-4 py-2 transition-colors"
+                style={{ color: '#94a3b8' }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                <UserCheck className="h-3.5 w-3.5" style={{ color: '#ec4899' }} />
+                <span className="text-xs">Logar como KR</span>
+              </button>
             </div>
           )}
 
