@@ -53,16 +53,16 @@ export type CatalogCategory = {
 // 1. TELAS (módulos/páginas)
 // ============================================
 export const TELAS: ItemDef[] = [
-  { key: 'tela_dashboard', label: 'Dashboard', desc: 'Painel de indicadores' },
   { key: 'tela_leads', label: 'Leads', desc: 'Funil de leads do site' },
   { key: 'tela_fichas', label: 'Fichas', desc: 'Receber e processar fichas' },
   { key: 'tela_preventivos', label: 'Preventivos', desc: 'Contratos preventivos' },
   { key: 'tela_pipeline', label: 'Pipeline', desc: 'Contratos e status' },
   { key: 'tela_entregas', label: 'Encaminhamentos', desc: 'Envio e retorno de pets pra Matriz' },
   { key: 'tela_estoque', label: 'Estoque', desc: 'Controle de estoque' },
-  { key: 'tela_tutores', label: 'Tutores', desc: 'Cadastro de tutores' },
   { key: 'tela_gc', label: 'GC', desc: 'Gerenciamento de Cremações (Matriz)' },
+  { key: 'tela_tutores', label: 'Tutores', desc: 'Cadastro de tutores' },
   { key: 'tela_ads_shield', label: 'RIP Shield', desc: 'Detecção de fraude em cliques Google Ads' },
+  { key: 'tela_dashboard', label: 'Dashboard', desc: 'Painel de indicadores' },
 ]
 
 // ============================================
