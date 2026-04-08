@@ -89,6 +89,7 @@ export const CAMPOS_BOTOES: ChildItemDef[] = [
   { key: 'btn_fluxo_retorno', tela: 'tela_pipeline', label: 'Fluxo Retorno', desc: 'Indicador de complexidade de montagem', modo: 'toggle' },
 
   // --- CONTRATO DETALHE (3-way: mesma key = mesmo toggle do pipeline) ---
+  { key: 'btn_farois', tela: 'tela_contrato', label: 'Faróis Pipeline', desc: '3-way: Pipeline ↔ Contrato', modo: 'toggle' },
   { key: 'btn_mensagens', tela: 'tela_contrato', label: 'Mensagens Personalizadas', desc: '3-way: Pipeline ↔ Contrato', modo: 'toggle' },
   { key: 'btn_alteracao_fase', tela: 'tela_contrato', label: 'Botões Alteração Fase', desc: '3-way: Pipeline ↔ Contrato', modo: 'toggle' },
   { key: 'btn_protocolo_entrega', tela: 'tela_contrato', label: 'Protocolo de Entrega', desc: 'Botão de protocolo de retorno', modo: 'toggle' },
