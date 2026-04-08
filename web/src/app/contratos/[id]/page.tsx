@@ -391,7 +391,7 @@ export default function ContratoDetalhe() {
   const supabase = createClient()
   const { hasModule } = useUnit()
   const { canEdit, isVisible } = useFieldPermission()
-  const T = 'tela_pipeline' // tela FLS (pipeline = lista + detalhe)
+  const T = 'tela_contrato' // tela FLS (detalhe do contrato)
 
   // Função para obter URL da imagem local
   function getImagemUrl(codigo: string): string {

@@ -56,7 +56,8 @@ export const TELAS: ItemDef[] = [
   { key: 'tela_leads', label: 'Leads', desc: 'Funil de leads do site' },
   { key: 'tela_fichas', label: 'Fichas', desc: 'Receber e processar fichas' },
   { key: 'tela_preventivos', label: 'Preventivos', desc: 'Contratos preventivos' },
-  { key: 'tela_pipeline', label: 'Pipeline', desc: 'Contratos e status' },
+  { key: 'tela_pipeline', label: 'Pipeline', desc: 'Lista de contratos e status' },
+  { key: 'tela_contrato', label: 'Contrato', desc: 'Detalhe do contrato (página /contratos/[id])' },
   { key: 'tela_entregas', label: 'Encaminhamentos', desc: 'Envio e retorno de pets pra Matriz' },
   { key: 'tela_estoque', label: 'Estoque', desc: 'Controle de estoque' },
   { key: 'tela_gc', label: 'GC', desc: 'Gerenciamento de Cremações (Matriz)' },
@@ -69,9 +70,9 @@ export const TELAS: ItemDef[] = [
 // 2. OBJETOS RELACIONADOS (seções/áreas dentro de telas)
 // ============================================
 export const OBJETOS: ChildItemDef[] = [
-  // Pipeline / Contrato Detalhe
-  { key: 'obj_financeiro', tela: 'tela_pipeline', label: 'Financeiro', desc: 'Resumo valores, descontos, pagamentos e NFS-e' },
-  { key: 'obj_produtos', tela: 'tela_pipeline', label: 'Produtos/Acessórios', desc: 'Card de produtos e acessórios vinculados ao contrato' },
+  // Contrato Detalhe
+  { key: 'obj_financeiro', tela: 'tela_contrato', label: 'Financeiro', desc: 'Resumo valores, descontos, pagamentos e NFS-e' },
+  { key: 'obj_produtos', tela: 'tela_contrato', label: 'Produtos/Acessórios', desc: 'Card de produtos e acessórios vinculados ao contrato' },
 
   // Fichas
   { key: 'cb_padronizacao_clinicas', tela: 'tela_fichas', label: 'Padronização Clínicas', desc: 'Autocomplete de estabelecimentos no processamento de ficha' },
