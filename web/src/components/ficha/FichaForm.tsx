@@ -440,8 +440,8 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
       // Pet
       nome_pet: form.nomePet,
       idade: form.idade || null,
-      especie: capitalize(form.especie),
-      genero: capitalize(form.genero),
+      especie: ({ canina: 'Canina', felina: 'Felina', exotica: 'Exótica' } as Record<string, string>)[form.especie] || capitalize(form.especie),
+      genero: ({ macho: 'Macho', femea: 'Fêmea' } as Record<string, string>)[form.genero] || capitalize(form.genero),
       raca: form.raca || null,
       cor: form.cor,
       peso: form.peso || null,

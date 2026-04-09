@@ -158,7 +158,14 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       } else {
         const original = String((ficha as Record<string, unknown>)[editingField] ?? '')
         if (editingValue !== original) {
-          setFichaEdits(prev => ({ ...prev, [editingField]: editingValue }))
+          setFichaEdits(prev => {
+            const updated = { ...prev, [editingField]: editingValue }
+            // Se mudou pagamento pra não-crédito, limpar parcelas
+            if (editingField === 'pagamento' && editingValue !== 'Cartão Crédito') {
+              updated.parcelas = ''
+            }
+            return updated
+          })
         }
       }
     }
@@ -884,7 +891,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   ) : (
     <div className="flex gap-3 justify-end">
       <button onClick={onClose} className="btn-secondary" disabled={salvando}>
-        Cancelar
+        Fechar
       </button>
       <button
         onClick={processarFicha}
@@ -2028,21 +2035,35 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               <div>
                 <label className="block text-xs font-medium text-[var(--surface-500)] mb-2">{label}</label>
                 {options ? (
-                  <div className="flex flex-wrap gap-2">
-                    {options.map(opt => (
-                      <button
-                        key={opt}
-                        type="button"
-                        onClick={() => { setEditingValue(opt) }}
-                        className={`px-3 py-2 rounded-lg text-sm font-medium border-2 transition-all ${
-                          editingValue === opt
-                            ? 'border-amber-500 bg-amber-500/10 text-amber-400'
-                            : 'border-[var(--surface-200)] text-[var(--surface-500)] hover:border-[var(--surface-300)]'
-                        }`}
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-2">
+                      {options.map(opt => (
+                        <button
+                          key={opt}
+                          type="button"
+                          onClick={() => { setEditingValue(opt) }}
+                          className={`px-3 py-2 rounded-lg text-sm font-medium border-2 transition-all ${
+                            editingValue === opt
+                              ? 'border-amber-500 bg-amber-500/10 text-amber-400'
+                              : 'border-[var(--surface-200)] text-[var(--surface-500)] hover:border-[var(--surface-300)]'
+                          }`}
+                        >
+                          {opt}
+                        </button>
+                      ))}
+                    </div>
+                    {/* Parcelas — só quando edita pagamento e seleciona Cartão Crédito */}
+                    {fieldKey === 'pagamento' && editingValue === 'Cartão Crédito' && (
+                      <select
+                        value={fichaEdits.parcelas || getFichaValue('parcelas') || ''}
+                        onChange={e => setFichaEdits(prev => ({ ...prev, parcelas: e.target.value }))}
+                        className="input text-sm"
                       >
-                        {opt}
-                      </button>
-                    ))}
+                        <option value="">Parcelas...</option>
+                        <option value="1x">À vista</option>
+                        {[2,3,4,5,6,7,8,9,10,11,12].map(n => <option key={n} value={`${n}x`}>{n}x</option>)}
+                      </select>
+                    )}
                   </div>
                 ) : (
                   <input

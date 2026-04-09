@@ -591,7 +591,15 @@ export default function FichasPage() {
                           {especieEmoji(ficha.especie)} {ficha.nome_pet?.toUpperCase()}
                         </span>
                         {ficha.peso && <span className="text-[9px] font-semibold text-[var(--surface-400)] bg-[var(--surface-100)] px-1 py-0.5 rounded">{ficha.peso}kg</span>}
-                        {ficha.valor != null && <span className="text-[10px] font-bold text-green-500 text-mono">R${ficha.valor.toLocaleString('pt-BR')}</span>}
+                        {(() => {
+                          const op = (ficha.op_dados || {}) as Record<string, unknown>
+                          const vp = op.valorPlano ? parseFloat(String(op.valorPlano)) : ficha.valor
+                          const dp = op.descontoPreVenda ? parseFloat(String(op.descontoPreVenda)) : 0
+                          const dt = (op.descontoTipo as string) || 'valor'
+                          const dr = dt === 'percentual' && vp ? (vp * dp) / 100 : dp
+                          const vFinal = vp ? Math.max(vp - dr, 0) : null
+                          return vFinal != null ? <span className="text-[10px] font-bold text-green-500 text-mono">R${vFinal.toLocaleString('pt-BR')}</span> : null
+                        })()}
                         <span className="text-[9px] text-[var(--surface-500)]">{formatarDisplay(ficha.pagamento)}{ficha.parcelas ? ` ${ficha.parcelas}` : ''}</span>
                       </div>
                       {/* Status badge */}
@@ -608,7 +616,22 @@ export default function FichasPage() {
                         </a>
                       )}
                       <span className="text-[var(--surface-200)]">|</span>
-                      <span className="inline-flex items-center gap-0.5"><MapPin className="h-2.5 w-2.5" />{ficha.localizacao || '-'}</span>
+                      <span className="inline-flex items-center gap-0.5"><MapPin className="h-2.5 w-2.5" />{(() => {
+                        const op = (ficha.op_dados || {}) as Record<string, unknown>
+                        if (op.localColeta) {
+                          const lc = op.localColeta as string
+                          if (lc === 'clinica') return (op.estabNome as string) || (op.clinicaTextoLivre as string) || ficha.localizacao
+                          if (lc === 'outro') return (op.enderecoOutro as string) || ficha.localizacao_outra || 'Outro'
+                          if (lc === 'residencia') return 'Residência'
+                          if (lc === 'unidade') return 'Unidade'
+                        }
+                        return ficha.localizacao || '-'
+                      })()}</span>
+                      {!isPendente && (() => {
+                        const op = (ficha.op_dados || {}) as Record<string, unknown>
+                        const lacreVal = op.lacre ? String(op.lacre) : null
+                        return lacreVal ? <span className="text-[10px] text-[var(--surface-500)] bg-[var(--surface-100)] px-1 py-0.5 rounded">Lacre: {lacreVal}</span> : null
+                      })()}
                       <span className="inline-flex items-center gap-0.5 text-[var(--surface-400)]"><Clock className="h-2.5 w-2.5" />{tempoRelativo(ficha.created_at)}</span>
                       {/* Processado por */}
                       {!isPendente && ficha.op_dados && (() => {
@@ -632,7 +655,7 @@ export default function FichasPage() {
                         if (op.semResponsavel) p.push('Resp.')
                         if (op.semDataHora) p.push('D/H')
                         if (op.semLacre) p.push('Lacre')
-                        if (!op.telefoneConfirmado && !op.mostrarTelefone2) p.push('Tel.')
+                        if (!op.telefoneConfirmado && !op.mostrarTelefone2 && !op.telefone2) p.push('Tel.')
                         if (p.length > 0) tags.push(<span key="pend" className="font-semibold text-amber-400 bg-amber-900/20 px-1 py-0.5 rounded">Sem: {p.join(', ')}</span>)
                         return tags.length > 0 ? <>{tags}</> : null
                       })()}
