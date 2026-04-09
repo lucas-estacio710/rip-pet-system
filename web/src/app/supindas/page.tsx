@@ -376,18 +376,12 @@ export default function SupindasPage() {
           </div>
           <div>
             <h1 className="text-title text-[var(--shell-text)]">Encaminhamentos</h1>
-            <p className="text-small text-[var(--shell-text-muted)]">Viagens para o crematório</p>
+            <p className="text-small text-[var(--shell-text-muted)]">Acompanhamento de viagens</p>
           </div>
         </div>
-        <button
-          onClick={() => setCriarModal(true)}
-          className="btn-primary"
-          style={{ background: '#ea580c' }}
-        >
-          <Plus className="h-4 w-4" />
-          <span className="hidden sm:inline">Novo Encaminhamento</span>
-          <span className="sm:hidden">Nova</span>
-        </button>
+        <span className="text-xs px-3 py-1.5 rounded-lg font-medium" style={{ background: 'rgba(139,92,246,0.15)', color: '#8b5cf6', border: '1px solid rgba(139,92,246,0.2)' }}>
+          👁️ Somente leitura — use o Pipeline para criar encaminhamentos
+        </span>
       </div>
 
       {/* Cards de Status */}
@@ -487,24 +481,7 @@ export default function SupindasPage() {
 
                     {/* Ações */}
                     <div className="flex items-center gap-2">
-                      {supinda.status === 'planejada' && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); marcarEmAndamento(supinda.id) }}
-                          className="px-3 py-1.5 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-                          title="Marcar como em andamento"
-                        >
-                          🚐 Iniciar
-                        </button>
-                      )}
-                      {supinda.status === 'em_andamento' && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); marcarRetornada(supinda.id) }}
-                          className="px-3 py-1.5 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
-                          title="Marcar como retornada"
-                        >
-                          ✅ Retornou
-                        </button>
-                      )}
+                      {/* Ações removidas — gerenciado via Pipeline */}
                       <div className="p-2 text-slate-400">
                         {isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
                       </div>
@@ -531,29 +508,27 @@ export default function SupindasPage() {
                               {/* Checkboxes */}
                               <div className="flex items-center gap-2 flex-shrink-0">
                                 {contrato.tipo_cremacao === 'individual' && (
-                                  <button
-                                    onClick={() => toggleContratoCheck(supinda.id, contrato.id, 'cinzas_recebidas', contrato.cinzas_recebidas)}
-                                    className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
+                                  <span
+                                    className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
                                       contrato.cinzas_recebidas
                                         ? 'bg-green-500/20 text-green-300 border border-green-500/40'
-                                        : 'bg-slate-600/50 text-slate-400 border border-slate-500/30 hover:border-green-500/40'
+                                        : 'bg-slate-600/50 text-slate-400 border border-slate-500/30'
                                     }`}
                                     title="Cinzas recebidas"
                                   >
                                     ⚱️ {contrato.cinzas_recebidas ? '✓' : ''}
-                                  </button>
+                                  </span>
                                 )}
-                                <button
-                                  onClick={() => toggleContratoCheck(supinda.id, contrato.id, 'certificado_recebido', contrato.certificado_recebido)}
-                                  className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
+                                <span
+                                  className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
                                     contrato.certificado_recebido
                                       ? 'bg-green-500/20 text-green-300 border border-green-500/40'
-                                      : 'bg-slate-600/50 text-slate-400 border border-slate-500/30 hover:border-green-500/40'
+                                      : 'bg-slate-600/50 text-slate-400 border border-slate-500/30'
                                   }`}
                                   title="Certificado recebido"
                                 >
                                   📜 {contrato.certificado_recebido ? '✓' : ''}
-                                </button>
+                                </span>
                               </div>
 
                               {/* Info do contrato */}
@@ -588,29 +563,18 @@ export default function SupindasPage() {
                                 key={item.id}
                                 className="flex items-center gap-3 p-2 bg-slate-700 rounded-lg border border-orange-500/30 group"
                               >
-                                <button
-                                  onClick={() => toggleItemFeito(supinda.id, item.id, item.feito)}
-                                  className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors flex-shrink-0 ${
+                                <span
+                                  className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium flex-shrink-0 ${
                                     item.feito
                                       ? 'bg-green-500/20 text-green-300 border border-green-500/40'
-                                      : 'bg-slate-600/50 text-slate-400 border border-slate-500/30 hover:border-green-500/40'
+                                      : 'bg-slate-600/50 text-slate-400 border border-slate-500/30'
                                   }`}
                                 >
                                   {item.feito ? '✅' : '⬜'}
-                                </button>
-                                <button
-                                  onClick={() => { setItemModal(supinda.id); setEditandoItemId(item.id); setNovoItemTexto(item.descricao); setNovoItemTipo(item.tipo) }}
-                                  className={`flex-1 text-sm text-left hover:text-orange-300 transition-colors ${item.feito ? 'text-slate-500 line-through' : 'text-slate-200'}`}
-                                >
+                                </span>
+                                <span className={`flex-1 text-sm ${item.feito ? 'text-slate-500 line-through' : 'text-slate-200'}`}>
                                   {item.descricao}
-                                </button>
-                                <button
-                                  onClick={() => removerItem(supinda.id, item.id)}
-                                  className="p-1 text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
-                                  title="Remover item"
-                                >
-                                  <X className="h-3.5 w-3.5" />
-                                </button>
+                                </span>
                               </div>
                             ))}
                           </div>
@@ -656,25 +620,7 @@ export default function SupindasPage() {
                         </>
                       )}
 
-                      {/* Botões de ação */}
-                      <div className="mt-3 flex items-center gap-3">
-                        <button
-                          onClick={() => { setItemModal(supinda.id); setNovoItemTexto(''); setNovoItemTipo('levar'); setEditandoItemId(null) }}
-                          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-orange-400 transition-colors"
-                        >
-                          <Plus className="h-3.5 w-3.5" />
-                          Adicionar item
-                        </button>
-                        {supinda.contratos && supinda.contratos.length > 0 && (
-                          <button
-                            onClick={() => setFichasModal({ id: supinda.id, numero: supinda.numero })}
-                            className="flex items-center gap-1.5 text-xs text-orange-400 hover:text-orange-300 transition-colors font-medium"
-                          >
-                            <FileImage className="h-3.5 w-3.5" />
-                            Gerar Fichas ({supinda.contratos.length})
-                          </button>
-                        )}
-                      </div>
+                      {/* Ações removidas — somente leitura */}
                     </div>
                   )}
                 </div>
