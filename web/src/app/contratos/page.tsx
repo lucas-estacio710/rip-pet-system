@@ -3644,14 +3644,7 @@ ${petNome}`
                         </a>
                       )}
 
-                      {/* Botão Compartilhar */}
-                      <button
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); abrirCompartilharModal(contrato) }}
-                        className="flex items-center justify-center w-9 h-9 bg-purple-600 text-white rounded-full hover:bg-purple-700 transition-colors"
-                        title="Compartilhar com outra unidade"
-                      >
-                        <span className="text-base">🔄</span>
-                      </button>
+                      {/* Botão Compartilhar — removido do pipeline, disponível no contrato [id] */}
 
                       {/* Action Buttons — Mensagens Personalizadas (FLS: btn_mensagens) */}
                       {isVisible(T, 'btn_mensagens') && (
@@ -3681,8 +3674,8 @@ ${petNome}`
                               <span className="text-base">✝️</span>
                             </button>
                           )}
-                          {/* Botão Pinda - só para ativo */}
-                          {contrato.status === 'ativo' && (
+                          {/* Botão Pinda - só para ativo (FLS: btn_bandeja) */}
+                          {contrato.status === 'ativo' && isVisible(T, 'btn_bandeja') && (
                             <button
                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); addBandejaIda(contrato) }}
                               className={`flex items-center justify-center w-9 h-9 rounded-full transition-colors ${
@@ -3964,7 +3957,7 @@ ${petNome}`
                               <span className="text-sm">✝️</span>
                             </button>
                           )}
-                          {contrato.status === 'ativo' && (
+                          {contrato.status === 'ativo' && isVisible(T, 'btn_bandeja') && (
                             <button
                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); addBandejaIda(contrato) }}
                               className={`flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
@@ -6009,15 +6002,15 @@ ${petNome}`
         )
       })()}
 
-      {/* Bandeja de Encaminhamento */}
-      <BandejaEncaminhamento
+      {/* Bandeja de Encaminhamento (FLS: btn_bandeja) */}
+      {isVisible(T, 'btn_bandeja') && <BandejaEncaminhamento
         contratosIda={bandejaIda}
         onRemoveIda={(id) => setBandejaIda(prev => prev.filter(c => c.id !== id))}
         contratosVolta={bandejaVolta}
         onRemoveVolta={(id) => setBandejaVolta(prev => prev.filter(c => c.id !== id))}
         onClear={() => { setBandejaIda([]); setBandejaVolta([]) }}
         onEncaminhamentoCriado={() => carregarContratos()}
-      />
+      />}
     </div>
   )
 }

@@ -87,22 +87,20 @@ export const CAMPOS_BOTOES: ChildItemDef[] = [
   { key: 'btn_mensagens', tela: 'tela_pipeline', label: 'Mensagens Personalizadas', desc: '3-way: Pipeline ↔ Contrato. Pet Grato, Chegamos, Chegaram, Finalizadora', modo: 'toggle' },
   { key: 'btn_alteracao_fase', tela: 'tela_pipeline', label: 'Botões Alteração Fase', desc: '3-way: Pipeline ↔ Contrato. Ativar, Pinda, Marcar Entregue', modo: 'toggle' },
   { key: 'btn_fluxo_retorno', tela: 'tela_pipeline', label: 'Fluxo Retorno', desc: 'Indicador de complexidade de montagem', modo: 'toggle' },
+  { key: 'btn_bandeja', tela: 'tela_pipeline', label: 'Bandeja Encaminhamento', desc: 'Dock inferior + botão ⛪ pra montar encaminhamentos', modo: 'toggle' },
 
   // --- CONTRATO DETALHE (3-way: mesma key = mesmo toggle do pipeline) ---
   { key: 'btn_farois', tela: 'tela_contrato', label: 'Faróis Pipeline', desc: '3-way: Pipeline ↔ Contrato', modo: 'toggle' },
   { key: 'btn_mensagens', tela: 'tela_contrato', label: 'Mensagens Personalizadas', desc: '3-way: Pipeline ↔ Contrato', modo: 'toggle' },
   { key: 'btn_alteracao_fase', tela: 'tela_contrato', label: 'Botões Alteração Fase', desc: '3-way: Pipeline ↔ Contrato', modo: 'toggle' },
   { key: 'btn_fluxo_retorno', tela: 'tela_contrato', label: 'Fluxo Retorno', desc: '3-way: Pipeline ↔ Contrato. Complexidade + Protocolo', modo: 'toggle' },
+  { key: 'btn_compartilhar', tela: 'tela_contrato', label: 'Compartilhar', desc: 'Botão 🔄 compartilhar remoção/entrega com outra unidade', modo: 'toggle' },
 
   // --- FICHAS ---
   { key: 'btn_pdf_ficha', tela: 'tela_fichas', label: 'Gerar PDF', desc: 'Botão azul de gerar PDF do contrato no card da ficha', modo: 'toggle' },
   { key: 'btn_iniciar_fluxo', tela: 'tela_fichas', label: 'Iniciar Fluxo', desc: 'Botão para gerar contrato a partir da ficha processada', modo: 'toggle' },
 
-  // --- SUPINDAS ---
-  { key: 'btn_criar_supinda', tela: 'tela_entregas', label: 'Criar Supinda' },
-  { key: 'btn_vincular', tela: 'tela_entregas', label: 'Vincular Contratos' },
-  { key: 'btn_gerar_fichas', tela: 'tela_entregas', label: 'Gerar Fichas em Lote' },
-  { key: 'btn_mudar_status', tela: 'tela_entregas', label: 'Mudar Status', desc: 'Planejada → Em andamento → Retornada' },
+  // --- SUPINDAS (somente leitura — sem campos/botões) ---
 
   // --- ESTOQUE ---
   { key: 'preco_produto', tela: 'tela_estoque', label: 'Preço do Produto', desc: 'Edição de preço no detalhe' },
