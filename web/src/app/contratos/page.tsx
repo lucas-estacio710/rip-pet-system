@@ -12,7 +12,7 @@ import ProtocoloEntrega from '@/components/protocolo/ProtocoloEntrega'
 import { printProtocolos } from '@/components/protocolo/ProtocoloPrint'
 import InteractiveTags from '@/components/contratos/InteractiveTags'
 import ActionButtons from '@/components/contratos/ActionButtons'
-import CarrinhoEncaminhamento, { adicionarAoCarrinho } from '@/components/contratos/CarrinhoEncaminhamento'
+import CarrinhoEncaminhamento, { adicionarAoCarrinho, removerDoCarrinho } from '@/components/contratos/CarrinhoEncaminhamento'
 import EntregaModal from '@/components/contratos/modals/EntregaModal'
 import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
@@ -453,11 +453,22 @@ function ContratosContent() {
 
   // Carrinho de encaminhamento (IDs já adicionados, pra feedback visual no card)
   const [carrinhoIds, setCarrinhoIds] = useState<Set<string>>(new Set())
+  const [carrinhoSupindaId, setCarrinhoSupindaId] = useState<string | null>(null)
 
-  async function addAoCarrinho(contrato: Contrato, direcao: 'ida' | 'volta') {
-    if (carrinhoIds.has(contrato.id) || !currentUnit) return
-    setCarrinhoIds(prev => new Set(prev).add(contrato.id))
-    await adicionarAoCarrinho(supabase, contrato.id, direcao, currentUnit.id, currentUnit.codigo)
+  async function toggleCarrinho(contrato: Contrato, direcao: 'ida' | 'volta') {
+    if (!currentUnit) return
+    if (carrinhoIds.has(contrato.id)) {
+      // Remover do carrinho
+      if (carrinhoSupindaId) {
+        setCarrinhoIds(prev => { const next = new Set(prev); next.delete(contrato.id); return next })
+        await removerDoCarrinho(supabase, contrato.id, carrinhoSupindaId, direcao)
+      }
+    } else {
+      // Adicionar ao carrinho
+      setCarrinhoIds(prev => new Set(prev).add(contrato.id))
+      const sid = await adicionarAoCarrinho(supabase, contrato.id, direcao, currentUnit.id, currentUnit.codigo)
+      if (sid) setCarrinhoSupindaId(sid)
+    }
   }
 
   // Modal Compartilhar (remoção/entrega entre unidades)
@@ -565,15 +576,17 @@ function ContratosContent() {
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
-      .then(({ data: sup }) => {
-        if (!sup) { setCarrinhoIds(new Set()); return }
-        supabase
-          .from('contratos')
-          .select('id')
-          .eq('supinda_id', (sup as any).id)
-          .then(({ data: contratos }) => {
-            setCarrinhoIds(new Set((contratos || []).map((c: any) => c.id)))
-          })
+      .then(async ({ data: sup }) => {
+        if (!sup) { setCarrinhoIds(new Set()); setCarrinhoSupindaId(null); return }
+        const sid = (sup as any).id
+        setCarrinhoSupindaId(sid)
+        // Buscar IDs de ida + volta
+        const [{ data: ida }, { data: volta }] = await Promise.all([
+          supabase.from('contratos').select('id').eq('supinda_id', sid),
+          supabase.from('contratos').select('id').eq('supinda_volta_id', sid),
+        ])
+        const ids = [...(ida || []), ...(volta || [])].map((c: any) => c.id)
+        setCarrinhoIds(new Set(ids))
       })
   }, [currentUnit?.id])
 
@@ -1071,32 +1084,20 @@ function ContratosContent() {
       }
     }
 
-    // Badge GC Disponível (pinda com cinzas+certificado prontos)
+    // Badge GC pendências (pinda, parcialmente pronto)
     if (contrato.status === 'pinda' && contrato.contrato_gc) {
       const gc = contrato.contrato_gc
-      if (gc.cinzas_prontas && gc.certificado_pronto) {
-        const naVolta = carrinhoIds.has(contrato.id)
-        badges.push(
-          <button
-            key="gc-ready"
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (!carrinhoIds.has(contrato.id)) addAoCarrinho(contrato, 'volta') }}
-            className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold border cursor-pointer hover:scale-105 transition-all ${
-              naVolta ? 'bg-purple-900/40 text-purple-400 border-purple-500/30' : 'bg-emerald-900/40 text-emerald-400 border-emerald-500/30'
-            }`}
-            title={naVolta ? 'Já na bandeja de volta' : 'Clique para adicionar à volta'}
-          >
-            {naVolta ? '🛍️ Na volta' : '✅ Pronto'}
-          </button>
-        )
-      } else if (gc.etapa === 'disponivel' || gc.etapa === 'cremacao') {
-        const pendencias = []
-        if (!gc.cinzas_prontas) pendencias.push('⚱️')
-        if (!gc.certificado_pronto) pendencias.push('📜')
-        badges.push(
-          <span key="gc-partial" className="text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-amber-900/40 text-amber-400 border border-amber-500/30">
-            ⏳ {pendencias.join(' ')}
-          </span>
-        )
+      if (!gc.cinzas_prontas || !gc.certificado_pronto) {
+        if (gc.etapa === 'disponivel' || gc.etapa === 'cremacao') {
+          const pendencias = []
+          if (!gc.cinzas_prontas) pendencias.push('⚱️')
+          if (!gc.certificado_pronto) pendencias.push('📜')
+          badges.push(
+            <span key="gc-partial" className="text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-amber-900/40 text-amber-400 border border-amber-500/30">
+              ⏳ {pendencias.join(' ')}
+            </span>
+          )
+        }
       }
     }
 
@@ -3722,18 +3723,33 @@ ${petNome}`
                         />
                       )}
 
-                      {/* Botão Encaminhamento (carrinho) — independente de btn_alteracao_fase */}
+                      {/* Botão Encaminhamento IDA (carrinho) — só ativo */}
                       {contrato.status === 'ativo' && isVisible(T, 'btn_bandeja') && (
                         <button
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); addAoCarrinho(contrato, 'ida') }}
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleCarrinho(contrato, 'ida') }}
                           className={`flex items-center justify-center w-9 h-9 rounded-full transition-colors ${
                             carrinhoIds.has(contrato.id)
-                              ? 'bg-purple-600 text-white ring-2 ring-purple-400'
-                              : 'bg-orange-500 text-white hover:bg-orange-600'
+                              ? 'bg-blue-700 text-white ring-2 ring-blue-400'
+                              : 'bg-sky-400 text-white hover:bg-sky-500'
                           }`}
-                          title={carrinhoIds.has(contrato.id) ? 'Já no carrinho' : 'Adicionar ao encaminhamento'}
+                          title={carrinhoIds.has(contrato.id) ? 'Remover do encaminhamento' : 'Adicionar ao encaminhamento'}
                         >
                           <span className="text-base">⛪</span>
+                        </button>
+                      )}
+
+                      {/* Botão Encaminhamento VOLTA (carrinho) — só pinda com GC pronto */}
+                      {contrato.status === 'pinda' && isVisible(T, 'btn_bandeja') && contrato.contrato_gc?.cinzas_prontas && contrato.contrato_gc?.certificado_pronto && (
+                        <button
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleCarrinho(contrato, 'volta') }}
+                          className={`flex items-center justify-center w-9 h-9 rounded-full transition-colors ${
+                            carrinhoIds.has(contrato.id)
+                              ? 'bg-blue-700 text-white ring-2 ring-blue-400'
+                              : 'bg-sky-400 text-white hover:bg-sky-500'
+                          }`}
+                          title={carrinhoIds.has(contrato.id) ? 'Remover da volta' : 'Adicionar à volta do encaminhamento'}
+                        >
+                          <span className="text-base">🛍️</span>
                         </button>
                       )}
 
@@ -4009,18 +4025,32 @@ ${petNome}`
                           />
                         )}
                         <div className="flex-1" />
-                        {/* Botão Encaminhamento (carrinho) — independente */}
+                        {/* Botão Encaminhamento IDA — só ativo */}
                         {contrato.status === 'ativo' && isVisible(T, 'btn_bandeja') && (
                           <button
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); addAoCarrinho(contrato, 'ida') }}
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleCarrinho(contrato, 'ida') }}
                             className={`flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
                               carrinhoIds.has(contrato.id)
-                                ? 'bg-purple-600 text-white ring-2 ring-purple-400'
-                                : 'bg-orange-500 text-white hover:bg-orange-600'
+                                ? 'bg-blue-700 text-white ring-2 ring-blue-400'
+                                : 'bg-sky-400 text-white hover:bg-sky-500'
                             }`}
-                            title={carrinhoIds.has(contrato.id) ? 'Já no carrinho' : 'Adicionar ao encaminhamento'}
+                            title={carrinhoIds.has(contrato.id) ? 'Remover do encaminhamento' : 'Adicionar ao encaminhamento'}
                           >
                             <span className="text-sm">⛪</span>
+                          </button>
+                        )}
+                        {/* Botão Encaminhamento VOLTA — só pinda com GC pronto */}
+                        {contrato.status === 'pinda' && isVisible(T, 'btn_bandeja') && contrato.contrato_gc?.cinzas_prontas && contrato.contrato_gc?.certificado_pronto && (
+                          <button
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleCarrinho(contrato, 'volta') }}
+                            className={`flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
+                              carrinhoIds.has(contrato.id)
+                                ? 'bg-blue-700 text-white ring-2 ring-blue-400'
+                                : 'bg-sky-400 text-white hover:bg-sky-500'
+                            }`}
+                            title={carrinhoIds.has(contrato.id) ? 'Remover da volta' : 'Adicionar à volta'}
+                          >
+                            <span className="text-sm">🛍️</span>
                           </button>
                         )}
                         {/* Botões Alteração Fase (FLS: btn_alteracao_fase) */}
@@ -6067,6 +6097,8 @@ ${petNome}`
       })()}
 
       {/* Carrinho de Encaminhamento — bolinha flutuante (FLS: btn_bandeja) */}
+      {/* Espaço pra van não sobrepor os cards */}
+      <div className="h-20" />
       {isVisible(T, 'btn_bandeja') && <CarrinhoEncaminhamento />}
     </div>
   )

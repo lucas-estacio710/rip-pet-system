@@ -187,7 +187,8 @@
 | desconto_plano | numeric | default=0 |
 | estabelecimento_id | uuid | FK->estabelecimentos.id (local de remoção) |
 | estabelecimento_indicacao_id | uuid | FK->estabelecimentos.id (quem indicou) |
-| fonte_conhecimento_id | uuid | FK->fontes_conhecimento.id |
+| fonte_conhecimento_id | uuid | FK->fontes_conhecimento.id (legado, primeiro da lista) |
+| fonte_conhecimento_ids | uuid[] | Array de FKs para múltiplas fontes |
 | funcionario_id | uuid | FK->funcionarios.id |
 | id | uuid | PK default=gen_random_uuid() |
 | indicacao_clinica | text | fallback texto (sem módulo clínicas) |
@@ -221,7 +222,8 @@
 | seguradora | text |  |
 | status | public.status_atendimento | default=ativo enum=[preventivo, ativo, pinda, retorno, pendente, finalizado] |
 | supinda_id | uuid | FK->supindas.id |
-| supinda_direcao | varchar(10) | CHECK IN ('ida', 'volta'). NULL=legado(ida) |
+| supinda_direcao | varchar(10) | DEPRECATED — usar supinda_volta_id |
+| supinda_volta_id | uuid | FK->supindas.id. Qual supinda trouxe cinzas/cert de volta |
 | tipo_cremacao | public.tipo_cremacao | enum=[individual, coletiva] |
 | tipo_plano | public.tipo_plano | enum=[emergencial, preventivo] |
 | tutor_bairro | character varying |  |
@@ -733,16 +735,20 @@
 | id | uuid | PK default=gen_random_uuid() |
 | nome | character varying |  |
 
-## tarefas (9 colunas)
+## tarefas (13 colunas)
 
 | Coluna | Tipo | Info |
 |--------|------|------|
 | contrato_id | uuid | FK->contratos.id |
 | created_at | timestamp with time zone | default=now() |
+| criado_por | text | Nome do autor |
+| criado_por_email | text | Email do autor |
 | descricao | text |  |
 | id | uuid | PK default=gen_random_uuid() |
 | importante | boolean | default=False |
 | resolvido | boolean | default=False |
+| resolvido_por | text | Nome de quem resolveu |
+| resolvido_em | timestamp with time zone | Quando foi resolvido |
 | tipo_id | uuid | FK->tarefa_tipos.id |
 | unidade_id | uuid | FK->unidades.id |
 | updated_at | timestamp with time zone | default=now() |

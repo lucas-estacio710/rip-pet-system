@@ -24,6 +24,10 @@ export default function CarrinhoEncaminhamento() {
     if (!currentUnit?.id) return
     carregarCarrinho()
 
+    // Escuta evento customizado quando pipeline adiciona ao carrinho
+    const handler = () => carregarCarrinho()
+    window.addEventListener('carrinho-atualizado', handler)
+
     // Realtime: escuta mudanças em contratos e supindas
     const channel = supabase
       .channel('carrinho-enc')
@@ -31,7 +35,7 @@ export default function CarrinhoEncaminhamento() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'supindas' }, () => carregarCarrinho())
       .subscribe()
 
-    return () => { supabase.removeChannel(channel) }
+    return () => { window.removeEventListener('carrinho-atualizado', handler); supabase.removeChannel(channel) }
   }, [currentUnit?.id])
 
   async function carregarCarrinho() {
@@ -56,16 +60,19 @@ export default function CarrinhoEncaminhamento() {
 
     setSupindaId(supinda.id)
 
-    // Contar contratos vinculados por direção
-    const { data: contratos } = await supabase
+    // Contar IDA (supinda_id) e VOLTA (supinda_volta_id)
+    const { count: idaCount } = await supabase
       .from('contratos')
-      .select('supinda_direcao')
-      .eq('supinda_id', supinda.id) as { data: { supinda_direcao: string | null }[] | null }
+      .select('id', { count: 'exact', head: true })
+      .eq('supinda_id', supinda.id)
 
-    const ida = (contratos || []).filter(c => c.supinda_direcao === 'ida' || !c.supinda_direcao).length
-    const volta = (contratos || []).filter(c => c.supinda_direcao === 'volta').length
-    setCountIda(ida)
-    setCountVolta(volta)
+    const { count: voltaCount } = await supabase
+      .from('contratos')
+      .select('id', { count: 'exact', head: true })
+      .eq('supinda_volta_id', supinda.id)
+
+    setCountIda(idaCount || 0)
+    setCountVolta(voltaCount || 0)
   }
 
   const total = countIda + countVolta
@@ -75,7 +82,7 @@ export default function CarrinhoEncaminhamento() {
     <button
       onClick={() => router.push('/supindas')}
       className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-full shadow-2xl transition-all hover:scale-105 active:scale-95"
-      style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)' }}
+      style={{ background: 'linear-gradient(135deg, #38bdf8 0%, #0ea5e9 100%)' }}
       title="Ver encaminhamento — clique pra fechar"
     >
       <span className="text-xl">🚐</span>
@@ -148,28 +155,45 @@ export async function adicionarAoCarrinho(
       supinda = nova as { id: string }
     }
 
-    // Vincular contrato à supinda
-    await supabase
-      .from('contratos')
-      .update({
-        supinda_id: supinda.id,
-        supinda_direcao: direcao,
-      } as never)
-      .eq('id', contratoId)
+    // Vincular contrato à supinda (ida = supinda_id, volta = supinda_volta_id)
+    if (direcao === 'ida') {
+      await supabase
+        .from('contratos')
+        .update({ supinda_id: supinda.id } as never)
+        .eq('id', contratoId)
+    } else {
+      await supabase
+        .from('contratos')
+        .update({ supinda_volta_id: supinda.id } as never)
+        .eq('id', contratoId)
+    }
 
-    // Recalcular estatísticas
-    const { data: vinculados } = await supabase
+    // Recalcular estatísticas (ida + volta)
+    const { count: idaCount } = await supabase
+      .from('contratos')
+      .select('id', { count: 'exact', head: true })
+      .eq('supinda_id', supinda.id)
+
+    const { count: voltaCount } = await supabase
+      .from('contratos')
+      .select('id', { count: 'exact', head: true })
+      .eq('supinda_volta_id', supinda.id)
+
+    const qtd = (idaCount || 0) + (voltaCount || 0)
+    // Peso só da ida (cinzas não pesam pra transporte)
+    const { data: vinculadosIda } = await supabase
       .from('contratos')
       .select('pet_peso')
       .eq('supinda_id', supinda.id) as { data: { pet_peso: number | null }[] | null }
-
-    const qtd = (vinculados || []).length
-    const peso = (vinculados || []).reduce((s, c) => s + (c.pet_peso || 0), 0)
+    const peso = (vinculadosIda || []).reduce((s, c) => s + (c.pet_peso || 0), 0)
 
     await supabase
       .from('supindas')
       .update({ quantidade_pets: qtd, peso_total: peso } as never)
       .eq('id', supinda.id)
+
+    // Notificar componente bolinha pra atualizar
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('carrinho-atualizado'))
 
     return supinda.id
   } catch (err) {
@@ -184,21 +208,26 @@ export async function adicionarAoCarrinho(
 export async function removerDoCarrinho(
   supabase: ReturnType<typeof createClient>,
   contratoId: string,
-  supindaId: string
+  supindaId: string,
+  direcao: 'ida' | 'volta' = 'ida'
 ): Promise<void> {
-  await supabase
-    .from('contratos')
-    .update({ supinda_id: null, supinda_direcao: null } as never)
-    .eq('id', contratoId)
+  // Desvincular: ida = limpa supinda_id, volta = limpa supinda_volta_id
+  if (direcao === 'ida') {
+    await supabase.from('contratos').update({ supinda_id: null } as never).eq('id', contratoId)
+  } else {
+    await supabase.from('contratos').update({ supinda_volta_id: null } as never).eq('id', contratoId)
+  }
 
   // Recalcular
-  const { data: vinculados } = await supabase
-    .from('contratos')
-    .select('pet_peso')
-    .eq('supinda_id', supindaId) as { data: { pet_peso: number | null }[] | null }
+  const { count: idaCount } = await supabase
+    .from('contratos').select('id', { count: 'exact', head: true }).eq('supinda_id', supindaId)
+  const { count: voltaCount } = await supabase
+    .from('contratos').select('id', { count: 'exact', head: true }).eq('supinda_volta_id', supindaId)
 
-  const qtd = (vinculados || []).length
-  const peso = (vinculados || []).reduce((s, c) => s + (c.pet_peso || 0), 0)
+  const qtd = (idaCount || 0) + (voltaCount || 0)
+  const { data: vinculadosIda } = await supabase
+    .from('contratos').select('pet_peso').eq('supinda_id', supindaId) as { data: { pet_peso: number | null }[] | null }
+  const peso = (vinculadosIda || []).reduce((s, c) => s + (c.pet_peso || 0), 0)
 
   await supabase
     .from('supindas')
@@ -209,4 +238,6 @@ export async function removerDoCarrinho(
   if (qtd === 0) {
     await supabase.from('supindas').delete().eq('id', supindaId).eq('status', 'planejada')
   }
+
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('carrinho-atualizado'))
 }
