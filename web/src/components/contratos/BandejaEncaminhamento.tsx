@@ -16,11 +16,15 @@ type Props = {
   // Contratos selecionados pra ida
   contratosIda: ContratoResumido[]
   onRemoveIda: (id: string) => void
+  // Contratos selecionados pra volta
+  contratosVolta: ContratoResumido[]
+  onRemoveVolta: (id: string) => void
+  // Geral
   onClear: () => void
   onEncaminhamentoCriado: () => void
 }
 
-export default function BandejaEncaminhamento({ contratosIda, onRemoveIda, onClear, onEncaminhamentoCriado }: Props) {
+export default function BandejaEncaminhamento({ contratosIda, onRemoveIda, contratosVolta, onRemoveVolta, onClear, onEncaminhamentoCriado }: Props) {
   const supabase = createClient()
   const { currentUnit } = useUnit()
   const [expanded, setExpanded] = useState(false)
@@ -34,10 +38,11 @@ export default function BandejaEncaminhamento({ contratosIda, onRemoveIda, onCle
   }, [currentUnit?.id])
 
   // Auto-expandir quando tem itens
+  const totalItens = contratosIda.length + contratosVolta.length
   useEffect(() => {
-    if (contratosIda.length > 0 && !expanded) setExpanded(true)
-    if (contratosIda.length === 0) setExpanded(false)
-  }, [contratosIda.length])
+    if (totalItens > 0 && !expanded) setExpanded(true)
+    if (totalItens === 0) setExpanded(false)
+  }, [totalItens])
 
   async function carregarFuncionarios() {
     if (!currentUnit?.id) return
@@ -86,32 +91,46 @@ export default function BandejaEncaminhamento({ contratosIda, onRemoveIda, onCle
         .single()
 
       if (errCriar || !novaSupinda) throw errCriar || new Error('Erro ao criar supinda')
+      const supindaId = (novaSupinda as any).id
 
-      // Vincular contratos + mudar status pra pinda
-      const ids = contratosIda.map(c => c.id)
-      await supabase
-        .from('contratos')
-        .update({
-          supinda_id: (novaSupinda as any).id,
-          supinda_direcao: 'ida',
-          status: 'pinda',
-        } as never)
-        .in('id', ids)
-
-      // Criar contrato_gc para cada contrato (se não existir)
-      for (const c of contratosIda) {
-        const { data: gcExistente } = await supabase
-          .from('contrato_gc')
-          .select('id')
-          .eq('contrato_id', c.id)
-          .maybeSingle()
-        if (!gcExistente) {
-          await supabase.from('contrato_gc').insert({
-            contrato_id: c.id,
-            etapa: 'recebido',
-            data_recebimento: new Date().toISOString(),
+      // Vincular contratos IDA + mudar status pra pinda
+      if (contratosIda.length > 0) {
+        await supabase
+          .from('contratos')
+          .update({
+            supinda_id: supindaId,
+            supinda_direcao: 'ida',
+            status: 'pinda',
           } as never)
+          .in('id', contratosIda.map(c => c.id))
+
+        // Criar contrato_gc para cada contrato IDA (se não existir)
+        for (const c of contratosIda) {
+          const { data: gcExistente } = await supabase
+            .from('contrato_gc')
+            .select('id')
+            .eq('contrato_id', c.id)
+            .maybeSingle()
+          if (!gcExistente) {
+            await supabase.from('contrato_gc').insert({
+              contrato_id: c.id,
+              etapa: 'recebido',
+              data_recebimento: new Date().toISOString(),
+            } as never)
+          }
         }
+      }
+
+      // Vincular contratos VOLTA + mudar status pra retorno
+      if (contratosVolta.length > 0) {
+        await supabase
+          .from('contratos')
+          .update({
+            supinda_id: supindaId,
+            supinda_direcao: 'volta',
+            status: 'retorno',
+          } as never)
+          .in('id', contratosVolta.map(c => c.id))
       }
 
       // Limpar e notificar
@@ -128,9 +147,10 @@ export default function BandejaEncaminhamento({ contratosIda, onRemoveIda, onCle
   }
 
   const pesoTotal = contratosIda.reduce((sum, c) => sum + (c.pet_peso || 0), 0)
-  const count = contratosIda.length
+  const countIda = contratosIda.length
+  const countVolta = contratosVolta.length
 
-  if (count === 0) return null
+  if (countIda === 0 && countVolta === 0) return null
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50" style={{ marginLeft: 'var(--sidebar-width, 0px)' }}>
@@ -141,7 +161,7 @@ export default function BandejaEncaminhamento({ contratosIda, onRemoveIda, onCle
           className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium transition-colors"
           style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)', color: '#fff' }}
         >
-          <span>🚐 {count} pet{count > 1 ? 's' : ''} · {pesoTotal.toFixed(1)}kg</span>
+          <span>🚐 {countIda > 0 ? `${countIda} ida` : ''}{countIda > 0 && countVolta > 0 ? ' · ' : ''}{countVolta > 0 ? `${countVolta} volta` : ''}</span>
           <ChevronUp className="h-4 w-4" />
         </button>
       )}
@@ -157,9 +177,16 @@ export default function BandejaEncaminhamento({ contratosIda, onRemoveIda, onCle
             <div className="flex items-center gap-2">
               <span className="text-lg">🚐</span>
               <span className="text-sm font-bold" style={{ color: 'var(--surface-700, #334155)' }}>Encaminhamento</span>
-              <span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{ background: '#7c3aed20', color: '#7c3aed' }}>
-                {count} pet{count > 1 ? 's' : ''} · {pesoTotal.toFixed(1)}kg
-              </span>
+              {countIda > 0 && (
+                <span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{ background: '#f59e0b20', color: '#f59e0b' }}>
+                  {countIda} ida · {pesoTotal.toFixed(1)}kg
+                </span>
+              )}
+              {countVolta > 0 && (
+                <span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{ background: '#06b6d420', color: '#06b6d4' }}>
+                  {countVolta} volta
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <button onClick={onClear} className="text-xs text-red-500 hover:text-red-700 font-medium">Limpar</button>
@@ -171,20 +198,37 @@ export default function BandejaEncaminhamento({ contratosIda, onRemoveIda, onCle
 
           {/* Conteúdo */}
           <div className="px-4 py-3">
-            {/* Lista de pets na IDA */}
-            <div className="mb-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: '#f59e0b' }}>IDA →</span>
-              <div className="flex flex-wrap gap-2 mt-1">
-                {contratosIda.map(c => (
-                  <div key={c.id} className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium" style={{ background: 'var(--surface-100, #f1f5f9)', color: 'var(--surface-700, #334155)' }}>
-                    <span>{c.pet_nome}</span>
-                    {c.pet_peso && <span className="text-[10px]" style={{ color: 'var(--surface-400)' }}>({c.pet_peso}kg)</span>}
-                    <button onClick={() => onRemoveIda(c.id)} className="ml-0.5 hover:text-red-500">
-                      <X className="h-3 w-3" />
-                    </button>
+            <div className="flex gap-4 mb-3 flex-wrap">
+              {/* Lista IDA */}
+              {countIda > 0 && (
+                <div className="flex-1 min-w-[150px]">
+                  <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: '#f59e0b' }}>IDA → ({countIda})</span>
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {contratosIda.map(c => (
+                      <div key={c.id} className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium" style={{ background: '#fef3c720', color: '#f59e0b', border: '1px solid #f59e0b30' }}>
+                        <span>{c.pet_nome}</span>
+                        {c.pet_peso && <span className="text-[10px] opacity-60">({c.pet_peso}kg)</span>}
+                        <button onClick={() => onRemoveIda(c.id)} className="ml-0.5 hover:text-red-500"><X className="h-3 w-3" /></button>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                </div>
+              )}
+
+              {/* Lista VOLTA */}
+              {countVolta > 0 && (
+                <div className="flex-1 min-w-[150px]">
+                  <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: '#06b6d4' }}>← VOLTA ({countVolta})</span>
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {contratosVolta.map(c => (
+                      <div key={c.id} className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium" style={{ background: '#06b6d420', color: '#06b6d4', border: '1px solid #06b6d430' }}>
+                        <span>{c.pet_nome}</span>
+                        <button onClick={() => onRemoveVolta(c.id)} className="ml-0.5 hover:text-red-500"><X className="h-3 w-3" /></button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Data + Responsável + Botão */}

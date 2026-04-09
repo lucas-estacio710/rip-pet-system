@@ -447,12 +447,18 @@ function ContratosContent() {
   const [entregaForm, setEntregaForm] = useState({ dataHoje: true, data_entrega: '' })
   const [salvandoEntrega, setSalvandoEntrega] = useState(false)
 
-  // Bandeja de Encaminhamento (ida)
+  // Bandeja de Encaminhamento (ida + volta)
   const [bandejaIda, setBandejaIda] = useState<{ id: string; codigo: string; pet_nome: string; pet_peso: number | null }[]>([])
+  const [bandejaVolta, setBandejaVolta] = useState<{ id: string; codigo: string; pet_nome: string; pet_peso: number | null }[]>([])
 
   function addBandejaIda(contrato: Contrato) {
     if (bandejaIda.some(c => c.id === contrato.id)) return
     setBandejaIda(prev => [...prev, { id: contrato.id, codigo: contrato.codigo, pet_nome: contrato.pet_nome, pet_peso: contrato.pet_peso }])
+  }
+
+  function addBandejaVolta(contrato: Contrato) {
+    if (bandejaVolta.some(c => c.id === contrato.id)) return
+    setBandejaVolta(prev => [...prev, { id: contrato.id, codigo: contrato.codigo, pet_nome: contrato.pet_nome, pet_peso: contrato.pet_peso }])
   }
 
   // Modal Compartilhar (remoção/entrega entre unidades)
@@ -1027,10 +1033,18 @@ function ContratosContent() {
     if (contrato.status === 'pinda' && contrato.contrato_gc) {
       const gc = contrato.contrato_gc
       if (gc.cinzas_prontas && gc.certificado_pronto) {
+        const naVolta = bandejaVolta.some(c => c.id === contrato.id)
         badges.push(
-          <span key="gc-ready" className="text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-emerald-900/40 text-emerald-400 border border-emerald-500/30">
-            ✅ Pronto
-          </span>
+          <button
+            key="gc-ready"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (!naVolta) addBandejaVolta(contrato) }}
+            className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold border cursor-pointer hover:scale-105 transition-all ${
+              naVolta ? 'bg-purple-900/40 text-purple-400 border-purple-500/30' : 'bg-emerald-900/40 text-emerald-400 border-emerald-500/30'
+            }`}
+            title={naVolta ? 'Já na bandeja de volta' : 'Clique para adicionar à volta'}
+          >
+            {naVolta ? '🛍️ Na volta' : '✅ Pronto'}
+          </button>
         )
       } else if (gc.etapa === 'disponivel' || gc.etapa === 'cremacao') {
         const pendencias = []
@@ -5999,7 +6013,9 @@ ${petNome}`
       <BandejaEncaminhamento
         contratosIda={bandejaIda}
         onRemoveIda={(id) => setBandejaIda(prev => prev.filter(c => c.id !== id))}
-        onClear={() => setBandejaIda([])}
+        contratosVolta={bandejaVolta}
+        onRemoveVolta={(id) => setBandejaVolta(prev => prev.filter(c => c.id !== id))}
+        onClear={() => { setBandejaIda([]); setBandejaVolta([]) }}
         onEncaminhamentoCriado={() => carregarContratos()}
       />
     </div>
