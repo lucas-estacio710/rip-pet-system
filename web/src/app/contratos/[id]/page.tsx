@@ -23,6 +23,8 @@ import FinalizadoraModal from '@/components/contratos/modals/FinalizadoraModal'
 import ChegamosModal from '@/components/contratos/modals/ChegamosModal'
 import ChegaramModal from '@/components/contratos/modals/ChegaramModal'
 import { gerarContratoPDF, contratoFilename } from '@/lib/contrato-pdf'
+import ObservacoesCard from '@/components/contratos/ObservacoesCard'
+import HistoricoCard from '@/components/contratos/HistoricoCard'
 
 function PixIcon({ className = "h-5 w-5" }: { className?: string }) {
   return (
@@ -2888,17 +2890,10 @@ ${petNome}`
         )}
 
         {/* Card Observações */}
-        {contrato.observacoes && (
-          <div className="bg-slate-800 rounded-xl shadow-md p-5 border border-slate-700 md:col-span-2">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-8 h-8 rounded-lg bg-slate-700 flex items-center justify-center">
-                <FileText className="h-4 w-4 text-slate-400" />
-              </div>
-              <h2 className="font-semibold text-slate-200">Observações</h2>
-            </div>
-            <p className="text-slate-300 whitespace-pre-wrap">{contrato.observacoes}</p>
-          </div>
-        )}
+        <ObservacoesCard contratoId={contrato.id} observacoesFicha={contrato.observacoes} />
+
+        {/* Histórico de alterações */}
+        <HistoricoCard contratoId={contrato.id} />
       </div>
 
       {/* Modal Prompt Urna - Adicionar nova ou editar? */}

@@ -650,17 +650,23 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         tutorId = novoTutor!.id
       }
 
-      // Step 2: Fonte de conhecimento
+      // Step 2: Fontes de conhecimento (múltiplas)
       let fonteConhecimentoId: string | null = null
+      const fonteConhecimentoIds: string[] = []
       if (f.como_conheceu && f.como_conheceu.length > 0) {
         const fonteMap: Record<string, string> = {
           'Google': 'Google', 'Instagram/Facebook': 'Instagram/Facebook',
           'Veterinário': 'Indicação em Clínica', 'Parente/Amigo': 'Parente/Amigo',
           'Já utilizei a R.I.P. Pet': 'Cliente', 'Outro': 'Outro',
         }
-        const nomeExato = fonteMap[f.como_conheceu[0]] || f.como_conheceu[0]
-        const { data: fonte } = await supabase.from('fontes_conhecimento').select('id').eq('nome', nomeExato).maybeSingle() as { data: { id: string } | null }
-        if (fonte) fonteConhecimentoId = fonte.id
+        for (const conheceu of f.como_conheceu) {
+          const nomeExato = fonteMap[conheceu] || conheceu
+          const { data: fonte } = await supabase.from('fontes_conhecimento').select('id').eq('nome', nomeExato).maybeSingle() as { data: { id: string } | null }
+          if (fonte) {
+            fonteConhecimentoIds.push(fonte.id)
+            if (!fonteConhecimentoId) fonteConhecimentoId = fonte.id // primeiro = legado
+          }
+        }
       }
 
       // Step 3: Resolve estabelecimento + contato
@@ -729,6 +735,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         contato_id: resolvedContatoId || null, estabelecimento_id: resolvedEstabId || null,
         funcionario_id: semResponsavel ? null : (funcionarioId || null),
         fonte_conhecimento_id: fonteConhecimentoId,
+        fonte_conhecimento_ids: fonteConhecimentoIds.length > 0 ? fonteConhecimentoIds : null,
         estabelecimento_indicacao_id: teveIndicacao && temPadronizacaoClinicas ? (indicEstabId || null) : null,
         indicacao_clinica: teveIndicacao ? (temPadronizacaoClinicas ? (indicEstabNome.trim() || null) : (indicHospClinica.trim() || null)) : null,
         indicacao_contato: teveIndicacao ? (indicNomeQuemIndicou.trim() || null) : null,
@@ -780,6 +787,21 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
 
       // Vincular contrato à ficha
       await supabase.from('fichas').update({ contrato_id: contrato!.id } as never).eq('id', ficha.id)
+
+      // Migrar observações da ficha pra tarefas (se houver)
+      if (f.observacoes) {
+        const { data: tipoFicha } = await supabase.from('tarefa_tipos').select('id').eq('nome', 'Observação da Ficha').maybeSingle() as { data: { id: string } | null }
+        if (tipoFicha) {
+          await supabase.from('tarefas').insert({
+            contrato_id: contrato!.id,
+            descricao: f.observacoes,
+            tipo_id: tipoFicha.id,
+            unidade_id: f.unidade_id,
+            criado_por: 'Tutor (ficha)',
+            criado_por_email: f.email || null,
+          } as never)
+        }
+      }
 
       toast('Contrato criado com sucesso!', 'success')
       onSuccess(contrato!.id)
