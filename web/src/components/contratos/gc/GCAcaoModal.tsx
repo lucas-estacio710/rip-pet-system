@@ -70,24 +70,44 @@ export default function GCAcaoModal({ contratoId, petNome, tipoCremacao, gcAtual
 
   async function salvar(novaEtapa?: Etapa) {
     setSalvando(true)
-    const updates: any = { ...gc }
-    if (novaEtapa) {
-      updates.etapa = novaEtapa
-      // Se avançou pra disponivel, marca data
-      if (novaEtapa === 'disponivel') updates.data_disponivel = new Date().toISOString()
-    }
-    delete updates.id
+    try {
+      // Construir payload limpo (sem id, created_at, updated_at)
+      const updates: any = {
+        contrato_id: contratoId,
+        etapa: novaEtapa || gc.etapa,
+        lacre_conferido: gc.lacre_conferido ?? null,
+        acompanhamento_confirmado: gc.acompanhamento_confirmado ?? null,
+        contato_tutor_obs: gc.contato_tutor_obs ?? null,
+        forno: gc.forno ?? null,
+        data_agendamento: gc.data_agendamento ?? null,
+        pedidos_especiais_obs: gc.pedidos_especiais_obs ?? null,
+        data_cremacao: gc.data_cremacao ?? null,
+        cremacao_por: gc.cremacao_por ?? null,
+        cinzas_prontas: !!gc.cinzas_prontas,
+        certificado_pronto: !!gc.certificado_pronto,
+      }
 
-    if (gc.id) {
-      await supabase.from('contrato_gc').update(updates as never).eq('id', gc.id)
-    } else {
-      updates.data_recebimento = updates.data_recebimento || new Date().toISOString()
-      await supabase.from('contrato_gc').insert(updates as never)
-    }
+      if (novaEtapa === 'disponivel') {
+        updates.data_disponivel = new Date().toISOString()
+      }
 
-    setSalvando(false)
-    onSaved()
-    onClose()
+      if (gc.id) {
+        const { error } = await supabase.from('contrato_gc').update(updates as never).eq('id', gc.id)
+        if (error) throw error
+      } else {
+        updates.data_recebimento = new Date().toISOString()
+        const { error } = await supabase.from('contrato_gc').insert(updates as never)
+        if (error) throw error
+      }
+
+      onSaved()
+      onClose()
+    } catch (err: any) {
+      console.error('Erro ao salvar GC:', err)
+      alert('Erro ao salvar: ' + (err?.message || 'desconhecido'))
+    } finally {
+      setSalvando(false)
+    }
   }
 
   function avancar() {
@@ -133,7 +153,7 @@ export default function GCAcaoModal({ contratoId, petNome, tipoCremacao, gcAtual
                   onChange={e => setGc({ ...gc, lacre_conferido: e.target.checked })}
                   className="w-5 h-5 rounded"
                 />
-                <span className="text-sm font-medium text-slate-200">Lacre conferido</span>
+                <span className="text-sm font-medium text-slate-200">Pet conferido</span>
               </label>
             </>
           )}

@@ -261,6 +261,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   const [valorPlano, setValorPlano] = useState('')
   const [descontoPreVenda, setDescontoPreVenda] = useState('')
   const [descontoTipo, setDescontoTipo] = useState<'valor' | 'percentual'>('valor')
+  const [temSeguradora, setTemSeguradora] = useState(false)
+  const [seguradoraNome, setSeguradoraNome] = useState('')
   const [localColeta, setLocalColeta] = useState<'residencia' | 'clinica' | 'unidade' | 'outro' | ''>('')
   const [enderecoOutro, setEnderecoOutro] = useState('')
   // Bloco Acolhimento
@@ -391,6 +393,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       setEnderecoOutro('')
       setDescontoPreVenda('')
       setDescontoTipo('valor')
+      setTemSeguradora(false)
+      setSeguradoraNome('')
       setTelefoneConfirmado(false)
       setTelefone2('')
       setTelefone2DDI('55')
@@ -469,6 +473,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       if (op.valorPlano) setValorPlano(String(op.valorPlano))
       if (op.descontoPreVenda) setDescontoPreVenda(String(op.descontoPreVenda))
       if (op.descontoTipo) setDescontoTipo(op.descontoTipo as 'valor' | 'percentual')
+      if (op.temSeguradora) setTemSeguradora(true)
+      if (op.seguradoraNome) setSeguradoraNome(String(op.seguradoraNome))
       if (op.dataContrato) setDataContrato(String(op.dataContrato))
       if (op.teveIndicacao) { setTeveIndicacao(true); setMostrarIndicacao(true) }
       if (op.indicNomeQuemIndicou) setIndicNomeQuemIndicou(String(op.indicNomeQuemIndicou))
@@ -577,6 +583,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         valorPlano: valorPlano || null,
         descontoPreVenda: descontoPreVenda || null,
         descontoTipo,
+        temSeguradora,
+        seguradoraNome: seguradoraNome.trim() || null,
         dataContrato,
         // Indicação
         teveIndicacao,
@@ -628,6 +636,10 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   // Criar contrato a partir de ficha processada
   async function criarContrato() {
     if (!ficha) return
+    if (ficha.contrato_id) {
+      toast('Esta ficha já virou contrato', 'error')
+      return
+    }
     setSalvando(true)
     const f = fichaAtual!
 
@@ -773,6 +785,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
           : localColeta === 'clinica' ? (estabEndereco?.cep || null)
           : null,
         numero_lacre: lacre || null,
+        seguradora: temSeguradora && seguradoraNome.trim() ? seguradoraNome.trim() : null,
         observacoes: f.observacoes || null,
         certificado_nome_1: f.nome_completo || null,
         ...(f.outros_tutores ? Object.fromEntries(
@@ -836,7 +849,9 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         clinicaTextoLivre: clinicaTextoLivre || null, estabId, estabNome: estabNome || null, autonomo,
         dataHoraAcolhimento: dataHoraAcolhimento || null, semDataHora,
         lacre: lacre || null, semLacre,
-        valorPlano: valorPlano || null, descontoPreVenda: descontoPreVenda || null, descontoTipo, dataContrato,
+        valorPlano: valorPlano || null, descontoPreVenda: descontoPreVenda || null, descontoTipo,
+        temSeguradora, seguradoraNome: seguradoraNome.trim() || null,
+        dataContrato,
         teveIndicacao, indicNomeQuemIndicou: indicNomeQuemIndicou || null, indicNomeAtivo,
         indicHospClinica: indicHospClinica || null, indicHospAtivo, indicEstabId, indicEstabNome: indicEstabNome || null,
         indicId, indicNome: indicNome || null, indicCargo: indicCargo || null,
@@ -900,7 +915,14 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       <button onClick={onClose} className="py-2 px-3 rounded-lg text-xs font-semibold text-[var(--surface-600)] border border-[var(--surface-200)] hover:bg-[var(--surface-50)] transition-colors">
         Fechar
       </button>
-      {isVisible('tela_fichas', 'btn_iniciar_fluxo') && (
+      {ficha.contrato_id ? (
+        <a
+          href={`/contratos/${ficha.contrato_id}`}
+          className="py-2 px-3 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors text-center"
+        >
+          Ver Contrato
+        </a>
+      ) : isVisible('tela_fichas', 'btn_iniciar_fluxo') && (
         <button
           onClick={() => {
             if (!fluxoValido) {
@@ -1990,6 +2012,28 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                 {parseFloat(descontoPreVenda) || 0}% = R$ {(((parseFloat(valorPlano) || 0) * (parseFloat(descontoPreVenda) || 0)) / 100).toFixed(2)} de desconto
               </p>
             )}
+
+            {/* Atendimento com Seguradora */}
+            <div className="mt-3 pt-3 border-t border-[var(--surface-200)]">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={temSeguradora}
+                  onChange={e => { setTemSeguradora(e.target.checked); if (!e.target.checked) setSeguradoraNome('') }}
+                  className="rounded border-[var(--surface-300)]"
+                />
+                <span className="text-xs font-semibold text-[var(--surface-600)]">Atendimento com Seguradora</span>
+              </label>
+              {temSeguradora && (
+                <input
+                  type="text"
+                  value={seguradoraNome}
+                  onChange={e => setSeguradoraNome(e.target.value)}
+                  placeholder="Nome da seguradora"
+                  className="input text-sm mt-2"
+                />
+              )}
+            </div>
           </div>
 
           {/* Data do contrato */}

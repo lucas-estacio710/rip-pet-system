@@ -197,12 +197,10 @@ export default function ObservacoesCard({ contratoId, observacoesFicha }: Props)
 
                 {/* Conteúdo */}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    {tarefa.importante && !tarefa.resolvido && <span className="shrink-0" title="Importante">🚨</span>}
-                    <p className={`text-sm text-slate-300 whitespace-pre-wrap ${tarefa.resolvido ? 'line-through' : ''}`}>
-                      {tarefa.descricao}
-                    </p>
-                  </div>
+                  <p className={`text-sm text-slate-300 whitespace-pre-wrap break-words ${tarefa.resolvido ? 'line-through' : ''}`}>
+                    {tarefa.importante && !tarefa.resolvido && <span title="Importante">🚨 </span>}
+                    {tarefa.descricao}
+                  </p>
                   <p className="text-[10px] text-slate-500 mt-0.5">
                     {tarefa.criado_por || 'Sistema'} · {new Date(tarefa.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                     {tarefa.resolvido && tarefa.resolvido_por && (

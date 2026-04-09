@@ -2812,26 +2812,28 @@ ${petNome}`
             </button>
           )}
         </div>
-        {/* Toggle compartilhados */}
-        <button
-          onClick={() => setMostrarCompartilhados(!mostrarCompartilhados)}
-          className={`relative h-8 px-2.5 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1 shrink-0 ${
-            mostrarCompartilhados
-              ? 'bg-purple-600 border-purple-500 text-white'
-              : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-purple-500'
-          }`}
-          title={mostrarCompartilhados ? 'Mostrando compartilhados — clique pra esconder' : `Mostrar ${compartilhadosCount} contrato(s) compartilhado(s)`}
-        >
-          🔄
-          {!mostrarCompartilhados && compartilhadosCount > 0 && (
-            <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-              <span className="relative inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full bg-red-500 text-[9px] font-bold text-white">
-                {compartilhadosCount}
+        {/* Toggle compartilhados (FLS: btn_compartilhar) */}
+        {isVisible('tela_contrato', 'btn_compartilhar') && (
+          <button
+            onClick={() => setMostrarCompartilhados(!mostrarCompartilhados)}
+            className={`relative h-8 px-2.5 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1 shrink-0 ${
+              mostrarCompartilhados
+                ? 'bg-purple-600 border-purple-500 text-white'
+                : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-purple-500'
+            }`}
+            title={mostrarCompartilhados ? 'Mostrando compartilhados — clique pra esconder' : `Mostrar ${compartilhadosCount} contrato(s) compartilhado(s)`}
+          >
+            🔄
+            {!mostrarCompartilhados && compartilhadosCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                <span className="relative inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full bg-red-500 text-[9px] font-bold text-white">
+                  {compartilhadosCount}
+                </span>
               </span>
-            </span>
-          )}
-        </button>
+            )}
+          </button>
+        )}
         <select
           value={campoBusca}
           onChange={(e) => { setCampoBusca(e.target.value as typeof campoBusca); setPagina(0) }}

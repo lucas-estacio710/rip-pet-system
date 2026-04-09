@@ -603,7 +603,7 @@ export default function FichasPage() {
                         <span className="text-[9px] text-[var(--surface-500)]">{formatarDisplay(ficha.pagamento)}{ficha.parcelas ? ` ${ficha.parcelas}` : ''}</span>
                       </div>
                       {/* Status badge */}
-                      {isCancelada(ficha) ? <Badge variant="error" dot>Cancelada</Badge> : isPendente ? <Badge variant="warning" dot>Recebida</Badge> : <Badge variant="success" dot>Processada</Badge>}
+                      {isCancelada(ficha) ? <Badge variant="error" dot>Cancelada</Badge> : isPendente ? <Badge variant="warning" dot>Recebida</Badge> : ficha.contrato_id ? <Badge variant="info" dot>Contrato criado</Badge> : <Badge variant="success" dot>Processada</Badge>}
                     </div>
 
                     {/* Linha 2: Tutor + meta */}
