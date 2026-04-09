@@ -12,6 +12,7 @@ import ProtocoloEntrega from '@/components/protocolo/ProtocoloEntrega'
 import { printProtocolos } from '@/components/protocolo/ProtocoloPrint'
 import InteractiveTags from '@/components/contratos/InteractiveTags'
 import ActionButtons from '@/components/contratos/ActionButtons'
+import BandejaEncaminhamento from '@/components/contratos/BandejaEncaminhamento'
 import EntregaModal from '@/components/contratos/modals/EntregaModal'
 import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
@@ -242,7 +243,7 @@ function calcFinanceiroProtocolo(
 function ContratosContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const { currentUnit, isLoading: unitLoading } = useUnit()
+  const { currentUnit, allUnidades, isLoading: unitLoading } = useUnit()
   const { isVisible } = useFieldPermission()
   const T = 'tela_pipeline'
 
@@ -443,6 +444,21 @@ function ContratosContent() {
   const [entregaContrato, setEntregaContrato] = useState<Contrato | null>(null)
   const [entregaForm, setEntregaForm] = useState({ dataHoje: true, data_entrega: '' })
   const [salvandoEntrega, setSalvandoEntrega] = useState(false)
+
+  // Bandeja de Encaminhamento (ida)
+  const [bandejaIda, setBandejaIda] = useState<{ id: string; codigo: string; pet_nome: string; pet_peso: number | null }[]>([])
+
+  function addBandejaIda(contrato: Contrato) {
+    if (bandejaIda.some(c => c.id === contrato.id)) return
+    setBandejaIda(prev => [...prev, { id: contrato.id, codigo: contrato.codigo, pet_nome: contrato.pet_nome, pet_peso: contrato.pet_peso }])
+  }
+
+  // Modal Compartilhar (remoção/entrega entre unidades)
+  const [compartilharModal, setCompartilharModal] = useState(false)
+  const [compartilharContrato, setCompartilharContrato] = useState<Contrato | null>(null)
+  const [compartilharTipo, setCompartilharTipo] = useState<'remocao' | 'entrega'>('remocao')
+  const [compartilharUnidadeId, setCompartilharUnidadeId] = useState<string>('')
+  const [salvandoCompartilhar, setSalvandoCompartilhar] = useState(false)
 
   // Seleção batch para protocolo de entrega
   const [selectedContratos, setSelectedContratos] = useState<Set<string>>(new Set())
@@ -1007,6 +1023,47 @@ function ContratosContent() {
 
     if (badges.length === 0) return null
     return <div className="flex flex-wrap gap-1">{badges}</div>
+  }
+
+  function abrirCompartilharModal(contrato: Contrato) {
+    setCompartilharContrato(contrato)
+    setCompartilharTipo('remocao')
+    setCompartilharUnidadeId('')
+    setCompartilharModal(true)
+  }
+
+  async function salvarCompartilhamento() {
+    if (!compartilharContrato || !compartilharUnidadeId) return
+    setSalvandoCompartilhar(true)
+    const campo = compartilharTipo === 'remocao' ? 'unidade_remocao_id' : 'unidade_entrega_id'
+    await supabase
+      .from('contratos')
+      .update({ [campo]: compartilharUnidadeId } as never)
+      .eq('id', compartilharContrato.id)
+
+    // Atualizar local
+    setContratos(prev => prev.map(c =>
+      c.id === compartilharContrato.id
+        ? { ...c, [campo]: compartilharUnidadeId, [`unidade_${compartilharTipo}`]: allUnidades.find(u => u.id === compartilharUnidadeId) || null }
+        : c
+    ))
+
+    setSalvandoCompartilhar(false)
+    setCompartilharModal(false)
+  }
+
+  async function removerCompartilhamento(contratoId: string, tipo: 'remocao' | 'entrega') {
+    const campo = tipo === 'remocao' ? 'unidade_remocao_id' : 'unidade_entrega_id'
+    await supabase
+      .from('contratos')
+      .update({ [campo]: null } as never)
+      .eq('id', contratoId)
+
+    setContratos(prev => prev.map(c =>
+      c.id === contratoId
+        ? { ...c, [campo]: null, [`unidade_${tipo}`]: null }
+        : c
+    ))
   }
 
   // Pegar primeiro nome, preservando nomes compostos, com capitalização
@@ -3550,6 +3607,15 @@ ${petNome}`
                         </a>
                       )}
 
+                      {/* Botão Compartilhar */}
+                      <button
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); abrirCompartilharModal(contrato) }}
+                        className="flex items-center justify-center w-9 h-9 bg-purple-600 text-white rounded-full hover:bg-purple-700 transition-colors"
+                        title="Compartilhar com outra unidade"
+                      >
+                        <span className="text-base">🔄</span>
+                      </button>
+
                       {/* Action Buttons — Mensagens Personalizadas (FLS: btn_mensagens) */}
                       {isVisible(T, 'btn_mensagens') && (
                         <ActionButtons
@@ -3581,9 +3647,13 @@ ${petNome}`
                           {/* Botão Pinda - só para ativo */}
                           {contrato.status === 'ativo' && (
                             <button
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); /* TODO: ação pinda */ }}
-                              className="flex items-center justify-center w-9 h-9 bg-orange-500 text-white rounded-full hover:bg-orange-600 transition-colors"
-                              title="Enviar para Pinda"
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); addBandejaIda(contrato) }}
+                              className={`flex items-center justify-center w-9 h-9 rounded-full transition-colors ${
+                                bandejaIda.some(c => c.id === contrato.id)
+                                  ? 'bg-purple-600 text-white ring-2 ring-purple-400'
+                                  : 'bg-orange-500 text-white hover:bg-orange-600'
+                              }`}
+                              title={bandejaIda.some(c => c.id === contrato.id) ? 'Já na bandeja' : 'Adicionar à bandeja de encaminhamento'}
                             >
                               <span className="text-base">⛪</span>
                             </button>
@@ -3859,9 +3929,13 @@ ${petNome}`
                           )}
                           {contrato.status === 'ativo' && (
                             <button
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); /* TODO: ação pinda */ }}
-                              className="flex items-center justify-center w-8 h-8 bg-orange-500 text-white rounded-full hover:bg-orange-600 transition-colors"
-                              title="Enviar para Pinda"
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); addBandejaIda(contrato) }}
+                              className={`flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
+                                bandejaIda.some(c => c.id === contrato.id)
+                                  ? 'bg-purple-600 text-white ring-2 ring-purple-400'
+                                  : 'bg-orange-500 text-white hover:bg-orange-600'
+                              }`}
+                              title={bandejaIda.some(c => c.id === contrato.id) ? 'Já na bandeja' : 'Adicionar à bandeja'}
                             >
                               <span className="text-sm">⛪</span>
                             </button>
@@ -5430,6 +5504,84 @@ ${petNome}`
         </div>
       )}
 
+      {/* Modal Compartilhar */}
+      {compartilharModal && compartilharContrato && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" onClick={() => setCompartilharModal(false)}>
+          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-5" onClick={e => e.stopPropagation()}>
+            <h3 className="text-base font-semibold text-gray-900 mb-1">🔄 Compartilhar</h3>
+            <p className="text-xs text-gray-500 mb-4">{compartilharContrato.pet_nome} — {compartilharContrato.codigo}</p>
+
+            {/* Tipo */}
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => setCompartilharTipo('remocao')}
+                className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium border-2 transition-colors ${
+                  compartilharTipo === 'remocao' ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-gray-200 text-gray-500'
+                }`}
+              >
+                📍 Remoção
+              </button>
+              <button
+                onClick={() => setCompartilharTipo('entrega')}
+                className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium border-2 transition-colors ${
+                  compartilharTipo === 'entrega' ? 'border-cyan-500 bg-cyan-50 text-cyan-700' : 'border-gray-200 text-gray-500'
+                }`}
+              >
+                🛍️ Entrega
+              </button>
+            </div>
+
+            {/* Info existente */}
+            {((compartilharTipo === 'remocao' && compartilharContrato.unidade_remocao_id) ||
+              (compartilharTipo === 'entrega' && compartilharContrato.unidade_entrega_id)) && (
+              <div className="mb-3 p-2 rounded-lg bg-gray-50 flex items-center justify-between">
+                <span className="text-xs text-gray-600">
+                  Atual: <strong>{compartilharTipo === 'remocao' ? compartilharContrato.unidade_remocao?.nome : compartilharContrato.unidade_entrega?.nome}</strong>
+                </span>
+                <button
+                  onClick={async () => {
+                    await removerCompartilhamento(compartilharContrato.id, compartilharTipo)
+                    setCompartilharModal(false)
+                  }}
+                  className="text-xs text-red-500 hover:text-red-700 font-medium"
+                >
+                  Remover
+                </button>
+              </div>
+            )}
+
+            {/* Dropdown unidade */}
+            <select
+              value={compartilharUnidadeId}
+              onChange={e => setCompartilharUnidadeId(e.target.value)}
+              className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:border-purple-400"
+            >
+              <option value="">Selecione a unidade...</option>
+              {allUnidades
+                .filter(u => u.id !== currentUnit?.id)
+                .map(u => (
+                  <option key={u.id} value={u.id}>{u.codigo} — {u.nome}</option>
+                ))
+              }
+            </select>
+
+            {/* Botões */}
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setCompartilharModal(false)} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">
+                Cancelar
+              </button>
+              <button
+                onClick={salvarCompartilhamento}
+                disabled={!compartilharUnidadeId || salvandoCompartilhar}
+                className="px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
+              >
+                {salvandoCompartilhar ? 'Salvando...' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal Marcar Entregue */}
       {entregaContrato && (
         <EntregaModal
@@ -5819,6 +5971,14 @@ ${petNome}`
         </div>
         )
       })()}
+
+      {/* Bandeja de Encaminhamento */}
+      <BandejaEncaminhamento
+        contratosIda={bandejaIda}
+        onRemoveIda={(id) => setBandejaIda(prev => prev.filter(c => c.id !== id))}
+        onClear={() => setBandejaIda([])}
+        onEncaminhamentoCriado={() => carregarContratos()}
+      />
     </div>
   )
 }
