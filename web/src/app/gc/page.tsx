@@ -10,6 +10,7 @@ import { useUnit } from '@/contexts/UnitContext'
 import { Skeleton } from '@/components/ui/Skeleton'
 import EmptyState from '@/components/ui/EmptyState'
 import Link from 'next/link'
+import GCAcaoModal from '@/components/contratos/gc/GCAcaoModal'
 
 // ============================================
 // Types
@@ -106,6 +107,7 @@ export default function GCPage() {
   const [unidades, setUnidades] = useState<UnidadeInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
+  const [acaoModal, setAcaoModal] = useState<ContratoGC | null>(null)
 
   const carregarDados = useCallback(async () => {
     setLoading(true)
@@ -374,11 +376,33 @@ export default function GCPage() {
                       ⚠️ {c.gc?.observacoes_unidade || c.observacoes}
                     </div>
                   )}
+
+                  {/* Botão Avançar GC */}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setAcaoModal(c) }}
+                    className="w-full mt-2 px-2 py-1 rounded text-[10px] font-bold text-white transition-all hover:scale-[1.02]"
+                    style={{ background: etapaColor }}
+                    title={`Avançar etapa GC: ${ETAPA_LABELS[etapa]}`}
+                  >
+                    ⚡ Avançar
+                  </button>
                 </div>
               </div>
             )
           })}
         </div>
+      )}
+
+      {/* Modal de ação GC */}
+      {acaoModal && (
+        <GCAcaoModal
+          contratoId={acaoModal.id}
+          petNome={acaoModal.pet_nome}
+          tipoCremacao={acaoModal.tipo_cremacao}
+          gcAtual={acaoModal.gc as any}
+          onClose={() => setAcaoModal(null)}
+          onSaved={() => carregarDados()}
+        />
       )}
     </div>
   )
