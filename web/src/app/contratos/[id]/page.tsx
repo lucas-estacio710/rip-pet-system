@@ -398,9 +398,10 @@ export default function ContratoDetalhe() {
   const [compartilharTipo, setCompartilharTipo] = useState<'remocao' | 'entrega'>('remocao')
   const [compartilharUnidadeId, setCompartilharUnidadeId] = useState('')
   const [salvandoCompartilhar, setSalvandoCompartilhar] = useState(false)
+  const [todasUnidades, setTodasUnidades] = useState<{ id: string; codigo: string; nome: string }[]>([])
 
   const supabase = createClient()
-  const { hasModule, allUnidades, currentUnit } = useUnit()
+  const { hasModule, currentUnit } = useUnit()
   const { canEdit, isVisible } = useFieldPermission()
   const T = 'tela_contrato' // tela FLS (detalhe do contrato)
 
@@ -2072,7 +2073,13 @@ ${petNome}`
             {isVisible(T, 'btn_compartilhar') && (
               <>
                 <button
-                  onClick={() => { setCompartilharTipo('remocao'); setCompartilharUnidadeId(''); setCompartilharModal(true) }}
+                  onClick={async () => {
+                    setCompartilharTipo('remocao'); setCompartilharUnidadeId(''); setCompartilharModal(true)
+                    if (todasUnidades.length === 0) {
+                      const { data } = await supabase.from('unidades').select('id, codigo, nome').eq('ativa', true).order('ordem').order('nome')
+                      if (data) setTodasUnidades(data as { id: string; codigo: string; nome: string }[])
+                    }
+                  }}
                   className="flex items-center justify-center w-7 h-7 bg-purple-600 text-white rounded-full hover:bg-purple-700 transition-colors"
                   title="Compartilhar com outra unidade"
                 >
@@ -4710,7 +4717,7 @@ ${petNome}`
               className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:border-purple-400"
             >
               <option value="">Selecione a unidade...</option>
-              {allUnidades
+              {todasUnidades
                 .filter(u => u.id !== currentUnit?.id)
                 .map(u => (
                   <option key={u.id} value={u.id}>{u.codigo} — {u.nome}</option>
