@@ -902,9 +902,21 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       </button>
       {isVisible('tela_fichas', 'btn_iniciar_fluxo') && (
         <button
-          onClick={criarContrato}
-          disabled={salvando || !fluxoValido}
-          className="py-2 px-3 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          onClick={() => {
+            if (!fluxoValido) {
+              const faltam: string[] = []
+              if (!telefoneOk) faltam.push('Telefone')
+              if (!localColeta) faltam.push('Local de Acolhimento')
+              if (!funcionarioId) faltam.push('Responsável')
+              if (!dataHoraAcolhimento) faltam.push('Data/Hora')
+              if (!valorPlano.trim()) faltam.push('Valor do Plano')
+              toast(`Preencha antes de iniciar: ${faltam.join(', ')}`, 'error')
+              return
+            }
+            criarContrato()
+          }}
+          disabled={salvando}
+          className={`py-2 px-3 rounded-lg text-xs font-semibold text-white transition-colors ${fluxoValido ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-emerald-600/40 cursor-pointer'}`}
         >
           {salvando ? 'Criando...' : 'Iniciar Fluxo'}
         </button>
