@@ -64,7 +64,7 @@ type Ficha = {
   op_dados: Record<string, unknown> | null
 }
 
-type Filtro = 'pendentes' | 'processadas' | 'todas'
+type Filtro = 'pendentes' | 'processadas' | 'canceladas' | 'todas'
 
 // ============================================
 // Helpers
@@ -106,7 +106,7 @@ function formatarTelefone(tel: string | null): string {
 export default function FichasPage() {
   const router = useRouter()
   const supabase = createClient()
-  const { currentUnit, isLoading: unitLoading } = useUnit()
+  const { currentUnit, isLoading: unitLoading, isSuperAdmin } = useUnit()
   const { isVisible } = useFieldPermission()
 
   const [fichas, setFichas] = useState<Ficha[]>([])
@@ -118,6 +118,7 @@ export default function FichasPage() {
   // Counts
   const [pendentesCount, setPendentesCount] = useState(0)
   const [processadasCount, setProcessadasCount] = useState(0)
+  const [canceladasCount, setCanceladasCount] = useState(0)
 
   // Modal
   const [fichaModal, setFichaModal] = useState<Ficha | null>(null)
@@ -173,6 +174,8 @@ export default function FichasPage() {
     setProcessadasCount(proc || 0)
   }
 
+  const isCancelada = (f: Ficha) => !!(f.op_dados as Record<string, unknown>)?.cancelada
+
   async function carregarFichas() {
     if (!currentUnit) { setLoading(false); return }
     setLoading(true)
@@ -191,7 +194,7 @@ export default function FichasPage() {
     // Filter
     if (filtro === 'pendentes') {
       query = query.or('processada.is.null,processada.eq.false')
-    } else if (filtro === 'processadas') {
+    } else if (filtro === 'processadas' || filtro === 'canceladas') {
       query = query.eq('processada', true)
     }
 
@@ -205,10 +208,24 @@ export default function FichasPage() {
 
     const { data, error } = await query
 
+    // Separar canceladas (op_dados.cancelada = true) no client-side
+    const todas = (data || []) as Ficha[]
+
+    if (filtro === 'canceladas') {
+      setFichas(todas.filter(f => isCancelada(f)))
+    } else if (filtro === 'pendentes') {
+      setFichas(todas.filter(f => !isCancelada(f)))
+    } else if (filtro === 'processadas') {
+      setFichas(todas.filter(f => !isCancelada(f)))
+    } else {
+      setFichas(todas)
+    }
+
+    // Contagem de canceladas
+    setCanceladasCount(todas.filter(f => isCancelada(f)).length)
+
     if (error) {
       console.error('Erro ao carregar fichas:', error)
-    } else {
-      setFichas((data || []) as Ficha[])
     }
 
     setLoading(false)
@@ -488,6 +505,24 @@ export default function FichasPage() {
             </div>
           </div>
         </button>
+
+        {/* Canceladas — card menor, discreto */}
+        {canceladasCount > 0 && (
+          <button
+            onClick={() => setFiltro(filtro === 'canceladas' ? 'todas' : 'canceladas')}
+            className={`card px-3 py-2 border-2 transition-all card-hover ${
+              filtro === 'canceladas'
+                ? 'border-red-500 bg-red-900/20'
+                : 'border-[var(--surface-200)] hover:border-[var(--surface-300)]'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <X className="h-4 w-4 text-red-400" />
+              <span className={`text-xs font-medium ${filtro === 'canceladas' ? 'text-red-400' : 'text-[var(--shell-text-muted)]'}`}>Canceladas</span>
+              <span className="text-sm font-bold text-[var(--shell-text)]">{canceladasCount}</span>
+            </div>
+          </button>
+        )}
       </div>
 
       {/* Filtro ativo indicator — removido, navegação pelos cards é suficiente */}
@@ -560,7 +595,7 @@ export default function FichasPage() {
                         <span className="text-[9px] text-[var(--surface-500)]">{formatarDisplay(ficha.pagamento)}{ficha.parcelas ? ` ${ficha.parcelas}` : ''}</span>
                       </div>
                       {/* Status badge */}
-                      {isPendente ? <Badge variant="warning" dot>Recebida</Badge> : <Badge variant="success" dot>Processada</Badge>}
+                      {isCancelada(ficha) ? <Badge variant="error" dot>Cancelada</Badge> : isPendente ? <Badge variant="warning" dot>Recebida</Badge> : <Badge variant="success" dot>Processada</Badge>}
                     </div>
 
                     {/* Linha 2: Tutor + meta */}
@@ -604,7 +639,37 @@ export default function FichasPage() {
                     </div>
                     {/* Linha 3: Actions */}
                     <div className="flex items-center gap-1.5 mt-1">
-                    {isPendente ? (
+                    {isCancelada(ficha) ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] text-red-400 italic">
+                          {(() => {
+                            const op = (ficha.op_dados as Record<string, unknown>) || {}
+                            const quem = op.cancelada_por ? String(op.cancelada_por) : ''
+                            const quando = op.cancelada_em ? new Date(String(op.cancelada_em)).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
+                            return `${quem}${quando ? ` em ${quando}` : ''}`
+                          })()}
+                        </span>
+                        {isSuperAdmin && (
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation()
+                              const supabaseLocal = createClient()
+                              const opAtual = (ficha.op_dados || {}) as Record<string, unknown>
+                              const { cancelada, cancelada_em, cancelada_por, ...opSemCancelamento } = opAtual
+                              await supabaseLocal.from('fichas').update({
+                                processada: false,
+                                op_dados: opSemCancelamento,
+                              } as never).eq('id', ficha.id)
+                              carregarFichas()
+                              carregarContagens()
+                            }}
+                            className="btn-secondary text-[10px] py-1 px-2 whitespace-nowrap text-amber-400 border-amber-500/30"
+                          >
+                            Reabrir
+                          </button>
+                        )}
+                      </div>
+                    ) : isPendente ? (
                       <div className="flex items-center gap-1.5">
                         <button
                           onClick={() => { setModalSomenteLeitura(true); setFichaModal(ficha) }}

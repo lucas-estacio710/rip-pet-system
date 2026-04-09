@@ -185,12 +185,13 @@
 | data_retorno | date |  |
 | desconto_acessorios | numeric | default=0 |
 | desconto_plano | numeric | default=0 |
-| estabelecimento_id | uuid | FK->estabelecimentos.id |
+| estabelecimento_id | uuid | FK->estabelecimentos.id (local de remoção) |
+| estabelecimento_indicacao_id | uuid | FK->estabelecimentos.id (quem indicou) |
 | fonte_conhecimento_id | uuid | FK->fontes_conhecimento.id |
 | funcionario_id | uuid | FK->funcionarios.id |
 | id | uuid | PK default=gen_random_uuid() |
-| indicacao_clinica | text |  |
-| indicacao_contato | text |  |
+| indicacao_clinica | text | fallback texto (sem módulo clínicas) |
+| indicacao_contato | text | fallback texto (sem módulo clínicas) |
 | indicador_id | uuid | FK->indicadores.id |
 | latitude | numeric |  |
 | local_coleta | character varying |  |

@@ -167,8 +167,8 @@ type StatusCount = {
 const STATUS_FLOW = [
   { key: 'ativo', label: 'Ativo', short: 'ATV', color: 'red', icon: '✝️' },
   { key: 'pinda', label: 'Pinda', short: 'PIN', color: 'orange', icon: '⛪' },
-  { key: 'retorno', label: 'Retorno', short: 'RET', color: 'blue', icon: '🛍️' },
-  { key: 'pendente', label: 'Pendente', short: 'PEN', color: 'purple', icon: '👀' },
+  { key: 'retorno', label: 'Entrega', short: 'ENT', color: 'blue', icon: '🛍️' },
+  { key: 'pendente', label: 'Pendente', short: 'PEN', color: 'purple', icon: '⏳' },
   { key: 'finalizado', label: 'Finalizado', short: 'FIN', color: 'gray', icon: '✅' },
 ]
 
@@ -3527,7 +3527,7 @@ ${petNome}`
                               className="flex items-center justify-center w-9 h-9 bg-orange-500 text-white rounded-full hover:bg-orange-600 transition-colors"
                               title="Enviar para Pinda"
                             >
-                              <span className="text-base">💛</span>
+                              <span className="text-base">⛪</span>
                             </button>
                           )}
                           {/* Botão Marcar Entregue - para retorno e pendente */}
@@ -3804,7 +3804,7 @@ ${petNome}`
                               className="flex items-center justify-center w-8 h-8 bg-orange-500 text-white rounded-full hover:bg-orange-600 transition-colors"
                               title="Enviar para Pinda"
                             >
-                              <span className="text-sm">💛</span>
+                              <span className="text-sm">⛪</span>
                             </button>
                           )}
                           {(contrato.status === 'retorno' || contrato.status === 'pendente') && (

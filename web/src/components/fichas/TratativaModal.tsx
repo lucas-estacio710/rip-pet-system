@@ -957,9 +957,9 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                 onClick={async () => {
                   if (!ficha) return
                   const supabaseLocal = createClient()
+                  const { data: { user } } = await supabaseLocal.auth.getUser()
                   await supabaseLocal.from('fichas').update({
-                    processada: false,
-                    op_dados: { ...(ficha.op_dados || {}), cancelada: true, cancelada_em: new Date().toISOString() },
+                    op_dados: { ...(ficha.op_dados || {}), cancelada: true, cancelada_em: new Date().toISOString(), cancelada_por: user?.email || null },
                   } as never).eq('id', ficha.id)
                   setConfirmarCancelamento(false)
                   onClose()
@@ -1224,7 +1224,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
           </>)}
 
           {/* Campos provisórios — editáveis (só processadas) */}
-          {!somenteLeitura && (semLocal || semResponsavel || semDataHora || semLacre || !telefoneConfirmado) && (
+          {!somenteLeitura && (semLocal || semResponsavel || semDataHora || semLacre || (!telefoneConfirmado && !mostrarTelefone2)) && (
             <div className="p-4 rounded-xl space-y-3" style={{ background: 'rgba(250, 204, 21, 0.08)', border: '1px solid rgba(250, 204, 21, 0.2)' }}>
               <h4 className="text-xs font-bold text-amber-500 uppercase tracking-wider">Campos Pendentes (provisórios)</h4>
               <p className="text-[10px] text-amber-400/70">Preencha abaixo quando tiver as informações e clique em Salvar</p>
@@ -1319,7 +1319,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                 </div>
               )}
 
-              {!telefoneConfirmado && (
+              {!telefoneConfirmado && !mostrarTelefone2 && (
                 <div className="p-2 rounded-lg border border-[var(--surface-200)] space-y-2">
                   <p className="text-[10px] text-[var(--surface-500)]">Está conversando com este número?</p>
                   <div className="px-2 py-1.5 rounded bg-[var(--surface-50)] text-sm text-mono text-[var(--surface-700)]">{formatarTel(ficha?.telefone)}</div>

@@ -230,7 +230,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
   preventivo: { label: 'Preventivo', color: 'text-yellow-400', bg: 'bg-yellow-900/40', strip: '#eab308' },
   ativo: { label: '✝ Ativo', color: 'text-red-400', bg: 'bg-red-900/40', strip: '#dc2626' },
   pinda: { label: 'Em Pinda', color: 'text-orange-400', bg: 'bg-orange-900/40', strip: '#ea580c' },
-  retorno: { label: 'Retorno', color: 'text-purple-400', bg: 'bg-purple-900/40', strip: '#7c3aed' },
+  retorno: { label: 'Entrega', color: 'text-purple-400', bg: 'bg-purple-900/40', strip: '#7c3aed' },
   pendente: { label: 'Pendente', color: 'text-amber-400', bg: 'bg-amber-900/40', strip: '#d97706' },
   finalizado: { label: 'Finalizado', color: 'text-slate-400', bg: 'bg-slate-700', strip: '#6b7280' },
 }

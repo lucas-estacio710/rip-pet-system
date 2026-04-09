@@ -33,7 +33,7 @@ type DrillView = null | 'cremacao' | 'plano' | 'clinicas' | 'fontes' | 'pagament
 const STATUS_CARDS = [
   { key: 'ativo', label: 'Ativos', sublabel: 'Santos', color: 'border-l-red-500', bgIcon: 'bg-red-900/30', textIcon: 'text-red-400', textValue: 'text-red-400' },
   { key: 'pinda', label: 'Em Pinda', sublabel: 'Crematorio', color: 'border-l-orange-500', bgIcon: 'bg-orange-900/30', textIcon: 'text-orange-400', textValue: 'text-orange-400' },
-  { key: 'retorno', label: 'Retorno', sublabel: 'Cinzas prontas', color: 'border-l-cyan-500', bgIcon: 'bg-cyan-900/30', textIcon: 'text-cyan-400', textValue: 'text-cyan-400' },
+  { key: 'retorno', label: 'Entrega', sublabel: 'Cinzas prontas', color: 'border-l-cyan-500', bgIcon: 'bg-cyan-900/30', textIcon: 'text-cyan-400', textValue: 'text-cyan-400' },
   { key: 'preventivo', label: 'Preventivos', sublabel: 'Pet vivo', color: 'border-l-amber-500', bgIcon: 'bg-amber-900/30', textIcon: 'text-amber-400', textValue: 'text-amber-400' },
   { key: 'pendente', label: 'Pendentes', sublabel: 'Acao necessaria', color: 'border-l-purple-500', bgIcon: 'bg-purple-900/30', textIcon: 'text-purple-400', textValue: 'text-purple-400' },
   { key: 'finalizado', label: 'Finalizados', sublabel: 'Concluidos', color: 'border-l-gray-400', bgIcon: 'bg-slate-700/50', textIcon: 'text-slate-400', textValue: 'text-slate-400' },
