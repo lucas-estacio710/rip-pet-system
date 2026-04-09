@@ -92,6 +92,8 @@ type Contrato = {
   protocolo_data: ProtocoloData | null
   // Data de entrega
   data_entrega: string | null
+  // GC (Gerenciamento de Cremações)
+  contrato_gc: { etapa: string; cinzas_prontas: boolean; certificado_pronto: boolean } | null
   // Compartilhamento entre unidades
   unidade_remocao_id: string | null
   unidade_remocao: { id: string; codigo: string; nome: string } | null
@@ -615,7 +617,7 @@ function ContratosContent() {
 
     let query = supabase
       .from('contratos')
-      .select('id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_remocao:unidades!contratos_unidade_remocao_id_fkey(id, codigo, nome), unidade_entrega_id, unidade_entrega:unidades!contratos_unidade_entrega_id_fkey(id, codigo, nome)', { count: 'exact' })
+      .select('id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, contrato_gc(etapa, cinzas_prontas, certificado_pronto), protocolo_data, data_entrega, unidade_remocao_id, unidade_remocao:unidades!contratos_unidade_remocao_id_fkey(id, codigo, nome), unidade_entrega_id, unidade_entrega:unidades!contratos_unidade_entrega_id_fkey(id, codigo, nome)', { count: 'exact' })
       .order(campoOrdem, { ascending, nullsFirst: false })
       .range(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA - 1)
 
@@ -664,7 +666,7 @@ function ContratosContent() {
 
     let query = supabase
       .from('contratos')
-      .select('id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_remocao:unidades!contratos_unidade_remocao_id_fkey(id, codigo, nome), unidade_entrega_id, unidade_entrega:unidades!contratos_unidade_entrega_id_fkey(id, codigo, nome)', { count: 'exact' })
+      .select('id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, contrato_gc(etapa, cinzas_prontas, certificado_pronto), protocolo_data, data_entrega, unidade_remocao_id, unidade_remocao:unidades!contratos_unidade_remocao_id_fkey(id, codigo, nome), unidade_entrega_id, unidade_entrega:unidades!contratos_unidade_entrega_id_fkey(id, codigo, nome)', { count: 'exact' })
       .or(campoBusca === 'todos'
         ? `codigo.ilike.%${termoBusca}%,pet_nome.ilike.%${termoBusca}%,tutor_nome.ilike.%${termoBusca}%,numero_lacre.ilike.%${termoBusca}%`
         : campoBusca === 'pet' ? `pet_nome.ilike.%${termoBusca}%`
@@ -1016,6 +1018,27 @@ function ContratosContent() {
         badges.push(
           <span key="ent" className="text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-cyan-900/40 text-cyan-400 border border-cyan-500/30">
             🛍️ Entrega: {contrato.unidade_entrega?.codigo || '?'}
+          </span>
+        )
+      }
+    }
+
+    // Badge GC Disponível (pinda com cinzas+certificado prontos)
+    if (contrato.status === 'pinda' && contrato.contrato_gc) {
+      const gc = contrato.contrato_gc
+      if (gc.cinzas_prontas && gc.certificado_pronto) {
+        badges.push(
+          <span key="gc-ready" className="text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-emerald-900/40 text-emerald-400 border border-emerald-500/30">
+            ✅ Pronto
+          </span>
+        )
+      } else if (gc.etapa === 'disponivel' || gc.etapa === 'cremacao') {
+        const pendencias = []
+        if (!gc.cinzas_prontas) pendencias.push('⚱️')
+        if (!gc.certificado_pronto) pendencias.push('📜')
+        badges.push(
+          <span key="gc-partial" className="text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-amber-900/40 text-amber-400 border border-amber-500/30">
+            ⏳ {pendencias.join(' ')}
           </span>
         )
       }

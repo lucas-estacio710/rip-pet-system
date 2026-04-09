@@ -98,6 +98,22 @@ export default function BandejaEncaminhamento({ contratosIda, onRemoveIda, onCle
         } as never)
         .in('id', ids)
 
+      // Criar contrato_gc para cada contrato (se não existir)
+      for (const c of contratosIda) {
+        const { data: gcExistente } = await supabase
+          .from('contrato_gc')
+          .select('id')
+          .eq('contrato_id', c.id)
+          .maybeSingle()
+        if (!gcExistente) {
+          await supabase.from('contrato_gc').insert({
+            contrato_id: c.id,
+            etapa: 'recebido',
+            data_recebimento: new Date().toISOString(),
+          } as never)
+        }
+      }
+
       // Limpar e notificar
       onClear()
       onEncaminhamentoCriado()
