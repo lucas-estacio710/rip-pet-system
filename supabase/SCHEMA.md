@@ -221,6 +221,7 @@
 | seguradora | text |  |
 | status | public.status_atendimento | default=ativo enum=[preventivo, ativo, pinda, retorno, pendente, finalizado] |
 | supinda_id | uuid | FK->supindas.id |
+| supinda_direcao | varchar(10) | CHECK IN ('ida', 'volta'). NULL=legado(ida) |
 | tipo_cremacao | public.tipo_cremacao | enum=[individual, coletiva] |
 | tipo_plano | public.tipo_plano | enum=[emergencial, preventivo] |
 | tutor_bairro | character varying |  |
@@ -235,6 +236,8 @@
 | tutor_telefone2 | character varying |  |
 | tutor_vet_segmento | boolean | default=False |
 | unidade_id | uuid | FK->unidades.id |
+| unidade_remocao_id | uuid | FK->unidades.id. Unidade que faz remoção (se diferente da dona) |
+| unidade_entrega_id | uuid | FK->unidades.id. Unidade que entrega cinzas (se diferente da dona) |
 | updated_at | timestamp with time zone | default=now() |
 | valor_acessorios | numeric | default=0 |
 | valor_plano | numeric |  |

@@ -39,6 +39,7 @@ type Tutor = {
 type Contrato = {
   id: string
   codigo: string
+  unidade_id: string
   pet_nome: string
   pet_especie: string | null
   pet_raca: string | null
@@ -85,10 +86,16 @@ type Contrato = {
   // Supinda vinculada
   supinda_id: string | null
   supinda: Supinda | null
+  supinda_direcao: 'ida' | 'volta' | null
   // Protocolo de entrega salvo
   protocolo_data: ProtocoloData | null
   // Data de entrega
   data_entrega: string | null
+  // Compartilhamento entre unidades
+  unidade_remocao_id: string | null
+  unidade_remocao: { id: string; codigo: string; nome: string } | null
+  unidade_entrega_id: string | null
+  unidade_entrega: { id: string; codigo: string; nome: string } | null
 }
 
 type Produto = {
@@ -592,12 +599,13 @@ function ContratosContent() {
 
     let query = supabase
       .from('contratos')
-      .select('id, codigo, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas(id, numero, data, responsavel, status, quantidade_pets, peso_total), protocolo_data, data_entrega', { count: 'exact' })
+      .select('id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_remocao:unidades!contratos_unidade_remocao_id_fkey(id, codigo, nome), unidade_entrega_id, unidade_entrega:unidades!contratos_unidade_entrega_id_fkey(id, codigo, nome)', { count: 'exact' })
       .order(campoOrdem, { ascending, nullsFirst: false })
       .range(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA - 1)
 
     if (currentUnit) {
-      query = query.eq('unidade_id', currentUnit.id)
+      // Incluir contratos da unidade + contratos co-responsáveis (remoção/entrega)
+      query = query.or(`unidade_id.eq.${currentUnit.id},unidade_remocao_id.eq.${currentUnit.id},unidade_entrega_id.eq.${currentUnit.id}`)
     }
 
     if (statusFiltro) {
@@ -640,7 +648,7 @@ function ContratosContent() {
 
     let query = supabase
       .from('contratos')
-      .select('id, codigo, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas(id, numero, data, responsavel, status, quantidade_pets, peso_total), protocolo_data, data_entrega', { count: 'exact' })
+      .select('id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_remocao:unidades!contratos_unidade_remocao_id_fkey(id, codigo, nome), unidade_entrega_id, unidade_entrega:unidades!contratos_unidade_entrega_id_fkey(id, codigo, nome)', { count: 'exact' })
       .or(campoBusca === 'todos'
         ? `codigo.ilike.%${termoBusca}%,pet_nome.ilike.%${termoBusca}%,tutor_nome.ilike.%${termoBusca}%,numero_lacre.ilike.%${termoBusca}%`
         : campoBusca === 'pet' ? `pet_nome.ilike.%${termoBusca}%`
@@ -652,7 +660,8 @@ function ContratosContent() {
       .limit(1000)
 
     if (currentUnit) {
-      query = query.eq('unidade_id', currentUnit.id)
+      // Incluir contratos da unidade + contratos co-responsáveis (remoção/entrega)
+      query = query.or(`unidade_id.eq.${currentUnit.id},unidade_remocao_id.eq.${currentUnit.id},unidade_entrega_id.eq.${currentUnit.id}`)
     }
 
     const { data, error, count } = await query
@@ -950,6 +959,54 @@ function ContratosContent() {
   function capitalizarNome(nome: string): string {
     if (!nome) return ''
     return nome.split(/\s+/).map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(' ')
+  }
+
+  // Badge de compartilhamento entre unidades
+  function renderBadgesCompartilhamento(contrato: Contrato) {
+    if (!currentUnit) return null
+    const badges: React.ReactNode[] = []
+    const isOwner = contrato.unidade_id === currentUnit.id || (!contrato.unidade_id)
+
+    // Remoção compartilhada
+    if (contrato.unidade_remocao_id) {
+      if (contrato.unidade_remocao_id === currentUnit.id && !isOwner) {
+        // Eu faço a remoção pra outra unidade
+        badges.push(
+          <span key="rem" className="text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-amber-900/40 text-amber-400 border border-amber-500/30">
+            📍 Remoção p/ {contrato.unidade_remocao?.codigo || '?'}
+          </span>
+        )
+      } else if (isOwner) {
+        // Outra unidade faz a remoção pra mim
+        badges.push(
+          <span key="rem" className="text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-amber-900/40 text-amber-400 border border-amber-500/30">
+            📍 Remoção: {contrato.unidade_remocao?.codigo || '?'}
+          </span>
+        )
+      }
+    }
+
+    // Entrega compartilhada
+    if (contrato.unidade_entrega_id) {
+      if (contrato.unidade_entrega_id === currentUnit.id && !isOwner) {
+        // Eu entrego pra outra unidade
+        badges.push(
+          <span key="ent" className="text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-cyan-900/40 text-cyan-400 border border-cyan-500/30">
+            🛍️ Entrega p/ {contrato.unidade_entrega?.codigo || '?'}
+          </span>
+        )
+      } else if (isOwner) {
+        // Outra unidade entrega pra mim
+        badges.push(
+          <span key="ent" className="text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-cyan-900/40 text-cyan-400 border border-cyan-500/30">
+            🛍️ Entrega: {contrato.unidade_entrega?.codigo || '?'}
+          </span>
+        )
+      }
+    }
+
+    if (badges.length === 0) return null
+    return <div className="flex flex-wrap gap-1">{badges}</div>
   }
 
   // Pegar primeiro nome, preservando nomes compostos, com capitalização
@@ -3433,6 +3490,7 @@ ${petNome}`
                             {contrato.pet_genero && <span style={{ marginLeft: '3px', fontSize: '0.8rem' }}>{contrato.pet_genero === 'macho' ? '♂' : '♀'}</span>}
                           </span>
                         </Link>
+                        {renderBadgesCompartilhamento(contrato)}
                         {(contrato.pet_raca || contrato.pet_cor) && (
                           <span className="text-xs font-medium" style={{ background: 'linear-gradient(90deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', color: '#475569', padding: '1px 5px', borderRadius: '4px' }}>{[contrato.pet_raca, contrato.pet_cor].filter(Boolean).join(' | ')}</span>
                         )}
@@ -3684,6 +3742,7 @@ ${petNome}`
                             {contrato.pet_genero && <span style={{ marginLeft: '2px', fontSize: '0.7rem' }}>{contrato.pet_genero === 'macho' ? '♂' : '♀'}</span>}
                           </span>
                         </Link>
+                        {renderBadgesCompartilhamento(contrato)}
                         <div className="h-6 flex items-center">
                           {(contrato.pet_raca || contrato.pet_cor) && (
                             <span className="text-[10px] font-medium truncate max-w-[140px] h-6 flex items-center" style={{ background: 'linear-gradient(90deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', color: '#475569', padding: '0 5px', borderRadius: '4px' }}>{[contrato.pet_raca, contrato.pet_cor].filter(Boolean).join(' | ')}</span>
