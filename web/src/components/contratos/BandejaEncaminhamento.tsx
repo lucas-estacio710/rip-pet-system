@@ -259,7 +259,7 @@ export default function BandejaEncaminhamento({ contratosIda, onRemoveIda, contr
               </div>
               <button
                 onClick={criarEncaminhamento}
-                disabled={salvando || count === 0}
+                disabled={salvando || (countIda === 0 && countVolta === 0)}
                 className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-bold text-white transition-colors disabled:opacity-50"
                 style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)' }}
               >
