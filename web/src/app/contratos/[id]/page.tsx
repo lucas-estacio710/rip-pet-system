@@ -201,6 +201,11 @@ type Contrato = {
   nfse_link_pdf: string | null
   // Protocolo de entrega salvo
   protocolo_data: ProtocoloData | null
+  // Compartilhamento entre unidades
+  unidade_remocao_id: string | null
+  unidade_remocao: { id: string; codigo: string; nome: string } | null
+  unidade_entrega_id: string | null
+  unidade_entrega: { id: string; codigo: string; nome: string } | null
   // Pelinho (rescaldo padrão)
   pelinho_quer: boolean | null
   pelinho_feito: boolean
@@ -1386,7 +1391,7 @@ export default function ContratoDetalhe() {
     const contratoId = params.id as string
     const { data, error } = await supabase
       .from('contratos')
-      .select('*, tutor:tutores(*)')
+      .select('*, tutor:tutores(*), unidade_remocao:unidades!contratos_unidade_remocao_id_fkey(id, codigo, nome), unidade_entrega:unidades!contratos_unidade_entrega_id_fkey(id, codigo, nome)')
       .eq('id', contratoId)
       .single()
 
@@ -2063,15 +2068,43 @@ ${petNome}`
               />
             )}
 
-            {/* Botão Compartilhar (FLS: btn_compartilhar) */}
+            {/* Botão Compartilhar + badges ativos (FLS: btn_compartilhar) */}
             {isVisible(T, 'btn_compartilhar') && (
-              <button
-                onClick={() => { setCompartilharTipo('remocao'); setCompartilharUnidadeId(''); setCompartilharModal(true) }}
-                className="flex items-center justify-center w-7 h-7 bg-purple-600 text-white rounded-full hover:bg-purple-700 transition-colors"
-                title="Compartilhar com outra unidade"
-              >
-                <span className="text-sm">🔄</span>
-              </button>
+              <>
+                <button
+                  onClick={() => { setCompartilharTipo('remocao'); setCompartilharUnidadeId(''); setCompartilharModal(true) }}
+                  className="flex items-center justify-center w-7 h-7 bg-purple-600 text-white rounded-full hover:bg-purple-700 transition-colors"
+                  title="Compartilhar com outra unidade"
+                >
+                  <span className="text-sm">🔄</span>
+                </button>
+                {contrato.unidade_remocao && (
+                  <span className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-full font-bold bg-amber-900/40 text-amber-400 border border-amber-500/30">
+                    📍 Remoção: {contrato.unidade_remocao.codigo}
+                    <button
+                      onClick={async () => {
+                        await supabase.from('contratos').update({ unidade_remocao_id: null } as never).eq('id', contrato.id)
+                        setContrato({ ...contrato, unidade_remocao_id: null, unidade_remocao: null })
+                      }}
+                      className="ml-1 hover:text-red-400"
+                      title="Remover compartilhamento de remoção"
+                    >✕</button>
+                  </span>
+                )}
+                {contrato.unidade_entrega && (
+                  <span className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-full font-bold bg-cyan-900/40 text-cyan-400 border border-cyan-500/30">
+                    🛍️ Entrega: {contrato.unidade_entrega.codigo}
+                    <button
+                      onClick={async () => {
+                        await supabase.from('contratos').update({ unidade_entrega_id: null } as never).eq('id', contrato.id)
+                        setContrato({ ...contrato, unidade_entrega_id: null, unidade_entrega: null })
+                      }}
+                      className="ml-1 hover:text-red-400"
+                      title="Remover compartilhamento de entrega"
+                    >✕</button>
+                  </span>
+                )}
+              </>
             )}
 
             {/* Botão Protocolo de Entrega (FLS: btn_fluxo_retorno) */}
