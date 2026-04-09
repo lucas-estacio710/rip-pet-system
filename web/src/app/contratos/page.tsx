@@ -450,6 +450,7 @@ function ContratosContent() {
   // Bandeja de Encaminhamento (ida + volta)
   // Toggle mostrar compartilhados
   const [mostrarCompartilhados, setMostrarCompartilhados] = useState(false)
+  const [compartilhadosCount, setCompartilhadosCount] = useState(0)
 
   const [bandejaIda, setBandejaIda] = useState<{ id: string; codigo: string; pet_nome: string; pet_peso: number | null }[]>([])
   const [bandejaVolta, setBandejaVolta] = useState<{ id: string; codigo: string; pet_nome: string; pet_peso: number | null }[]>([])
@@ -574,6 +575,18 @@ function ContratosContent() {
       carregarContratos()
     }
   }, [pagina, statusFiltro, ordenacao, ordemAsc, mostrarCompartilhados])
+
+  // Contar compartilhados (ativo a pendente) em background
+  useEffect(() => {
+    if (!currentUnit?.id) return
+    supabase
+      .from('contratos')
+      .select('id', { count: 'exact', head: true })
+      .or(`unidade_remocao_id.eq.${currentUnit.id},unidade_entrega_id.eq.${currentUnit.id}`)
+      .neq('unidade_id', currentUnit.id)
+      .in('status', ['ativo', 'pinda', 'retorno', 'pendente'])
+      .then(({ count }) => setCompartilhadosCount(count || 0))
+  }, [currentUnit?.id])
 
   async function carregarContagens() {
     if (!currentUnit) { setLoading(false); return }
@@ -2827,14 +2840,22 @@ ${petNome}`
         {/* Toggle compartilhados */}
         <button
           onClick={() => setMostrarCompartilhados(!mostrarCompartilhados)}
-          className={`h-8 px-2.5 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1 shrink-0 ${
+          className={`relative h-8 px-2.5 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1 shrink-0 ${
             mostrarCompartilhados
               ? 'bg-purple-600 border-purple-500 text-white'
               : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-purple-500'
           }`}
-          title={mostrarCompartilhados ? 'Mostrando compartilhados — clique pra esconder' : 'Mostrar contratos compartilhados com sua unidade'}
+          title={mostrarCompartilhados ? 'Mostrando compartilhados — clique pra esconder' : `Mostrar ${compartilhadosCount} contrato(s) compartilhado(s)`}
         >
           🔄 {mostrarCompartilhados ? 'On' : 'Off'}
+          {!mostrarCompartilhados && compartilhadosCount > 0 && (
+            <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+              <span className="relative inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full bg-red-500 text-[9px] font-bold text-white">
+                {compartilhadosCount}
+              </span>
+            </span>
+          )}
         </button>
         <select
           value={campoBusca}
