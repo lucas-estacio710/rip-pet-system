@@ -47,8 +47,8 @@ type StatusCount = {
 
 const STATUS_CONFIG = {
   planejada: { label: 'Planejadas', icon: Clock, color: 'amber', bgClass: 'bg-amber-500', textClass: 'text-amber-400', bgLightClass: 'bg-amber-900/30' },
-  em_andamento: { label: 'Em Andamento', icon: Truck, color: 'blue', bgClass: 'bg-blue-500', textClass: 'text-blue-400', bgLightClass: 'bg-blue-900/30' },
-  retornada: { label: 'Retornadas', icon: CheckCircle2, color: 'green', bgClass: 'bg-green-500', textClass: 'text-green-400', bgLightClass: 'bg-green-900/30' },
+  em_andamento: { label: 'Embarcadas', icon: Truck, color: 'blue', bgClass: 'bg-blue-500', textClass: 'text-blue-400', bgLightClass: 'bg-blue-900/30' },
+  retornada: { label: 'Finalizadas', icon: CheckCircle2, color: 'green', bgClass: 'bg-green-500', textClass: 'text-green-400', bgLightClass: 'bg-green-900/30' },
 }
 
 export default function SupindasPage() {
@@ -380,7 +380,7 @@ export default function SupindasPage() {
           </div>
         </div>
         <span className="text-xs px-3 py-1.5 rounded-lg font-medium" style={{ background: 'rgba(139,92,246,0.15)', color: '#8b5cf6', border: '1px solid rgba(139,92,246,0.2)' }}>
-          👁️ Somente leitura — use o Pipeline para criar encaminhamentos
+          🚐 Adicione pets no Pipeline → feche aqui
         </span>
       </div>
 
@@ -481,7 +481,25 @@ export default function SupindasPage() {
 
                     {/* Ações */}
                     <div className="flex items-center gap-2">
-                      {/* Ações removidas — gerenciado via Pipeline */}
+                      {/* Ações de checkout */}
+                      {supinda.status === 'planejada' && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); marcarEmAndamento(supinda.id) }}
+                          className="px-3 py-1.5 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                          title="Fechar encaminhamento e embarcar"
+                        >
+                          🚐 Embarcar
+                        </button>
+                      )}
+                      {supinda.status === 'em_andamento' && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); marcarRetornada(supinda.id) }}
+                          className="px-3 py-1.5 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+                          title="Marcar como finalizada"
+                        >
+                          ✅ Finalizar
+                        </button>
+                      )}
                       <div className="p-2 text-slate-400">
                         {isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
                       </div>

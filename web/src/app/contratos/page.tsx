@@ -12,7 +12,7 @@ import ProtocoloEntrega from '@/components/protocolo/ProtocoloEntrega'
 import { printProtocolos } from '@/components/protocolo/ProtocoloPrint'
 import InteractiveTags from '@/components/contratos/InteractiveTags'
 import ActionButtons from '@/components/contratos/ActionButtons'
-import BandejaEncaminhamento from '@/components/contratos/BandejaEncaminhamento'
+import CarrinhoEncaminhamento, { adicionarAoCarrinho } from '@/components/contratos/CarrinhoEncaminhamento'
 import EntregaModal from '@/components/contratos/modals/EntregaModal'
 import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
@@ -447,22 +447,17 @@ function ContratosContent() {
   const [entregaForm, setEntregaForm] = useState({ dataHoje: true, data_entrega: '' })
   const [salvandoEntrega, setSalvandoEntrega] = useState(false)
 
-  // Bandeja de Encaminhamento (ida + volta)
   // Toggle mostrar compartilhados
   const [mostrarCompartilhados, setMostrarCompartilhados] = useState(false)
   const [compartilhadosCount, setCompartilhadosCount] = useState(0)
 
-  const [bandejaIda, setBandejaIda] = useState<{ id: string; codigo: string; pet_nome: string; pet_peso: number | null }[]>([])
-  const [bandejaVolta, setBandejaVolta] = useState<{ id: string; codigo: string; pet_nome: string; pet_peso: number | null }[]>([])
+  // Carrinho de encaminhamento (IDs já adicionados, pra feedback visual no card)
+  const [carrinhoIds, setCarrinhoIds] = useState<Set<string>>(new Set())
 
-  function addBandejaIda(contrato: Contrato) {
-    if (bandejaIda.some(c => c.id === contrato.id)) return
-    setBandejaIda(prev => [...prev, { id: contrato.id, codigo: contrato.codigo, pet_nome: contrato.pet_nome, pet_peso: contrato.pet_peso }])
-  }
-
-  function addBandejaVolta(contrato: Contrato) {
-    if (bandejaVolta.some(c => c.id === contrato.id)) return
-    setBandejaVolta(prev => [...prev, { id: contrato.id, codigo: contrato.codigo, pet_nome: contrato.pet_nome, pet_peso: contrato.pet_peso }])
+  async function addAoCarrinho(contrato: Contrato, direcao: 'ida' | 'volta') {
+    if (carrinhoIds.has(contrato.id) || !currentUnit) return
+    setCarrinhoIds(prev => new Set(prev).add(contrato.id))
+    await adicionarAoCarrinho(supabase, contrato.id, direcao, currentUnit.id, currentUnit.codigo)
   }
 
   // Modal Compartilhar (remoção/entrega entre unidades)
@@ -559,6 +554,29 @@ function ContratosContent() {
     carregarProdutosRescaldo()
   }, [currentUnit?.id])
 
+  // Carregar IDs do carrinho (supinda planejada)
+  useEffect(() => {
+    if (!currentUnit?.id) return
+    supabase
+      .from('supindas')
+      .select('id')
+      .eq('unidade_id', currentUnit.id)
+      .eq('status', 'planejada')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data: sup }) => {
+        if (!sup) { setCarrinhoIds(new Set()); return }
+        supabase
+          .from('contratos')
+          .select('id')
+          .eq('supinda_id', (sup as any).id)
+          .then(({ data: contratos }) => {
+            setCarrinhoIds(new Set((contratos || []).map((c: any) => c.id)))
+          })
+      })
+  }, [currentUnit?.id])
+
   // Busca em tempo real com debounce
   useEffect(() => {
     if (buscaDebounced.trim()) {
@@ -574,7 +592,7 @@ function ContratosContent() {
     if (!buscaDebounced.trim()) {
       carregarContratos()
     }
-  }, [pagina, statusFiltro, ordenacao, ordemAsc, mostrarCompartilhados])
+  }, [pagina, statusFiltro, ordenacao, ordemAsc, mostrarCompartilhados, currentUnit?.id])
 
   // Contar compartilhados (ativo a pendente) em background
   useEffect(() => {
@@ -1057,11 +1075,11 @@ function ContratosContent() {
     if (contrato.status === 'pinda' && contrato.contrato_gc) {
       const gc = contrato.contrato_gc
       if (gc.cinzas_prontas && gc.certificado_pronto) {
-        const naVolta = bandejaVolta.some(c => c.id === contrato.id)
+        const naVolta = carrinhoIds.has(contrato.id)
         badges.push(
           <button
             key="gc-ready"
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (!naVolta) addBandejaVolta(contrato) }}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (!carrinhoIds.has(contrato.id)) addAoCarrinho(contrato, 'volta') }}
             className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold border cursor-pointer hover:scale-105 transition-all ${
               naVolta ? 'bg-purple-900/40 text-purple-400 border-purple-500/30' : 'bg-emerald-900/40 text-emerald-400 border-emerald-500/30'
             }`}
@@ -3721,13 +3739,13 @@ ${petNome}`
                           {/* Botão Pinda - só para ativo (FLS: btn_bandeja) */}
                           {contrato.status === 'ativo' && isVisible(T, 'btn_bandeja') && (
                             <button
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); addBandejaIda(contrato) }}
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); addAoCarrinho(contrato, 'ida') }}
                               className={`flex items-center justify-center w-9 h-9 rounded-full transition-colors ${
-                                bandejaIda.some(c => c.id === contrato.id)
+                                carrinhoIds.has(contrato.id)
                                   ? 'bg-purple-600 text-white ring-2 ring-purple-400'
                                   : 'bg-orange-500 text-white hover:bg-orange-600'
                               }`}
-                              title={bandejaIda.some(c => c.id === contrato.id) ? 'Já na bandeja' : 'Adicionar à bandeja de encaminhamento'}
+                              title={carrinhoIds.has(contrato.id) ? 'Já na bandeja' : 'Adicionar à bandeja de encaminhamento'}
                             >
                               <span className="text-base">⛪</span>
                             </button>
@@ -4003,13 +4021,13 @@ ${petNome}`
                           )}
                           {contrato.status === 'ativo' && isVisible(T, 'btn_bandeja') && (
                             <button
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); addBandejaIda(contrato) }}
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); addAoCarrinho(contrato, 'ida') }}
                               className={`flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
-                                bandejaIda.some(c => c.id === contrato.id)
+                                carrinhoIds.has(contrato.id)
                                   ? 'bg-purple-600 text-white ring-2 ring-purple-400'
                                   : 'bg-orange-500 text-white hover:bg-orange-600'
                               }`}
-                              title={bandejaIda.some(c => c.id === contrato.id) ? 'Já na bandeja' : 'Adicionar à bandeja'}
+                              title={carrinhoIds.has(contrato.id) ? 'Já na bandeja' : 'Adicionar à bandeja'}
                             >
                               <span className="text-sm">⛪</span>
                             </button>
@@ -6046,15 +6064,8 @@ ${petNome}`
         )
       })()}
 
-      {/* Bandeja de Encaminhamento (FLS: btn_bandeja) */}
-      {isVisible(T, 'btn_bandeja') && <BandejaEncaminhamento
-        contratosIda={bandejaIda}
-        onRemoveIda={(id) => setBandejaIda(prev => prev.filter(c => c.id !== id))}
-        contratosVolta={bandejaVolta}
-        onRemoveVolta={(id) => setBandejaVolta(prev => prev.filter(c => c.id !== id))}
-        onClear={() => { setBandejaIda([]); setBandejaVolta([]) }}
-        onEncaminhamentoCriado={() => carregarContratos()}
-      />}
+      {/* Carrinho de Encaminhamento — bolinha flutuante (FLS: btn_bandeja) */}
+      {isVisible(T, 'btn_bandeja') && <CarrinhoEncaminhamento />}
     </div>
   )
 }
