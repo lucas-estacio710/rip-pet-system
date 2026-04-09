@@ -448,6 +448,9 @@ function ContratosContent() {
   const [salvandoEntrega, setSalvandoEntrega] = useState(false)
 
   // Bandeja de Encaminhamento (ida + volta)
+  // Toggle mostrar compartilhados
+  const [mostrarCompartilhados, setMostrarCompartilhados] = useState(false)
+
   const [bandejaIda, setBandejaIda] = useState<{ id: string; codigo: string; pet_nome: string; pet_peso: number | null }[]>([])
   const [bandejaVolta, setBandejaVolta] = useState<{ id: string; codigo: string; pet_nome: string; pet_peso: number | null }[]>([])
 
@@ -570,7 +573,7 @@ function ContratosContent() {
     if (!buscaDebounced.trim()) {
       carregarContratos()
     }
-  }, [pagina, statusFiltro, ordenacao, ordemAsc])
+  }, [pagina, statusFiltro, ordenacao, ordemAsc, mostrarCompartilhados])
 
   async function carregarContagens() {
     if (!currentUnit) { setLoading(false); return }
@@ -628,8 +631,12 @@ function ContratosContent() {
       .range(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA - 1)
 
     if (currentUnit) {
-      // Incluir contratos da unidade + contratos co-responsáveis (remoção/entrega)
-      query = query.or(`unidade_id.eq.${currentUnit.id},unidade_remocao_id.eq.${currentUnit.id},unidade_entrega_id.eq.${currentUnit.id}`)
+      // Filtrar por unidade — se toggle compartilhados ligado, inclui co-responsáveis
+      if (mostrarCompartilhados) {
+        query = query.or(`unidade_id.eq.${currentUnit.id},unidade_remocao_id.eq.${currentUnit.id},unidade_entrega_id.eq.${currentUnit.id}`)
+      } else {
+        query = query.eq('unidade_id', currentUnit.id)
+      }
     }
 
     if (statusFiltro) {
@@ -684,8 +691,12 @@ function ContratosContent() {
       .limit(1000)
 
     if (currentUnit) {
-      // Incluir contratos da unidade + contratos co-responsáveis (remoção/entrega)
-      query = query.or(`unidade_id.eq.${currentUnit.id},unidade_remocao_id.eq.${currentUnit.id},unidade_entrega_id.eq.${currentUnit.id}`)
+      // Filtrar por unidade — se toggle compartilhados ligado, inclui co-responsáveis
+      if (mostrarCompartilhados) {
+        query = query.or(`unidade_id.eq.${currentUnit.id},unidade_remocao_id.eq.${currentUnit.id},unidade_entrega_id.eq.${currentUnit.id}`)
+      } else {
+        query = query.eq('unidade_id', currentUnit.id)
+      }
     }
 
     const { data, error, count } = await query
@@ -2813,6 +2824,18 @@ ${petNome}`
             </button>
           )}
         </div>
+        {/* Toggle compartilhados */}
+        <button
+          onClick={() => setMostrarCompartilhados(!mostrarCompartilhados)}
+          className={`h-8 px-2.5 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1 shrink-0 ${
+            mostrarCompartilhados
+              ? 'bg-purple-600 border-purple-500 text-white'
+              : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-purple-500'
+          }`}
+          title={mostrarCompartilhados ? 'Mostrando compartilhados — clique pra esconder' : 'Mostrar contratos compartilhados com sua unidade'}
+        >
+          🔄 {mostrarCompartilhados ? 'On' : 'Off'}
+        </button>
         <select
           value={campoBusca}
           onChange={(e) => { setCampoBusca(e.target.value as typeof campoBusca); setPagina(0) }}
