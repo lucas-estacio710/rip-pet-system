@@ -2847,7 +2847,7 @@ ${petNome}`
           }`}
           title={mostrarCompartilhados ? 'Mostrando compartilhados — clique pra esconder' : `Mostrar ${compartilhadosCount} contrato(s) compartilhado(s)`}
         >
-          🔄 {mostrarCompartilhados ? 'On' : 'Off'}
+          🔄
           {!mostrarCompartilhados && compartilhadosCount > 0 && (
             <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
