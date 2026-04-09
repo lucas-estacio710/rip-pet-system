@@ -379,9 +379,6 @@ export default function SupindasPage() {
             <p className="text-small text-[var(--shell-text-muted)]">Acompanhamento de viagens</p>
           </div>
         </div>
-        <span className="text-xs px-3 py-1.5 rounded-lg font-medium" style={{ background: 'rgba(139,92,246,0.15)', color: '#8b5cf6', border: '1px solid rgba(139,92,246,0.2)' }}>
-          🚐 Adicione pets no Pipeline → feche aqui
-        </span>
       </div>
 
       {/* Cards de Status */}

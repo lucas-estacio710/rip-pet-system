@@ -3722,6 +3722,21 @@ ${petNome}`
                         />
                       )}
 
+                      {/* Botão Encaminhamento (carrinho) — independente de btn_alteracao_fase */}
+                      {contrato.status === 'ativo' && isVisible(T, 'btn_bandeja') && (
+                        <button
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); addAoCarrinho(contrato, 'ida') }}
+                          className={`flex items-center justify-center w-9 h-9 rounded-full transition-colors ${
+                            carrinhoIds.has(contrato.id)
+                              ? 'bg-purple-600 text-white ring-2 ring-purple-400'
+                              : 'bg-orange-500 text-white hover:bg-orange-600'
+                          }`}
+                          title={carrinhoIds.has(contrato.id) ? 'Já no carrinho' : 'Adicionar ao encaminhamento'}
+                        >
+                          <span className="text-base">⛪</span>
+                        </button>
+                      )}
+
                       {/* Botões Alteração Fase + Complexidade */}
                       <div className="flex flex-col items-end gap-1">
                         {isVisible(T, 'btn_alteracao_fase') && (
@@ -3734,20 +3749,6 @@ ${petNome}`
                               title="Ativar contrato preventivo"
                             >
                               <span className="text-base">✝️</span>
-                            </button>
-                          )}
-                          {/* Botão Pinda - só para ativo (FLS: btn_bandeja) */}
-                          {contrato.status === 'ativo' && isVisible(T, 'btn_bandeja') && (
-                            <button
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); addAoCarrinho(contrato, 'ida') }}
-                              className={`flex items-center justify-center w-9 h-9 rounded-full transition-colors ${
-                                carrinhoIds.has(contrato.id)
-                                  ? 'bg-purple-600 text-white ring-2 ring-purple-400'
-                                  : 'bg-orange-500 text-white hover:bg-orange-600'
-                              }`}
-                              title={carrinhoIds.has(contrato.id) ? 'Já na bandeja' : 'Adicionar à bandeja de encaminhamento'}
-                            >
-                              <span className="text-base">⛪</span>
                             </button>
                           )}
                           {/* Botão Marcar Entregue - para retorno e pendente */}
@@ -4008,6 +4009,20 @@ ${petNome}`
                           />
                         )}
                         <div className="flex-1" />
+                        {/* Botão Encaminhamento (carrinho) — independente */}
+                        {contrato.status === 'ativo' && isVisible(T, 'btn_bandeja') && (
+                          <button
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); addAoCarrinho(contrato, 'ida') }}
+                            className={`flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
+                              carrinhoIds.has(contrato.id)
+                                ? 'bg-purple-600 text-white ring-2 ring-purple-400'
+                                : 'bg-orange-500 text-white hover:bg-orange-600'
+                            }`}
+                            title={carrinhoIds.has(contrato.id) ? 'Já no carrinho' : 'Adicionar ao encaminhamento'}
+                          >
+                            <span className="text-sm">⛪</span>
+                          </button>
+                        )}
                         {/* Botões Alteração Fase (FLS: btn_alteracao_fase) */}
                         {isVisible(T, 'btn_alteracao_fase') && (<>
                           {contrato.status === 'preventivo' && (
@@ -4017,19 +4032,6 @@ ${petNome}`
                               title="Ativar"
                             >
                               <span className="text-sm">✝️</span>
-                            </button>
-                          )}
-                          {contrato.status === 'ativo' && isVisible(T, 'btn_bandeja') && (
-                            <button
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); addAoCarrinho(contrato, 'ida') }}
-                              className={`flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
-                                carrinhoIds.has(contrato.id)
-                                  ? 'bg-purple-600 text-white ring-2 ring-purple-400'
-                                  : 'bg-orange-500 text-white hover:bg-orange-600'
-                              }`}
-                              title={carrinhoIds.has(contrato.id) ? 'Já na bandeja' : 'Adicionar à bandeja'}
-                            >
-                              <span className="text-sm">⛪</span>
                             </button>
                           )}
                           {(contrato.status === 'retorno' || contrato.status === 'pendente') && (
