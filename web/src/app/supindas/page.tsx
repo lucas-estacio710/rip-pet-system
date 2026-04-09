@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Route, ChevronDown, ChevronUp, Truck, CheckCircle2, Clock, Loader2 } from 'lucide-react'
+import { Route, Clock, Loader2, Dog, Cat, Bug, User } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import Link from 'next/link'
@@ -14,18 +14,30 @@ type ContratoIda = {
   id: string
   codigo: string
   pet_nome: string
+  pet_especie: string | null
   pet_peso: number | null
   tutor_nome: string
   numero_lacre: string | null
+  tipo_cremacao: string | null
 }
 
 type ContratoVolta = {
   id: string
   codigo: string
   pet_nome: string
+  pet_especie: string | null
   tutor_nome: string
+  tipo_cremacao: string | null
   supinda: { numero: string } | null
   contrato_gc: { cinzas_prontas: boolean; certificado_pronto: boolean } | null
+}
+
+function corPeso(peso: number | null): string {
+  if (peso == null) return '#64748b'
+  if (peso <= 5) return '#22c55e'
+  if (peso <= 15) return '#3b82f6'
+  if (peso <= 30) return '#f59e0b'
+  return '#ef4444'
 }
 
 type SupindaHistorico = {
@@ -90,10 +102,10 @@ export default function SupindasPage() {
   async function carregarPaineis() {
     if (!currentUnit?.id) return
 
-    // IDA: contratos ativos da unidade (sem supinda ou com supinda planejada)
+    // IDA: contratos ativos da unidade
     const { data: ida } = await supabase
       .from('contratos')
-      .select('id, codigo, pet_nome, pet_peso, tutor_nome, numero_lacre')
+      .select('id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, numero_lacre, tipo_cremacao')
       .eq('unidade_id', currentUnit.id)
       .eq('status', 'ativo')
       .order('pet_nome')
@@ -103,7 +115,7 @@ export default function SupindasPage() {
     // VOLTA: contratos em pinda da unidade com GC pronto
     const { data: volta } = await supabase
       .from('contratos')
-      .select('id, codigo, pet_nome, tutor_nome, supinda:supindas!contratos_supinda_id_fkey(numero), contrato_gc(cinzas_prontas, certificado_pronto)')
+      .select('id, codigo, pet_nome, pet_especie, tutor_nome, tipo_cremacao, supinda:supindas!contratos_supinda_id_fkey(numero), contrato_gc(cinzas_prontas, certificado_pronto)')
       .eq('unidade_id', currentUnit.id)
       .eq('status', 'pinda')
       .order('pet_nome')
@@ -325,38 +337,57 @@ export default function SupindasPage() {
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 max-h-[55vh] overflow-y-auto pr-1">
                   {contratosIda.map(c => {
                     const sel = selectedIda.has(c.id)
+                    const PetIcon = c.pet_especie === 'canina' ? Dog : c.pet_especie === 'felina' ? Cat : Bug
+                    const pesoColor = corPeso(c.pet_peso)
+                    const isInd = c.tipo_cremacao === 'individual'
+                    const gradientBg = isInd
+                      ? 'linear-gradient(135deg, rgba(34,197,94,0.12) 0%, rgba(34,197,94,0.04) 100%)'
+                      : 'linear-gradient(135deg, rgba(139,92,246,0.12) 0%, rgba(139,92,246,0.04) 100%)'
+                    const borderColor = isInd ? '#22c55e' : '#8b5cf6'
                     return (
                       <button
                         key={c.id}
                         onClick={() => toggleIda(c.id)}
-                        className={`relative rounded-xl p-3 text-left transition-all duration-150 hover:scale-[1.02] ${
-                          sel
-                            ? 'ring-2 ring-amber-400 shadow-lg shadow-amber-500/20'
-                            : 'ring-1 ring-[var(--surface-200)] hover:ring-amber-400/50'
+                        className={`card p-2.5 card-hover cursor-pointer transition-all text-left relative ${
+                          sel ? 'ring-2 ring-amber-400 shadow-lg shadow-amber-500/30' : ''
                         }`}
-                        style={{ background: sel ? 'rgba(245,158,11,0.1)' : 'var(--surface-0)' }}
+                        style={{ borderLeft: `3px solid ${borderColor}`, background: gradientBg }}
                       >
-                        {/* Check */}
+                        {/* Check no canto */}
                         {sel && (
-                          <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center">
+                          <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center shadow-md">
                             <span className="text-white text-[10px] font-bold">✓</span>
                           </div>
                         )}
 
-                        {/* Lacre */}
-                        {c.numero_lacre && (
-                          <span className="text-white font-bold bg-blue-700 px-1.5 py-0.5 rounded text-[10px] inline-block mb-1.5">
-                            {String(c.numero_lacre).replace(/\.0$/, '')}
+                        {/* Lacre + Pet */}
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          {c.numero_lacre && (
+                            <span className="text-sm font-extrabold px-1.5 py-0 rounded leading-tight" style={{ background: '#1e3a5f', color: '#fff' }}>
+                              {String(c.numero_lacre).replace(/\.0$/, '')}
+                            </span>
+                          )}
+                          <PetIcon className="h-3 w-3 text-[var(--surface-400)]" />
+                          <span className="font-semibold text-xs text-[var(--surface-800)] truncate">{c.pet_nome}</span>
+                        </div>
+
+                        {/* IND/COL + Peso */}
+                        <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: isInd ? '#16a34a' : '#7c3aed', color: '#fff' }}>
+                            {isInd ? 'IND' : 'COL'}
                           </span>
-                        )}
+                          {c.pet_peso != null && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: pesoColor + '20', color: pesoColor }}>
+                              {c.pet_peso}kg
+                            </span>
+                          )}
+                        </div>
 
-                        {/* Pet */}
-                        <p className="text-sm font-bold truncate" style={{ color: 'var(--surface-700)' }}>{c.pet_nome}</p>
-                        <p className="text-[11px] truncate" style={{ color: 'var(--surface-400)' }}>{c.tutor_nome}</p>
-
-                        {/* Peso */}
-                        {c.pet_peso && (
-                          <p className="text-[10px] font-mono mt-1" style={{ color: 'var(--surface-400)' }}>{c.pet_peso}kg</p>
+                        {/* Tutor */}
+                        {c.tutor_nome && (
+                          <p className="text-[10px] text-[var(--surface-500)] truncate">
+                            <User className="h-2.5 w-2.5 inline mr-0.5" />{c.tutor_nome}
+                          </p>
                         )}
                       </button>
                     )
@@ -389,37 +420,55 @@ export default function SupindasPage() {
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 max-h-[55vh] overflow-y-auto pr-1">
                   {contratosVolta.map(c => {
                     const sel = selectedVolta.has(c.id)
+                    const PetIcon = c.pet_especie === 'canina' ? Dog : c.pet_especie === 'felina' ? Cat : Bug
+                    const isInd = c.tipo_cremacao === 'individual'
+                    const gradientBg = isInd
+                      ? 'linear-gradient(135deg, rgba(34,197,94,0.12) 0%, rgba(34,197,94,0.04) 100%)'
+                      : 'linear-gradient(135deg, rgba(139,92,246,0.12) 0%, rgba(139,92,246,0.04) 100%)'
+                    const borderColor = isInd ? '#22c55e' : '#8b5cf6'
                     return (
                       <button
                         key={c.id}
                         onClick={() => toggleVolta(c.id)}
-                        className={`relative rounded-xl p-3 text-left transition-all duration-150 hover:scale-[1.02] ${
-                          sel
-                            ? 'ring-2 ring-cyan-400 shadow-lg shadow-cyan-500/20'
-                            : 'ring-1 ring-[var(--surface-200)] hover:ring-cyan-400/50'
+                        className={`card p-2.5 card-hover cursor-pointer transition-all text-left relative ${
+                          sel ? 'ring-2 ring-cyan-400 shadow-lg shadow-cyan-500/30' : ''
                         }`}
-                        style={{ background: sel ? 'rgba(6,182,212,0.1)' : 'var(--surface-0)' }}
+                        style={{ borderLeft: `3px solid ${borderColor}`, background: gradientBg }}
                       >
-                        {/* Check */}
+                        {/* Check no canto */}
                         {sel && (
-                          <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-cyan-500 flex items-center justify-center">
+                          <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-cyan-500 flex items-center justify-center shadow-md">
                             <span className="text-white text-[10px] font-bold">✓</span>
                           </div>
                         )}
 
-                        {/* Enc. original */}
-                        {c.supinda?.numero && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-bold inline-block mb-1.5" style={{ background: '#f59e0b20', color: '#f59e0b' }}>
-                            {c.supinda.numero}
+                        {/* Enc. original + Pet */}
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          {c.supinda?.numero && (
+                            <span className="text-[10px] font-extrabold px-1.5 py-0 rounded leading-tight" style={{ background: '#f59e0b', color: '#fff' }}>
+                              {c.supinda.numero}
+                            </span>
+                          )}
+                          <PetIcon className="h-3 w-3 text-[var(--surface-400)]" />
+                          <span className="font-semibold text-xs text-[var(--surface-800)] truncate">{c.pet_nome}</span>
+                        </div>
+
+                        {/* IND/COL + Pronto */}
+                        <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: isInd ? '#16a34a' : '#7c3aed', color: '#fff' }}>
+                            {isInd ? 'IND' : 'COL'}
                           </span>
+                          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: '#22c55e20', color: '#22c55e' }}>
+                            ⚱️✓ 📜✓
+                          </span>
+                        </div>
+
+                        {/* Tutor */}
+                        {c.tutor_nome && (
+                          <p className="text-[10px] text-[var(--surface-500)] truncate">
+                            <User className="h-2.5 w-2.5 inline mr-0.5" />{c.tutor_nome}
+                          </p>
                         )}
-
-                        {/* Pet */}
-                        <p className="text-sm font-bold truncate" style={{ color: 'var(--surface-700)' }}>{c.pet_nome}</p>
-                        <p className="text-[11px] truncate" style={{ color: 'var(--surface-400)' }}>{c.tutor_nome}</p>
-
-                        {/* Status */}
-                        <p className="text-[10px] mt-1" style={{ color: '#22c55e' }}>⚱️✓ 📜✓</p>
                       </button>
                     )
                   })}
