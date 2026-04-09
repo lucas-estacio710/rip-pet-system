@@ -302,133 +302,127 @@ export default function SupindasPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
 
             {/* ===== PAINEL IDA ===== */}
-            <div className="card overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3" style={{ background: 'rgba(245,158,11,0.1)', borderBottom: '1px solid var(--surface-200)' }}>
+            <div>
+              <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <span className="text-lg">⛪</span>
                   <span className="text-sm font-bold text-amber-400">IDA →</span>
                   <span className="text-xs text-[var(--surface-400)]">{contratosIda.length} disponíveis</span>
+                  {selectedIda.size > 0 && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold" style={{ background: '#f59e0b20', color: '#f59e0b' }}>
+                      {selectedIda.size} · {contratosIda.filter(c => selectedIda.has(c.id)).reduce((s, c) => s + (c.pet_peso || 0), 0).toFixed(1)}kg
+                    </span>
+                  )}
                 </div>
-                <button
-                  onClick={selectAllIda}
-                  className="text-[10px] font-medium px-2 py-1 rounded hover:bg-amber-900/20 transition-colors"
-                  style={{ color: '#f59e0b' }}
-                >
-                  {selectedIda.size === contratosIda.length && contratosIda.length > 0 ? 'Desmarcar todos' : 'Selecionar todos'}
+                <button onClick={selectAllIda} className="text-[10px] font-medium px-2 py-1 rounded hover:bg-amber-900/20 transition-colors" style={{ color: '#f59e0b' }}>
+                  {selectedIda.size === contratosIda.length && contratosIda.length > 0 ? 'Desmarcar' : 'Todos'}
                 </button>
               </div>
 
-              <div className="max-h-[50vh] overflow-y-auto">
-                {contratosIda.length === 0 ? (
-                  <p className="text-center py-8 text-sm" style={{ color: 'var(--surface-400)' }}>Nenhum pet ativo para encaminhar</p>
-                ) : (
-                  contratosIda.map(c => (
-                    <button
-                      key={c.id}
-                      onClick={() => toggleIda(c.id)}
-                      className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
-                        selectedIda.has(c.id) ? 'bg-amber-900/20' : 'hover:bg-[var(--surface-50)]'
-                      }`}
-                      style={{ borderBottom: '1px solid var(--surface-100)' }}
-                    >
-                      {/* Checkbox */}
-                      <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
-                        selectedIda.has(c.id) ? 'bg-amber-500 border-amber-500' : 'border-[var(--surface-300)]'
-                      }`}>
-                        {selectedIda.has(c.id) && <span className="text-white text-xs font-bold">✓</span>}
-                      </div>
+              {contratosIda.length === 0 ? (
+                <div className="card p-8 text-center text-sm" style={{ color: 'var(--surface-400)' }}>Nenhum pet ativo para encaminhar</div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 max-h-[55vh] overflow-y-auto pr-1">
+                  {contratosIda.map(c => {
+                    const sel = selectedIda.has(c.id)
+                    return (
+                      <button
+                        key={c.id}
+                        onClick={() => toggleIda(c.id)}
+                        className={`relative rounded-xl p-3 text-left transition-all duration-150 hover:scale-[1.02] ${
+                          sel
+                            ? 'ring-2 ring-amber-400 shadow-lg shadow-amber-500/20'
+                            : 'ring-1 ring-[var(--surface-200)] hover:ring-amber-400/50'
+                        }`}
+                        style={{ background: sel ? 'rgba(245,158,11,0.1)' : 'var(--surface-0)' }}
+                      >
+                        {/* Check */}
+                        {sel && (
+                          <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center">
+                            <span className="text-white text-[10px] font-bold">✓</span>
+                          </div>
+                        )}
 
-                      {/* Lacre */}
-                      {c.numero_lacre && (
-                        <span className="text-white font-bold bg-blue-700 px-1.5 py-0.5 rounded text-xs shrink-0">
-                          {String(c.numero_lacre).replace(/\.0$/, '')}
-                        </span>
-                      )}
+                        {/* Lacre */}
+                        {c.numero_lacre && (
+                          <span className="text-white font-bold bg-blue-700 px-1.5 py-0.5 rounded text-[10px] inline-block mb-1.5">
+                            {String(c.numero_lacre).replace(/\.0$/, '')}
+                          </span>
+                        )}
 
-                      {/* Info */}
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold truncate" style={{ color: 'var(--surface-700)' }}>{c.pet_nome}</p>
-                        <p className="text-xs truncate" style={{ color: 'var(--surface-400)' }}>{c.tutor_nome}</p>
-                      </div>
+                        {/* Pet */}
+                        <p className="text-sm font-bold truncate" style={{ color: 'var(--surface-700)' }}>{c.pet_nome}</p>
+                        <p className="text-[11px] truncate" style={{ color: 'var(--surface-400)' }}>{c.tutor_nome}</p>
 
-                      {/* Peso */}
-                      {c.pet_peso && (
-                        <span className="text-xs font-mono shrink-0" style={{ color: 'var(--surface-400)' }}>{c.pet_peso}kg</span>
-                      )}
-                    </button>
-                  ))
-                )}
-              </div>
-
-              {/* Resumo IDA */}
-              {selectedIda.size > 0 && (
-                <div className="px-4 py-2 text-xs font-medium" style={{ background: 'rgba(245,158,11,0.1)', color: '#f59e0b', borderTop: '1px solid var(--surface-200)' }}>
-                  {selectedIda.size} selecionado{selectedIda.size > 1 ? 's' : ''} · {contratosIda.filter(c => selectedIda.has(c.id)).reduce((s, c) => s + (c.pet_peso || 0), 0).toFixed(1)}kg
+                        {/* Peso */}
+                        {c.pet_peso && (
+                          <p className="text-[10px] font-mono mt-1" style={{ color: 'var(--surface-400)' }}>{c.pet_peso}kg</p>
+                        )}
+                      </button>
+                    )
+                  })}
                 </div>
               )}
             </div>
 
             {/* ===== PAINEL VOLTA ===== */}
-            <div className="card overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3" style={{ background: 'rgba(6,182,212,0.1)', borderBottom: '1px solid var(--surface-200)' }}>
+            <div>
+              <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <span className="text-lg">🛍️</span>
                   <span className="text-sm font-bold text-cyan-400">← VOLTA</span>
                   <span className="text-xs text-[var(--surface-400)]">{contratosVolta.length} prontos</span>
+                  {selectedVolta.size > 0 && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold" style={{ background: '#06b6d420', color: '#06b6d4' }}>
+                      {selectedVolta.size}
+                    </span>
+                  )}
                 </div>
-                <button
-                  onClick={selectAllVolta}
-                  className="text-[10px] font-medium px-2 py-1 rounded hover:bg-cyan-900/20 transition-colors"
-                  style={{ color: '#06b6d4' }}
-                >
-                  {selectedVolta.size === contratosVolta.length && contratosVolta.length > 0 ? 'Desmarcar todos' : 'Selecionar todos'}
+                <button onClick={selectAllVolta} className="text-[10px] font-medium px-2 py-1 rounded hover:bg-cyan-900/20 transition-colors" style={{ color: '#06b6d4' }}>
+                  {selectedVolta.size === contratosVolta.length && contratosVolta.length > 0 ? 'Desmarcar' : 'Todos'}
                 </button>
               </div>
 
-              <div className="max-h-[50vh] overflow-y-auto">
-                {contratosVolta.length === 0 ? (
-                  <p className="text-center py-8 text-sm" style={{ color: 'var(--surface-400)' }}>Nenhuma cinza/certificado pronto para retornar</p>
-                ) : (
-                  contratosVolta.map(c => (
-                    <button
-                      key={c.id}
-                      onClick={() => toggleVolta(c.id)}
-                      className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
-                        selectedVolta.has(c.id) ? 'bg-cyan-900/20' : 'hover:bg-[var(--surface-50)]'
-                      }`}
-                      style={{ borderBottom: '1px solid var(--surface-100)' }}
-                    >
-                      {/* Checkbox */}
-                      <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
-                        selectedVolta.has(c.id) ? 'bg-cyan-500 border-cyan-500' : 'border-[var(--surface-300)]'
-                      }`}>
-                        {selectedVolta.has(c.id) && <span className="text-white text-xs font-bold">✓</span>}
-                      </div>
+              {contratosVolta.length === 0 ? (
+                <div className="card p-8 text-center text-sm" style={{ color: 'var(--surface-400)' }}>Nenhuma cinza/certificado pronto</div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 max-h-[55vh] overflow-y-auto pr-1">
+                  {contratosVolta.map(c => {
+                    const sel = selectedVolta.has(c.id)
+                    return (
+                      <button
+                        key={c.id}
+                        onClick={() => toggleVolta(c.id)}
+                        className={`relative rounded-xl p-3 text-left transition-all duration-150 hover:scale-[1.02] ${
+                          sel
+                            ? 'ring-2 ring-cyan-400 shadow-lg shadow-cyan-500/20'
+                            : 'ring-1 ring-[var(--surface-200)] hover:ring-cyan-400/50'
+                        }`}
+                        style={{ background: sel ? 'rgba(6,182,212,0.1)' : 'var(--surface-0)' }}
+                      >
+                        {/* Check */}
+                        {sel && (
+                          <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-cyan-500 flex items-center justify-center">
+                            <span className="text-white text-[10px] font-bold">✓</span>
+                          </div>
+                        )}
 
-                      {/* Info */}
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold truncate" style={{ color: 'var(--surface-700)' }}>{c.pet_nome}</p>
-                        <p className="text-xs truncate" style={{ color: 'var(--surface-400)' }}>{c.tutor_nome}</p>
-                      </div>
+                        {/* Enc. original */}
+                        {c.supinda?.numero && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-bold inline-block mb-1.5" style={{ background: '#f59e0b20', color: '#f59e0b' }}>
+                            {c.supinda.numero}
+                          </span>
+                        )}
 
-                      {/* Encaminhamento original */}
-                      {c.supinda?.numero && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold shrink-0" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>
-                          {c.supinda.numero}
-                        </span>
-                      )}
+                        {/* Pet */}
+                        <p className="text-sm font-bold truncate" style={{ color: 'var(--surface-700)' }}>{c.pet_nome}</p>
+                        <p className="text-[11px] truncate" style={{ color: 'var(--surface-400)' }}>{c.tutor_nome}</p>
 
-                      {/* Status GC */}
-                      <span className="text-xs shrink-0">⚱️✓ 📜✓</span>
-                    </button>
-                  ))
-                )}
-              </div>
-
-              {/* Resumo VOLTA */}
-              {selectedVolta.size > 0 && (
-                <div className="px-4 py-2 text-xs font-medium" style={{ background: 'rgba(6,182,212,0.1)', color: '#06b6d4', borderTop: '1px solid var(--surface-200)' }}>
-                  {selectedVolta.size} selecionado{selectedVolta.size > 1 ? 's' : ''}
+                        {/* Status */}
+                        <p className="text-[10px] mt-1" style={{ color: '#22c55e' }}>⚱️✓ 📜✓</p>
+                      </button>
+                    )
+                  })}
                 </div>
               )}
             </div>
