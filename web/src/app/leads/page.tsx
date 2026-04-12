@@ -80,12 +80,18 @@ type Session = {
 
 type StatusFilter = 'todos' | 'completo' | 'abandonado' | 'contatado' | 'convertido'
 type Periodo = 'hoje' | 'ontem' | '7d' | '4w'
-type UnidadeFilter = 'todas' | 'ST' | 'SP'
+// Unidades com lead-capture/sessions ativos. "Todas" = soma estrita destas.
+// Sessions sem unidade_code (home raiz, scrapers, LPs sem tracking) ficam fora
+// pra garantir que SP+ST+CA = Todas no funil.
+const TRACKED_UNIDADES = ['SP', 'ST', 'CA'] as const
+type TrackedUnidade = typeof TRACKED_UNIDADES[number]
+type UnidadeFilter = 'todas' | TrackedUnidade
 
 const UNIDADES: { key: UnidadeFilter; label: string }[] = [
   { key: 'todas', label: 'Todas' },
   { key: 'ST', label: 'Santos' },
   { key: 'SP', label: 'São Paulo' },
+  { key: 'CA', label: 'Campinas' },
 ]
 
 type VisitorGroup = {
@@ -565,14 +571,18 @@ export default function LeadsPage() {
   const carregarFunil = useCallback(async () => {
     const { from, to } = periodoRange(periodo)
 
-    let sessionsQuery = supabase.from('sessions').select('visitor_id, time_on_page_sec, cta_clicked, landing_page, gclid, utm_source, utm_medium, referrer').gte('created_at', from).lt('created_at', to)
-    let leadsQuery = supabase.from('leads').select('status, visitor_id, gclid, utm_source, utm_medium, id').gte('created_at', from).lt('created_at', to)
+    let sessionsQuery = supabase.from('sessions').select('visitor_id, time_on_page_sec, cta_clicked, unidade_code, gclid, utm_source, utm_medium, referrer').gte('created_at', from).lt('created_at', to)
+    let leadsQuery = supabase.from('leads').select('status, visitor_id, gclid, utm_source, utm_medium, unidade_code, id').gte('created_at', from).lt('created_at', to)
 
+    // Filtro por unidade_code (sessions ganhou esse campo na migration 052_ads_shield).
+    // "Todas" = IN (SP,ST,CA) — exclui sessions/leads sem unidade_code (home, scrapers, etc).
     if (unidade !== 'todas') {
       leadsQuery = leadsQuery.eq('unidade_code', unidade)
-      // Sessions não têm unidade_code, filtrar por landing_page
-      const path = unidade === 'ST' ? '/santos' : '/sao-paulo'
-      sessionsQuery = sessionsQuery.like('landing_page', `${path}%`)
+      sessionsQuery = sessionsQuery.eq('unidade_code', unidade)
+    } else {
+      const tracked = TRACKED_UNIDADES as unknown as string[]
+      leadsQuery = leadsQuery.in('unidade_code', tracked)
+      sessionsQuery = sessionsQuery.in('unidade_code', tracked)
     }
 
     const [sessionsRes, leadsRes] = await Promise.all([sessionsQuery, leadsQuery])
@@ -681,7 +691,11 @@ export default function LeadsPage() {
   const carregarContagens = useCallback(async () => {
     const { from, to } = periodoRange(periodo)
     let query = supabase.from('leads').select('status, visitor_id, gclid, convertido, id, abandoned_at_step').gte('created_at', from).lt('created_at', to)
-    if (unidade !== 'todas') query = query.eq('unidade_code', unidade)
+    if (unidade !== 'todas') {
+      query = query.eq('unidade_code', unidade)
+    } else {
+      query = query.in('unidade_code', TRACKED_UNIDADES as unknown as string[])
+    }
     const { data } = await query
     if (!data) return
 
@@ -709,6 +723,8 @@ export default function LeadsPage() {
 
     if (unidade !== 'todas') {
       query = query.eq('unidade_code', unidade)
+    } else {
+      query = query.in('unidade_code', TRACKED_UNIDADES as unknown as string[])
     }
 
     // Status é filtrado client-side após agrupar por visitante
