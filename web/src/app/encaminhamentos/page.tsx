@@ -523,57 +523,6 @@ export default function EncaminhamentosPage() {
         </div>
         <div className="flex items-center gap-2">
         <button
-          onClick={async () => {
-            if (!confirm('Reset completo?\n\n• ST148 volta pra planejada com 7 pets provisionados\n• ST149+ deletadas\n• 5 ativos livres sem vínculo\n• Limpa GC, datas, checks')) return
-            const ST148 = 'eb177696-cb18-4aa5-a2d1-c3e3dd2e2cd4'
-            const IDS_7 = ['20b1f2b8-1958-4a6c-9062-ddbdf9eb56d5','23bd04c9-69b0-47b7-bb0c-8fa350ef45fc','901baa15-7227-41a6-b7f9-54c35e364b91','d7e05988-8ab3-4343-980e-2aab64b64bb4','524a7e22-4228-461f-9052-ac74201551d9','15d18995-016c-4c09-bbdb-9dc2c3fa40ad','f3b38ee5-18e2-4471-9613-8c81cf98d94d']
-            const IDS_5 = ['1a29e4bc-9c71-4f1e-b4f1-e8eea6158b14','336ae1c3-5a5a-45c7-a69a-28f0855fa5a8','abfced18-e4c6-4a1f-a55f-ff4eb09f81ce','2a38f461-5d9d-441b-8e17-54b858b1306a','e786dd90-46c4-4959-8096-ecc7b3e310df']
-
-            // 1. Deletar ST149+
-            const { data: sups149plus } = await supabase.from('supindas').select('id').eq('unidade_id', currentUnit!.id).gte('numero', 'ST149') as { data: { id: string }[] | null }
-            const ids149plus = (sups149plus || []).map(s => s.id)
-            if (ids149plus.length > 0) {
-              // Desvincular contratos dessas supindas
-              const { data: cI } = await supabase.from('contratos').select('id').in('supinda_id', ids149plus) as { data: { id: string }[] | null }
-              if (cI && cI.length > 0) await supabase.from('contratos').update({ supinda_id: null } as never).in('id', cI.map(c => c.id))
-              const { data: cV } = await supabase.from('contratos').select('id').in('supinda_volta_id', ids149plus) as { data: { id: string }[] | null }
-              if (cV && cV.length > 0) await supabase.from('contratos').update({ supinda_volta_id: null } as never).in('id', cV.map(c => c.id))
-              await supabase.from('supindas').delete().in('id', ids149plus)
-            }
-
-            // 2. ST148 → planejada
-            await supabase.from('supindas').update({ status: 'planejada' } as never).eq('id', ST148)
-
-            // 3. 7 pets → ativo, provisionados em ST148, limpar tudo
-            await supabase.from('contratos').update({ status: 'ativo', supinda_id: ST148, supinda_volta_id: null, data_leva_pinda: null, data_cremacao: null, data_retorno: null, certificado_confirmado: false, cinzas_recebidas: false, certificado_recebido: false } as never).in('id', IDS_7)
-            await supabase.from('contrato_gc').update({ etapa: 'provisionado', contato_status: null, data_recebimento: null, recebido_por: null, lacre_conferido: false, contato_tutor_em: null, contato_tutor_obs: null, data_agendamento: null, forno: null, acompanhamento_confirmado: null, data_cremacao: null, cremacao_por: null, cinzas_prontas: false, certificado_pronto: false, data_disponivel: null } as never).in('contrato_id', IDS_7)
-
-            // 4. 5 ativos → limpar vínculos
-            await supabase.from('contratos').update({ status: 'ativo', supinda_id: null, supinda_volta_id: null, data_leva_pinda: null, data_cremacao: null, data_retorno: null, certificado_confirmado: false, cinzas_recebidas: false, certificado_recebido: false } as never).in('id', IDS_5)
-            await supabase.from('contrato_gc').delete().in('contrato_id', IDS_5)
-            // Recarregar
-            const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, certificado_confirmado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
-            const [{ data: crem }, { data: ativ }, { data: encs }, { data: vinc3 }] = await Promise.all([
-              supabase.from('contratos').select(campos).eq('unidade_id', currentUnit!.id).eq('status', 'pinda').order('data_contrato', { ascending: true }),
-              supabase.from('contratos').select(campos).eq('unidade_id', currentUnit!.id).eq('status', 'ativo').order('data_contrato', { ascending: true }),
-              supabase.from('supindas').select('id, numero, data, responsavel, quantidade_pets, peso_total, status, observacoes, unidades(codigo)').order('data'),
-              supabase.from('contratos').select(campos).eq('unidade_id', currentUnit!.id).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_contrato', { ascending: true }),
-            ])
-            setCremados(((crem || []) as ContratoEnc[]).filter(c => {
-      const gc = Array.isArray(c.contrato_gc) ? c.contrato_gc[0] : c.contrato_gc
-      return gc?.etapa === 'disponivel'
-    }))
-            setAtivos((ativ || []) as ContratoEnc[])
-            setVinculados((vinc3 || []) as ContratoEnc[])
-            setEncaminhamentos((encs || []).map((e: Record<string, unknown>) => ({ id: e.id as string, numero: e.numero as string, data: e.data as string, responsavel: (e.responsavel as string) || null, quantidade_pets: (e.quantidade_pets as number) || 0, peso_total: (e.peso_total as number) || 0, status: e.status as string, observacoes: (e.observacoes as string) || null, codigo_unidade: ((e.unidades as Record<string, string>)?.codigo) || '??' })))
-            setSelecionados(new Set())
-          }}
-          className="px-3 py-2 rounded-xl bg-red-900/30 hover:bg-red-900/50 text-red-400 text-xs font-medium transition-colors"
-          title="Reset: apaga ST149+ e desvincula contratos"
-        >
-          Reset
-        </button>
-        <button
           onClick={() => abrirTelaEdicao()}
           className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors"
         >
