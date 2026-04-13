@@ -923,24 +923,28 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   ) : modoVisualizacao ? (
     /* Modo processada — ações completas */
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full">
-      <button
-        onClick={() => setConfirmarCancelamento(true)}
-        className="py-2 px-3 rounded-lg text-xs font-semibold text-red-400 border border-red-500/30 hover:bg-red-900/20 transition-colors"
-      >
-        Cancelar Ficha
-      </button>
-      <button
-        onClick={async () => {
-          if (!ficha) return
-          const supabaseLocal = createClient()
-          await supabaseLocal.from('fichas').update({ processada: false } as never).eq('id', ficha.id)
-          onClose()
-          onReprocessar?.(ficha)
-        }}
-        className="py-2 px-3 rounded-lg text-xs font-semibold text-amber-400 border border-amber-500/30 hover:bg-amber-900/20 transition-colors"
-      >
-        Reprocessar
-      </button>
+      {!ficha?.contrato_id && (
+        <button
+          onClick={() => setConfirmarCancelamento(true)}
+          className="py-2 px-3 rounded-lg text-xs font-semibold text-red-400 border border-red-500/30 hover:bg-red-900/20 transition-colors"
+        >
+          Cancelar Ficha
+        </button>
+      )}
+      {!ficha?.contrato_id && (
+        <button
+          onClick={async () => {
+            if (!ficha) return
+            const supabaseLocal = createClient()
+            await supabaseLocal.from('fichas').update({ processada: false } as never).eq('id', ficha.id)
+            onClose()
+            onReprocessar?.(ficha)
+          }}
+          className="py-2 px-3 rounded-lg text-xs font-semibold text-amber-400 border border-amber-500/30 hover:bg-amber-900/20 transition-colors"
+        >
+          Reprocessar
+        </button>
+      )}
       <button onClick={onClose} className="py-2 px-3 rounded-lg text-xs font-semibold text-[var(--surface-600)] border border-[var(--surface-200)] hover:bg-[var(--surface-50)] transition-colors">
         Fechar
       </button>
@@ -975,13 +979,15 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
     </div>
   ) : (
     <div className="flex gap-3 justify-between w-full">
-      <button
-        onClick={() => setConfirmarCancelamento(true)}
-        disabled={salvando}
-        className="py-2 px-4 rounded-lg text-xs font-semibold text-red-400 border border-red-500/30 hover:bg-red-900/20 transition-colors disabled:opacity-50"
-      >
-        Cancelar Ficha
-      </button>
+      {!ficha?.contrato_id && (
+        <button
+          onClick={() => setConfirmarCancelamento(true)}
+          disabled={salvando}
+          className="py-2 px-4 rounded-lg text-xs font-semibold text-red-400 border border-red-500/30 hover:bg-red-900/20 transition-colors disabled:opacity-50"
+        >
+          Cancelar Ficha
+        </button>
+      )}
       <div className="flex gap-3">
         <button onClick={onClose} className="btn-secondary" disabled={salvando}>
           Fechar

@@ -736,20 +736,22 @@ export default function FichasPage() {
                       </div>
                     ) : (
                       <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={async (e) => {
-                            e.stopPropagation()
-                            const supabaseLocal = createClient()
-                            await supabaseLocal.from('fichas').update({ processada: false } as never).eq('id', ficha.id)
-                            carregarFichas()
-                            carregarContagens()
-                            setTimeout(() => setFichaModal({ ...ficha, processada: false } as Ficha), 300)
-                          }}
-                          className="flex items-center justify-center w-8 h-8 rounded-full border border-amber-500/30 text-amber-400 hover:bg-amber-900/20 transition-colors"
-                          title="Reprocessar"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
+                        {!ficha.contrato_id && (
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation()
+                              const supabaseLocal = createClient()
+                              await supabaseLocal.from('fichas').update({ processada: false } as never).eq('id', ficha.id)
+                              carregarFichas()
+                              carregarContagens()
+                              setTimeout(() => setFichaModal({ ...ficha, processada: false } as Ficha), 300)
+                            }}
+                            className="flex items-center justify-center w-8 h-8 rounded-full border border-amber-500/30 text-amber-400 hover:bg-amber-900/20 transition-colors"
+                            title="Reprocessar"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                         <button onClick={async (e) => {
                             e.stopPropagation()
                             const btn = e.currentTarget
