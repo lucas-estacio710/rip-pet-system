@@ -10,7 +10,7 @@ const FALLBACK_ROUTES = [
   { module: 'tela_pipeline', path: '/contratos?status=ativo' },
   { module: 'tela_dashboard', path: '/dashboard' },
   { module: 'tela_leads', path: '/leads' },
-  { module: 'tela_entregas', path: '/supindas' },
+  { module: 'tela_entregas', path: '/encaminhamentos' },
   { module: 'tela_gc', path: '/gc' },
   { module: 'tela_ads_shield', path: '/ads-shield' },
 ]

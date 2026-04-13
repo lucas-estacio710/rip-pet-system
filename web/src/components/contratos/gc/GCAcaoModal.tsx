@@ -1,339 +1,529 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { X, Loader2, ChevronLeft, ChevronRight } from 'lucide-react'
+import { X, Loader2, Check, Phone, Calendar, Flame, Package, Award, ChevronDown, MessageSquare } from 'lucide-react'
+import ObservacoesCard from '@/components/contratos/ObservacoesCard'
 import { createClient } from '@/lib/supabase/client'
 
 type GCData = {
   id?: string
   contrato_id: string
   etapa: string
+  contato_status: string | null
   lacre_conferido?: boolean | null
+  recebido_por?: string | null
+  data_recebimento?: string | null
   acompanhamento_confirmado?: string | null
   contato_tutor_em?: string | null
   contato_tutor_obs?: string | null
   forno?: number | null
   data_agendamento?: string | null
-  pedidos_especiais_obs?: string | null
   data_cremacao?: string | null
   cremacao_por?: string | null
   cinzas_prontas?: boolean
   certificado_pronto?: boolean
   data_disponivel?: string | null
+  observacoes_unidade?: string | null
 }
 
 type Props = {
   contratoId: string
   petNome: string
   tipoCremacao: string
+  petEspecie?: string
+  petPeso?: number | null
+  petRaca?: string | null
+  numeroLacre?: string | null
+  tutorNome?: string | null
+  tutorTelefone?: string | null
+  supindaStatus?: string | null
   gcAtual: GCData | null
   onClose: () => void
-  onSaved: () => void
+  onSaved: (gcAtualizado?: Record<string, unknown>) => void | Promise<void>
 }
 
-const ETAPAS = ['recebido', 'contato_tutor', 'agendado', 'pedidos_especiais', 'cremacao', 'disponivel'] as const
-type Etapa = typeof ETAPAS[number]
+const ETAPA_STEPS = [
+  { key: 'provisionado', label: 'Provisionado', color: '#64748b' },
+  { key: 'recebido', label: 'Recebido', color: '#3b82f6' },
+  { key: 'cremado', label: 'Cremado', color: '#eab308' },
+  { key: 'disponivel', label: 'Finalizado', color: '#22c55e' },
+]
 
-const ETAPA_LABELS: Record<string, string> = {
-  recebido: 'Recebido',
-  contato_tutor: 'Contato Tutor',
-  agendado: 'Agendado',
-  pedidos_especiais: 'Pedidos Especiais',
-  cremacao: 'Cremação',
-  disponivel: 'Disponível',
-}
+const CONTATO_STEPS = [
+  { key: null, label: 'Chamar', color: '#a7f3d0' },
+  { key: 'contatado', label: 'Contatado', color: '#a7f3d0' },
+  { key: 'agendado', label: 'Agendado', color: '#1a73e8' },
+]
 
-const ETAPA_COLORS: Record<string, string> = {
-  recebido: '#3b82f6',
-  contato_tutor: '#8b5cf6',
-  agendado: '#f59e0b',
-  pedidos_especiais: '#ec4899',
-  cremacao: '#ef4444',
-  disponivel: '#22c55e',
-}
-
-export default function GCAcaoModal({ contratoId, petNome, tipoCremacao, gcAtual, onClose, onSaved }: Props) {
+export default function GCAcaoModal({ contratoId, petNome, tipoCremacao, petEspecie, petPeso, petRaca, numeroLacre, tutorNome, tutorTelefone, supindaStatus, gcAtual, onClose, onSaved }: Props) {
   const supabase = createClient()
   const [salvando, setSalvando] = useState(false)
   const [gc, setGc] = useState<GCData>(
-    gcAtual || { contrato_id: contratoId, etapa: 'recebido', cinzas_prontas: false, certificado_pronto: false }
+    gcAtual || { contrato_id: contratoId, etapa: 'provisionado', contato_status: null, cinzas_prontas: false, certificado_pronto: false }
   )
 
   useEffect(() => {
     if (gcAtual) setGc(gcAtual)
   }, [gcAtual])
 
-  const etapa = gc.etapa as Etapa
-  const etapaIdx = ETAPAS.indexOf(etapa)
-  const etapaColor = ETAPA_COLORS[etapa]
+  const etapa = gc.etapa
+  const contato = gc.contato_status
+  const etapaIdx = ETAPA_STEPS.findIndex(s => s.key === etapa)
+  const contatoIdx = CONTATO_STEPS.findIndex(s => s.key === contato)
   const isInd = tipoCremacao === 'individual'
 
-  async function salvar(novaEtapa?: Etapa) {
+  // Regras de bloqueio
+  const encFinalizado = supindaStatus === 'finalizada'
+  const podeReceber = etapa === 'provisionado' && encFinalizado
+  const [erro, setErro] = useState('')
+  const [dirty, setDirty] = useState(false)
+  const [agendarAberto, setAgendarAberto] = useState(false)
+  const [obsAberto, setObsAberto] = useState(false)
+  const [obsCount, setObsCount] = useState(0)
+  const [obsTemImportante, setObsTemImportante] = useState(false)
+
+  useEffect(() => {
+    supabase.from('tarefas').select('id, importante, resolvido').eq('contrato_id', contratoId).then(({ data }) => {
+      const tarefas = data || []
+      setObsCount(tarefas.length)
+      setObsTemImportante(tarefas.some((t: { importante: boolean }) => t.importante))
+    })
+  }, [contratoId, obsAberto])
+
+  const podeContatar = !contato
+  const podeAgendar = contato === 'contatado'
+  const podeCremar = etapa === 'recebido' && contato === 'agendado'
+  const podeDisponibilizar = etapa === 'cremado'
+
+  function mudar(updates: Partial<GCData>) {
+    setGc(prev => ({ ...prev, ...updates }))
+    setDirty(true)
+    setErro('')
+  }
+
+  async function salvarTudo() {
     setSalvando(true)
+    setErro('')
     try {
-      // Construir payload limpo (sem id, created_at, updated_at)
-      const updates: any = {
-        contrato_id: contratoId,
-        etapa: novaEtapa || gc.etapa,
-        lacre_conferido: gc.lacre_conferido ?? null,
-        acompanhamento_confirmado: gc.acompanhamento_confirmado ?? null,
-        contato_tutor_obs: gc.contato_tutor_obs ?? null,
-        forno: gc.forno ?? null,
-        data_agendamento: gc.data_agendamento ?? null,
-        pedidos_especiais_obs: gc.pedidos_especiais_obs ?? null,
-        data_cremacao: gc.data_cremacao ?? null,
-        cremacao_por: gc.cremacao_por ?? null,
+      const payload: Record<string, unknown> = {
+        etapa: gc.etapa,
+        contato_status: gc.contato_status || null,
+        data_recebimento: gc.data_recebimento || null,
+        lacre_conferido: gc.lacre_conferido ?? false,
+        contato_tutor_em: gc.contato_tutor_em || null,
+        contato_tutor_obs: gc.contato_tutor_obs || null,
+        forno: gc.forno || null,
+        data_agendamento: gc.data_agendamento || null,
+        acompanhamento_confirmado: gc.acompanhamento_confirmado || null,
+        data_cremacao: gc.data_cremacao || null,
+        cremacao_por: gc.cremacao_por || null,
         cinzas_prontas: !!gc.cinzas_prontas,
         certificado_pronto: !!gc.certificado_pronto,
+        data_disponivel: gc.data_disponivel || null,
+      }
+      const res = await supabase
+        .from('contrato_gc')
+        .update(payload as never)
+        .eq('contrato_id', contratoId)
+        .select()
+
+      if (res.error) throw new Error(res.error.message)
+      if (!res.data || (res.data as unknown[]).length === 0) throw new Error('Permissão negada — RLS bloqueou update')
+
+      if (gc.data_cremacao) {
+        await supabase.from('contratos').update({ data_cremacao: gc.data_cremacao.slice(0, 10) } as never).eq('id', contratoId)
       }
 
-      if (novaEtapa === 'disponivel') {
-        updates.data_disponivel = new Date().toISOString()
-      }
-
-      if (gc.id) {
-        const { error } = await supabase.from('contrato_gc').update(updates as never).eq('id', gc.id)
-        if (error) throw error
-      } else {
-        updates.data_recebimento = new Date().toISOString()
-        const { error } = await supabase.from('contrato_gc').insert(updates as never)
-        if (error) throw error
-      }
-
-      onSaved()
+      setDirty(false)
+      await onSaved(payload)
       onClose()
-    } catch (err: any) {
-      console.error('Erro ao salvar GC:', err)
-      alert('Erro ao salvar: ' + (err?.message || 'desconhecido'))
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'desconhecido'
+      setErro(`Erro ao salvar: ${msg}`)
     } finally {
       setSalvando(false)
     }
   }
 
-  function avancar() {
-    const proxima = ETAPAS[etapaIdx + 1]
-    if (proxima) salvar(proxima)
-    else salvar()
-  }
-
-  function voltar() {
-    const anterior = ETAPAS[etapaIdx - 1]
-    if (anterior) salvar(anterior)
-  }
-
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4" onClick={onClose}>
       <div
-        className="bg-slate-800 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-700"
+        className="bg-[var(--surface-0)] rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-[var(--surface-200)]"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-5 py-4 flex items-center justify-between" style={{ background: `linear-gradient(135deg, ${etapaColor}30 0%, ${etapaColor}10 100%)`, borderBottom: `2px solid ${etapaColor}` }}>
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wider" style={{ color: etapaColor }}>
-              Etapa {etapaIdx + 1}/6 · {ETAPA_LABELS[etapa]}
-            </p>
-            <h3 className="text-base font-bold text-slate-100 mt-0.5">{petNome}</h3>
+        <div className="px-5 py-4 flex items-start justify-between border-b border-[var(--surface-200)]">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              {numeroLacre && <span className="text-sm font-mono font-bold text-blue-300 bg-blue-900/30 px-2 py-0.5 rounded">{numeroLacre}</span>}
+              <h3 className="text-base font-bold text-[var(--shell-text)]">{petNome}</h3>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${isInd ? 'bg-emerald-900/30 text-emerald-400' : 'bg-purple-900/30 text-purple-400'}`}>
+                {isInd ? 'IND' : 'COL'}
+              </span>
+              {petEspecie && <span className="text-[10px] text-[var(--surface-400)]">{petEspecie}</span>}
+              {petRaca && <span className="text-[10px] text-[var(--surface-400)]">· {petRaca}</span>}
+              {petPeso != null && <span className="text-[10px] text-[var(--surface-400)]">· {petPeso}kg</span>}
+            </div>
+            {tutorNome && (
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="text-xs text-[var(--surface-500)] truncate flex-1">{tutorNome}</p>
+                  {tutorTelefone && (
+                    <a href={`https://wa.me/${tutorTelefone.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer"
+                      className="hidden md:inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[10px] font-semibold text-white shrink-0 hover:opacity-90 transition-opacity" style={{ background: '#25D366' }}>
+                      <Phone className="h-3 w-3" />
+                      Chamar no WhatsApp
+                    </a>
+                  )}
+                </div>
+                {tutorTelefone && (
+                  <a href={`https://wa.me/${tutorTelefone.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer"
+                    className="md:hidden inline-flex items-center gap-1.5 px-3 py-1 mt-1 rounded-lg text-[10px] font-semibold text-white hover:opacity-90 transition-opacity" style={{ background: '#25D366' }}>
+                    <Phone className="h-3 w-3" />
+                    Chamar no WhatsApp
+                  </a>
+                )}
+              </div>
+            )}
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-200">
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-2 mt-1">
+            <button onClick={() => setObsAberto(true)} className={`relative p-1.5 rounded-lg transition-colors ${obsTemImportante ? 'text-red-400 bg-red-900/20 animate-pulse' : 'text-[var(--surface-400)] hover:text-amber-400 hover:bg-amber-900/10'}`} title="Observações">
+              <MessageSquare className="h-5 w-5" />
+              {obsCount > 0 && (
+                <span className={`absolute -top-1 -right-1 min-w-[14px] h-[14px] flex items-center justify-center rounded-full text-[8px] font-bold text-white ${obsTemImportante ? 'bg-red-500' : 'bg-amber-500'}`}>
+                  {obsCount}
+                </span>
+              )}
+            </button>
+            <button onClick={onClose} className="text-[var(--surface-400)] hover:text-[var(--shell-text)]">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
 
-        {/* Conteúdo por etapa */}
-        <div className="p-5 space-y-4">
+        {/* === SEÇÃO 1: AGENDAMENTO (trilha + ações) — some após cremação === */}
+        {etapa !== 'cremado' && etapa !== 'disponivel' && <div className="px-5 py-4 space-y-3 border-b border-[var(--surface-200)]">
+          <div>
+            <p className="text-[10px] font-bold text-[var(--surface-400)] uppercase tracking-wider mb-2 text-center">Agendamento</p>
+            <div className="flex items-center justify-center">
+              {CONTATO_STEPS.map((step, i) => {
+                const ativo = i <= contatoIdx
+                const atual = step.key === contato
+                const isAgendado = step.key === 'agendado'
+                const textColor = isAgendado && ativo ? '#1a73e8' : ativo ? '#065f46' : 'var(--surface-400)'
+                const bgColor = ativo ? step.color : 'var(--surface-200)'
+                const dotTextColor = isAgendado && ativo ? '#fff' : ativo ? '#065f46' : 'var(--surface-400)'
+                return (
+                  <div key={step.key || 'null'} className="flex items-center flex-1">
+                    <div className="flex flex-col items-center gap-1">
+                      <div
+                        className={`w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold transition-all ${atual ? 'ring-2 ring-offset-2' : ''}`}
+                        style={{ background: bgColor, color: dotTextColor, outlineColor: atual ? step.color : 'transparent' }}
+                      >
+                        {ativo ? '✓' : i + 1}
+                      </div>
+                      <span className="text-[9px] font-medium" style={{ color: textColor }}>{step.label}</span>
+                    </div>
+                    {i < CONTATO_STEPS.length - 1 && (
+                      <div className="flex-1 h-0.5 mx-1" style={{ background: i < contatoIdx ? CONTATO_STEPS[i + 1].color : 'var(--surface-200)' }} />
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
 
-          {etapa === 'recebido' && (
-            <>
-              <p className="text-sm text-slate-300">Confirme o recebimento do pet na Matriz.</p>
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={!!gc.lacre_conferido}
-                  onChange={e => setGc({ ...gc, lacre_conferido: e.target.checked })}
-                  className="w-5 h-5 rounded"
-                />
-                <span className="text-sm font-medium text-slate-200">Pet conferido</span>
-              </label>
-            </>
+          {/* Ação: Contatar */}
+          {podeContatar && (
+            <button onClick={() => mudar({ contato_status: 'contatado', contato_tutor_em: new Date().toISOString() })} disabled={salvando}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-amber-500/30 hover:bg-amber-900/10 transition-colors disabled:opacity-50">
+              <Phone className="h-5 w-5 text-amber-400" />
+              <div className="text-left">
+                <p className="text-sm font-semibold text-[var(--shell-text)]">Registrar Contato</p>
+                <p className="text-[10px] text-[var(--surface-400)]">Ligou pro tutor pra combinar</p>
+              </div>
+            </button>
           )}
 
-          {etapa === 'contato_tutor' && (
-            <>
-              <div>
-                <label className="text-xs font-semibold uppercase text-slate-400 mb-2 block">Acompanhamento confirmado</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { v: 'video_chamada', l: '📹 Vídeo chamada' },
-                    { v: 'video_gravado', l: '🎥 Vídeo gravado' },
-                    { v: 'presencial', l: '👥 Presencial' },
-                    { v: 'nao_deseja', l: '❌ Não deseja' },
-                  ].map(o => (
-                    <button
-                      key={o.v}
-                      onClick={() => setGc({ ...gc, acompanhamento_confirmado: o.v })}
-                      className={`px-3 py-2 rounded-lg text-xs font-medium border-2 transition-colors ${
-                        gc.acompanhamento_confirmado === o.v
-                          ? 'border-purple-500 bg-purple-900/30 text-purple-300'
-                          : 'border-slate-600 text-slate-400 hover:border-purple-500/50'
-                      }`}
-                    >
-                      {o.l}
-                    </button>
-                  ))}
+          {/* Ação: Agendar (colapsável) */}
+          {podeAgendar && (
+            <div className="rounded-xl border-2 border-emerald-500/30 overflow-hidden">
+              <button
+                onClick={() => setAgendarAberto(prev => !prev)}
+                className="w-full flex items-center gap-2 px-4 py-3 hover:bg-emerald-900/5 transition-colors"
+              >
+                <Calendar className="h-5 w-5 text-emerald-400" />
+                <p className="text-sm font-semibold text-[var(--shell-text)] flex-1 text-left">Agendar Cremação</p>
+                <ChevronDown className={`h-4 w-4 text-[var(--surface-400)] transition-transform duration-200 ${agendarAberto ? 'rotate-180' : ''}`} />
+              </button>
+              <div className={`transition-all duration-200 ease-out overflow-hidden ${agendarAberto ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                <div className="px-4 pb-3 pt-1 space-y-1.5">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[9px] font-medium text-[var(--surface-500)] mb-0.5 block">Data e hora</label>
+                      <input type="datetime-local" value={gc.data_agendamento?.slice(0, 16) || ''}
+                        onChange={e => setGc({ ...gc, data_agendamento: e.target.value || null })}
+                        className="input text-xs w-full py-1" />
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-medium text-[var(--surface-500)] mb-0.5 block">Forno</label>
+                      <div className="flex gap-1">
+                        {[1, 2, 3].map(f => (
+                          <button key={f} onClick={() => setGc({ ...gc, forno: f })}
+                            className={`flex-1 py-1 rounded text-xs font-bold border transition-colors ${gc.forno === f ? 'border-emerald-500 bg-emerald-900/20 text-emerald-400' : 'border-[var(--surface-200)] text-[var(--surface-400)]'}`}>
+                            F{f}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-medium text-[var(--surface-500)] mb-0.5 block">Acompanhamento</label>
+                    <div className="grid grid-cols-4 gap-1">
+                      {[
+                        { v: 'video_chamada', l: '📹 Chamada' },
+                        { v: 'video_gravado', l: '🎥 Gravado' },
+                        { v: 'presencial', l: '👥 Presencial' },
+                        { v: 'nao_deseja', l: '❌ Não' },
+                      ].map(o => (
+                        <button key={o.v} onClick={() => setGc({ ...gc, acompanhamento_confirmado: o.v })}
+                          className={`px-1 py-1 rounded text-[9px] font-medium border transition-colors ${gc.acompanhamento_confirmado === o.v ? 'border-emerald-500 bg-emerald-900/20 text-emerald-400' : 'border-[var(--surface-200)] text-[var(--surface-400)]'}`}>
+                          {o.l}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <button onClick={() => {
+                    if (!gc.data_agendamento) { setErro('Preencha data e hora'); return }
+                    if (!gc.acompanhamento_confirmado) { setErro('Selecione acompanhamento'); return }
+                    mudar({ contato_status: 'agendado' }); setAgendarAberto(false)
+                  }}
+                    className="w-full py-1.5 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors">
+                    Confirmar Agendamento
+                  </button>
                 </div>
               </div>
-              <div>
-                <label className="text-xs font-semibold uppercase text-slate-400 mb-1 block">Observações</label>
-                <textarea
-                  value={gc.contato_tutor_obs || ''}
-                  onChange={e => setGc({ ...gc, contato_tutor_obs: e.target.value })}
-                  placeholder="Detalhes do contato..."
-                  rows={2}
-                  className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-purple-500"
-                />
-              </div>
-            </>
-          )}
-
-          {etapa === 'agendado' && (
-            <>
-              <div>
-                <label className="text-xs font-semibold uppercase text-slate-400 mb-2 block">Forno</label>
-                <div className="flex gap-2">
-                  {[1, 2, 3].map(f => (
-                    <button
-                      key={f}
-                      onClick={() => setGc({ ...gc, forno: f })}
-                      className={`flex-1 py-2 rounded-lg text-sm font-bold border-2 transition-colors ${
-                        gc.forno === f
-                          ? 'border-amber-500 bg-amber-900/30 text-amber-300'
-                          : 'border-slate-600 text-slate-400 hover:border-amber-500/50'
-                      }`}
-                    >
-                      F{f}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="text-xs font-semibold uppercase text-slate-400 mb-1 block">Data e hora</label>
-                <input
-                  type="datetime-local"
-                  value={gc.data_agendamento ? gc.data_agendamento.slice(0, 16) : ''}
-                  onChange={e => setGc({ ...gc, data_agendamento: e.target.value ? new Date(e.target.value).toISOString() : null })}
-                  className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-amber-500"
-                />
-              </div>
-            </>
-          )}
-
-          {etapa === 'pedidos_especiais' && (
-            <div>
-              <label className="text-xs font-semibold uppercase text-slate-400 mb-1 block">Pedidos especiais</label>
-              <textarea
-                value={gc.pedidos_especiais_obs || ''}
-                onChange={e => setGc({ ...gc, pedidos_especiais_obs: e.target.value })}
-                placeholder="Molde de patinha, pelo extra, carimbo..."
-                rows={3}
-                className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-pink-500"
-              />
             </div>
           )}
 
-          {etapa === 'cremacao' && (
-            <>
-              <div>
-                <label className="text-xs font-semibold uppercase text-slate-400 mb-1 block">Data da cremação</label>
-                <input
-                  type="datetime-local"
-                  value={gc.data_cremacao ? gc.data_cremacao.slice(0, 16) : ''}
-                  onChange={e => setGc({ ...gc, data_cremacao: e.target.value ? new Date(e.target.value).toISOString() : null })}
-                  className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-red-500"
-                />
+          {/* Agendamento concluído — resumo + reagendar */}
+          {contato === 'agendado' && gc.data_agendamento && !agendarAberto && (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs text-emerald-400">
+                <Calendar className="h-4 w-4" />
+                <span>{new Date(gc.data_agendamento).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                {gc.forno && <span>· F{gc.forno}</span>}
+                {gc.acompanhamento_confirmado && <span>· {gc.acompanhamento_confirmado.replace(/_/g, ' ')}</span>}
               </div>
-              <div>
-                <label className="text-xs font-semibold uppercase text-slate-400 mb-1 block">Funcionário responsável</label>
-                <input
-                  type="text"
-                  value={gc.cremacao_por || ''}
-                  onChange={e => setGc({ ...gc, cremacao_por: e.target.value })}
-                  placeholder="Nome do funcionário..."
-                  className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-red-500"
-                />
+              <button onClick={() => setAgendarAberto(true)} className="text-[10px] text-blue-400 hover:text-blue-300 font-medium transition-colors">
+                Reagendar
+              </button>
+            </div>
+          )}
+          {/* Form reagendar (reusa o mesmo accordion) */}
+          {contato === 'agendado' && agendarAberto && (
+            <div className="rounded-xl border-2 border-blue-500/30 overflow-hidden">
+              <div className="px-4 pb-3 pt-2 space-y-1.5">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-sm font-semibold text-[var(--shell-text)]">Reagendar</p>
+                  <button onClick={() => setAgendarAberto(false)} className="text-[10px] text-[var(--surface-400)]">Fechar</button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[9px] font-medium text-[var(--surface-500)] mb-0.5 block">Data e hora</label>
+                    <input type="datetime-local" value={gc.data_agendamento?.slice(0, 16) || ''}
+                      onChange={e => setGc({ ...gc, data_agendamento: e.target.value || null })}
+                      className="input text-xs w-full py-1" />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-medium text-[var(--surface-500)] mb-0.5 block">Forno</label>
+                    <div className="flex gap-1">
+                      {[1, 2, 3].map(f => (
+                        <button key={f} onClick={() => setGc({ ...gc, forno: f })}
+                          className={`flex-1 py-1 rounded text-xs font-bold border transition-colors ${gc.forno === f ? 'border-blue-500 bg-blue-900/20 text-blue-400' : 'border-[var(--surface-200)] text-[var(--surface-400)]'}`}>
+                          F{f}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[9px] font-medium text-[var(--surface-500)] mb-0.5 block">Acompanhamento</label>
+                  <div className="grid grid-cols-4 gap-1">
+                    {[
+                      { v: 'video_chamada', l: '📹 Chamada' },
+                      { v: 'video_gravado', l: '🎥 Gravado' },
+                      { v: 'presencial', l: '👥 Presencial' },
+                      { v: 'nao_deseja', l: '❌ Não' },
+                    ].map(o => (
+                      <button key={o.v} onClick={() => setGc({ ...gc, acompanhamento_confirmado: o.v })}
+                        className={`px-1 py-1 rounded text-[9px] font-medium border transition-colors ${gc.acompanhamento_confirmado === o.v ? 'border-blue-500 bg-blue-900/20 text-blue-400' : 'border-[var(--surface-200)] text-[var(--surface-400)]'}`}>
+                        {o.l}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button onClick={() => { mudar({}); setAgendarAberto(false) }}
+                  className="w-full py-1.5 rounded-lg text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors">
+                  Confirmar Alteração
+                </button>
               </div>
-            </>
+            </div>
           )}
+        </div>}
 
-          {etapa === 'disponivel' && (
-            <>
-              <p className="text-sm text-slate-300">Marque o que está pronto pra retornar:</p>
-              {isInd && (
-                <label className="flex items-center gap-3 cursor-pointer p-3 rounded-lg bg-slate-700/50 hover:bg-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={!!gc.cinzas_prontas}
-                    onChange={e => setGc({ ...gc, cinzas_prontas: e.target.checked })}
-                    className="w-5 h-5 rounded"
-                  />
-                  <span className="text-2xl">⚱️</span>
-                  <span className="text-sm font-medium text-slate-200">Cinzas prontas</span>
-                </label>
-              )}
-              <label className="flex items-center gap-3 cursor-pointer p-3 rounded-lg bg-slate-700/50 hover:bg-slate-700">
-                <input
-                  type="checkbox"
-                  checked={!!gc.certificado_pronto}
-                  onChange={e => setGc({ ...gc, certificado_pronto: e.target.checked })}
-                  className="w-5 h-5 rounded"
-                />
-                <span className="text-2xl">📜</span>
-                <span className="text-sm font-medium text-slate-200">Certificado pronto</span>
-              </label>
-            </>
-          )}
-        </div>
-
-        {/* Footer com ações */}
-        <div className="px-5 py-3 flex items-center justify-between border-t border-slate-700 bg-slate-900/50">
-          <button
-            onClick={voltar}
-            disabled={etapaIdx === 0 || salvando}
-            className="flex items-center gap-1 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-30"
-          >
-            <ChevronLeft className="h-4 w-4" /> Voltar
-          </button>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => salvar()}
-              disabled={salvando}
-              className="px-3 py-1.5 text-xs text-slate-300 hover:text-white border border-slate-600 rounded-lg hover:bg-slate-700"
-            >
-              Salvar
-            </button>
-            {etapaIdx < ETAPAS.length - 1 && (
-              <button
-                onClick={avancar}
-                disabled={salvando}
-                className="flex items-center gap-1 px-4 py-1.5 text-sm font-bold text-white rounded-lg disabled:opacity-50"
-                style={{ background: etapaColor }}
-              >
-                {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Avançar <ChevronRight className="h-4 w-4" /></>}
-              </button>
-            )}
-            {etapaIdx === ETAPAS.length - 1 && (
-              <button
-                onClick={() => salvar()}
-                disabled={salvando}
-                className="flex items-center gap-1 px-4 py-1.5 text-sm font-bold text-white rounded-lg disabled:opacity-50 bg-emerald-600 hover:bg-emerald-700"
-              >
-                {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Concluir'}
-              </button>
-            )}
+        {/* === SEÇÃO 2: CREMAÇÃO (trilha + ações) === */}
+        <div className="px-5 py-4 space-y-3">
+          <div>
+            <p className="text-[10px] font-bold text-[var(--surface-400)] uppercase tracking-wider mb-2 text-center">Cremação</p>
+            <div className="flex items-center justify-center">
+              {ETAPA_STEPS.map((step, i) => {
+                const ativo = i <= etapaIdx
+                const atual = step.key === etapa
+                return (
+                  <div key={step.key} className="flex items-center flex-1">
+                    <div className="flex flex-col items-center gap-1">
+                      <div
+                        className={`w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold transition-all ${atual ? 'ring-2 ring-offset-2' : ''}`}
+                        style={{ background: ativo ? step.color : 'var(--surface-200)', color: ativo ? '#fff' : 'var(--surface-400)', outlineColor: atual ? step.color : 'transparent' }}
+                      >
+                        {ativo ? '✓' : i + 1}
+                      </div>
+                      <span className="text-[9px] font-medium" style={{ color: ativo ? step.color : 'var(--surface-400)' }}>{step.label}</span>
+                    </div>
+                    {i < ETAPA_STEPS.length - 1 && (
+                      <div className="flex-1 h-0.5 mx-1" style={{ background: i < etapaIdx ? ETAPA_STEPS[i + 1].color : 'var(--surface-200)' }} />
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           </div>
+
+          {/* Ação: Receber */}
+          {etapa === 'provisionado' && !encFinalizado && (
+            <p className="text-[10px] text-amber-400 text-center italic">
+              Aguardando encaminhamento ser finalizado para confirmar recebimento
+            </p>
+          )}
+          {podeReceber && (
+            <button onClick={() => mudar({ etapa: 'recebido', data_recebimento: new Date().toISOString() })} disabled={salvando}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-purple-500/30 hover:bg-purple-900/10 transition-colors disabled:opacity-50">
+              <Check className="h-5 w-5 text-purple-400" />
+              <div className="text-left">
+                <p className="text-sm font-semibold text-[var(--shell-text)]">Confirmar Recebimento</p>
+                <p className="text-[10px] text-[var(--surface-400)]">Pet chegou em Pinda</p>
+              </div>
+            </button>
+          )}
+
+          {/* Ação: Cremar */}
+          {podeCremar && (
+            <button onClick={() => mudar({ etapa: 'cremado', data_cremacao: new Date().toISOString() })} disabled={salvando}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-red-500/30 hover:bg-red-900/10 transition-colors disabled:opacity-50">
+              <Flame className="h-5 w-5 text-red-400" />
+              <div className="text-left">
+                <p className="text-sm font-semibold text-[var(--shell-text)]">Registrar Cremação</p>
+                <p className="text-[10px] text-[var(--surface-400)]">Cremação foi realizada</p>
+              </div>
+            </button>
+          )}
+
+          {/* Info bloqueio */}
+          {etapa === 'recebido' && contato !== 'agendado' && (
+            <p className="text-[10px] text-amber-400 text-center italic">
+              Aguardando agendamento para liberar cremação
+            </p>
+          )}
+          {etapa === 'provisionado' && contato === 'agendado' && encFinalizado && (
+            <p className="text-[10px] text-purple-400 text-center italic">
+              Aguardando recebimento do pet para liberar cremação
+            </p>
+          )}
+
+          {/* Ação: Disponibilizar */}
+          {podeDisponibilizar && (
+            <div className="space-y-2">
+              <p className="text-[10px] font-bold text-[var(--surface-400)] uppercase tracking-wider">Disponibilizar para retorno</p>
+              {isInd && (
+                <button onClick={() => mudar({ cinzas_prontas: !gc.cinzas_prontas })}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-colors ${gc.cinzas_prontas ? 'border-emerald-500 bg-emerald-900/10' : 'border-[var(--surface-200)] hover:bg-[var(--surface-50)]'}`}>
+                  <Package className={`h-5 w-5 ${gc.cinzas_prontas ? 'text-emerald-400' : 'text-[var(--surface-400)]'}`} />
+                  <span className={`text-sm font-semibold ${gc.cinzas_prontas ? 'text-emerald-400' : 'text-[var(--shell-text)]'}`}>
+                    Cinzas {gc.cinzas_prontas ? '✓' : 'no nicho'}
+                  </span>
+                </button>
+              )}
+              <button onClick={() => mudar({ certificado_pronto: !gc.certificado_pronto })}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-colors ${gc.certificado_pronto ? 'border-emerald-500 bg-emerald-900/10' : 'border-[var(--surface-200)] hover:bg-[var(--surface-50)]'}`}>
+                <Award className={`h-5 w-5 ${gc.certificado_pronto ? 'text-emerald-400' : 'text-[var(--surface-400)]'}`} />
+                <span className={`text-sm font-semibold ${gc.certificado_pronto ? 'text-emerald-400' : 'text-[var(--shell-text)]'}`}>
+                  Certificado {gc.certificado_pronto ? '✓' : 'no nicho'}
+                </span>
+              </button>
+              {((isInd && gc.cinzas_prontas && gc.certificado_pronto) || (!isInd && gc.certificado_pronto)) && (
+                <button onClick={() => mudar({ etapa: 'disponivel', data_disponivel: new Date().toISOString() })}
+                  className="w-full py-2 rounded-lg text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors mt-1">
+                  Marcar como Finalizada
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Estado finalizado */}
+          {etapa === 'disponivel' && (
+            <div className="text-center py-3">
+              <p className="text-sm font-semibold text-emerald-400">✅ Disponível para retorno</p>
+              <p className="text-[10px] text-[var(--surface-400)] mt-1">
+                {gc.cinzas_prontas && 'Cinzas ✓ '}
+                {gc.certificado_pronto && 'Certificado ✓'}
+              </p>
+            </div>
+          )}
+
+          {/* Erro */}
+          {erro && (
+            <div className="px-3 py-2 rounded-lg bg-red-900/20 border border-red-500/30 text-red-400 text-xs">
+              {erro}
+            </div>
+          )}
+
+          {/* Botões Cancelar + Salvar */}
+          {dirty && (
+            <div className="flex gap-2">
+              <button
+                onClick={onClose}
+                className="flex-1 py-3 rounded-xl text-sm font-semibold text-[var(--surface-500)] border border-[var(--surface-200)] hover:bg-[var(--surface-50)] transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={salvarTudo}
+                disabled={salvando}
+                className="flex-1 py-3 rounded-xl text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {salvando ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvando...</> : 'Salvar Alterações'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Sub-modal Observações */}
+      {obsAberto && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[70] p-4" onClick={() => setObsAberto(false)}>
+          <div className="w-full max-w-lg max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="relative">
+              <button onClick={() => setObsAberto(false)} className="absolute top-3 right-3 z-10 text-slate-400 hover:text-slate-200">
+                <X className="h-5 w-5" />
+              </button>
+              <ObservacoesCard contratoId={contratoId} observacoesFicha={null} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

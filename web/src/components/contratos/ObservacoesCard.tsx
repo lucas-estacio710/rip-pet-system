@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { AlertTriangle, Check, Plus, MessageSquare, Loader2 } from 'lucide-react'
+import { AlertTriangle, Check, Plus, MessageSquare, Loader2, Pencil, X, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 
@@ -40,6 +40,8 @@ export default function ObservacoesCard({ contratoId, observacoesFicha }: Props)
   const [novaObs, setNovaObs] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [tipoIds, setTipoIds] = useState<Record<string, string>>({})
+  const [editandoId, setEditandoId] = useState<string | null>(null)
+  const [textoEditado, setTextoEditado] = useState('')
 
   useEffect(() => {
     carregarTarefas()
@@ -137,6 +139,63 @@ export default function ObservacoesCard({ contratoId, observacoesFicha }: Props)
     } as never)
   }
 
+  async function excluirTarefa(tarefa: Tarefa) {
+    if (!confirm(`Excluir esta observação?\n\n"${tarefa.descricao.slice(0, 100)}${tarefa.descricao.length > 100 ? '...' : ''}"`)) return
+    await supabase.from('tarefas').delete().eq('id', tarefa.id)
+    setTarefas(prev => prev.filter(t => t.id !== tarefa.id))
+
+    const { data: { user } } = await supabase.auth.getUser()
+    await supabase.from('historico_alteracoes').insert({
+      entidade: 'contratos',
+      entidade_id: contratoId,
+      entidade_nome: tarefa.descricao.slice(0, 50),
+      campo: 'tarefa_excluida',
+      campo_label: 'Observação excluída',
+      valor_anterior: tarefa.descricao,
+      valor_novo: null,
+      tipo: 'exclusao',
+      alterado_por: user?.id || null,
+      alterado_por_email: user?.email || null,
+    } as never)
+  }
+
+  function iniciarEdicao(tarefa: Tarefa) {
+    setEditandoId(tarefa.id)
+    setTextoEditado(tarefa.descricao)
+  }
+
+  function cancelarEdicao() {
+    setEditandoId(null)
+    setTextoEditado('')
+  }
+
+  async function salvarEdicao(tarefa: Tarefa) {
+    const novoTexto = textoEditado.trim()
+    if (!novoTexto || novoTexto === tarefa.descricao) {
+      cancelarEdicao()
+      return
+    }
+    const descricaoAnterior = tarefa.descricao
+    await supabase.from('tarefas').update({ descricao: novoTexto } as never).eq('id', tarefa.id)
+    setTarefas(prev => prev.map(t => t.id === tarefa.id ? { ...t, descricao: novoTexto } : t))
+
+    const { data: { user } } = await supabase.auth.getUser()
+    await supabase.from('historico_alteracoes').insert({
+      entidade: 'contratos',
+      entidade_id: contratoId,
+      entidade_nome: novoTexto.slice(0, 50),
+      campo: 'tarefa_descricao',
+      campo_label: 'Observação editada',
+      valor_anterior: descricaoAnterior,
+      valor_novo: novoTexto,
+      tipo: 'alteracao',
+      alterado_por: user?.id || null,
+      alterado_por_email: user?.email || null,
+    } as never)
+
+    cancelarEdicao()
+  }
+
   function getBadge(tarefa: Tarefa) {
     const tipoNome = (tarefa.tipo as unknown as { nome: string })?.nome || ''
     if (tipoNome.includes('Ficha')) return { label: 'Ficha', bg: '#7c3aed', text: '#fff' }
@@ -187,7 +246,7 @@ export default function ObservacoesCard({ contratoId, observacoesFicha }: Props)
             return (
               <div key={tarefa.id} className={`flex gap-2 items-start p-2 rounded-lg transition-all ${
                 tarefa.importante && !tarefa.resolvido ? 'bg-red-900/10 border border-red-500/20' :
-                tarefa.resolvido ? 'opacity-50' : ''
+                tarefa.resolvido ? 'bg-emerald-900/10 border border-emerald-500/20' : ''
               }`}>
                 {/* Badge unidade/tipo */}
                 <div className="w-7 h-7 rounded-full flex items-center justify-center text-[8px] font-bold shrink-0"
@@ -197,10 +256,25 @@ export default function ObservacoesCard({ contratoId, observacoesFicha }: Props)
 
                 {/* Conteúdo */}
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm text-slate-300 whitespace-pre-wrap break-words ${tarefa.resolvido ? 'line-through' : ''}`}>
-                    {tarefa.importante && !tarefa.resolvido && <span title="Importante">🚨 </span>}
-                    {tarefa.descricao}
-                  </p>
+                  {editandoId === tarefa.id ? (
+                    <textarea
+                      value={textoEditado}
+                      onChange={e => setTextoEditado(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); salvarEdicao(tarefa) }
+                        if (e.key === 'Escape') cancelarEdicao()
+                      }}
+                      autoFocus
+                      rows={2}
+                      className="w-full px-2 py-1 text-sm rounded bg-slate-700 border border-slate-500 text-slate-200 outline-none focus:border-slate-400 resize-y"
+                    />
+                  ) : (
+                    <p className="text-sm text-slate-300 whitespace-pre-wrap break-words">
+                      {tarefa.importante && <span title="Importante">🚨 </span>}
+                      {tarefa.resolvido && <span title="Resolvido">✅ </span>}
+                      {tarefa.descricao}
+                    </p>
+                  )}
                   <p className="text-[10px] text-slate-500 mt-0.5">
                     {tarefa.criado_por || 'Sistema'} · {new Date(tarefa.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                     {tarefa.resolvido && tarefa.resolvido_por && (
@@ -211,14 +285,37 @@ export default function ObservacoesCard({ contratoId, observacoesFicha }: Props)
 
                 {/* Ações */}
                 <div className="flex items-center gap-1 shrink-0">
-                  <button onClick={() => toggleImportante(tarefa)} title={tarefa.importante ? 'Remover importância' : 'Marcar importante'}
-                    className={`p-1 rounded transition-colors ${tarefa.importante ? 'text-red-400 hover:text-red-300' : 'text-slate-600 hover:text-slate-400'}`}>
-                    <AlertTriangle className="h-3.5 w-3.5" />
-                  </button>
-                  <button onClick={() => toggleResolvido(tarefa)} title={tarefa.resolvido ? 'Reabrir' : 'Resolver'}
-                    className={`p-1 rounded transition-colors ${tarefa.resolvido ? 'text-emerald-400 hover:text-emerald-300' : 'text-slate-600 hover:text-slate-400'}`}>
-                    <Check className="h-3.5 w-3.5" />
-                  </button>
+                  {editandoId === tarefa.id ? (
+                    <>
+                      <button onClick={() => salvarEdicao(tarefa)} title="Salvar"
+                        className="p-2 rounded-lg transition-colors text-emerald-400 hover:text-emerald-300 hover:bg-slate-700">
+                        <Check className="h-5 w-5" />
+                      </button>
+                      <button onClick={cancelarEdicao} title="Cancelar"
+                        className="p-2 rounded-lg transition-colors text-slate-500 hover:text-slate-300 hover:bg-slate-700">
+                        <X className="h-5 w-5" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button onClick={() => iniciarEdicao(tarefa)} title="Editar"
+                        className="p-2 rounded-lg transition-colors text-slate-500 hover:text-slate-300 hover:bg-slate-700">
+                        <Pencil className="h-5 w-5" />
+                      </button>
+                      <button onClick={() => toggleImportante(tarefa)} title={tarefa.importante ? 'Remover importância' : 'Marcar importante'}
+                        className={`p-2 rounded-lg transition-colors hover:bg-slate-700 ${tarefa.importante ? 'text-red-400 hover:text-red-300' : 'text-slate-500 hover:text-slate-300'}`}>
+                        <AlertTriangle className="h-5 w-5" />
+                      </button>
+                      <button onClick={() => toggleResolvido(tarefa)} title={tarefa.resolvido ? 'Reabrir' : 'Resolver'}
+                        className={`p-2 rounded-lg transition-colors hover:bg-slate-700 ${tarefa.resolvido ? 'text-emerald-400 hover:text-emerald-300' : 'text-slate-500 hover:text-slate-300'}`}>
+                        <Check className="h-5 w-5" />
+                      </button>
+                      <button onClick={() => excluirTarefa(tarefa)} title="Excluir"
+                        className="p-2 rounded-lg transition-colors text-slate-500 hover:text-red-400 hover:bg-slate-700">
+                        <Trash2 className="h-5 w-5" />
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             )

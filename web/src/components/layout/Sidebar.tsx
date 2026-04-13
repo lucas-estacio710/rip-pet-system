@@ -37,7 +37,7 @@ const navItems: NavItem[] = [
   { href: '/fichas', label: 'Fichas', icon: TextSelect, countKey: 'fichas', module: 'tela_fichas' },
   { href: '/preventivos', label: 'Preventivos', icon: Heart, countKey: null, module: 'tela_preventivos' },
   { href: '/contratos?status=ativo', label: 'Pipeline', icon: FileCheck, countKey: 'contratos', module: 'tela_pipeline', iconColor: '#f59e0b' },
-  { href: '/supindas', label: 'Encaminhamentos', icon: Route, countKey: null, module: 'tela_entregas' },
+  { href: '/encaminhamentos', label: 'Encaminhamentos', icon: Route, countKey: null, module: 'tela_entregas' },
   { href: '/estoque', label: 'Estoque', icon: ShelvingUnit, countKey: null, module: 'tela_estoque' },
   { href: '/gc', label: 'GC', icon: Church, countKey: null, module: 'tela_gc' },
   { href: '/tutores', label: 'Tutores', icon: Users, countKey: null, module: 'tela_tutores' },

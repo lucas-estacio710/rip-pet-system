@@ -254,6 +254,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   const [telefone2, setTelefone2] = useState('')
   const [telefone2DDI, setTelefone2DDI] = useState('55')
   const [telefone2DDICustom, setTelefone2DDICustom] = useState('')
+  const [telefone2Nome, setTelefone2Nome] = useState('')
   const [mostrarTelefone2, setMostrarTelefone2] = useState(false)
   const [usarTelefone2ComoPrincipal, setUsarTelefone2ComoPrincipal] = useState(false)
   const [codigo, setCodigo] = useState('')
@@ -399,6 +400,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       setTelefone2('')
       setTelefone2DDI('55')
       setTelefone2DDICustom('')
+      setTelefone2Nome('')
       setMostrarTelefone2(false)
       setUsarTelefone2ComoPrincipal(false)
       setConfirmarRetorno(false)
@@ -491,6 +493,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       if (op.mostrarTelefone2) setMostrarTelefone2(true)
       if (op.telefone2DDI) setTelefone2DDI(String(op.telefone2DDI))
       if (op.telefone2DDICustom) setTelefone2DDICustom(String(op.telefone2DDICustom))
+      if (op.telefone2Nome) setTelefone2Nome(String(op.telefone2Nome))
       if (op.telefone2) {
         // Extrair só o número local (sem DDI) pra exibir formatado
         const tel2Completo = String(op.telefone2)
@@ -601,6 +604,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         // Telefone
         telefoneConfirmado,
         telefone2: getTelefone2Completo() || null,
+        telefone2Nome: telefone2Nome.trim() || null,
         usarTelefone2ComoPrincipal,
       }
 
@@ -645,6 +649,14 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
 
     try {
       // Step 1: Find or create tutor
+      // Swap tel1↔tel2 leva o nome junto. null = é o próprio tutor.
+      const hasTel2 = !!getTelefone2Completo()
+      const tel2NomeVal = telefone2Nome.trim() || null
+      const telPrincipal = hasTel2 && usarTelefone2ComoPrincipal ? getTelefone2Completo() : f.telefone
+      const telSecundario = hasTel2 ? (usarTelefone2ComoPrincipal ? f.telefone : getTelefone2Completo()) : null
+      const telPrincipalNome = hasTel2 && usarTelefone2ComoPrincipal ? tel2NomeVal : null
+      const telSecundarioNome = hasTel2 ? (usarTelefone2ComoPrincipal ? null : tel2NomeVal) : null
+
       let tutorId = tutorExistente?.id || null
       if (!tutorId) {
         const { data: novoTutor, error: errTutor } = await supabase
@@ -652,8 +664,10 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
           .insert({
             nome: f.nome_completo?.toUpperCase() || '',
             cpf: f.cpf,
-            telefone: usarTelefone2ComoPrincipal && getTelefone2Completo() ? getTelefone2Completo() : f.telefone,
-            telefone2: getTelefone2Completo() ? (usarTelefone2ComoPrincipal ? f.telefone : getTelefone2Completo()) : null,
+            telefone: telPrincipal,
+            telefone2: telSecundario,
+            telefone_nome: telPrincipalNome,
+            telefone2_nome: telSecundarioNome,
             email: f.email || null,
             cep: f.cep, endereco: f.endereco, numero: f.numero, complemento: f.complemento || null,
             bairro: f.bairro, cidade: f.cidade, estado: f.estado, unidade_id: f.unidade_id,
@@ -738,8 +752,10 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         pet_idade_anos: f.idade ? parseInt(f.idade) || null : null,
         tutor_id: tutorId,
         tutor_nome: f.nome_completo?.toUpperCase() || '', tutor_cpf: f.cpf,
-        tutor_telefone: usarTelefone2ComoPrincipal && getTelefone2Completo() ? getTelefone2Completo() : f.telefone,
-        tutor_telefone2: getTelefone2Completo() ? (usarTelefone2ComoPrincipal ? f.telefone : getTelefone2Completo()) : null,
+        tutor_telefone: telPrincipal,
+        tutor_telefone2: telSecundario,
+        tutor_telefone_nome: telPrincipalNome,
+        tutor_telefone2_nome: telSecundarioNome,
         tutor_email: f.email || null, tutor_cidade: f.cidade || null, tutor_bairro: f.bairro || null,
         tutor_endereco: f.endereco ? `${f.endereco}, ${f.numero}${f.complemento ? ` - ${f.complemento}` : ''}` : null,
         tutor_cep: f.cep || null,
@@ -798,8 +814,13 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         .single() as { data: { id: string } | null; error: { message: string } | null }
       if (errContrato) throw new Error(`Erro ao criar contrato: ${errContrato.message}`)
 
-      // Vincular contrato à ficha
-      await supabase.from('fichas').update({ contrato_id: contrato!.id } as never).eq('id', ficha.id)
+      // Vincular contrato à ficha + marcar como processada (se ainda não estava)
+      const { error: errLink } = await supabase.from('fichas').update({
+        contrato_id: contrato!.id,
+        processada: true,
+        processada_em: ficha.processada ? undefined : new Date().toISOString(),
+      } as never).eq('id', ficha.id)
+      if (errLink) throw new Error(`Erro ao vincular ficha ao contrato: ${errLink.message}`)
 
       // Migrar observações da ficha pra tarefas (se houver)
       if (f.observacoes) {
@@ -855,7 +876,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         teveIndicacao, indicNomeQuemIndicou: indicNomeQuemIndicou || null, indicNomeAtivo,
         indicHospClinica: indicHospClinica || null, indicHospAtivo, indicEstabId, indicEstabNome: indicEstabNome || null,
         indicId, indicNome: indicNome || null, indicCargo: indicCargo || null,
-        telefoneConfirmado, telefone2: getTelefone2Completo() || null, telefone2DDI, telefone2DDICustom, mostrarTelefone2, usarTelefone2ComoPrincipal,
+        telefoneConfirmado, telefone2: getTelefone2Completo() || null, telefone2Nome: telefone2Nome.trim() || null, telefone2DDI, telefone2DDICustom, mostrarTelefone2, usarTelefone2ComoPrincipal,
       }
       await supabase.from('fichas').update({ op_dados: opDados } as never).eq('id', ficha.id)
       toast('Alterações salvas!', 'success')
@@ -879,17 +900,25 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   const fluxoValido = telefoneOk && !!localColeta && !!funcionarioId && !!dataHoraAcolhimento && lacreOk && valorOk
 
   const footer = somenteLeitura ? (
-    /* Modo somente leitura (recebidas) — só Fechar e Processar */
-    <div className="flex gap-2 justify-end w-full">
-      <button onClick={onClose} className="py-2 px-4 rounded-lg text-xs font-semibold text-[var(--surface-600)] border border-[var(--surface-200)] hover:bg-[var(--surface-50)] transition-colors">
-        Fechar
-      </button>
+    /* Modo somente leitura (recebidas) — Cancelar, Fechar e Processar */
+    <div className="flex gap-2 justify-between w-full">
       <button
-        onClick={() => { onClose(); if (ficha) setTimeout(() => onReprocessar?.(ficha), 100) }}
-        className="py-2 px-4 rounded-lg text-xs font-semibold text-white bg-[var(--brand-600)] hover:bg-[var(--brand-700)] transition-colors"
+        onClick={() => setConfirmarCancelamento(true)}
+        className="py-2 px-4 rounded-lg text-xs font-semibold text-red-400 border border-red-500/30 hover:bg-red-900/20 transition-colors"
       >
-        Processar
+        Cancelar Ficha
       </button>
+      <div className="flex gap-2">
+        <button onClick={onClose} className="py-2 px-4 rounded-lg text-xs font-semibold text-[var(--surface-600)] border border-[var(--surface-200)] hover:bg-[var(--surface-50)] transition-colors">
+          Fechar
+        </button>
+        <button
+          onClick={() => { onClose(); if (ficha) setTimeout(() => onReprocessar?.(ficha), 100) }}
+          className="py-2 px-4 rounded-lg text-xs font-semibold text-white bg-[var(--brand-600)] hover:bg-[var(--brand-700)] transition-colors"
+        >
+          Processar
+        </button>
+      </div>
     </div>
   ) : modoVisualizacao ? (
     /* Modo processada — ações completas */
@@ -945,24 +974,33 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       )}
     </div>
   ) : (
-    <div className="flex gap-3 justify-end">
-      <button onClick={onClose} className="btn-secondary" disabled={salvando}>
-        Fechar
-      </button>
+    <div className="flex gap-3 justify-between w-full">
       <button
-        onClick={processarFicha}
-        disabled={salvando || !acolhimentoValido}
-        className="btn-primary disabled:opacity-50"
+        onClick={() => setConfirmarCancelamento(true)}
+        disabled={salvando}
+        className="py-2 px-4 rounded-lg text-xs font-semibold text-red-400 border border-red-500/30 hover:bg-red-900/20 transition-colors disabled:opacity-50"
       >
-        {salvando ? (
-          <>
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Processando...
-          </>
-        ) : (
-          'Processar'
-        )}
+        Cancelar Ficha
       </button>
+      <div className="flex gap-3">
+        <button onClick={onClose} className="btn-secondary" disabled={salvando}>
+          Fechar
+        </button>
+        <button
+          onClick={processarFicha}
+          disabled={salvando || !acolhimentoValido}
+          className="btn-primary disabled:opacity-50"
+        >
+          {salvando ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Processando...
+            </>
+          ) : (
+            'Processar'
+          )}
+        </button>
+      </div>
     </div>
   )
 
@@ -1142,7 +1180,11 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                 {telefoneConfirmado && !mostrarTelefone2 ? (
                   <span className="text-emerald-400">{formatarTel(ficha?.telefone)} (mesmo da ficha)</span>
                 ) : mostrarTelefone2 && getTelefone2Completo() ? (
-                  <span className="text-amber-400">{formatarTel(getTelefone2Completo())} <span className="text-[var(--surface-400)]">(ficha: {formatarTel(ficha?.telefone)})</span></span>
+                  <span className="text-amber-400">
+                    {formatarTel(getTelefone2Completo())}
+                    {telefone2Nome.trim() && <span className="text-[var(--surface-500)]"> — {telefone2Nome.trim()}</span>}
+                    <span className="text-[var(--surface-400)]"> (ficha: {formatarTel(ficha?.telefone)})</span>
+                  </span>
                 ) : (
                   <span className="text-amber-400">Não definido</span>
                 )}
@@ -1410,6 +1452,14 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                         </select>
                         <input type="text" inputMode="tel" value={telefone2} onChange={e => setTelefone2(e.target.value.replace(/\D/g, '').replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15))} placeholder="(00) 00000-0000" maxLength={15} className="input text-sm text-mono flex-1" />
                       </div>
+                      <input
+                        type="text"
+                        value={telefone2Nome}
+                        onChange={e => setTelefone2Nome(e.target.value)}
+                        placeholder="Nome do contato (ex: Maria — irmã)"
+                        className="input text-sm w-full"
+                        maxLength={80}
+                      />
                     </div>
                   )}
                 </div>
@@ -1437,6 +1487,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                       mostrarTelefone2,
                       usarTelefone2ComoPrincipal,
                       telefone2: getTelefone2Completo() || opAtual.telefone2,
+                      telefone2Nome: telefone2Nome.trim() || opAtual.telefone2Nome || null,
                       telefone2DDI,
                     }
                     const { error } = await supabase.from('fichas').update({ op_dados: opAtualizado } as never).eq('id', ficha.id)
@@ -1654,6 +1705,14 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                     )}
                     <input type="text" inputMode="tel" value={telefone2} onChange={e => setTelefone2(e.target.value.replace(/\D/g, '').replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15))} placeholder="(00) 00000-0000" maxLength={15} className="input text-sm text-mono flex-1" />
                   </div>
+                  <input
+                    type="text"
+                    value={telefone2Nome}
+                    onChange={e => setTelefone2Nome(e.target.value)}
+                    placeholder="Nome do contato (ex: Maria — irmã)"
+                    className="input text-sm w-full"
+                    maxLength={80}
+                  />
                   <p className="text-[9px] text-[var(--surface-400)]">Este número será usado nos botões de WhatsApp. O telefone da ficha fica salvo como secundário.</p>
                 </div>
               )}
