@@ -267,7 +267,7 @@ export default function EncaminhamentosPage() {
         supabase.from('contratos').select(campos).eq('unidade_id', currentUnit!.id).eq('status', 'ativo').order('data_contrato', { ascending: true }),
         supabase.from('funcionarios').select('id, nome').eq('unidade_id', currentUnit!.id).eq('ativo', true).order('nome'),
         supabase.from('supindas').select('id, numero, data, responsavel, quantidade_pets, peso_total, status, observacoes, unidades(codigo)').order('data'),
-        supabase.from('contratos').select(campos).eq('unidade_id', currentUnit!.id).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_contrato', { ascending: true }),
+        supabase.from('contratos').select(campos).eq('unidade_id', currentUnit!.id).in('status', ['ativo', 'pinda', 'retorno']).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_contrato', { ascending: true }),
       ])
       setCremados(((crem || []) as ContratoEnc[]).filter(c => {
       const gc = Array.isArray(c.contrato_gc) ? c.contrato_gc[0] : c.contrato_gc
@@ -1013,7 +1013,7 @@ export default function EncaminhamentosPage() {
                           const [{ data: crem }, { data: ativ }, { data: vinc2 }] = await Promise.all([
                             supabase.from('contratos').select(campos).eq('unidade_id', currentUnit!.id).eq('status', 'pinda').order('data_contrato', { ascending: true }),
                             supabase.from('contratos').select(campos).eq('unidade_id', currentUnit!.id).eq('status', 'ativo').order('data_contrato', { ascending: true }),
-                            supabase.from('contratos').select(campos).eq('unidade_id', currentUnit!.id).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_contrato', { ascending: true }),
+                            supabase.from('contratos').select(campos).eq('unidade_id', currentUnit!.id).in('status', ['ativo', 'pinda', 'retorno']).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_contrato', { ascending: true }),
                           ])
                           setCremados(((crem || []) as ContratoEnc[]).filter(c => {
       const gc = Array.isArray(c.contrato_gc) ? c.contrato_gc[0] : c.contrato_gc
@@ -1070,7 +1070,7 @@ export default function EncaminhamentosPage() {
                                                   const [{ data: crem }, { data: ativ }, { data: vinc4 }, { data: encs2 }] = await Promise.all([
                                                     supabase.from('contratos').select(campos2).eq('unidade_id', currentUnit!.id).eq('status', 'pinda').order('data_contrato', { ascending: true }),
                                                     supabase.from('contratos').select(campos2).eq('unidade_id', currentUnit!.id).eq('status', 'ativo').order('data_contrato', { ascending: true }),
-                                                    supabase.from('contratos').select(campos2).eq('unidade_id', currentUnit!.id).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_contrato', { ascending: true }),
+                                                    supabase.from('contratos').select(campos2).eq('unidade_id', currentUnit!.id).in('status', ['ativo', 'pinda', 'retorno']).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_contrato', { ascending: true }),
                                                     supabase.from('supindas').select('id, numero, data, responsavel, quantidade_pets, peso_total, status, observacoes, unidades(codigo)').order('data'),
                                                   ])
                                                   setCremados(((crem || []) as ContratoEnc[]).filter(c => {
@@ -1136,7 +1136,7 @@ export default function EncaminhamentosPage() {
                                                 const [{ data: crem }, { data: ativ }, { data: vinc4 }, { data: encs2 }] = await Promise.all([
                                                   supabase.from('contratos').select(campos2).eq('unidade_id', currentUnit!.id).eq('status', 'pinda').order('data_contrato', { ascending: true }),
                                                   supabase.from('contratos').select(campos2).eq('unidade_id', currentUnit!.id).eq('status', 'ativo').order('data_contrato', { ascending: true }),
-                                                  supabase.from('contratos').select(campos2).eq('unidade_id', currentUnit!.id).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_contrato', { ascending: true }),
+                                                  supabase.from('contratos').select(campos2).eq('unidade_id', currentUnit!.id).in('status', ['ativo', 'pinda', 'retorno']).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_contrato', { ascending: true }),
                                                   supabase.from('supindas').select('id, numero, data, responsavel, quantidade_pets, peso_total, status, observacoes, unidades(codigo)').order('data'),
                                                 ])
                                                 setCremados(((crem || []) as ContratoEnc[]).filter(c => {

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ClipboardList, Search, X, Clock, CheckCircle2, FileText, Phone, MapPin, Stethoscope, ArrowRight, MessageCircle, Download, Pencil, Bell, BellOff } from 'lucide-react'
+import { ClipboardList, Search, X, Clock, CheckCircle2, FileText, Phone, MapPin, Stethoscope, ArrowRight, MessageCircle, Download, Pencil, Bell, BellOff, Copy } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useDebounce } from '@/hooks/useDebounce'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -749,6 +749,17 @@ export default function FichasPage() {
                           title="Reprocessar"
                         >
                           <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button onClick={async (e) => {
+                            e.stopPropagation()
+                            const btn = e.currentTarget
+                            const msg = montarMsgWhatsApp(ficha)
+                            await navigator.clipboard.writeText(msg)
+                            btn.classList.add('text-emerald-400')
+                            setTimeout(() => btn.classList.remove('text-emerald-400'), 1500)
+                          }}
+                          className="flex items-center justify-center w-8 h-8 rounded-full border border-[var(--surface-200)] text-[var(--surface-400)] hover:text-blue-400 hover:border-blue-500/30 transition-colors" title="Copiar informações">
+                          <Copy className="h-3.5 w-3.5" />
                         </button>
                         <button onClick={(e) => { e.stopPropagation(); abrirWhatsAppComMsg(ficha) }}
                           className="flex items-center justify-center w-8 h-8 rounded-full hover:opacity-80 transition-opacity" title="WhatsApp">
