@@ -3705,6 +3705,22 @@ ${petNome}`
                               <span className="text-base">📬</span>
                             </button>
                           )}
+                          {/* Botão Marcar Pendente - para retorno */}
+                          {contrato.status === 'retorno' && (
+                            <button
+                              onClick={async (e) => {
+                                e.preventDefault(); e.stopPropagation()
+                                if (!confirm(`Marcar ${contrato.pet_nome} como pendente?`)) return
+                                const supabaseLocal = createClient()
+                                await supabaseLocal.from('contratos').update({ status: 'pendente' } as never).eq('id', contrato.id)
+                                carregarContratos()
+                              }}
+                              className="flex items-center justify-center w-9 h-9 bg-purple-600 text-white rounded-full hover:bg-purple-700 transition-colors"
+                              title="Marcar como pendente"
+                            >
+                              <span className="text-base">⏳</span>
+                            </button>
+                          )}
                         </div>
                         )}
                         {/* Indicador de complexidade - só Retorno (FLS: btn_fluxo_retorno) */}
@@ -3971,6 +3987,21 @@ ${petNome}`
                               title="Marcar entregue"
                             >
                               <span className="text-sm">📬</span>
+                            </button>
+                          )}
+                          {contrato.status === 'retorno' && (
+                            <button
+                              onClick={async (e) => {
+                                e.preventDefault(); e.stopPropagation()
+                                if (!confirm(`Marcar ${contrato.pet_nome} como pendente?`)) return
+                                const supabaseLocal = createClient()
+                                await supabaseLocal.from('contratos').update({ status: 'pendente' } as never).eq('id', contrato.id)
+                                carregarContratos()
+                              }}
+                              className="flex items-center justify-center w-8 h-8 bg-purple-600 text-white rounded-full hover:bg-purple-700 transition-colors"
+                              title="Marcar como pendente"
+                            >
+                              <span className="text-sm">⏳</span>
                             </button>
                           )}
                         </>)}

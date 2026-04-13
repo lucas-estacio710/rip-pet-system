@@ -289,8 +289,9 @@ export default function GCPage() {
   })
 
   // Placar
-  const paraCremar = contratos.filter(c => c.status === 'pinda' && c.gc?.etapa !== 'disponivel').length
-  const agendados = contratos.filter(c => c.gc?.contato_status === 'agendado').length
+  const petsNaMatriz = contratos.filter(c => c.status === 'pinda' && c.gc?.etapa === 'recebido')
+  const paraCremar = petsNaMatriz.length
+  const agendados = petsNaMatriz.filter(c => c.gc?.contato_status === 'agendado').length
   const pctAgendados = paraCremar > 0 ? Math.round((agendados / paraCremar) * 100) : 0
 
   return (
