@@ -106,7 +106,7 @@ function especieIcon(especie: string | null) {
 // ============================================
 export default function EncaminhamentosPage() {
   const supabase = createClient()
-  const { currentUnit } = useUnit()
+  const { currentUnit, isSuperAdmin } = useUnit()
 
   const hoje = new Date()
   hoje.setHours(0, 0, 0, 0)
@@ -216,9 +216,12 @@ export default function EncaminhamentosPage() {
     setDragOverDia(null)
     if (selecionados.size === 0 || !currentUnit) return
 
-    const encsDia = getEncsDia(encaminhamentos, dia)
+    // FLS: só considerar encaminhamentos da própria unidade (ou tudo se super_admin)
+    const encsDia = getEncsDia(encaminhamentos, dia).filter(
+      enc => isSuperAdmin || enc.codigo_unidade === currentUnit.codigo
+    )
     if (encsDia.length > 0) {
-      // Dia já tem encaminhamento(s) — perguntar
+      // Dia já tem encaminhamento(s) da unidade — perguntar
       const proxCod = await gerarProximoCodigo()
       setEscolhaProxCodigo(proxCod)
       setEscolhaDia(dia)
@@ -374,6 +377,12 @@ export default function EncaminhamentosPage() {
 
   async function incluirEmExistente(enc: EncResumo, ids: Set<string>) {
     if (!currentUnit) return
+    // Bloquear vinculação em encaminhamento de outra unidade (FLS)
+    if (enc.codigo_unidade !== currentUnit.codigo && !isSuperAdmin) {
+      alert(`Você não pode vincular pets em um encaminhamento de outra unidade (${enc.codigo_unidade}).`)
+      setSelecionados(new Set())
+      return
+    }
     const idsArr = Array.from(ids)
     const idsLevar = idsArr.filter(id => ativos.some(c => c.id === id))
     const idsRetirar = idsArr.filter(id => cremados.some(c => c.id === id))
@@ -936,6 +945,10 @@ export default function EncaminhamentosPage() {
                         incluirEmExistente(enc, selecionados)
                         return
                       }
+                      // Bloquear expansão de encaminhamento de outra unidade (FLS)
+                      if (enc.codigo_unidade !== currentUnit?.codigo && !isSuperAdmin) {
+                        return
+                      }
                       setEncAbertos(prev => {
                         const next = new Set(prev)
                         if (next.has(enc.id)) next.delete(enc.id)
@@ -943,8 +956,12 @@ export default function EncaminhamentosPage() {
                         return next
                       })
                     }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 transition-colors cursor-pointer ${
-                      selecionados.size > 0 ? 'hover:bg-blue-500/10' : 'hover:bg-[var(--surface-50)]'
+                    className={`w-full flex items-center gap-3 px-4 py-3 transition-colors ${
+                      enc.codigo_unidade !== currentUnit?.codigo && !isSuperAdmin
+                        ? 'cursor-default'
+                        : selecionados.size > 0
+                          ? 'cursor-pointer hover:bg-blue-500/10'
+                          : 'cursor-pointer hover:bg-[var(--surface-50)]'
                     }`}
                   >
                     <span
@@ -964,7 +981,7 @@ export default function EncaminhamentosPage() {
                         {encVolta.length > 0 && <span>· {encVolta.length} entrega{encVolta.length > 1 ? 's' : ''}</span>}
                       </div>
                     </div>
-                    {enc.status !== 'finalizada' && (
+                    {enc.status !== 'finalizada' && (enc.codigo_unidade === currentUnit?.codigo || isSuperAdmin) && (
                       <button
                         onClick={e => {
                           e.stopPropagation()
@@ -979,7 +996,7 @@ export default function EncaminhamentosPage() {
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
                     )}
-                    {enc.status === 'planejada' && (
+                    {enc.status === 'planejada' && (enc.codigo_unidade === currentUnit?.codigo || isSuperAdmin) && (
                       <button
                         onClick={async e => {
                           e.stopPropagation()
@@ -992,7 +1009,7 @@ export default function EncaminhamentosPage() {
                         Embarcar
                       </button>
                     )}
-                    {enc.status === 'embarcada' && todosChecksOk && (
+                    {enc.status === 'embarcada' && todosChecksOk && (enc.codigo_unidade === currentUnit?.codigo || isSuperAdmin) && (
                       <button
                         onClick={async e => {
                           e.stopPropagation()
@@ -1207,7 +1224,7 @@ export default function EncaminhamentosPage() {
               Incluir os {escolhaIds.size} selecionados em um existente ou criar novo?
             </p>
             <div className="space-y-2">
-              {getEncsDia(encaminhamentos, escolhaDia).map(enc => {
+              {getEncsDia(encaminhamentos, escolhaDia).filter(enc => isSuperAdmin || enc.codigo_unidade === currentUnit?.codigo).map(enc => {
                 const cor = UNIT_COLORS[enc.codigo_unidade] || '#6366f1'
                 return (
                   <button

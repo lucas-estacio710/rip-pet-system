@@ -4,6 +4,7 @@ import { Menu } from 'lucide-react'
 import { usePathname } from 'next/navigation'
 import { UserMenu } from './UserMenu'
 import { UnitSelector } from './UnitSelector'
+import { RefreshButton } from './RefreshButton'
 
 const PAGE_TITLES: Record<string, string> = {
   '/dashboard': 'Dashboard',
@@ -42,7 +43,10 @@ export function MobileHeader({ onMenuClick }: Props) {
           <UnitSelector />
         </div>
 
-        <UserMenu />
+        <div className="flex items-center gap-1">
+          <RefreshButton />
+          <UserMenu />
+        </div>
       </div>
     </header>
   )

@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import FichaRemocao from '@/components/fichas/FichaRemocao'
 import { captureElementAsBlob, fichaFilename } from '@/lib/ficha-generator'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, User, Phone, Mail, MapPin, DollarSign, FileText, X, Search, Plus, Pencil, Trash2, Check, Package, AlertTriangle, Star, Download, Share2, Receipt, RefreshCw } from 'lucide-react'
+import { ArrowLeft, User, Phone, Mail, MapPin, DollarSign, FileText, X, Search, Plus, Pencil, Trash2, Check, Copy, Package, AlertTriangle, Star, Download, Share2, Receipt, RefreshCw } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { ProtocoloData, getNomeRetorno, isProtocoloExcluido, montarProtocoloData, normalizarProtocoloData, formatarValor } from '@/components/protocolo/protocolo-utils'
@@ -360,6 +360,10 @@ export default function ContratoDetalhe() {
   const [telefone2Modal, setTelefone2Modal] = useState(false)
   const [novoTelefone2, setNovoTelefone2] = useState('')
   const [salvandoTelefone, setSalvandoTelefone] = useState(false)
+
+  // Feedback de cópia dos códigos (header do contrato)
+  const [codigoCopied, setCodigoCopied] = useState(false)
+  const [refCopied, setRefCopied] = useState(false)
 
   // Lacre inline edit
   const [lacrePopup, setLacrePopup] = useState(false)
@@ -1741,7 +1745,7 @@ ${petNome}`
     }
   }
 
-  // Gerar código de referência: YYMmmdd NomeTutor EM/PV NomePet
+  // Gerar código de referência: YYMmmdd NomeTutor EM/PV NomePet IND/COL
   function gerarCodigoReferencia(): string {
     if (!contrato) return ''
 
@@ -1754,8 +1758,9 @@ ${petNome}`
     const tutorNome = getPrimeiroNome(contrato.tutor?.nome || contrato.tutor_nome)
     const tipo = contrato.tipo_plano === 'preventivo' ? 'PV' : 'EM'
     const petNome = capitalizarNome(contrato.pet_nome || '')
+    const cremacao = contrato.tipo_cremacao === 'individual' ? 'IND' : contrato.tipo_cremacao === 'coletiva' ? 'COL' : ''
 
-    return `${ano}${mes}${dia} ${tutorNome} ${tipo} ${petNome}`
+    return `${ano}${mes}${dia} ${tutorNome} ${tipo} ${petNome}${cremacao ? ` ${cremacao}` : ''}`
   }
 
   if (loading) {
@@ -1974,8 +1979,42 @@ ${petNome}`
               </span>
             )}
 
-            {/* Code (pushed right on desktop) */}
-            <span className="md:ml-auto font-mono text-sm font-semibold text-[var(--surface-400)]">{contrato.codigo}</span>
+            {/* Códigos (pushed right on desktop): contrato + referência, empilhados */}
+            <div className="md:ml-auto flex flex-col items-end gap-1">
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(contrato.codigo)
+                  setCodigoCopied(true)
+                  setTimeout(() => setCodigoCopied(false), 1500)
+                }}
+                className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-mono font-semibold transition-colors ${
+                  codigoCopied
+                    ? 'bg-green-900/30 text-green-400'
+                    : 'bg-[var(--surface-50)] hover:bg-[var(--surface-100)] text-[var(--surface-400)] hover:text-[var(--surface-600)]'
+                }`}
+                title={codigoCopied ? 'Copiado!' : 'Copiar código do contrato'}
+              >
+                {codigoCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                {contrato.codigo}
+              </button>
+              <button
+                onClick={() => {
+                  const ref = gerarCodigoReferencia()
+                  navigator.clipboard.writeText(ref)
+                  setRefCopied(true)
+                  setTimeout(() => setRefCopied(false), 1500)
+                }}
+                className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-mono transition-colors ${
+                  refCopied
+                    ? 'bg-green-900/30 text-green-400'
+                    : 'bg-[var(--surface-50)] hover:bg-[var(--surface-100)] text-[var(--surface-400)] hover:text-[var(--surface-600)]'
+                }`}
+                title={refCopied ? 'Copiado!' : 'Copiar nome para agenda'}
+              >
+                {refCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                {gerarCodigoReferencia()}
+              </button>
+            </div>
           </div>
 
           {/* Row 2: Pet details */}
@@ -2149,17 +2188,6 @@ ${petNome}`
               </button>
             )}
 
-            {/* Copy reference code (pushed right) */}
-            <button
-              onClick={() => {
-                const ref = gerarCodigoReferencia()
-                navigator.clipboard.writeText(ref)
-              }}
-              className="ml-auto px-2 py-1 bg-[var(--surface-50)] hover:bg-[var(--surface-100)] rounded text-xs font-mono text-[var(--surface-400)] hover:text-[var(--surface-600)] transition-colors"
-              title="Clique para copiar"
-            >
-              {gerarCodigoReferencia()}
-            </button>
           </div>
         </div>
       </div>

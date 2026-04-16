@@ -13,6 +13,7 @@ import { THEMES, THEME_META, type Theme } from '@/lib/theme'
 import { UnitProvider } from '@/contexts/UnitContext'
 import { UnitSelector } from './UnitSelector'
 import { UserMenu } from './UserMenu'
+import { RefreshButton } from './RefreshButton'
 import { ImpersonateBanner } from './ImpersonateBanner'
 
 const THEME_ICONS: Record<Theme, string> = {
@@ -70,7 +71,10 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
           <div className="hidden md:flex items-center justify-between px-4 py-0.5 border-b border-[var(--surface-200)]">
             <UnitSelector />
             <span className="text-sm font-bold tracking-widest uppercase" style={{ color: '#64748b' }}>Novo CRM Rip Pet</span>
-            <UserMenu />
+            <div className="flex items-center gap-1">
+              <RefreshButton />
+              <UserMenu />
+            </div>
           </div>
           <div className="p-4 md:px-6 md:pt-2 md:pb-6 animate-fade-in">
             {children}

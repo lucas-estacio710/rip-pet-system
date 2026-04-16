@@ -168,6 +168,38 @@ export function UserMenu() {
                 <UserCheck className="h-3.5 w-3.5" style={{ color: '#ec4899' }} />
                 <span className="text-xs">Logar como KR</span>
               </button>
+              <button
+                onClick={async () => {
+                  setIsOpen(false)
+                  const supabase = createClient()
+                  const { data } = await supabase.rpc('list_users_with_profiles') as { data: any[] | null }
+                  const fm = (data || []).find((u: any) => u.user_id === 'ab32da6b-3888-4a7f-92a7-4592c0f84bb9')
+                  if (fm) await startImpersonating(fm.user_id, fm.email, fm.perfis)
+                }}
+                className="w-full flex items-center gap-3 px-4 py-2 transition-colors"
+                style={{ color: '#94a3b8' }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                <UserCheck className="h-3.5 w-3.5" style={{ color: '#60a5fa' }} />
+                <span className="text-xs">Logar como FM</span>
+              </button>
+              <button
+                onClick={async () => {
+                  setIsOpen(false)
+                  const supabase = createClient()
+                  const { data } = await supabase.rpc('list_users_with_profiles') as { data: any[] | null }
+                  const ab = (data || []).find((u: any) => u.user_id === '35f32ed9-2b6d-4262-8eda-60b8cc25f438')
+                  if (ab) await startImpersonating(ab.user_id, ab.email, ab.perfis)
+                }}
+                className="w-full flex items-center gap-3 px-4 py-2 transition-colors"
+                style={{ color: '#94a3b8' }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                <UserCheck className="h-3.5 w-3.5" style={{ color: '#34d399' }} />
+                <span className="text-xs">Logar como AB</span>
+              </button>
             </div>
           )}
 
