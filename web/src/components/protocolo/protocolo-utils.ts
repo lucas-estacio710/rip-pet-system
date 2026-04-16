@@ -146,6 +146,8 @@ export function montarProtocoloData(
     tutor?: {
       nome?: string | null
       endereco?: string | null
+      numero?: string | null
+      complemento?: string | null
       bairro?: string | null
       cidade?: string | null
       estado?: string | null
@@ -169,7 +171,12 @@ export function montarProtocoloData(
   }
 ): ProtocoloData {
   const tutorNome = contrato.tutor?.nome || contrato.tutor_nome || ''
-  const tutorEndereco = contrato.tutor?.endereco || contrato.tutor_endereco || null
+  const tutorNumero = contrato.tutor?.numero || null
+  const tutorComplemento = contrato.tutor?.complemento || null
+  const enderecoBase = contrato.tutor?.endereco || contrato.tutor_endereco || null
+  const tutorEndereco = enderecoBase
+    ? `${enderecoBase}${tutorNumero ? `, ${tutorNumero}` : ''}${tutorComplemento ? ` - ${tutorComplemento}` : ''}`
+    : null
   const tutorBairro = contrato.tutor?.bairro || contrato.tutor_bairro || null
   const tutorCidade = contrato.tutor?.cidade || contrato.tutor_cidade || null
   const tutorEstado = contrato.tutor?.estado || contrato.tutor_estado || null

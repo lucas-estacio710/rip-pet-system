@@ -296,9 +296,6 @@ export default function ProtocoloEntrega({ data, blank }: { data?: ProtocoloData
               {data.tipoCremacao === 'individual' ? 'Individual' : 'Coletiva'}
             </span>
           </div>
-          <div>
-            <span style={{ ...styles.label, fontSize: '9px', color: '#888' }}>#{data.codigo}</span>
-          </div>
         </div>
       </div>
 

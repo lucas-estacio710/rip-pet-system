@@ -798,7 +798,7 @@ function ContratosContent() {
       // Buscar dados de tutor (endereço etc)
       const { data: contratoCompleto } = await supabase
         .from('contratos')
-        .select('*, tutor:tutores(nome, endereco, bairro, cidade, estado, cep)')
+        .select('*, tutor:tutores(nome, endereco, numero, complemento, bairro, cidade, estado, cep)')
         .eq('id', contrato.id)
         .single()
 
@@ -4183,7 +4183,7 @@ ${petNome}`
                           .eq('contrato_id', protocoloContrato.id)
                         const { data: contratoCompleto } = await supabase
                           .from('contratos')
-                          .select('*, tutor:tutores(nome, endereco, bairro, cidade, estado, cep)')
+                          .select('*, tutor:tutores(nome, endereco, numero, complemento, bairro, cidade, estado, cep)')
                           .eq('id', protocoloContrato.id)
                           .single()
                         if (contratoCompleto) {
