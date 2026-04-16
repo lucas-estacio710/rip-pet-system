@@ -893,7 +893,15 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
                 {errors.localizacao && <p className={errorClass}>{errors.localizacao}</p>}
                 {(form.localizacao === 'Hospital/Clínica Veterinária' || form.localizacao === 'Outro') && (
                   <div className="mt-2">
-                    <input className={inputClass('localizacaoOutra')} value={form.localizacaoOutra} onChange={e => updateField('localizacaoOutra', e.target.value)} placeholder={form.localizacao === 'Outro' ? 'Especifique o endereço' : 'Nome do hospital/clínica'} />
+                    <label className={labelClass}>
+                      {form.localizacao === 'Outro' ? 'Endereço onde está o pet' : 'Nome e endereço da clínica/hospital'} <span className="text-red-400">*</span>
+                    </label>
+                    <input
+                      className={inputClass('localizacaoOutra')}
+                      value={form.localizacaoOutra}
+                      onChange={e => updateField('localizacaoOutra', e.target.value)}
+                      placeholder={form.localizacao === 'Outro' ? 'Ex: Casa da cuidadora Maria - Av. Brasil, 450, Jardim América' : 'Ex: Hospital Pet 24h - Rua das Acácias, 250, Centro'}
+                    />
                     {errors.localizacaoOutra && <p className={errorClass}>{errors.localizacaoOutra}</p>}
                   </div>
                 )}
