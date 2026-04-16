@@ -60,13 +60,14 @@
 | unidade_id | uuid | FK->unidades.id |
 | whatsapp | text |  |
 
-## contrato_gc (20 colunas)
+## contrato_gc (21 colunas)
 
 | Coluna | Tipo | Info |
 |--------|------|------|
 | acompanhamento_confirmado | text |  |
 | certificado_pronto | boolean | default=False |
 | cinzas_prontas | boolean | default=False |
+| contato_status | text | null=sem contato, 'contatado', 'agendado' |
 | contato_tutor_em | timestamp with time zone |  |
 | contato_tutor_obs | text |  |
 | contrato_id | uuid | FK->contratos.id |
@@ -699,6 +700,24 @@
 | reason | text |  |
 | created_at | timestamp with time zone | default=now() |
 | created_by | uuid | FK->auth.users.id |
+
+## ads_shield_blocklist (11 colunas)
+
+Blocklist cumulativa de IPs ja flagrados como fraude (migration 069). Persiste entre janelas de scoring — filtro "Todo periodo" na UI le daqui. Alimentada pelo RPC `sync_ads_blocklist`.
+
+| Coluna | Tipo | Info |
+|--------|------|------|
+| id | uuid | PK default=gen_random_uuid() |
+| ip_address | text | UNIQUE NOT NULL |
+| fingerprint | text |  |
+| unidade_codes | text[] |  |
+| first_flagged_at | timestamp with time zone | NOT NULL default=now() |
+| last_flagged_at | timestamp with time zone | NOT NULL default=now() |
+| max_score | integer | NOT NULL |
+| visit_count | bigint | NOT NULL default=0 |
+| ever_converted | boolean | NOT NULL default=False |
+| cities | text[] |  |
+| devices | text[] |  |
 
 ## supinda_itens (6 colunas)
 
