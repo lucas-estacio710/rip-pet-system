@@ -185,6 +185,11 @@ type Contrato = {
   status: string
   data_contrato: string | null
   data_acolhimento: string | null
+  funcionario_id: string | null
+  funcionario?: { nome: string } | null
+  estabelecimento_id: string | null
+  estabelecimento_coleta?: { nome: string } | null
+  clinica_coleta: string | null
   data_leva_pinda: string | null
   data_cremacao: string | null
   data_retorno: string | null
@@ -225,6 +230,7 @@ type Contrato = {
   seguradora: string | null
   // Supinda
   supinda_id: string | null
+  supinda?: { numero: string; data: string } | null
   // Velório e acompanhamento
   velorio_deseja: boolean | null
   acompanhamento_online: boolean | null
@@ -1398,7 +1404,7 @@ export default function ContratoDetalhe() {
     const contratoId = params.id as string
     const { data, error } = await supabase
       .from('contratos')
-      .select('*, tutor:tutores(*), unidade_remocao:unidades!contratos_unidade_remocao_id_fkey(id, codigo, nome), unidade_entrega:unidades!contratos_unidade_entrega_id_fkey(id, codigo, nome)')
+      .select('*, tutor:tutores(*), supinda:supindas!fk_contrato_supinda(numero, data), funcionario:funcionarios(nome), estabelecimento_coleta:estabelecimentos!contratos_estabelecimento_id_fkey(nome), unidade_remocao:unidades!contratos_unidade_remocao_id_fkey(id, codigo, nome), unidade_entrega:unidades!contratos_unidade_entrega_id_fkey(id, codigo, nome)')
       .eq('id', contratoId)
       .single()
 
@@ -1971,6 +1977,15 @@ ${petNome}`
             <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${statusConfig.bg} ${statusConfig.color}`}>
               {statusConfig.label}
             </span>
+            {contrato.supinda ? (
+              <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-yellow-900/40 text-yellow-300" title="Encaminhamento de ida vinculado">
+                ↑ {contrato.supinda.numero} · {new Date(contrato.supinda.data + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+              </span>
+            ) : (
+              <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-yellow-900/20 text-yellow-400/60 italic" title="Pet ainda não provisionado em um encaminhamento">
+                ↑ Sem encaminhamento
+              </span>
+            )}
 
             {/* Complexidade (retorno only) */}
             {complexidadeConfig && (
@@ -2027,17 +2042,54 @@ ${petNome}`
               <><span className="text-[var(--surface-300)]">·</span><span className="font-mono font-semibold">{contrato.pet_peso}kg</span>
               {getPetPorte(contrato.pet_peso) && <span className="font-bold text-[var(--surface-600)]">{getPetPorte(contrato.pet_peso)}</span>}</>
             )}
-            {contrato.local_coleta && (
-              <span className={`ml-1 px-1.5 py-0.5 rounded text-xs font-medium ${
-                contrato.local_coleta === 'Residência' ? 'bg-blue-900/30 text-blue-400' :
-                contrato.local_coleta === 'Unidade' ? 'bg-amber-900/30 text-amber-400' :
-                'bg-purple-900/30 text-purple-400'
-              }`}>
-                {contrato.local_coleta === 'Residência' ? '🏠' :
-                 contrato.local_coleta === 'Unidade' ? '🏢' : '🏥'} {contrato.local_coleta}
-              </span>
-            )}
           </div>
+
+          {/* Row 2.5: Infos do acolhimento */}
+          {(contrato.data_acolhimento || contrato.funcionario?.nome || contrato.local_coleta) && (
+            <div className="flex items-center gap-1.5 text-xs text-[var(--surface-500)] mb-3 flex-wrap">
+              <span className="text-[var(--surface-400)]">🕒</span>
+              <span className="font-medium text-[var(--surface-600)]">Acolhimento:</span>
+              {contrato.data_acolhimento && (
+                <>
+                  <span className="font-mono">
+                    {(() => {
+                      const d = new Date(contrato.data_acolhimento)
+                      const meses = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+                      const dia = String(d.getDate()).padStart(2, '0')
+                      const mes = meses[d.getMonth()]
+                      const ano = d.getFullYear()
+                      return `${dia}/${mes}/${ano}`
+                    })()}
+                  </span>
+                  <span className="text-[var(--surface-300)]">·</span>
+                  <span className="font-mono">
+                    {new Date(contrato.data_acolhimento).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </>
+              )}
+              {contrato.funcionario?.nome && (
+                <>
+                  <span className="text-[var(--surface-300)]">·</span>
+                  <span>por <span className="font-semibold text-[var(--surface-600)]">{contrato.funcionario.nome}</span></span>
+                </>
+              )}
+              {contrato.local_coleta && (() => {
+                const isClinica = contrato.local_coleta !== 'Residência' && contrato.local_coleta !== 'Unidade'
+                const nomeClinica = contrato.estabelecimento_coleta?.nome || contrato.clinica_coleta
+                const rotulo = isClinica && nomeClinica ? nomeClinica : contrato.local_coleta
+                return (
+                  <span className={`ml-1 px-1.5 py-0.5 rounded text-xs font-medium ${
+                    contrato.local_coleta === 'Residência' ? 'bg-blue-900/30 text-blue-400' :
+                    contrato.local_coleta === 'Unidade' ? 'bg-amber-900/30 text-amber-400' :
+                    'bg-purple-900/30 text-purple-400'
+                  }`}>
+                    {contrato.local_coleta === 'Residência' ? '🏠' :
+                     contrato.local_coleta === 'Unidade' ? '🏢' : '🏥'} {rotulo}
+                  </span>
+                )
+              })()}
+            </div>
+          )}
 
           {/* Row 3: Tags */}
           <div className="mb-3">

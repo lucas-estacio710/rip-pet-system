@@ -623,12 +623,26 @@ function ContratosContent() {
     // Definir campo e direção da ordenação
     const campoOrdem = ordenacao === 'nome' ? 'pet_nome' : 'data_acolhimento'
     const ascending = ordenacao === 'supinda' ? true : ordemAsc
+    // Agrupar por encaminhamento (exceto preventivo): primário supinda_id
+    // (mesmo UUID = mesmo grupo, nulls primeiro = sem encaminhamento no topo).
+    // Secundário: escolha do user (data_acolhimento ou pet_nome).
+    const agruparPorSupinda = statusFiltro !== 'preventivo'
+    // Ativo/Pinda/Retorno/Pendente: sem paginação (mostra todos os grupos inteiros).
+    // Preventivo e Finalizado: paginação de 30 em 30 mantida.
+    const semPaginacao = ['ativo', 'pinda', 'retorno', 'pendente'].includes(statusFiltro)
 
     let query = supabase
       .from('contratos')
       .select('id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, contrato_gc(etapa, cinzas_prontas, certificado_pronto), protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id', { count: 'exact' })
-      .order(campoOrdem, { ascending, nullsFirst: false })
-      .range(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA - 1)
+    if (agruparPorSupinda) {
+      query = query.order('supinda_id', { ascending: true, nullsFirst: true })
+    }
+    query = query.order(campoOrdem, { ascending, nullsFirst: false })
+    if (semPaginacao) {
+      query = query.limit(1000)
+    } else {
+      query = query.range(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA - 1)
+    }
 
     if (currentUnit) {
       // Filtrar por unidade — se toggle compartilhados ligado, inclui co-responsáveis
@@ -676,6 +690,7 @@ function ContratosContent() {
     // Usar mesma ordenação da listagem
     const campoOrdem = ordenacao === 'nome' ? 'pet_nome' : 'data_acolhimento'
     const ascending = ordenacao === 'supinda' ? true : ordemAsc
+    const agruparPorSupinda = statusFiltro !== 'preventivo'
 
     let query = supabase
       .from('contratos')
@@ -687,6 +702,10 @@ function ContratosContent() {
         : campoBusca === 'codigo' ? `codigo.ilike.%${termoBusca}%`
         : `numero_lacre.ilike.%${termoBusca}%`
       )
+    if (agruparPorSupinda) {
+      query = query.order('supinda_id', { ascending: true, nullsFirst: true })
+    }
+    query = query
       .order(campoOrdem, { ascending, nullsFirst: false })
       .limit(1000)
 
@@ -2777,6 +2796,7 @@ ${petNome}`
   }
 
   const totalPaginas = Math.ceil(total / POR_PAGINA)
+  const semPaginacaoRender = ['ativo', 'pinda', 'retorno', 'pendente'].includes(statusFiltro || '')
 
   // Aguardar contexto de unidade carregar (tela em branco, sem flash)
   if (unitLoading || !currentUnit) {
@@ -3419,12 +3439,12 @@ ${petNome}`
                 }
                 mapaGrupos.get(num)!.push(c)
               }
-              // Ordenar: sem supinda sempre por último, depois por número
-              const supindaAsc = ordenacao === 'supinda' ? ordemAsc : false // default: desc (recente primeiro)
+              // Ordenar: sem encaminhamento SEMPRE primeiro, depois por número (default desc = maior primeiro)
+              const supindaAsc = ordenacao === 'supinda' ? ordemAsc : false
               grupos.sort((a, b) => {
                 if (a.numero === null && b.numero === null) return 0
-                if (a.numero === null) return 1
-                if (b.numero === null) return -1
+                if (a.numero === null) return -1
+                if (b.numero === null) return 1
                 const numA = parseInt(a.numero.replace(/^[A-Z]+/, ''), 10) || 0
                 const numB = parseInt(b.numero.replace(/^[A-Z]+/, ''), 10) || 0
                 return supindaAsc ? numA - numB : numB - numA
@@ -4063,7 +4083,7 @@ ${petNome}`
       )}
 
       {/* Paginação */}
-      {totalPaginas > 1 && (
+      {totalPaginas > 1 && !semPaginacaoRender && (
         <div className="flex flex-col md:flex-row items-center justify-between mt-4 gap-2">
           <p className="text-sm text-slate-400">
             Mostrando {pagina * POR_PAGINA + 1} - {Math.min((pagina + 1) * POR_PAGINA, total)} de {total}
