@@ -171,6 +171,9 @@ type Contrato = {
   tutor_cpf: string | null
   tutor_telefone: string | null
   tutor_telefone2: string | null
+  tutor_telefone_nome: string | null
+  tutor_telefone2_nome: string | null
+  tutor_telefone_principal: number | null
   tutor_email: string | null
   tutor_cep: string | null
   tutor_endereco: string | null
@@ -365,7 +368,14 @@ export default function ContratoDetalhe() {
   // Telefone 2 - adicionar e trocar
   const [telefone2Modal, setTelefone2Modal] = useState(false)
   const [novoTelefone2, setNovoTelefone2] = useState('')
+  const [novoTelefone2Nome, setNovoTelefone2Nome] = useState('')
+  const [novoTelefone2DDI, setNovoTelefone2DDI] = useState('55')
   const [salvandoTelefone, setSalvandoTelefone] = useState(false)
+
+  function maskPhone(v: string) {
+    const d = v.replace(/\D/g, '').slice(0, 11)
+    return d.replace(/^(\d{2})(\d)/g, '($1) $2').replace(/(\d)(\d{4})$/, '$1-$2')
+  }
 
   // Feedback de cópia dos códigos (header do contrato)
   const [codigoCopied, setCodigoCopied] = useState(false)
@@ -1663,21 +1673,22 @@ ${petNome}`
     setSalvandoTelefone(true)
 
     try {
-      // Limpar formatação do telefone
-      const telLimpo = novoTelefone2.replace(/\D/g, '')
+      // DDI + dígitos limpos (ex: 5511999999999)
+      const telLimpo = novoTelefone2DDI + novoTelefone2.replace(/\D/g, '')
 
-      // Atualizar na tabela correta (tutor ou contrato legado)
+      const nomeContato = novoTelefone2Nome.trim() || null
+
+      // Atualizar tutor + contrato (mantém fallback legado sincronizado)
       if (contrato.tutor_id && contrato.tutor) {
         await supabase
           .from('tutores')
-          .update({ telefone2: telLimpo } as never)
+          .update({ telefone2: telLimpo, telefone2_nome: nomeContato } as never)
           .eq('id', contrato.tutor_id)
-      } else {
-        await supabase
-          .from('contratos')
-          .update({ tutor_telefone2: telLimpo } as never)
-          .eq('id', contrato.id)
       }
+      await supabase
+        .from('contratos')
+        .update({ tutor_telefone2: telLimpo, tutor_telefone2_nome: nomeContato } as never)
+        .eq('id', contrato.id)
 
       // Recarregar página para atualizar dados
       window.location.reload()
@@ -1718,31 +1729,19 @@ ${petNome}`
     }
   }
 
-  // Trocar telefones - secundário vira principal
+  // Alternar qual telefone é o "mais ativo" (1=ficha, 2=processado)
   async function trocarTelefones() {
     if (!contrato) return
-
-    const tel1 = contrato.tutor?.telefone || contrato.tutor_telefone
-    const tel2 = contrato.tutor?.telefone2 || contrato.tutor_telefone2
-
-    if (!tel1 || !tel2) return
+    const novo = (contrato.tutor_telefone_principal || 1) === 1 ? 2 : 1
 
     setSalvandoTelefone(true)
 
     try {
-      if (contrato.tutor_id && contrato.tutor) {
-        await supabase
-          .from('tutores')
-          .update({ telefone: tel2, telefone2: tel1 } as never)
-          .eq('id', contrato.tutor_id)
-      } else {
-        await supabase
-          .from('contratos')
-          .update({ tutor_telefone: tel2, tutor_telefone2: tel1 } as never)
-          .eq('id', contrato.id)
+      await supabase.from('contratos').update({ tutor_telefone_principal: novo } as never).eq('id', contrato.id)
+      if (contrato.tutor_id) {
+        await supabase.from('tutores').update({ telefone_principal: novo } as never).eq('id', contrato.tutor_id)
       }
-
-      window.location.reload()
+      setContrato({ ...contrato, tutor_telefone_principal: novo })
     } catch (err) {
       console.error('Erro ao trocar telefones:', err)
       alert('Erro ao trocar telefones')
@@ -2267,6 +2266,9 @@ ${petNome}`
               nome: contrato.tutor?.nome || contrato.tutor_nome,
               telefone: contrato.tutor?.telefone || contrato.tutor_telefone,
               telefone2: contrato.tutor?.telefone2 || contrato.tutor_telefone2,
+              telefoneNome: contrato.tutor?.telefone_nome || contrato.tutor_telefone_nome || null,
+              telefone2Nome: contrato.tutor?.telefone2_nome || contrato.tutor_telefone2_nome || null,
+              telefonePrincipal: contrato.tutor_telefone_principal || 1,
               email: contrato.tutor?.email || contrato.tutor_email,
               endereco: contrato.tutor?.endereco || contrato.tutor_endereco,
               numero: contrato.tutor?.numero || contrato.tutor_numero,
@@ -2284,42 +2286,79 @@ ${petNome}`
                   <p className="text-xl font-bold mb-3 inline-block px-2 py-0.5 rounded-md bg-[var(--surface-50)] text-[var(--surface-700)]">{tutor.nome}</p>
 
                   <div className="space-y-2">
-                    {/* Telefone Principal */}
+                    {/* Telefone 1 (Ficha) */}
                     {tutor.telefone && (
                       <div className="flex items-center gap-2">
                         <a
                           href={`https://wa.me/${tutor.telefone.replace(/\D/g, '')}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex-1 flex items-center gap-3 p-2 rounded-lg bg-green-900/30 hover:bg-green-900/40 transition-colors"
+                          className={`flex-1 flex items-center gap-3 p-2 rounded-lg transition-colors ${
+                            tutor.telefonePrincipal === 1 ? 'bg-green-900/30 hover:bg-green-900/40' : 'bg-slate-700/50 hover:bg-slate-700/70'
+                          }`}
                         >
-                          <div className="w-8 h-8 rounded-full bg-[#25D366] flex items-center justify-center">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center ${tutor.telefonePrincipal === 1 ? 'bg-[#25D366]' : 'bg-slate-600'}`}>
                             <svg className="h-4 w-4 text-white" viewBox="0 0 24 24" fill="currentColor">
                               <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
                             </svg>
                           </div>
-                          <span className="font-medium text-green-400">{formatarTelefone(tutor.telefone)}</span>
+                          <div className="flex flex-col">
+                            <span className={`font-medium ${tutor.telefonePrincipal === 1 ? 'text-green-400' : 'text-slate-400'}`}>{formatarTelefone(tutor.telefone)}</span>
+                            <span className="text-[10px] text-slate-500">
+                              {tutor.telefoneNome && <span className="text-slate-300 font-medium">{tutor.telefoneNome} · </span>}
+                              Ficha
+                            </span>
+                          </div>
                         </a>
-                        {/* Botão switch - só aparece se tem telefone2 */}
-                        {tutor.telefone2 && (
-                          <button
-                            onClick={trocarTelefones}
-                            disabled={salvandoTelefone}
-                            className="p-2 rounded-lg bg-purple-900/40 hover:bg-purple-900/40 text-purple-400 transition-colors disabled:opacity-50"
-                            title="Trocar: secundário vira principal"
-                          >
-                            🔄
-                          </button>
-                        )}
+                        <button
+                          onClick={trocarTelefones}
+                          disabled={salvandoTelefone || !tutor.telefone2}
+                          className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold shrink-0 transition-colors ${
+                            tutor.telefonePrincipal === 1
+                              ? 'bg-green-600 text-white'
+                              : 'bg-slate-700 text-slate-400 hover:bg-green-900/40 hover:text-green-400'
+                          }`}
+                          title={tutor.telefonePrincipal === 1 ? 'Este é o mais ativo' : 'Tornar este o mais ativo'}
+                        >
+                          {tutor.telefonePrincipal === 1 ? 'Mais ativo' : 'Tornar ativo'}
+                        </button>
                       </div>
                     )}
 
-                    {/* Telefone 2 ou botão para adicionar */}
+                    {/* Telefone 2 (Processado) ou botão para adicionar */}
                     {tutor.telefone2 ? (
-                      <div className="flex items-center gap-3 p-2 rounded-lg bg-slate-700/50">
-                        <Phone className="h-4 w-4 text-slate-400" />
-                        <span className="text-slate-400">{formatarTelefone(tutor.telefone2)}</span>
-                        <span className="text-xs text-slate-400">(secundário)</span>
+                      <div className="flex items-center gap-2">
+                        <a
+                          href={`https://wa.me/${tutor.telefone2.replace(/\D/g, '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`flex-1 flex items-center gap-3 p-2 rounded-lg transition-colors ${
+                            tutor.telefonePrincipal === 2 ? 'bg-green-900/30 hover:bg-green-900/40' : 'bg-slate-700/50 hover:bg-slate-700/70'
+                          }`}
+                        >
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center ${tutor.telefonePrincipal === 2 ? 'bg-[#25D366]' : 'bg-slate-600'}`}>
+                            <Phone className="h-4 w-4 text-white" />
+                          </div>
+                          <div className="flex flex-col">
+                            <span className={`font-medium ${tutor.telefonePrincipal === 2 ? 'text-green-400' : 'text-slate-400'}`}>{formatarTelefone(tutor.telefone2)}</span>
+                            <span className="text-[10px] text-slate-500">
+                              {tutor.telefone2Nome && <span className="text-slate-300 font-medium">{tutor.telefone2Nome} · </span>}
+                              Processado
+                            </span>
+                          </div>
+                        </a>
+                        <button
+                          onClick={trocarTelefones}
+                          disabled={salvandoTelefone}
+                          className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold shrink-0 transition-colors ${
+                            tutor.telefonePrincipal === 2
+                              ? 'bg-green-600 text-white'
+                              : 'bg-slate-700 text-slate-400 hover:bg-green-900/40 hover:text-green-400'
+                          }`}
+                          title={tutor.telefonePrincipal === 2 ? 'Este é o mais ativo' : 'Tornar este o mais ativo'}
+                        >
+                          {tutor.telefonePrincipal === 2 ? 'Mais ativo' : 'Tornar ativo'}
+                        </button>
                       </div>
                     ) : (
                       <button
@@ -4455,14 +4494,43 @@ ${petNome}`
           <div className="bg-slate-800 rounded-xl shadow-xl max-w-sm w-full mx-4 p-6" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-slate-200 mb-4">📱 Adicionar Telefone 2</h3>
 
-            <input
-              type="tel"
-              value={novoTelefone2}
-              onChange={(e) => setNovoTelefone2(e.target.value)}
-              placeholder="(XX) XXXXX-XXXX"
-              className="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg"
-              autoFocus
-            />
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-slate-400 mb-1 block">Nome do contato</label>
+                <input
+                  value={novoTelefone2Nome}
+                  onChange={(e) => setNovoTelefone2Nome(e.target.value)}
+                  placeholder="Ex: Cuidadora Ana, Esposa Maria (vazio = próprio tutor)"
+                  className="w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-slate-900 border-slate-600 text-slate-200"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-400 mb-1 block">Telefone</label>
+                <div className="flex gap-2">
+                  <select
+                    value={novoTelefone2DDI}
+                    onChange={(e) => setNovoTelefone2DDI(e.target.value)}
+                    className="w-[100px] px-2 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-slate-900 border-slate-600 text-slate-200"
+                  >
+                    <option value="55">🇧🇷 +55</option>
+                    <option value="1">🇺🇸 +1</option>
+                    <option value="351">🇵🇹 +351</option>
+                    <option value="54">🇦🇷 +54</option>
+                    <option value="598">🇺🇾 +598</option>
+                    <option value="595">🇵🇾 +595</option>
+                  </select>
+                  <input
+                    type="tel"
+                    value={novoTelefone2}
+                    onChange={(e) => setNovoTelefone2(maskPhone(e.target.value))}
+                    placeholder="(11) 99999-9999"
+                    className="flex-1 px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg bg-slate-900 border-slate-600 text-slate-200"
+                    inputMode="tel"
+                  />
+                </div>
+              </div>
+            </div>
 
             <div className="flex gap-2 mt-4">
               <button

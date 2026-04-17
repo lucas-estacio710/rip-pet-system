@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { FileText, Search, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ArrowUp, ArrowDown, Star, X, Printer, XCircle, Plus, Weight, Copy, Check } from 'lucide-react'
+import { FileText, Search, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ArrowUp, ArrowDown, Star, X, Printer, XCircle, Plus, Weight, Copy, Check, Clock, CheckCheck, CalendarClock, SearchCheck, Flame, CheckCircle2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { useDebounce } from '@/hooks/useDebounce'
@@ -1015,25 +1015,36 @@ function ContratosContent() {
     return nome.split(/\s+/).map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(' ')
   }
 
-  // Badges de status GC (etapa + contato) — mostrados ao lado do tutor quando pet em pinda
+  // Badges de status GC (espelho das regras de /gc) — ao lado do tutor quando pet em pinda
   function renderGCStatusBadges(contrato: Contrato): React.ReactNode {
     if (contrato.status !== 'pinda' || !contrato.contrato_gc) return null
     const gc = contrato.contrato_gc
     const etapa = gc.etapa || 'provisionado'
     const etapaLabels: Record<string, string> = { provisionado: 'Provisionado', recebido: 'Recebido', cremado: 'Cremado', disponivel: 'Finalizado' }
     const etapaColors: Record<string, string> = { provisionado: '#64748b', recebido: '#3b82f6', cremado: '#eab308', disponivel: '#22c55e' }
+    const contatoSt = gc.contato_status || null
     const contatoLabels: Record<string, string> = { contatado: 'Contatado', agendado: 'Agendado' }
-    const contatoColors: Record<string, string> = { contatado: '#f59e0b', agendado: '#22c55e' }
+    const contatoLabel = contatoSt ? (contatoLabels[contatoSt] || contatoSt) : null
+    // Contato só faz sentido antes da cremação — após "cremado/disponivel" o status trava na etapa
+    const mostrarContato = etapa !== 'cremado' && etapa !== 'disponivel'
     return (
       <span className="inline-flex items-center gap-1">
-        <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold text-white ${etapa === 'provisionado' ? 'animate-pulse' : ''}`} style={{ background: etapaColors[etapa] || '#64748b' }}>
-          {etapaLabels[etapa] || etapa}
-        </span>
-        {gc.contato_status && (
-          <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold text-white" style={{ background: contatoColors[gc.contato_status] || '#64748b' }}>
-            📞 {contatoLabels[gc.contato_status] || gc.contato_status}
+        <span className="text-[9px] font-semibold text-[var(--surface-500)]">GC:</span>
+        {mostrarContato && (
+          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full inline-flex items-center gap-0.5" style={{ background: !contatoSt ? '#94a3b8' : '#a7f3d0', color: !contatoSt ? '#a7f3d0' : contatoSt === 'agendado' ? '#1a73e8' : '#065f46' }}>
+            {!contatoSt && <Clock className="w-2.5 h-2.5" style={{ color: '#a7f3d0' }} />}
+            {contatoSt === 'contatado' && <Check className="w-2.5 h-2.5" style={{ color: '#8696a0' }} />}
+            {contatoSt === 'agendado' && <CheckCheck className="w-2.5 h-2.5" style={{ color: '#1a73e8' }} />}
+            {contatoLabel || 'A Chamar'}
           </span>
         )}
+        <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full inline-flex items-center gap-0.5 text-white ${etapa === 'provisionado' ? 'animate-pulse' : ''}`} style={{ background: etapaColors[etapa] || '#64748b' }}>
+          {etapa === 'provisionado' && <CalendarClock className="w-2.5 h-2.5" />}
+          {etapa === 'recebido' && <SearchCheck className="w-2.5 h-2.5" />}
+          {etapa === 'cremado' && <Flame className="w-2.5 h-2.5" />}
+          {etapa === 'disponivel' && <CheckCircle2 className="w-2.5 h-2.5" />}
+          {etapaLabels[etapa] || etapa}
+        </span>
       </span>
     )
   }
