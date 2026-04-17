@@ -93,7 +93,7 @@ type Contrato = {
   // Data de entrega
   data_entrega: string | null
   // GC (Gerenciamento de Cremações)
-  contrato_gc: { etapa: string; cinzas_prontas: boolean; certificado_pronto: boolean } | null
+  contrato_gc: { etapa: string; cinzas_prontas: boolean; certificado_pronto: boolean; contato_status: string | null } | null
   // Compartilhamento entre unidades
   unidade_remocao_id: string | null
   unidade_remocao: { id: string; codigo: string; nome: string } | null
@@ -633,7 +633,7 @@ function ContratosContent() {
 
     let query = supabase
       .from('contratos')
-      .select('id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, contrato_gc(etapa, cinzas_prontas, certificado_pronto), protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id', { count: 'exact' })
+      .select('id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, contrato_gc(etapa, cinzas_prontas, certificado_pronto, contato_status), protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id', { count: 'exact' })
     if (agruparPorSupinda) {
       query = query.order('supinda_id', { ascending: true, nullsFirst: true })
     }
@@ -694,7 +694,7 @@ function ContratosContent() {
 
     let query = supabase
       .from('contratos')
-      .select('id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, contrato_gc(etapa, cinzas_prontas, certificado_pronto), protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id', { count: 'exact' })
+      .select('id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, contrato_gc(etapa, cinzas_prontas, certificado_pronto, contato_status), protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id', { count: 'exact' })
       .or(campoBusca === 'todos'
         ? `codigo.ilike.%${termoBusca}%,pet_nome.ilike.%${termoBusca}%,tutor_nome.ilike.%${termoBusca}%,numero_lacre.ilike.%${termoBusca}%`
         : campoBusca === 'pet' ? `pet_nome.ilike.%${termoBusca}%`
@@ -1015,6 +1015,29 @@ function ContratosContent() {
     return nome.split(/\s+/).map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(' ')
   }
 
+  // Badges de status GC (etapa + contato) — mostrados ao lado do tutor quando pet em pinda
+  function renderGCStatusBadges(contrato: Contrato): React.ReactNode {
+    if (contrato.status !== 'pinda' || !contrato.contrato_gc) return null
+    const gc = contrato.contrato_gc
+    const etapa = gc.etapa || 'provisionado'
+    const etapaLabels: Record<string, string> = { provisionado: 'Provisionado', recebido: 'Recebido', cremado: 'Cremado', disponivel: 'Finalizado' }
+    const etapaColors: Record<string, string> = { provisionado: '#64748b', recebido: '#3b82f6', cremado: '#eab308', disponivel: '#22c55e' }
+    const contatoLabels: Record<string, string> = { contatado: 'Contatado', agendado: 'Agendado' }
+    const contatoColors: Record<string, string> = { contatado: '#f59e0b', agendado: '#22c55e' }
+    return (
+      <span className="inline-flex items-center gap-1">
+        <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold text-white ${etapa === 'provisionado' ? 'animate-pulse' : ''}`} style={{ background: etapaColors[etapa] || '#64748b' }}>
+          {etapaLabels[etapa] || etapa}
+        </span>
+        {gc.contato_status && (
+          <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold text-white" style={{ background: contatoColors[gc.contato_status] || '#64748b' }}>
+            📞 {contatoLabels[gc.contato_status] || gc.contato_status}
+          </span>
+        )}
+      </span>
+    )
+  }
+
   // Badge de compartilhamento entre unidades
   function renderBadgesCompartilhamento(contrato: Contrato) {
     if (!currentUnit) return null
@@ -1059,7 +1082,7 @@ function ContratosContent() {
       }
     }
 
-    // Badge GC pendências (pinda, parcialmente pronto)
+    // Badge GC pendências parciais (pinda + disponivel com algo faltando)
     if (contrato.status === 'pinda' && contrato.contrato_gc) {
       const gc = contrato.contrato_gc
       if (!gc.cinzas_prontas || !gc.certificado_pronto) {
@@ -2960,8 +2983,8 @@ ${petNome}`
           })}
         </div>
 
-        {/* Montagem filter — Retorno only */}
-        {statusFiltro === 'retorno' && (() => {
+        {/* Montagem filter — Retorno only, FLS: btn_fluxo_retorno */}
+        {statusFiltro === 'retorno' && isVisible(T, 'btn_fluxo_retorno') && (() => {
           const countFacil = contratos.filter(c => isFacilMontar(c)).length
           const countDificil = contratos.length - countFacil
           return (
@@ -3009,8 +3032,8 @@ ${petNome}`
 
       {/* Ordenação e Controles */}
       <div className="flex flex-col gap-1">
-        {/* Montagem In-line (só retorno) */}
-        {statusFiltro === 'retorno' && montagemInline && (
+        {/* Montagem In-line (só retorno, FLS: btn_fluxo_retorno) */}
+        {statusFiltro === 'retorno' && montagemInline && isVisible(T, 'btn_fluxo_retorno') && (
           <div className="flex-1">
             {(() => {
               // Função para categorizar produtos por código
@@ -3647,6 +3670,7 @@ ${petNome}`
                             </span>
                           )
                         })()}
+                        {renderGCStatusBadges(contrato)}
                       </div>
                     </div>
 
@@ -3863,7 +3887,7 @@ ${petNome}`
                           </span>
                         </div>
                         {/* Linha 2: Tutor */}
-                        <div className="h-6 flex items-center min-w-0">
+                        <div className="h-6 flex items-center min-w-0 gap-1">
                           <span className="text-xs truncate h-6 flex items-center" style={{ background: 'linear-gradient(90deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', padding: '0 5px', borderRadius: '4px' }}>
                             {(() => {
                               const { primeiro, resto } = separarPrimeiroNome(contrato.tutor?.nome || contrato.tutor_nome)
@@ -3875,6 +3899,7 @@ ${petNome}`
                               )
                             })()}
                           </span>
+                          {renderGCStatusBadges(contrato)}
                         </div>
                       </div>
                       {/* Coluna: Pet nome + Raça/Cor */}
