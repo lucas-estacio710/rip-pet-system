@@ -695,7 +695,7 @@ function ContratosContent() {
     const agruparPorSupinda = statusFiltro !== 'preventivo'
     // Ativo/Pinda/Retorno/Pendente: sem paginação (mostra todos os grupos inteiros).
     // Preventivo e Finalizado: paginação de 30 em 30 mantida.
-    const semPaginacao = ['ativo', 'pinda', 'retorno', 'pendente'].includes(statusFiltro)
+    const semPaginacao = ['ativo', 'pinda', 'retorno', 'pendente'].includes(statusFiltro || '')
 
     let query = supabase
       .from('contratos')

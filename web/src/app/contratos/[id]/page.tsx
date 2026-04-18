@@ -144,6 +144,9 @@ type Tutor = {
   cpf: string | null
   telefone: string | null
   telefone2: string | null
+  telefone_nome: string | null
+  telefone2_nome: string | null
+  telefone_principal: number | null
   email: string | null
   cep: string | null
   endereco: string | null
