@@ -549,10 +549,24 @@ export default function FichasPage() {
         )}
       </div>
 
-      {/* Cards de contagem — mobile: grid 4 cols (ícone+count), desktop: ícone+label+count */}
-      <div className="grid grid-cols-4 md:flex md:items-center gap-2 md:gap-3 mb-6">
+      {/* Cards de contagem */}
+      <div className="flex items-center gap-2 md:gap-3 mb-6">
+        {/* Canceladas — compacto: ícone + count, sem label */}
+        <button
+          onClick={() => setFiltro('canceladas')}
+          className={`card px-3 py-2.5 border-2 transition-all card-hover ${
+            filtro === 'canceladas' ? 'border-red-500 bg-red-900/20' : 'border-[var(--surface-200)] hover:border-[var(--surface-300)]'
+          }`}
+          title="Canceladas"
+        >
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-md bg-red-500 text-white shrink-0"><X className="h-4 w-4" /></div>
+            <span className="text-lg font-bold text-[var(--shell-text)]">{canceladasCount}</span>
+          </div>
+        </button>
+
+        {/* Status principais */}
         {([
-          { key: 'canceladas' as Filtro, icon: <X className="h-4 w-4" />, label: 'Canceladas', count: canceladasCount, borderActive: 'border-red-500 bg-red-900/20', textActive: 'text-red-400', iconBg: 'bg-red-500' },
           { key: 'pendentes' as Filtro, icon: <Clock className="h-4 w-4" />, label: 'Recebidas', count: pendentesCount, borderActive: 'border-amber-500 bg-amber-900/20', textActive: 'text-amber-400', iconBg: 'bg-amber-500' },
           { key: 'processadas' as Filtro, icon: <CheckCircle2 className="h-4 w-4" />, label: 'Processadas', count: processadasCount, borderActive: 'border-green-500 bg-green-900/20', textActive: 'text-green-400', iconBg: 'bg-green-500' },
           { key: 'contrato_criado' as Filtro, icon: <FileText className="h-4 w-4" />, label: 'Pipeline criado', count: contratoCriadoCount, borderActive: 'border-blue-500 bg-blue-900/20', textActive: 'text-blue-400', iconBg: 'bg-blue-500' },
@@ -560,7 +574,7 @@ export default function FichasPage() {
           <button
             key={s.key}
             onClick={() => setFiltro(s.key)}
-            className={`card px-3 py-2.5 border-2 transition-all card-hover md:flex-1 ${
+            className={`card px-3 py-2.5 border-2 transition-all card-hover flex-1 ${
               filtro === s.key ? s.borderActive : 'border-[var(--surface-200)] hover:border-[var(--surface-300)]'
             }`}
             title={s.label}
