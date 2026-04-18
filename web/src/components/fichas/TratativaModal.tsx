@@ -60,7 +60,7 @@ type TutorExistente = { id: string; nome: string } | null
 
 type Props = {
   isOpen: boolean
-  onClose: () => void
+  onClose: (resultado?: 'processada' | 'contrato') => void
   ficha: Ficha | null
   onSuccess: (contratoId: string) => void
   onRetornarPendente?: () => void
@@ -622,7 +622,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       if (errUpdate) throw new Error(`Erro ao salvar: ${errUpdate.message}`)
 
       toast('Ficha processada!', 'success')
-      onClose()
+      onClose('processada')
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Erro desconhecido'
       toast(message, 'error')
@@ -909,7 +909,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         Cancelar Ficha
       </button>
       <div className="flex gap-2">
-        <button onClick={onClose} className="py-2 px-4 rounded-lg text-xs font-semibold text-[var(--surface-600)] border border-[var(--surface-200)] hover:bg-[var(--surface-50)] transition-colors">
+        <button onClick={() => onClose()} className="py-2 px-4 rounded-lg text-xs font-semibold text-[var(--surface-600)] border border-[var(--surface-200)] hover:bg-[var(--surface-50)] transition-colors">
           Fechar
         </button>
         <button
@@ -945,7 +945,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
           Reprocessar
         </button>
       )}
-      <button onClick={onClose} className="py-2 px-3 rounded-lg text-xs font-semibold text-[var(--surface-600)] border border-[var(--surface-200)] hover:bg-[var(--surface-50)] transition-colors">
+      <button onClick={() => onClose()} className="py-2 px-3 rounded-lg text-xs font-semibold text-[var(--surface-600)] border border-[var(--surface-200)] hover:bg-[var(--surface-50)] transition-colors">
         Fechar
       </button>
       {ficha.contrato_id ? (
@@ -989,7 +989,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         </button>
       )}
       <div className="flex gap-3">
-        <button onClick={onClose} className="btn-secondary" disabled={salvando}>
+        <button onClick={() => onClose()} className="btn-secondary" disabled={salvando}>
           Fechar
         </button>
         <button

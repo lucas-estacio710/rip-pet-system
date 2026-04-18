@@ -183,6 +183,7 @@ export default function FichasPage() {
 
   useEffect(() => {
     carregarFichas()
+    carregarContagens()
   }, [filtro, buscaDebounced, periodo, periodoCustomDe, periodoCustomAte])
 
   async function carregarContagens() {
@@ -272,6 +273,7 @@ export default function FichasPage() {
 
   function handleSuccess(contratoId: string) {
     setFichaModal(null)
+    setFiltro('contrato_criado')
     carregarFichas()
     carregarContagens()
     router.push(`/contratos/${contratoId}`)
@@ -547,83 +549,29 @@ export default function FichasPage() {
         )}
       </div>
 
-      {/* Cards de contagem — 4 status fixos, sempre um selecionado */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        <button
-          onClick={() => setFiltro('pendentes')}
-          className={`card p-4 border-2 transition-all card-hover ${
-            filtro === 'pendentes'
-              ? 'border-amber-500 bg-amber-900/20'
-              : 'border-[var(--surface-200)] hover:border-[var(--surface-300)]'
-          }`}
-        >
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-amber-500 text-white">
-              <Clock className="h-5 w-5" />
+      {/* Cards de contagem — mobile: grid 4 cols (ícone+count), desktop: ícone+label+count */}
+      <div className="grid grid-cols-4 md:flex md:items-center gap-2 md:gap-3 mb-6">
+        {([
+          { key: 'canceladas' as Filtro, icon: <X className="h-4 w-4" />, label: 'Canceladas', count: canceladasCount, borderActive: 'border-red-500 bg-red-900/20', textActive: 'text-red-400', iconBg: 'bg-red-500' },
+          { key: 'pendentes' as Filtro, icon: <Clock className="h-4 w-4" />, label: 'Recebidas', count: pendentesCount, borderActive: 'border-amber-500 bg-amber-900/20', textActive: 'text-amber-400', iconBg: 'bg-amber-500' },
+          { key: 'processadas' as Filtro, icon: <CheckCircle2 className="h-4 w-4" />, label: 'Processadas', count: processadasCount, borderActive: 'border-green-500 bg-green-900/20', textActive: 'text-green-400', iconBg: 'bg-green-500' },
+          { key: 'contrato_criado' as Filtro, icon: <FileText className="h-4 w-4" />, label: 'Pipeline criado', count: contratoCriadoCount, borderActive: 'border-blue-500 bg-blue-900/20', textActive: 'text-blue-400', iconBg: 'bg-blue-500' },
+        ]).map(s => (
+          <button
+            key={s.key}
+            onClick={() => setFiltro(s.key)}
+            className={`card px-3 py-2.5 border-2 transition-all card-hover md:flex-1 ${
+              filtro === s.key ? s.borderActive : 'border-[var(--surface-200)] hover:border-[var(--surface-300)]'
+            }`}
+            title={s.label}
+          >
+            <div className="flex items-center gap-2 justify-center md:justify-start">
+              <div className={`p-1.5 rounded-md ${s.iconBg} text-white shrink-0`}>{s.icon}</div>
+              <span className={`hidden md:inline text-sm font-medium ${filtro === s.key ? s.textActive : 'text-[var(--shell-text-muted)]'}`}>{s.label}</span>
+              <span className="text-lg font-bold text-[var(--shell-text)] md:ml-auto">{s.count}</span>
             </div>
-            <div className="text-left">
-              <p className={`text-sm font-medium ${filtro === 'pendentes' ? 'text-amber-400' : 'text-[var(--shell-text-muted)]'}`}>Recebidas</p>
-              <p className="text-2xl font-bold text-[var(--shell-text)]">{pendentesCount}</p>
-            </div>
-          </div>
-        </button>
-
-        <button
-          onClick={() => setFiltro('processadas')}
-          className={`card p-4 border-2 transition-all card-hover ${
-            filtro === 'processadas'
-              ? 'border-green-500 bg-green-900/20'
-              : 'border-[var(--surface-200)] hover:border-[var(--surface-300)]'
-          }`}
-        >
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-green-500 text-white">
-              <CheckCircle2 className="h-5 w-5" />
-            </div>
-            <div className="text-left">
-              <p className={`text-sm font-medium ${filtro === 'processadas' ? 'text-green-400' : 'text-[var(--shell-text-muted)]'}`}>Processadas</p>
-              <p className="text-2xl font-bold text-[var(--shell-text)]">{processadasCount}</p>
-            </div>
-          </div>
-        </button>
-
-        <button
-          onClick={() => setFiltro('contrato_criado')}
-          className={`card p-4 border-2 transition-all card-hover ${
-            filtro === 'contrato_criado'
-              ? 'border-blue-500 bg-blue-900/20'
-              : 'border-[var(--surface-200)] hover:border-[var(--surface-300)]'
-          }`}
-        >
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-blue-500 text-white">
-              <FileText className="h-5 w-5" />
-            </div>
-            <div className="text-left">
-              <p className={`text-sm font-medium ${filtro === 'contrato_criado' ? 'text-blue-400' : 'text-[var(--shell-text-muted)]'}`}>Contrato criado</p>
-              <p className="text-2xl font-bold text-[var(--shell-text)]">{contratoCriadoCount}</p>
-            </div>
-          </div>
-        </button>
-
-        <button
-          onClick={() => setFiltro('canceladas')}
-          className={`card p-4 border-2 transition-all card-hover ${
-            filtro === 'canceladas'
-              ? 'border-red-500 bg-red-900/20'
-              : 'border-[var(--surface-200)] hover:border-[var(--surface-300)]'
-          }`}
-        >
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-red-500 text-white">
-              <X className="h-5 w-5" />
-            </div>
-            <div className="text-left">
-              <p className={`text-sm font-medium ${filtro === 'canceladas' ? 'text-red-400' : 'text-[var(--shell-text-muted)]'}`}>Canceladas</p>
-              <p className="text-2xl font-bold text-[var(--shell-text)]">{canceladasCount}</p>
-            </div>
-          </div>
-        </button>
+          </button>
+        ))}
       </div>
 
       {/* Filtro ativo indicator — removido, navegação pelos cards é suficiente */}
@@ -704,7 +652,7 @@ export default function FichasPage() {
                         <span className="text-[9px] text-[var(--surface-500)]">{formatarDisplay(ficha.pagamento)}{ficha.parcelas ? ` ${ficha.parcelas}` : ''}</span>
                       </div>
                       {/* Status badge */}
-                      {isCancelada(ficha) ? <Badge variant="error" dot>Cancelada</Badge> : isPendente ? <Badge variant="warning" dot>Recebida</Badge> : ficha.contrato_id ? <Badge variant="info" dot>Contrato criado</Badge> : <Badge variant="success" dot>Processada</Badge>}
+                      {isCancelada(ficha) ? <Badge variant="error" dot>Cancelada</Badge> : isPendente ? <Badge variant="warning" dot>Recebida</Badge> : ficha.contrato_id ? <Badge variant="info" dot>Pipeline criado</Badge> : <Badge variant="success" dot>Processada</Badge>}
                     </div>
 
                     {/* Linha 2: Tutor + meta */}
@@ -794,6 +742,24 @@ export default function FichasPage() {
                     ) : isPendente ? (
                       <div className="flex items-center gap-1.5">
                         <button
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            if (!confirm(`Cancelar ficha de ${ficha.nome_pet || ficha.nome_completo}?`)) return
+                            const supabaseLocal = createClient()
+                            await supabaseLocal.from('fichas').update({
+                              processada: true,
+                              op_dados: { cancelada: true, cancelada_em: new Date().toISOString(), cancelada_por: userId || 'unknown' },
+                            } as never).eq('id', ficha.id)
+                            setFiltro('canceladas')
+                            carregarFichas()
+                            carregarContagens()
+                          }}
+                          className="btn-ghost text-xs py-1.5 px-2 text-red-400 hover:bg-red-900/20 whitespace-nowrap"
+                          title="Cancelar ficha"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                        <button
                           onClick={() => { setModalSomenteLeitura(true); setFichaModal(ficha) }}
                           className="btn-secondary text-xs py-1.5 px-3 whitespace-nowrap"
                         >
@@ -864,7 +830,7 @@ export default function FichasPage() {
       {/* Modal de tratativa */}
       <TratativaModal
         isOpen={!!fichaModal}
-        onClose={() => { setFichaModal(null); setModalSomenteLeitura(false); carregarFichas(); carregarContagens() }}
+        onClose={(resultado?: 'processada' | 'contrato') => { setFichaModal(null); setModalSomenteLeitura(false); if (resultado === 'contrato') setFiltro('contrato_criado'); else if (resultado === 'processada') setFiltro('processadas'); carregarFichas(); carregarContagens() }}
         ficha={fichaModal}
         onSuccess={handleSuccess}
         somenteLeitura={modalSomenteLeitura}

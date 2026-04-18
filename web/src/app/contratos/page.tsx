@@ -258,7 +258,7 @@ function ContratosContent() {
   const [busca, setBusca] = useState(searchParams.get('busca') || '')
   const buscaDebounced = useDebounce(busca, 300)
   const [campoBusca, setCampoBusca] = useState<'todos' | 'pet' | 'tutor' | 'codigo' | 'lacre'>('todos')
-  const [statusFiltro, setStatusFiltro] = useState<string | null>(searchParams.get('status'))
+  const [statusFiltro, setStatusFiltro] = useState<string>(searchParams.get('status') || 'ativo')
   const [pagina, setPagina] = useState(parseInt(searchParams.get('pagina') || '0', 10))
   const [total, setTotal] = useState(0)
   const [totalGeral, setTotalGeral] = useState(0)
@@ -833,10 +833,8 @@ function ContratosContent() {
     if (status !== 'retorno') {
       setFiltroMontagem('todos')
     }
-    if (statusFiltro === status) {
-      setStatusFiltro(null) // Desseleciona se clicar no mesmo
-      setFiltroMontagem('todos')
-    } else {
+    // Sempre mantém um status selecionado — clique no mesmo é no-op
+    if (statusFiltro !== status) {
       setStatusFiltro(status)
     }
   }
@@ -4056,9 +4054,6 @@ ${petNome}`
                           </div>
                         )
                       })()}
-                      <div className={`px-2 py-1 rounded-lg text-[10px] font-bold border ${statusColors?.bg} ${statusColors?.text} ${statusColors?.border}`}>
-                        {STATUS_FLOW.find(s => s.key === contrato.status)?.short || contrato.status}
-                      </div>
                       {/* Seta expandir ações */}
                       <button
                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); setExpandedMobileId(prev => prev === contrato.id ? null : contrato.id) }}

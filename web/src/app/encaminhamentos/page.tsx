@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState, useEffect, useCallback } from 'react'
-import { Route, ChevronLeft, ChevronRight, ChevronDown, CheckCircle2, Cross, Dog, Cat, Bug, Flame, Plus, X, Loader2, ListChecks, Snowflake, Award, Package, Pencil } from 'lucide-react'
+import { Route, ChevronLeft, ChevronRight, ChevronDown, CheckCircle2, Cross, Dog, Cat, Bug, Flame, Plus, X, Loader2, ListChecks, Snowflake, Award, Package, Pencil, Trash2, HelpCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import Modal from '@/components/ui/Modal'
@@ -15,6 +15,10 @@ const UNIT_COLORS: Record<string, string> = {
 // Helpers
 // ============================================
 const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+
+const STATUS_FECHADOS = ['embarcada', 'finalizada'] as const
+const isEncFechado = (status?: string | null) => !!status && (STATUS_FECHADOS as readonly string[]).includes(status)
+const labelStatusFechado = (status?: string | null) => status === 'embarcada' ? 'embarcada' : 'finalizada'
 
 function gerarDias(centro: Date, range: number): Date[] {
   const dias: Date[] = []
@@ -234,6 +238,20 @@ export default function EncaminhamentosPage() {
   // Escolha: criar novo ou incluir em existente
   const [escolhaDia, setEscolhaDia] = useState<Date | null>(null)
   const [escolhaIds, setEscolhaIds] = useState<Set<string>>(new Set())
+  const [confirmarInclusao, setConfirmarInclusao] = useState<{ enc: EncResumo; ids: Set<string> } | null>(null)
+  const [salvandoInclusao, setSalvandoInclusao] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
+  const helpRef = useRef<HTMLDivElement>(null)
+
+  // Fecha popover de ajuda ao clicar fora
+  useEffect(() => {
+    if (!showHelp) return
+    function onDocClick(e: MouseEvent) {
+      if (helpRef.current && !helpRef.current.contains(e.target as Node)) setShowHelp(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [showHelp])
   const [escolhaProxCodigo, setEscolhaProxCodigo] = useState('')
   const [dragOverEnc, setDragOverEnc] = useState<string | null>(null)
 
@@ -381,6 +399,12 @@ export default function EncaminhamentosPage() {
 
   async function incluirEmExistente(enc: EncResumo, ids: Set<string>) {
     if (!currentUnit) return
+    // Bloquear vinculação em encaminhamento já fechado (embarcada/finalizada)
+    if (isEncFechado(enc.status)) {
+      alert(`Encaminhamento ${enc.numero} já está ${labelStatusFechado(enc.status)} — não é possível adicionar pets.`)
+      setSelecionados(new Set())
+      return
+    }
     // Bloquear vinculação em encaminhamento de outra unidade (FLS)
     if (enc.codigo_unidade !== currentUnit.codigo && !isSuperAdmin) {
       alert(`Você não pode vincular pets em um encaminhamento de outra unidade (${enc.codigo_unidade}).`)
@@ -412,6 +436,50 @@ export default function EncaminhamentosPage() {
     setEncAbertos(prev => { const next = new Set(prev); next.add(enc.id); return next })
 
     // Recarregar
+    const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, certificado_confirmado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
+    const [{ data: crem }, { data: ativ }, { data: encs }, { data: vinc }] = await Promise.all([
+      filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_contrato', { ascending: true }),
+      filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_contrato', { ascending: true }),
+      supabase.from('supindas').select('id, numero, data, responsavel, quantidade_pets, peso_total, status, observacoes, unidades(codigo)').order('data'),
+      filterUnit(supabase.from('contratos').select(campos)).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_contrato', { ascending: true }),
+    ])
+    setCremados(((crem || []) as ContratoEnc[]).filter(c => {
+      const gc = Array.isArray(c.contrato_gc) ? c.contrato_gc[0] : c.contrato_gc
+      return gc?.etapa === 'disponivel'
+    }))
+    setAtivos((ativ || []) as ContratoEnc[])
+    setVinculados((vinc || []) as ContratoEnc[])
+    setEncaminhamentos((encs || []).map((e: Record<string, unknown>) => ({ id: e.id as string, numero: e.numero as string, data: e.data as string, responsavel: (e.responsavel as string) || null, quantidade_pets: (e.quantidade_pets as number) || 0, peso_total: (e.peso_total as number) || 0, status: e.status as string, observacoes: (e.observacoes as string) || null, codigo_unidade: ((e.unidades as Record<string, string>)?.codigo) || '??' })))
+  }
+
+  async function excluirEncaminhamento(enc: EncResumo, qtdIda: number, qtdVolta: number) {
+    if (!currentUnit) return
+    if (enc.status !== 'planejada') {
+      alert('Só é possível excluir encaminhamentos planejados.')
+      return
+    }
+    if (enc.codigo_unidade !== currentUnit.codigo && !isSuperAdmin) {
+      alert(`Você não pode excluir encaminhamento de outra unidade (${enc.codigo_unidade}).`)
+      return
+    }
+    const totalPets = qtdIda + qtdVolta
+    const aviso = totalPets > 0
+      ? `Excluir encaminhamento ${enc.numero}?\n\nOs ${totalPets} pet${totalPets > 1 ? 's' : ''} vinculado${totalPets > 1 ? 's' : ''} serão desvinculados (voltam para a fila).`
+      : `Excluir encaminhamento ${enc.numero}?\n\n(vazio, sem pets vinculados)`
+    if (!confirm(aviso)) return
+
+    // Desvincular pets (ida e volta)
+    await supabase.from('contratos').update({ supinda_id: null } as never).eq('supinda_id', enc.id)
+    await supabase.from('contratos').update({ supinda_volta_id: null } as never).eq('supinda_volta_id', enc.id)
+    // Excluir supinda
+    const { error } = await supabase.from('supindas').delete().eq('id', enc.id)
+    if (error) {
+      alert(`Erro ao excluir: ${error.message}`)
+      return
+    }
+
+    // Recarregar tudo (mesmo padrão de incluirEmExistente)
+    setEncAbertos(prev => { const next = new Set(prev); next.delete(enc.id); return next })
     const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, certificado_confirmado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
     const [{ data: crem }, { data: ativ }, { data: encs }, { data: vinc }] = await Promise.all([
       filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_contrato', { ascending: true }),
@@ -534,14 +602,41 @@ export default function EncaminhamentosPage() {
             <h1 className="text-title text-[var(--shell-text)]">Encaminhamentos</h1>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-        <button
-          onClick={() => abrirTelaEdicao()}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors"
-        >
-          <Plus className="h-4 w-4" />
-          <span className="hidden sm:inline">Novo Encaminhamento</span>
-        </button>
+
+        {/* Botão de ajuda */}
+        <div className="relative" ref={helpRef}>
+          <button
+            onClick={() => setShowHelp(s => !s)}
+            onMouseEnter={() => setShowHelp(true)}
+            className="w-9 h-9 rounded-full flex items-center justify-center text-[var(--surface-400)] hover:text-blue-400 hover:bg-blue-900/10 transition-colors"
+            aria-label="Como usar"
+          >
+            <HelpCircle className="h-5 w-5" />
+          </button>
+
+          {showHelp && (
+            <div
+              onMouseLeave={() => setShowHelp(false)}
+              className="absolute right-0 top-full mt-2 w-[320px] max-w-[90vw] z-40 rounded-xl shadow-xl p-4 bg-[var(--surface-0)] border border-[var(--surface-200)] text-[12px] leading-relaxed"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-bold text-[var(--shell-text)]">Como usar</h3>
+                <button onClick={() => setShowHelp(false)} className="text-[var(--surface-400)] hover:text-[var(--shell-text)]">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <ul className="space-y-2 text-[var(--surface-600)]">
+                <li><strong className="text-[var(--shell-text)]">➕ Criar:</strong> arraste um pet até um <em>dia</em> na barra (ou clique no dia se já houver encaminhamento).</li>
+                <li><strong className="text-[var(--shell-text)]">🔗 Vincular:</strong> arraste o pet para o card do encaminhamento <em>ou</em> selecione e clique no card. Confirme no modal.</li>
+                <li><strong className="text-[var(--shell-text)]">✂️ Desvincular:</strong> expanda o card e clique no <strong>X</strong> ao lado do pet.</li>
+                <li><strong className="text-[var(--shell-text)]">📅 Alterar data:</strong> ícone de <strong>lápis</strong> no card (até estar finalizado).</li>
+                <li><strong className="text-[var(--shell-text)]">🗑️ Excluir:</strong> ícone de <strong>lixeira</strong> no card — só em encaminhamentos <em>planejados</em>.</li>
+                <li className="pt-1 border-t border-[var(--surface-200)] text-[11px] text-[var(--surface-500)]">
+                  Encaminhamento <strong>embarcado</strong> ou <strong>finalizado</strong> não aceita mais alterações.
+                </li>
+              </ul>
+            </div>
+          )}
         </div>
       </div>
 
@@ -928,25 +1023,39 @@ export default function EncaminhamentosPage() {
               return (
                 <div
                   key={enc.id}
-                  onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverEnc(enc.id) }}
+                  onDragOver={e => {
+                    if (isEncFechado(enc.status)) { e.dataTransfer.dropEffect = 'none'; return }
+                    e.preventDefault()
+                    e.dataTransfer.dropEffect = 'move'
+                    setDragOverEnc(enc.id)
+                  }}
                   onDragLeave={() => setDragOverEnc(null)}
-                  onDrop={async e => {
+                  onDrop={e => {
                     e.preventDefault()
                     setDragging(false)
                     setDragOverEnc(null)
                     if (selecionados.size === 0) return
-                    await incluirEmExistente(enc, selecionados)
+                    if (isEncFechado(enc.status)) {
+                      alert(`Encaminhamento ${enc.numero} já está ${labelStatusFechado(enc.status)} — não é possível adicionar pets.`)
+                      return
+                    }
+                    setConfirmarInclusao({ enc, ids: new Set(selecionados) })
                   }}
                   className={`rounded-xl border overflow-hidden transition-all ${
                     dragOverEnc === enc.id
                       ? 'border-blue-400 bg-blue-500/10 ring-2 ring-blue-500/20 scale-[1.01]'
                       : 'border-[var(--surface-200)]'
-                  }`}
+                  } ${isEncFechado(enc.status) && dragging ? 'opacity-60' : ''}`}
                 >
                   <div
                     onClick={() => {
                       if (selecionados.size > 0) {
-                        incluirEmExistente(enc, selecionados)
+                        // Bloquear inclusão em encaminhamento fechado (não silenciar — avisar)
+                        if (isEncFechado(enc.status)) {
+                          alert(`Encaminhamento ${enc.numero} já está ${labelStatusFechado(enc.status)} — não é possível adicionar pets.`)
+                          return
+                        }
+                        setConfirmarInclusao({ enc, ids: new Set(selecionados) })
                         return
                       }
                       // Bloquear expansão de encaminhamento de outra unidade (FLS)
@@ -964,9 +1073,12 @@ export default function EncaminhamentosPage() {
                       enc.codigo_unidade !== currentUnit?.codigo && !isSuperAdmin
                         ? 'cursor-default'
                         : selecionados.size > 0
-                          ? 'cursor-pointer hover:bg-blue-500/10'
+                          ? isEncFechado(enc.status)
+                            ? 'cursor-not-allowed opacity-70'
+                            : 'cursor-pointer hover:bg-blue-500/10'
                           : 'cursor-pointer hover:bg-[var(--surface-50)]'
                     }`}
+                    title={isEncFechado(enc.status) && selecionados.size > 0 ? `Encaminhamento ${labelStatusFechado(enc.status)} — bloqueado` : undefined}
                   >
                     <span
                       className="w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold shrink-0"
@@ -998,6 +1110,18 @@ export default function EncaminhamentosPage() {
                         title="Editar encaminhamento"
                       >
                         <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    {enc.status === 'planejada' && (enc.codigo_unidade === currentUnit?.codigo || isSuperAdmin) && (
+                      <button
+                        onClick={e => {
+                          e.stopPropagation()
+                          excluirEncaminhamento(enc, encIda.length, encVolta.length)
+                        }}
+                        className="p-1.5 rounded-lg text-[var(--surface-400)] hover:text-red-400 hover:bg-red-900/10 transition-colors shrink-0"
+                        title="Excluir encaminhamento"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     )}
                     {enc.status === 'planejada' && (enc.codigo_unidade === currentUnit?.codigo || isSuperAdmin) && (
@@ -1228,7 +1352,7 @@ export default function EncaminhamentosPage() {
               Incluir os {escolhaIds.size} selecionados em um existente ou criar novo?
             </p>
             <div className="space-y-2">
-              {getEncsDia(encaminhamentos, escolhaDia).filter(enc => isSuperAdmin || enc.codigo_unidade === currentUnit?.codigo).map(enc => {
+              {getEncsDia(encaminhamentos, escolhaDia).filter(enc => !isEncFechado(enc.status) && (isSuperAdmin || enc.codigo_unidade === currentUnit?.codigo)).map(enc => {
                 const cor = UNIT_COLORS[enc.codigo_unidade] || '#6366f1'
                 return (
                   <button
@@ -1265,6 +1389,46 @@ export default function EncaminhamentosPage() {
                 className="w-full py-2 rounded-lg text-xs text-[var(--surface-500)] hover:bg-[var(--surface-100)] transition-colors"
               >
                 Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Confirmar Inclusão (drop ou click) */}
+      {confirmarInclusao && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4" onClick={() => !salvandoInclusao && setConfirmarInclusao(null)}>
+          <div className="w-full max-w-sm rounded-2xl shadow-2xl p-5 space-y-4 bg-[var(--surface-0)] border border-[var(--surface-200)]" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-bold text-[var(--shell-text)]">
+              Adicionar ao encaminhamento?
+            </h3>
+            <p className="text-sm text-[var(--surface-600)]">
+              Adicionar <strong>{confirmarInclusao.ids.size}</strong> pet{confirmarInclusao.ids.size > 1 ? 's' : ''} ao encaminhamento <strong>{confirmarInclusao.enc.numero}</strong>?
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                onClick={() => setConfirmarInclusao(null)}
+                disabled={salvandoInclusao}
+                className="px-3 py-1.5 rounded-lg text-sm text-[var(--surface-600)] hover:bg-[var(--surface-100)] disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  if (!confirmarInclusao) return
+                  setSalvandoInclusao(true)
+                  try {
+                    await incluirEmExistente(confirmarInclusao.enc, confirmarInclusao.ids)
+                  } finally {
+                    setSalvandoInclusao(false)
+                    setConfirmarInclusao(null)
+                  }
+                }}
+                disabled={salvandoInclusao}
+                className="px-4 py-1.5 rounded-lg text-sm font-semibold bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 flex items-center gap-2"
+              >
+                {salvandoInclusao && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Adicionar
               </button>
             </div>
           </div>

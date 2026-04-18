@@ -68,11 +68,6 @@ export function UnitSelector() {
       <div className="flex items-center gap-2 px-3 py-1.5">
         <UnitAvatar codigo={currentUnit.codigo} size={24} />
         <span className="text-sm font-semibold text-[var(--shell-text)]">{currentUnit.nome}</span>
-        {currentRole && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300">
-            {ROLE_LABELS[currentRole]}
-          </span>
-        )}
       </div>
     )
   }
