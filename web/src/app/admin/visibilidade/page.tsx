@@ -14,7 +14,7 @@ const UNIT_COLORS: Record<string, string> = {
 }
 
 const FLS_ROLES = ['gerente', 'operador'] as const
-const ROLE_LABELS: Record<string, string> = { gerente: 'G', operador: 'O' }
+const ROLE_LABELS: Record<string, string> = { gerente: 'G', operador: 'C' }
 
 const PERM_STYLES: Record<PermissionLevel, { icon: string; bg: string; text: string; border: string }> = {
   edit: { icon: '✏️', bg: 'rgba(34,197,94,0.15)', text: '#22c55e', border: '#22c55e' },
@@ -421,7 +421,7 @@ export default function VisibilidadePage() {
             {d.icon} {key === 'edit' ? 'Editável' : key === 'read' ? 'Leitura' : 'Oculto'}
           </span>
         ))}
-        <span className="text-[10px]">G = Gerente, O = Operador</span>
+        <span className="text-[10px]">G = Gerente, C = Concierge</span>
       </div>
 
       {loading ? (

@@ -1020,7 +1020,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
           <div className="w-full max-w-sm rounded-2xl shadow-2xl p-5 space-y-4 bg-[var(--surface-0)] border border-[var(--surface-200)]">
             <h3 className="text-sm font-bold text-amber-400">Retornar para Recebidas?</h3>
             <p className="text-xs text-[var(--surface-500)]">
-              Esta ficha será retornada para a fila de recebidas. Os dados preenchidos serão mantidos. O operador precisará processar novamente.
+              Esta ficha será retornada para a fila de recebidas. Os dados preenchidos serão mantidos. O concierge precisará processar novamente.
             </p>
             <div className="flex justify-end gap-2 pt-2">
               <button onClick={() => setConfirmarRetorno(false)} className="px-3 py-1.5 rounded-lg text-sm text-[var(--surface-600)] hover:bg-[var(--surface-100)]">
@@ -1172,7 +1172,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
           {/* Acolhimento — só processadas */}
           {!somenteLeitura && (
             <div className="p-3 rounded-lg border border-amber-500/20 space-y-1.5" style={{ background: 'rgba(250, 204, 21, 0.05)' }}>
-              <h4 className="text-[10px] font-bold text-amber-500 uppercase tracking-wider mb-1">Dados do Operador — Acolhimento</h4>
+              <h4 className="text-[10px] font-bold text-amber-500 uppercase tracking-wider mb-1">Dados do Concierge — Acolhimento</h4>
               {(() => {
                 const localMap: Record<string, string> = { residencia: 'Residência (Endereço de Cadastro)', unidade: 'Unidade RIP PET' }
                 const localLabel = semLocal ? null : localColeta === 'outro' ? (enderecoOutro || 'Outro endereço') : localColeta === 'clinica' ? (estabNome || clinicaTextoLivre || 'Clínica / Hospital') : (localMap[localColeta] || localColeta || '-')
@@ -1655,7 +1655,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
 
         {/* ======== RIGHT COLUMN — Operator fields ======== */}
         <div className="space-y-4 p-4 rounded-xl" style={{ background: 'rgba(250, 204, 21, 0.06)', border: '1px solid rgba(250, 204, 21, 0.15)' }}>
-          <h3 className="text-sm font-semibold text-amber-500 uppercase tracking-wide">Dados do Operador</h3>
+          <h3 className="text-sm font-semibold text-amber-500 uppercase tracking-wide">Dados do Concierge</h3>
           <p className="text-[10px] font-bold text-[var(--surface-400)] uppercase tracking-widest">Padronização de Dados</p>
 
           {/* ═══════ BLOCO: ACOLHIMENTO ═══════ */}

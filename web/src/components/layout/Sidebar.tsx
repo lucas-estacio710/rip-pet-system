@@ -33,16 +33,16 @@ type NavItem = {
 }
 
 const navItems: NavItem[] = [
-  { href: '/leads', label: 'Leads', icon: Zap, countKey: 'leads', module: 'tela_leads' },
-  { href: '/fichas', label: 'Fichas', icon: TextSelect, countKey: 'fichas', module: 'tela_fichas' },
-  { href: '/preventivos', label: 'Preventivos', icon: Heart, countKey: null, module: 'tela_preventivos' },
+  { href: '/leads', label: 'Leads', icon: Zap, countKey: 'leads', module: 'tela_leads', iconColor: '#a855f7' },
+  { href: '/fichas', label: 'Fichas', icon: TextSelect, countKey: 'fichas', module: 'tela_fichas', iconColor: '#38bdf8' },
+  { href: '/preventivos', label: 'Preventivos', icon: Heart, countKey: null, module: 'tela_preventivos', iconColor: '#fb7185' },
   { href: '/contratos?status=ativo', label: 'Pipeline', icon: FileCheck, countKey: 'contratos', module: 'tela_pipeline', iconColor: '#f59e0b' },
-  { href: '/encaminhamentos', label: 'Encaminhamentos', icon: Route, countKey: null, module: 'tela_entregas' },
-  { href: '/estoque', label: 'Estoque', icon: ShelvingUnit, countKey: null, module: 'tela_estoque' },
-  { href: '/gc', label: 'GC', icon: Church, countKey: null, module: 'tela_gc' },
-  { href: '/tutores', label: 'Tutores', icon: Users, countKey: null, module: 'tela_tutores' },
+  { href: '/encaminhamentos', label: 'Encaminhamentos', icon: Route, countKey: null, module: 'tela_entregas', iconColor: '#bef264' },
+  { href: '/estoque', label: 'Estoque', icon: ShelvingUnit, countKey: null, module: 'tela_estoque', iconColor: '#a0522d' },
+  { href: '/gc', label: 'GC', icon: Church, countKey: null, module: 'tela_gc', iconColor: '#60a5fa' },
+  { href: '/tutores', label: 'Tutores', icon: Users, countKey: null, module: 'tela_tutores', iconColor: '#c4b5fd' },
   { href: '/ads-shield', label: 'RIP Shield', icon: Shield, countKey: null, module: 'tela_ads_shield', iconColor: '#ef4444' },
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, countKey: null, module: 'tela_dashboard' },
+  { href: '/dashboard', label: 'Dashboard Admin', icon: LayoutDashboard, countKey: null, module: 'tela_dashboard', iconColor: '#10b981', superAdminOnly: true },
 ]
 
 type Props = {
@@ -73,7 +73,11 @@ export function Sidebar({ mode, onNavigate }: Props) {
     async function fetchData() {
       // Queries filtradas pela unidade selecionada
       let contratosQuery = supabase.from('contratos').select('*', { count: 'exact', head: true })
-      let fichasQuery = supabase.from('fichas').select('*', { count: 'exact', head: true }).eq('processada', false)
+      let fichasQuery = supabase
+        .from('fichas')
+        .select('*', { count: 'exact', head: true })
+        .or('processada.is.null,processada.eq.false')
+        .or('op_dados.is.null,op_dados.not.cs.{"cancelada":true}')
       let leadsQuery = supabase.from('leads').select('*', { count: 'exact', head: true }).eq('convertido', false)
 
       if (currentUnit) {
@@ -206,7 +210,7 @@ export function Sidebar({ mode, onNavigate }: Props) {
                   {isActive && (
                     <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-6 bg-sky-400 rounded-r-full" />
                   )}
-                  <Icon className="h-5 w-5 flex-shrink-0" />
+                  <Icon className="h-5 w-5 flex-shrink-0" style={item.iconColor ? { color: item.iconColor } : undefined} />
                   <span className="flex-1 text-sm">{item.label}</span>
                   {isFichas && fichasCount !== null && fichasCount > 0 && (
                     <span className="min-w-[20px] h-5 flex items-center justify-center px-1.5 text-[11px] font-bold bg-amber-500 text-white rounded-full animate-pulse">

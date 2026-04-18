@@ -38,11 +38,11 @@ const ROLE_ICONS = {
 const ROLE_LABELS = {
   super_admin: 'Super Admin',
   gerente: 'Gerente',
-  operador: 'Operador',
+  operador: 'Concierge',
 }
 
 export function UnitSelector() {
-  const { currentUnit, currentRole, allUnidades, userPerfis, isSuperAdmin, switchUnit } = useUnit()
+  const { currentUnit, currentRole, allUnidades, userPerfis, isSuperAdmin, switchUnit, viewAllUnits, setViewAllUnits } = useUnit()
   const [isOpen, setIsOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -85,9 +85,13 @@ export function UnitSelector() {
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-[var(--surface-100)] transition-colors"
       >
-        <UnitAvatar codigo={currentUnit.codigo} size={24} />
-        <span className="text-sm font-semibold text-[var(--shell-text)]">{currentUnit.nome}</span>
-        {currentUnit.is_matriz && (
+        {viewAllUnits ? (
+          <div className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-[8px] font-bold text-white">ALL</div>
+        ) : (
+          <UnitAvatar codigo={currentUnit.codigo} size={24} />
+        )}
+        <span className="text-sm font-semibold text-[var(--shell-text)]">{viewAllUnits ? 'Todas' : currentUnit.nome}</span>
+        {!viewAllUnits && currentUnit.is_matriz && (
           <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/20 text-amber-400 font-bold">MATRIZ</span>
         )}
         <ChevronDown className={`h-3.5 w-3.5 text-[var(--shell-text-muted)] transition-transform ${isOpen ? 'rotate-180' : ''}`} />
@@ -110,13 +114,30 @@ export function UnitSelector() {
 
           {/* Lista de unidades */}
           <div className="max-h-80 overflow-y-auto py-1">
+            {isSuperAdmin && (
+              <button
+                onClick={() => {
+                  setViewAllUnits(!viewAllUnits)
+                  setIsOpen(false)
+                }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors"
+                style={{ background: viewAllUnits ? 'rgba(139, 92, 246, 0.15)' : 'transparent', borderBottom: '1px solid #334155' }}
+                onMouseEnter={e => { if (!viewAllUnits) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)' }}
+                onMouseLeave={e => { if (!viewAllUnits) (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+              >
+                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-[8px] font-bold text-white shrink-0">ALL</div>
+                <span className="text-sm font-medium" style={{ color: viewAllUnits ? '#a78bfa' : '#e2e8f0' }}>Todas as unidades</span>
+                {viewAllUnits && <Check className="h-4 w-4 shrink-0" style={{ color: '#a78bfa' }} />}
+              </button>
+            )}
             {units.map(unit => {
-              const isActive = unit.id === currentUnit.id
+              const isActive = unit.id === currentUnit.id && !viewAllUnits
 
               return (
                 <button
                   key={unit.id}
                   onClick={() => {
+                    setViewAllUnits(false)
                     switchUnit(unit.id)
                     setIsOpen(false)
                   }}

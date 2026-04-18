@@ -54,6 +54,10 @@ type UnitContextType = {
   hasModule: (module: string) => boolean
   refetch: () => Promise<void>
 
+  // Super admin: ver todas as unidades de uma vez
+  viewAllUnits: boolean
+  setViewAllUnits: (v: boolean) => void
+
   // FLS
   flsPermissions: Map<string, string>  // campo → permissao ('read'|'hidden'), default 'edit' se ausente
 }
@@ -71,6 +75,7 @@ export function UnitProvider({ children }: { children: ReactNode }) {
   const [userPerfis, setUserPerfis] = useState<UserPerfil[]>([])
   const [allUnidades, setAllUnidades] = useState<Unidade[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [viewAllUnits, setViewAllUnits] = useState(false)
   const [userName, setUserName] = useState<string | null>(null)
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [impersonating, setImpersonating] = useState(false)
@@ -372,6 +377,8 @@ export function UnitProvider({ children }: { children: ReactNode }) {
       switchUnit,
       hasModule,
       refetch: fetchData,
+      viewAllUnits: isSuperAdmin ? viewAllUnits : false,
+      setViewAllUnits,
       flsPermissions,
     }}>
       {children}

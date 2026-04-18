@@ -452,6 +452,72 @@ function ContratosContent() {
   const [compartilhadosCount, setCompartilhadosCount] = useState(0)
 
 
+  // Modal Bypass — finalizar pulando etapas (temporário)
+  const [bypassContrato, setBypassContrato] = useState<Contrato | null>(null)
+  const [bypassDataCremacao, setBypassDataCremacao] = useState('')
+  const [bypassDataEntrega, setBypassDataEntrega] = useState('')
+  const [salvandoBypass, setSalvandoBypass] = useState(false)
+
+  async function executarBypass() {
+    if (!bypassContrato || !bypassDataCremacao) return
+    if (!confirm(`Bypass: finalizar ${bypassContrato.pet_nome} (${bypassContrato.codigo}) pulando todas as etapas?\n\nIsso vai:\n• Desvincular de encaminhamentos (se houver)\n• Recalcular supinda\n• Fechar GC\n• Marcar como finalizado`)) return
+    setSalvandoBypass(true)
+    try {
+      const c = bypassContrato
+
+      // 1. Desvincular de supinda de IDA (se houver) + recalcular
+      if (c.supinda_id) {
+        await supabase.from('contratos').update({ supinda_id: null } as never).eq('id', c.id)
+        // Recalcular quantidade_pets e peso_total da supinda
+        const { data: restantes } = await supabase.from('contratos').select('pet_peso').eq('supinda_id', c.supinda_id)
+        const qtd = restantes?.length || 0
+        const peso = restantes?.reduce((acc: number, r: { pet_peso: number | null }) => acc + (r.pet_peso || 0), 0) || 0
+        await supabase.from('supindas').update({ quantidade_pets: qtd, peso_total: peso } as never).eq('id', c.supinda_id)
+      }
+
+      // 2. Desvincular de supinda de VOLTA (se houver) — mesma lógica
+      const supindaVoltaId = (c as Record<string, unknown>).supinda_volta_id as string | null
+      if (supindaVoltaId) {
+        await supabase.from('contratos').update({ supinda_volta_id: null } as never).eq('id', c.id)
+      }
+
+      // 3. Fechar contrato_gc (se existir) — marcar como disponivel com datas coerentes
+      const { data: gcExiste } = await supabase.from('contrato_gc').select('id').eq('contrato_id', c.id).maybeSingle()
+      if (gcExiste) {
+        const agora = new Date().toISOString()
+        await supabase.from('contrato_gc').update({
+          etapa: 'disponivel',
+          data_cremacao: bypassDataCremacao,
+          data_recebimento: agora,
+          data_disponivel: agora,
+          cinzas_prontas: true,
+          certificado_pronto: true,
+          lacre_conferido: true,
+        } as never).eq('contrato_id', c.id)
+      }
+
+      // 4. Finalizar contrato — limpar todas as referências
+      const updates: Record<string, unknown> = {
+        status: 'finalizado',
+        data_cremacao: bypassDataCremacao,
+        supinda_id: null,
+        supinda_volta_id: null,
+        supinda_direcao: null,
+      }
+      if (bypassDataEntrega) updates.data_entrega = bypassDataEntrega
+      await supabase.from('contratos').update(updates as never).eq('id', c.id)
+
+      setBypassContrato(null)
+      setBypassDataCremacao('')
+      setBypassDataEntrega('')
+      window.location.reload()
+    } catch (err) {
+      console.error('Erro no bypass:', err)
+      alert('Erro ao finalizar contrato: ' + (err as Error).message)
+    }
+    setSalvandoBypass(false)
+  }
+
   // Modal Compartilhar (remoção/entrega entre unidades)
   const [compartilharModal, setCompartilharModal] = useState(false)
   const [compartilharContrato, setCompartilharContrato] = useState<Contrato | null>(null)
@@ -3760,6 +3826,16 @@ ${petNome}`
                               <span className="text-base">📬</span>
                             </button>
                           )}
+                          {/* Botão Bypass - finalizar pulando etapas (FLS: btn_bypass) */}
+                          {['ativo', 'pinda', 'retorno', 'pendente'].includes(contrato.status) && isVisible(T, 'btn_bypass') && (
+                            <button
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setBypassContrato(contrato); setBypassDataCremacao(''); setBypassDataEntrega('') }}
+                              className="flex items-center justify-center w-9 h-9 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors text-xs font-black"
+                              title="Bypass — finalizar pulando etapas"
+                            >
+                              B
+                            </button>
+                          )}
                           {/* Botão Marcar Pendente - para retorno */}
                           {contrato.status === 'retorno' && (
                             <button
@@ -4043,6 +4119,16 @@ ${petNome}`
                               title="Marcar entregue"
                             >
                               <span className="text-sm">📬</span>
+                            </button>
+                          )}
+                          {/* Botão Bypass mobile (FLS: btn_bypass) */}
+                          {['ativo', 'pinda', 'retorno', 'pendente'].includes(contrato.status) && isVisible(T, 'btn_bypass') && (
+                            <button
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setBypassContrato(contrato); setBypassDataCremacao(''); setBypassDataEntrega('') }}
+                              className="flex items-center justify-center w-8 h-8 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors text-xs font-black"
+                              title="Bypass — finalizar pulando etapas"
+                            >
+                              B
                             </button>
                           )}
                           {contrato.status === 'retorno' && (
@@ -5616,6 +5702,63 @@ ${petNome}`
       )}
 
       {/* Modal Compartilhar */}
+      {/* Modal Bypass — finalizar pulando etapas */}
+      {bypassContrato && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setBypassContrato(null)}>
+          <div className="bg-slate-800 rounded-xl shadow-xl max-w-sm w-full mx-4 p-6 border border-red-500/30" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-red-600 rounded-full flex items-center justify-center text-white font-black text-lg">B</div>
+              <div>
+                <h3 className="text-lg font-semibold text-slate-200">Bypass — Finalizar direto</h3>
+                <p className="text-xs text-slate-400">{bypassContrato.pet_nome} ({bypassContrato.codigo})</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-amber-400 mb-4 bg-amber-900/20 px-3 py-2 rounded-lg">
+              Pula encaminhamento e GC. Use apenas para contratos que já foram resolvidos fora do sistema.
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-slate-400 mb-1 block">Data da cremação *</label>
+                <input
+                  type="date"
+                  value={bypassDataCremacao}
+                  onChange={e => setBypassDataCremacao(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-slate-200 text-sm"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-400 mb-1 block">Data da entrega (opcional)</label>
+                <input
+                  type="date"
+                  value={bypassDataEntrega}
+                  onChange={e => setBypassDataEntrega(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-slate-200 text-sm"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-5">
+              <button
+                onClick={() => setBypassContrato(null)}
+                className="flex-1 py-2.5 border border-slate-600 rounded-lg text-slate-300 hover:bg-slate-700 transition-colors text-sm"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={executarBypass}
+                disabled={salvandoBypass || !bypassDataCremacao}
+                className="flex-1 py-2.5 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors text-sm"
+              >
+                {salvandoBypass ? 'Finalizando...' : 'Finalizar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {compartilharModal && compartilharContrato && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" onClick={() => setCompartilharModal(false)}>
           <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-5" onClick={e => e.stopPropagation()}>

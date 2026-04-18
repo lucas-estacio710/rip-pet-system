@@ -166,6 +166,7 @@ export default function FichasPage() {
       .from('fichas')
       .select('*', { count: 'exact', head: true })
       .or('processada.is.null,processada.eq.false')
+      .or('op_dados.is.null,op_dados.not.cs.{"cancelada":true}')
       .eq('unidade_id', currentUnit.id)
     const procQuery = supabase
       .from('fichas')

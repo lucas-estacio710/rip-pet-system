@@ -15,6 +15,12 @@ import { UnitSelector } from './UnitSelector'
 import { UserMenu } from './UserMenu'
 import { RefreshButton } from './RefreshButton'
 import { ImpersonateBanner } from './ImpersonateBanner'
+import { useActivityHeartbeat } from '@/hooks/useActivityHeartbeat'
+
+function ActivityTracker() {
+  useActivityHeartbeat()
+  return null
+}
 
 const THEME_ICONS: Record<Theme, string> = {
   dark: '🌙',
@@ -37,6 +43,7 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
   return (
     <UnitProvider>
     <ToastProvider>
+      <ActivityTracker />
       <div className="min-h-screen bg-[var(--shell-bg)]">
         {/* Desktop sidebar (>=1024px) — mini por padrão, expansível */}
         <aside className={`theme-sidebar hidden lg:flex fixed top-0 left-0 bottom-0 ${sidebarExpanded ? 'w-64' : 'w-[72px]'} bg-slate-900 border-r border-slate-700/50 z-30 flex-col transition-all duration-200`}>

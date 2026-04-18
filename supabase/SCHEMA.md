@@ -14,8 +14,8 @@
 > **Como atualizar:** Edite a tabela afetada neste arquivo refletindo exatamente a alteracao feita no banco.
 > Atualize tambem a data de "Ultima atualizacao" abaixo.
 
-**Ultima atualizacao:** 2026-04-07
-**Total:** 44 tabelas/views
+**Ultima atualizacao:** 2026-04-17
+**Total:** 45 tabelas/views
 
 ## configuracoes (6 colunas)
 
@@ -157,7 +157,7 @@
 | periodos_bloqueados | public.periodo_dia[] |  |
 | updated_at | timestamp with time zone | default=now() |
 
-## contratos (80 colunas)
+## contratos (83 colunas)
 
 | Coluna | Tipo | Info |
 |--------|------|------|
@@ -237,6 +237,9 @@
 | tutor_nome | character varying |  |
 | tutor_telefone | character varying |  |
 | tutor_telefone2 | character varying |  |
+| tutor_telefone_nome | text | label do telefone (ex: Ficha, Processado) |
+| tutor_telefone2_nome | text | label do telefone 2 |
+| tutor_telefone_principal | integer | qual telefone é o principal (1 ou 2) |
 | tutor_vet_segmento | boolean | default=False |
 | unidade_id | uuid | FK->unidades.id |
 | unidade_remocao_id | uuid | FK->unidades.id. Unidade que faz remoção (se diferente da dona) |
@@ -785,7 +788,7 @@ Blocklist cumulativa de IPs ja flagrados como fraude (migration 069). Persiste e
 | tipo | character varying |  |
 | updated_at | timestamp with time zone | default=now() |
 
-## tutores (18 colunas)
+## tutores (21 colunas)
 
 | Coluna | Tipo | Info |
 |--------|------|------|
@@ -805,6 +808,9 @@ Blocklist cumulativa de IPs ja flagrados como fraude (migration 069). Persiste e
 | observacoes | text |  |
 | telefone | character varying |  |
 | telefone2 | character varying |  |
+| telefone_nome | text | label do telefone (ex: Ficha, Processado) |
+| telefone2_nome | text | label do telefone 2 |
+| telefone_principal | integer | qual telefone é o principal (1 ou 2) |
 | unidade_id | uuid | FK->unidades.id |
 | updated_at | timestamp with time zone | default=now() |
 
@@ -846,6 +852,30 @@ Blocklist cumulativa de IPs ja flagrados como fraude (migration 069). Persiste e
 **Index:** idx_fp_unidade_role (unidade_id, role)
 **RLS:** SELECT autenticado, INSERT/UPDATE/DELETE super_admin
 **Nota:** Apenas exceções são armazenadas (default = 'edit'). super_admin nunca tem rows aqui.
+
+## user_activity_pings (12 colunas)
+
+Heartbeat client-side pra rastrear adoção real (cada abertura de aba → row; ping a cada 60s).
+Sessão "viva" = last_ping_at > now() - 2 min. Alimenta o Dashboard Admin via RPC `get_admin_activity_overview()`.
+
+| Coluna | Tipo | Info |
+|--------|------|------|
+| id | uuid | PK default=gen_random_uuid() |
+| user_id | uuid | FK->auth.users.id ON DELETE CASCADE, NOT NULL |
+| unidade_id | uuid | FK->unidades.id ON DELETE SET NULL |
+| session_id | text | NOT NULL - UUID gerado client-side por abertura de aba |
+| opened_at | timestamptz | NOT NULL default=now() |
+| last_ping_at | timestamptz | NOT NULL default=now() - atualizado a cada 60s |
+| page | text | Última rota visitada |
+| user_agent | text | UA truncado (250 chars) |
+| device_type | text | mobile / tablet / desktop |
+| created_at | timestamptz | default=now() |
+| updated_at | timestamptz | default=now(), trigger update_updated_at |
+
+**UNIQUE:** (user_id, session_id)
+**Index:** idx_uap_user_last_ping (user_id, last_ping_at DESC), idx_uap_last_ping (last_ping_at DESC), idx_uap_unidade (unidade_id), idx_uap_opened_at (opened_at DESC)
+**RLS:** próprio usuário SELECT/INSERT/UPDATE suas rows; super_admin SELECT tudo
+**RPC:** `get_admin_activity_overview()` → SECURITY DEFINER, retorna kpis + units_activity + users (exige super_admin)
 
 ## visibilidade_logs (10 colunas)
 

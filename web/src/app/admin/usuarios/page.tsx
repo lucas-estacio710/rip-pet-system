@@ -3,7 +3,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   Users, Search, X, Plus, Building2, Shield, Crown, User,
-  Key, ToggleLeft, ToggleRight, Pencil, Trash2, Loader2, Check
+  Key, ToggleLeft, ToggleRight, Pencil, Trash2, Loader2, Check,
+  ArrowDownAZ, CalendarPlus, Clock
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit, type Unidade, type UserRole } from '@/contexts/UnitContext'
@@ -35,7 +36,7 @@ type UserRow = {
 const ROLE_CONFIG: Record<UserRole, { label: string; icon: typeof Crown; color: string }> = {
   super_admin: { label: 'Super Admin', icon: Crown, color: 'text-amber-400' },
   gerente: { label: 'Gerente', icon: Shield, color: 'text-purple-400' },
-  operador: { label: 'Operador', icon: User, color: 'text-blue-400' },
+  operador: { label: 'Concierge', icon: User, color: 'text-orange-400' },
 }
 
 // ============================================
@@ -48,6 +49,7 @@ export default function AdminUsuariosPage() {
   const [users, setUsers] = useState<UserRow[]>([])
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
+  const [sortBy, setSortBy] = useState<'nome' | 'criacao' | 'login'>('nome')
   const [showModal, setShowModal] = useState(false)
   const [editingUser, setEditingUser] = useState<UserRow | null>(null)
   const [saving, setSaving] = useState(false)
@@ -110,6 +112,21 @@ export default function AdminUsuariosPage() {
       u.perfis.some(p => p.nome?.toLowerCase().includes(term)) ||
       u.perfis.some(p => p.unidade_nome.toLowerCase().includes(term))
     )
+  })
+
+  const displayName = (u: UserRow) => (u.perfis[0]?.nome || u.email.split('@')[0]).toLowerCase()
+
+  const sorted = [...filtered].sort((a, b) => {
+    if (sortBy === 'nome') {
+      return displayName(a).localeCompare(displayName(b), 'pt-BR')
+    }
+    if (sortBy === 'criacao') {
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    }
+    // login — últimos primeiro, nulls por último
+    const la = a.last_sign_in_at ? new Date(a.last_sign_in_at).getTime() : 0
+    const lb = b.last_sign_in_at ? new Date(b.last_sign_in_at).getTime() : 0
+    return lb - la
   })
 
   // ============================================
@@ -374,21 +391,50 @@ export default function AdminUsuariosPage() {
         </button>
       </div>
 
-      {/* Busca */}
-      <div className="mb-4 relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-[var(--surface-400)]" />
-        <input
-          type="text"
-          placeholder="Buscar por nome, email, unidade..."
-          value={busca}
-          onChange={(e) => setBusca(e.target.value)}
-          className="input pl-10 pr-10"
-        />
-        {busca && (
-          <button onClick={() => setBusca('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--surface-400)] hover:text-[var(--surface-600)]">
-            <X className="h-4 w-4" />
-          </button>
-        )}
+      {/* Busca + Ordenação */}
+      <div className="mb-4 flex flex-col sm:flex-row gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-[var(--surface-400)]" />
+          <input
+            type="text"
+            placeholder="Buscar por nome, email, unidade..."
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            className="input pl-10 pr-10"
+          />
+          {busca && (
+            <button onClick={() => setBusca('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--surface-400)] hover:text-[var(--surface-600)]">
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Ordenação */}
+        <div className="inline-flex rounded-xl overflow-hidden" style={{ border: '1px solid var(--surface-300)' }}>
+          {([
+            { key: 'nome', label: 'A-Z', icon: ArrowDownAZ, title: 'Ordem alfabética' },
+            { key: 'criacao', label: 'Criação', icon: CalendarPlus, title: 'Mais recentes primeiro' },
+            { key: 'login', label: 'Último login', icon: Clock, title: 'Logins recentes primeiro' },
+          ] as const).map(opt => {
+            const OptIcon = opt.icon
+            const active = sortBy === opt.key
+            return (
+              <button
+                key={opt.key}
+                onClick={() => setSortBy(opt.key)}
+                title={opt.title}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors"
+                style={{
+                  background: active ? 'var(--brand-500)' : 'transparent',
+                  color: active ? '#fff' : 'var(--surface-500)',
+                }}
+              >
+                <OptIcon className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">{opt.label}</span>
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       {/* Lista */}
@@ -401,11 +447,11 @@ export default function AdminUsuariosPage() {
             </div>
           ))}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : sorted.length === 0 ? (
         <EmptyState icon={Users} title="Nenhum usuário encontrado" description={busca ? 'Tente ajustar a busca' : 'Crie o primeiro usuário'} />
       ) : (
         <div className="space-y-2 stagger-children">
-          {filtered.map(user => {
+          {sorted.map(user => {
             const mainPerfil = user.perfis[0]
             const nome = mainPerfil?.nome || user.email.split('@')[0]
             const isDesativado = user.perfis.length > 0 && user.perfis.every(p => !p.ativo)
@@ -632,7 +678,7 @@ export default function AdminUsuariosPage() {
                         className="w-32 text-sm py-1.5 px-2 rounded-lg outline-none"
                         style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155' }}
                       >
-                        <option value="operador">Operador</option>
+                        <option value="operador">Concierge</option>
                         <option value="gerente">Gerente</option>
                         <option value="super_admin">Super Admin</option>
                       </select>

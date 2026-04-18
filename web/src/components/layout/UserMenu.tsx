@@ -21,7 +21,7 @@ const THEME_ICONS: Record<Theme, typeof Moon> = {
 const ROLE_LABELS = {
   super_admin: 'Super Admin',
   gerente: 'Gerente',
-  operador: 'Operador',
+  operador: 'Concierge',
 }
 
 export function UserMenu() {
