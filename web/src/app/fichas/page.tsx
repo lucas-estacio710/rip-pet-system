@@ -115,6 +115,31 @@ export default function FichasPage() {
   const [busca, setBusca] = useState('')
   const buscaDebounced = useDebounce(busca, 300)
 
+  // Filtro de período
+  type Periodo = 'hoje' | 'ontem' | '7d' | '30d' | 'mes' | 'ano' | 'personalizado'
+  const [periodo, setPeriodo] = useState<Periodo>('7d')
+  const [periodoCustomDe, setPeriodoCustomDe] = useState('')
+  const [periodoCustomAte, setPeriodoCustomAte] = useState('')
+
+  function periodoRange(): { from: string; to: string } {
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1)
+    switch (periodo) {
+      case 'hoje': return { from: today.toISOString(), to: tomorrow.toISOString() }
+      case 'ontem': { const d = new Date(today); d.setDate(d.getDate() - 1); return { from: d.toISOString(), to: today.toISOString() } }
+      case '7d': { const d = new Date(today); d.setDate(d.getDate() - 7); return { from: d.toISOString(), to: tomorrow.toISOString() } }
+      case '30d': { const d = new Date(today); d.setDate(d.getDate() - 30); return { from: d.toISOString(), to: tomorrow.toISOString() } }
+      case 'mes': return { from: new Date(now.getFullYear(), now.getMonth(), 1).toISOString(), to: tomorrow.toISOString() }
+      case 'ano': return { from: new Date(now.getFullYear(), 0, 1).toISOString(), to: tomorrow.toISOString() }
+      case 'personalizado': {
+        const de = periodoCustomDe ? new Date(periodoCustomDe + 'T00:00:00').toISOString() : new Date(2020, 0, 1).toISOString()
+        const ate = periodoCustomAte ? new Date(periodoCustomAte + 'T23:59:59').toISOString() : tomorrow.toISOString()
+        return { from: de, to: ate }
+      }
+    }
+  }
+
   // Counts
   const [pendentesCount, setPendentesCount] = useState(0)
   const [processadasCount, setProcessadasCount] = useState(0)
@@ -158,21 +183,24 @@ export default function FichasPage() {
 
   useEffect(() => {
     carregarFichas()
-  }, [filtro, buscaDebounced])
+  }, [filtro, buscaDebounced, periodo, periodoCustomDe, periodoCustomAte])
 
   async function carregarContagens() {
     if (!currentUnit) { setLoading(false); return }
+    const { from, to } = periodoRange()
     const pendQuery = supabase
       .from('fichas')
       .select('*', { count: 'exact', head: true })
       .or('processada.is.null,processada.eq.false')
       .or('op_dados.is.null,op_dados.not.cs.{"cancelada":true}')
       .eq('unidade_id', currentUnit.id)
+      .gte('created_at', from).lt('created_at', to)
     const procQuery = supabase
       .from('fichas')
       .select('id, op_dados, contrato_id')
       .eq('processada', true)
       .eq('unidade_id', currentUnit.id)
+      .gte('created_at', from).lt('created_at', to)
 
     const [{ count: pend }, { data: procRows }] = await Promise.all([pendQuery, procQuery])
     const rows = (procRows || []) as Array<{ op_dados: Record<string, unknown> | null; contrato_id: string | null }>
@@ -191,11 +219,13 @@ export default function FichasPage() {
     if (!currentUnit) { setLoading(false); return }
     setLoading(true)
 
+    const { from, to } = periodoRange()
     let query = supabase
       .from('fichas')
       .select('*')
+      .gte('created_at', from).lt('created_at', to)
       .order('created_at', { ascending: false })
-      .limit(100)
+      .limit(200)
 
     // Filtrar por unidade
     if (currentUnit) {
@@ -474,6 +504,48 @@ export default function FichasPage() {
           {pushError}
         </div>
       )}
+
+      {/* Filtro de período */}
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        {([
+          { key: 'hoje', label: 'Hoje' },
+          { key: 'ontem', label: 'Ontem' },
+          { key: '7d', label: '7 dias' },
+          { key: '30d', label: '30 dias' },
+          { key: 'mes', label: 'Este Mês' },
+          { key: 'ano', label: 'Este Ano' },
+          { key: 'personalizado', label: 'Personalizado' },
+        ] as { key: Periodo; label: string }[]).map(p => (
+          <button
+            key={p.key}
+            onClick={() => setPeriodo(p.key)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              periodo === p.key
+                ? 'bg-blue-600 text-white'
+                : 'bg-[var(--surface-100)] text-[var(--surface-500)] hover:text-[var(--surface-700)]'
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
+        {periodo === 'personalizado' && (
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={periodoCustomDe}
+              onChange={e => setPeriodoCustomDe(e.target.value)}
+              className="px-2 py-1 rounded-lg border border-[var(--surface-200)] bg-[var(--surface-0)] text-[var(--surface-700)] text-xs"
+            />
+            <span className="text-xs text-[var(--surface-400)]">até</span>
+            <input
+              type="date"
+              value={periodoCustomAte}
+              onChange={e => setPeriodoCustomAte(e.target.value)}
+              className="px-2 py-1 rounded-lg border border-[var(--surface-200)] bg-[var(--surface-0)] text-[var(--surface-700)] text-xs"
+            />
+          </div>
+        )}
+      </div>
 
       {/* Cards de contagem — 4 status fixos, sempre um selecionado */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
