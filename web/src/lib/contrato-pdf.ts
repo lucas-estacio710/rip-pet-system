@@ -1,4 +1,5 @@
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
+import { PDFDocument, rgb } from 'pdf-lib'
+import fontkit from '@pdf-lib/fontkit'
 
 export type DadosUnidade = {
   razaoSocial: string
@@ -126,7 +127,7 @@ const UNIDADES: Record<string, DadosUnidade> = {
 const FALLBACK_UNIDADE = UNIDADES['Santos - SP']
 export function getUnidade(nome: string): DadosUnidade { return UNIDADES[nome] || FALLBACK_UNIDADE }
 
-function fmt$(v: number | null): string { return v ? v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '' }
+function fmt$(v: number | null): string { return v != null ? v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '' }
 function cap(s: string | null): string {
   if (!s) return ''
   const map: Record<string, string> = {
@@ -157,9 +158,15 @@ export async function gerarContratoPDF(dados: DadosContrato, nomeUnidade: string
   const templateFile = (u.sigla === 'PA' || u.sigla === 'RS') ? '/contrato-template-PA-RS.pdf' : '/contrato-template.pdf'
   const templateBytes = await fetch(templateFile).then(r => r.arrayBuffer())
   const pdfDoc = await PDFDocument.load(templateBytes)
+  pdfDoc.registerFontkit(fontkit)
   const page = pdfDoc.getPages()[0]
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
-  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
+  // DM Sans (alinha com o Design System) — Unicode completo, evita erros WinAnsi
+  const [regularBytes, boldBytes] = await Promise.all([
+    fetch('/fonts/DMSans-Regular.ttf').then(r => r.arrayBuffer()),
+    fetch('/fonts/DMSans-Bold.ttf').then(r => r.arrayBuffer()),
+  ])
+  const font = await pdfDoc.embedFont(regularBytes, { subset: true })
+  const fontBold = await pdfDoc.embedFont(boldBytes, { subset: true })
   const { width, height } = page.getSize()
   const CW = 210 // A4 width em mm
 
@@ -298,14 +305,14 @@ export async function gerarContratoPDF(dados: DadosContrato, nomeUnidade: string
     : 'O pet indicado é cremado em conjunto com outros dois pets de mesma modalidade coletiva e as cinzas são espalhadas no jardim do crematório.'
 
   // Label bold
-  txt(planoLabel, 15, planoY, 9, true)
+  txt(planoLabel, 14.3, planoY, 9, true)
   const labelW = fontBold.widthOfTextAtSize(planoLabel, 9) / mmToPt
 
   // Descrição: primeira linha quebra em h130, demais em h195
   const descMaxW1 = (130 - 13 - labelW) * mmToPt // primeira linha (ao lado do label)
   const descMaxW2 = (195 - 13) * mmToPt // linhas seguintes (largura total)
   const descWords = planoDesc.split(' ')
-  let descLine = '', descX = 15 + labelW, descY = planoY, isFirstLine = true
+  let descLine = '', descX = 14.3 + labelW, descY = planoY, isFirstLine = true
   for (const w of descWords) {
     const test = descLine ? `${descLine} ${w}` : w
     const maxW = isFirstLine ? descMaxW1 : descMaxW2
@@ -313,7 +320,7 @@ export async function gerarContratoPDF(dados: DadosContrato, nomeUnidade: string
       txt(descLine, descX, descY, 8)
       descLine = w
       descY += 4
-      descX = 15
+      descX = 14.3
       isFirstLine = false
     } else {
       descLine = test
@@ -323,16 +330,19 @@ export async function gerarContratoPDF(dados: DadosContrato, nomeUnidade: string
 
   // Barra vertical separadora
   page.drawLine({
-    start: { x: 130 * mmToPt, y: height - 94.5 * mmToPt },
-    end: { x: 130 * mmToPt, y: height - (94.5 + 8.9) * mmToPt },
+    start: { x: 131.5 * mmToPt, y: height - 95 * mmToPt },
+    end: { x: 131.5 * mmToPt, y: height - (95 + 8.9) * mmToPt },
     thickness: 0.5,
     color: rgb(0, 0, 0),
   })
 
   // Valor — alinhar à direita em h195
-  const valorTexto = `${dados.temDesconto ? 'Valor c/ desc.:' : 'Valor:'} ${fmt$(dados.valorPlano)}`
+  // "Valor c/ desc." só faz sentido quando o resultado final é > 0;
+  // se o líquido é zerado (com ou sem desconto), volta pro label simples "Valor:"
+  const valorLabel = dados.temDesconto && dados.valorPlano && dados.valorPlano > 0 ? 'Valor c/ desc.:' : 'Valor:'
+  const valorTexto = `${valorLabel} ${fmt$(dados.valorPlano)}`
   const valorW = fontBold.widthOfTextAtSize(valorTexto, 9) / mmToPt
-  txt(valorTexto, 193 - valorW, 102.6, 9, true)
+  txt(valorTexto, 193.4 - valorW, 102.6, 9, true)
 
   // Forma de pagamento — mesmo v do plano, h135
   const pgMap: Record<string, string> = { pix: 'Pix', dinheiro: 'Dinheiro', debito: 'Cartão Débito', credito: 'Cartão Crédito' }
@@ -341,7 +351,7 @@ export async function gerarContratoPDF(dados: DadosContrato, nomeUnidade: string
   // Forma de pagamento — alinhar à direita em h195
   const pgLabelW = fontBold.widthOfTextAtSize('Forma de Pagamento: ', 8) / mmToPt
   const pgValorW = font.widthOfTextAtSize(pgFull, 8) / mmToPt
-  const pgStartX = 193 - pgLabelW - pgValorW
+  const pgStartX = 193.4 - pgLabelW - pgValorW
   txt('Forma de Pagamento: ', pgStartX, 97.6, 8, true)
   txt(pgFull, pgStartX + pgLabelW, 97.6, 8)
 
