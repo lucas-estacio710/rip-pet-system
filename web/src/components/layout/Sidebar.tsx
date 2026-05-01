@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import Image from 'next/image'
 import {
   LayoutDashboard,
+  BarChart3,
   TextSelect,
   Zap,
   FileCheck,
@@ -42,7 +43,8 @@ const navItems: NavItem[] = [
   { href: '/gc', label: 'GC', icon: Church, countKey: null, module: 'tela_gc', iconColor: '#60a5fa' },
   { href: '/tutores', label: 'Tutores', icon: Users, countKey: null, module: 'tela_tutores', iconColor: '#c4b5fd' },
   { href: '/ads-shield', label: 'RIP Shield', icon: Shield, countKey: null, module: 'tela_ads_shield', iconColor: '#ef4444' },
-  { href: '/dashboard', label: 'Dashboard Admin', icon: LayoutDashboard, countKey: null, module: 'tela_dashboard', iconColor: '#10b981', superAdminOnly: true },
+  { href: '/dashboard-pipeline', label: 'Dashboards', icon: BarChart3, countKey: null, module: 'tela_dashboards', iconColor: '#10b981' },
+  { href: '/dashboard', label: 'Dashboard Admin', icon: LayoutDashboard, countKey: null, module: 'tela_dashboard', iconColor: '#22d3ee', superAdminOnly: true },
 ]
 
 type Props = {

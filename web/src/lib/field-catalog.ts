@@ -63,7 +63,8 @@ export const TELAS: ItemDef[] = [
   { key: 'tela_gc', label: 'GC', desc: 'Gerenciamento de Cremações (Matriz)' },
   { key: 'tela_tutores', label: 'Tutores', desc: 'Cadastro de tutores' },
   { key: 'tela_ads_shield', label: 'RIP Shield', desc: 'Detecção de fraude em cliques Google Ads' },
-  { key: 'tela_dashboard', label: 'Dashboard', desc: 'Painel de indicadores' },
+  { key: 'tela_dashboard', label: 'Dashboard (Admin)', desc: 'Painel interno do super_admin — uso/adoção dos usuários' },
+  { key: 'tela_dashboards', label: 'Dashboards', desc: 'Estatísticas dos contratos para os usuários da unidade' },
 ]
 
 // ============================================
@@ -76,6 +77,12 @@ export const OBJETOS: ChildItemDef[] = [
 
   // Fichas
   { key: 'cb_padronizacao_clinicas', tela: 'tela_fichas', label: 'Padronização Clínicas', desc: 'Autocomplete de estabelecimentos no processamento de ficha' },
+
+  // Dashboards (usuários)
+  { key: 'obj_dash_operacional', tela: 'tela_dashboards', label: 'Operacional', desc: 'Volume, fluxo, supindas, entregas, rescaldos' },
+  { key: 'obj_dash_financeiro', tela: 'tela_dashboards', label: 'Financeiro', desc: 'Receita, custo cremação, ticket médio, pendentes, NFS-e' },
+  { key: 'obj_dash_comercial', tela: 'tela_dashboards', label: 'Comercial / Indicadores', desc: 'Ranking clínicas, indicações, conversão de leads' },
+  { key: 'obj_dash_marketing', tela: 'tela_dashboards', label: 'Marketing / Ads', desc: 'UTM, leads, conversão, RIP Shield, ROAS' },
 ]
 
 // ============================================
