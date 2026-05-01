@@ -230,7 +230,7 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
     const pagamento = pick(['pix', 'dinheiro', 'debito', 'credito'])
     const velorio = pick(['Sim', 'Decidirei depois', 'Não'])
     const acomp = pick(['Vídeo-chamada ao vivo', 'Vídeo gravado', 'Presencial na Matriz', 'Decidirei depois', 'Não desejo'])
-    const conheceu = pick([['Google'], ['Veterinário'], ['Parente/Amigo'], ['Instagram/Facebook'], ['Já utilizei a R.I.P. Pet']])
+    const conheceu = pick([['Google'], ['Veterinário'], ['Parente/Amigo'], ['Instagram/Facebook'], ['Já utilizei a R.I.P. Pet'], ['Passei pela Unidade']])
 
     // Gerar CPF válido
     const cpfDigits = Array.from({ length: 9 }, () => Math.floor(Math.random() * 10))
@@ -1041,11 +1041,15 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
 
               {/* Como conheceu */}
               <div>
-                <label className={labelClass}>Como nos conheceu? <span className="text-red-400">*</span></label>
+                <label className={labelClass}>
+                  Como nos conheceu? <span className="text-red-400">*</span>
+                  <span className="ml-1 text-slate-500 font-normal">(pode marcar mais de uma)</span>
+                </label>
                 <div className="space-y-2">
                   {[
-                    'Google', 'Veterinário', 'Parente/Amigo',
-                    'Já utilizei a R.I.P. Pet', 'Instagram/Facebook', 'Outro',
+                    'Veterinário', 'Google', 'Já utilizei a R.I.P. Pet',
+                    'Parente/Amigo', 'Passei pela Unidade',
+                    'Instagram/Facebook', 'Outro',
                   ].map(opt => (
                     <label key={opt} className="flex items-center gap-3 cursor-pointer">
                       <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${

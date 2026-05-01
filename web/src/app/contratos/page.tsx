@@ -62,6 +62,7 @@ type Contrato = {
   data_acolhimento: string | null
   numero_lacre: string | null
   fonte_conhecimento: { nome: string } | null
+  fonte_outro_especificar: string | null
   seguradora: string | null
   // Nomes para certificado
   certificado_nome_1: string | null
@@ -699,7 +700,7 @@ function ContratosContent() {
 
     let query = supabase
       .from('contratos')
-      .select('id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, contrato_gc(etapa, cinzas_prontas, certificado_pronto, contato_status), protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id', { count: 'exact' })
+      .select('id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, contrato_gc(etapa, cinzas_prontas, certificado_pronto, contato_status), protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id', { count: 'exact' })
     if (agruparPorSupinda) {
       query = query.order('supinda_id', { ascending: true, nullsFirst: true })
     }
@@ -760,7 +761,7 @@ function ContratosContent() {
 
     let query = supabase
       .from('contratos')
-      .select('id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, contrato_gc(etapa, cinzas_prontas, certificado_pronto, contato_status), protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id', { count: 'exact' })
+      .select('id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, contrato_gc(etapa, cinzas_prontas, certificado_pronto, contato_status), protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id', { count: 'exact' })
       .or(campoBusca === 'todos'
         ? `codigo.ilike.%${termoBusca}%,pet_nome.ilike.%${termoBusca}%,tutor_nome.ilike.%${termoBusca}%,numero_lacre.ilike.%${termoBusca}%`
         : campoBusca === 'pet' ? `pet_nome.ilike.%${termoBusca}%`
@@ -3656,30 +3657,36 @@ ${petNome}`
                     </div>
 
                     {/* Fonte de conhecimento */}
-                    {contrato.fonte_conhecimento?.nome && (
-                      <div
-                        className="flex-shrink-0 w-10 h-10 rounded-lg flex flex-col items-center justify-center"
-                        style={FONTE_ICONS[contrato.fonte_conhecimento.nome]?.style || { background: 'linear-gradient(135deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', border: '1px solid #cbd5e1', color: '#64748b' }}
-                        title={contrato.seguradora
-                          ? `${contrato.fonte_conhecimento.nome}: ${contrato.seguradora}`
-                          : contrato.fonte_conhecimento.nome}
-                      >
-                        {FONTE_ICONS[contrato.fonte_conhecimento.nome]?.img ? (
-                          <img
-                            src={FONTE_ICONS[contrato.fonte_conhecimento.nome].img}
-                            alt={contrato.fonte_conhecimento.nome}
-                            className="w-5 h-5"
-                          />
-                        ) : (
-                          <span className="text-base leading-none">{FONTE_ICONS[contrato.fonte_conhecimento.nome]?.icon || '❓'}</span>
-                        )}
-                        {contrato.seguradora && (
-                          <span className="text-[7px] font-semibold leading-none mt-0.5 whitespace-nowrap" style={{ color: '#4338ca' }}>
-                            {contrato.seguradora}
-                          </span>
-                        )}
-                      </div>
-                    )}
+                    {contrato.fonte_conhecimento?.nome && (() => {
+                      const isOutro = contrato.fonte_conhecimento.nome === 'Outro' && !!contrato.fonte_outro_especificar
+                      const titleText = contrato.seguradora
+                        ? `${contrato.fonte_conhecimento.nome}: ${contrato.seguradora}`
+                        : isOutro
+                          ? `Outro: ${contrato.fonte_outro_especificar}`
+                          : contrato.fonte_conhecimento.nome
+                      return (
+                        <div
+                          className="flex-shrink-0 w-10 h-10 rounded-lg flex flex-col items-center justify-center"
+                          style={FONTE_ICONS[contrato.fonte_conhecimento.nome]?.style || { background: 'linear-gradient(135deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', border: '1px solid #cbd5e1', color: '#64748b' }}
+                          title={titleText}
+                        >
+                          {FONTE_ICONS[contrato.fonte_conhecimento.nome]?.img ? (
+                            <img
+                              src={FONTE_ICONS[contrato.fonte_conhecimento.nome].img}
+                              alt={contrato.fonte_conhecimento.nome}
+                              className="w-5 h-5"
+                            />
+                          ) : (
+                            <span className="text-base leading-none">{FONTE_ICONS[contrato.fonte_conhecimento.nome]?.icon || '❓'}</span>
+                          )}
+                          {contrato.seguradora && (
+                            <span className="text-[7px] font-semibold leading-none mt-0.5 whitespace-nowrap" style={{ color: '#4338ca' }}>
+                              {contrato.seguradora}
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })()}
 
                     {/* Local de remoção */}
                     {contrato.local_coleta && (

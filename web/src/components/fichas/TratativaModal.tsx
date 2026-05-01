@@ -683,7 +683,9 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         const fonteMap: Record<string, string> = {
           'Google': 'Google', 'Instagram/Facebook': 'Instagram/Facebook',
           'Veterinário': 'Indicação em Clínica', 'Parente/Amigo': 'Parente/Amigo',
-          'Já utilizei a R.I.P. Pet': 'Cliente', 'Outro': 'Outro',
+          'Já utilizei a R.I.P. Pet': 'Cliente',
+          'Passei pela Unidade': 'Ponto',
+          'Outro': 'Outro',
         }
         for (const conheceu of f.como_conheceu) {
           const nomeExato = fonteMap[conheceu] || conheceu
@@ -764,6 +766,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         funcionario_id: semResponsavel ? null : (funcionarioId || null),
         fonte_conhecimento_id: fonteConhecimentoId,
         fonte_conhecimento_ids: fonteConhecimentoIds.length > 0 ? fonteConhecimentoIds : null,
+        fonte_outro_especificar: f.como_conheceu?.includes('Outro') ? (f.outro_especificar?.trim() || null) : null,
         estabelecimento_indicacao_id: teveIndicacao && temPadronizacaoClinicas ? (indicEstabId || null) : null,
         indicacao_clinica: teveIndicacao ? (temPadronizacaoClinicas ? (indicEstabNome.trim() || null) : (indicHospClinica.trim() || null)) : null,
         indicacao_contato: teveIndicacao ? (indicNomeQuemIndicou.trim() || null) : null,
