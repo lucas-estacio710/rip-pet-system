@@ -5,6 +5,7 @@ import TipoCremacaoKPI from './TipoCremacaoKPI'
 import LocalRemocaoKPI from './LocalRemocaoKPI'
 import EspecieKPI from './EspecieKPI'
 import ComoConheceuKPI from './ComoConheceuKPI'
+import FonteOutroKPI from './FonteOutroKPI'
 import type { PeriodRange } from '@/lib/dashboard-period'
 
 type Props = {
@@ -23,6 +24,7 @@ export default function OperacionalTab({ range, comparePrev }: Props) {
       </div>
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <ComoConheceuKPI range={range} comparePrev={comparePrev} />
+        <FonteOutroKPI range={range} />
       </div>
     </div>
   )
