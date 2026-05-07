@@ -1187,9 +1187,32 @@ export default function EncaminhamentosPage() {
                           <>
                             {ida.length > 0 && (
                               <div>
-                                <h4 className="text-[10px] font-bold text-[var(--surface-500)] uppercase tracking-wider mb-1 flex items-center gap-1">
-                                  <span className="text-amber-400">↑</span> Levar ({ida.length})
-                                </h4>
+                                <div className="flex items-center justify-between gap-2 mb-1">
+                                  <h4 className="text-[10px] font-bold text-[var(--surface-500)] uppercase tracking-wider flex items-center gap-1">
+                                    <span className="text-amber-400">↑</span> Levar ({ida.length})
+                                  </h4>
+                                  {enc.status === 'embarcada' && ida.some(c => !c.certificado_confirmado) && (() => {
+                                    const pendentes = ida.filter(c => !c.certificado_confirmado)
+                                    return (
+                                      <button
+                                        onClick={async () => {
+                                          if (!confirm(`Marcar ${pendentes.length} pet${pendentes.length > 1 ? 's' : ''} como acondicionado${pendentes.length > 1 ? 's' : ''}?`)) return
+                                          const ids = pendentes.map(c => c.id)
+                                          await supabase.from('contratos').update({ certificado_confirmado: true } as never).in('id', ids)
+                                          const update = (list: ContratoEnc[]) => list.map(x => ids.includes(x.id) ? { ...x, certificado_confirmado: true } : x)
+                                          setCremados(update)
+                                          setAtivos(update)
+                                          setVinculados(update)
+                                        }}
+                                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold text-cyan-400 bg-cyan-900/20 hover:bg-cyan-900/40 transition-colors shrink-0"
+                                        title="Marcar todos os pendentes como acondicionados"
+                                      >
+                                        <Snowflake className="h-3 w-3" />
+                                        Acondicionar todos ({pendentes.length})
+                                      </button>
+                                    )
+                                  })()}
+                                </div>
                                 <div className="divide-y divide-[var(--surface-200)]">
                                   {ida.map(c => (
                                       <div key={c.id} className={`px-2 py-2 ${c.certificado_confirmado ? 'bg-cyan-900/10' : ''}`}>
