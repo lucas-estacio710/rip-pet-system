@@ -4,6 +4,7 @@ import { Suspense, useEffect, useRef, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { FileText, Search, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ArrowUp, ArrowDown, Star, X, Printer, XCircle, Plus, Weight, Copy, Check, Clock, CheckCheck, CalendarClock, SearchCheck, Flame, CheckCircle2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { sanitizeBuscaPostgrest } from '@/lib/sanitize'
 import Link from 'next/link'
 import { useDebounce } from '@/hooks/useDebounce'
 import { ProtocoloData, getNomeRetorno, isProtocoloExcluido, montarProtocoloData, normalizarProtocoloData, formatarValor } from '@/components/protocolo/protocolo-utils'
@@ -696,44 +697,62 @@ function ContratosContent() {
     const ascending = ordemAsc
     // Agrupar por encaminhamento: toggle do user, mas preventivo nunca agrupa (não tem supinda).
     const agruparPorSupinda = agruparSupinda && statusFiltro !== 'preventivo'
-    const semPaginacao = ['ativo', 'pinda', 'retorno', 'pendente'].includes(statusFiltro || '')
+    // Sem paginação quando há agrupamento por encaminhamento — caso contrário
+    // a paginação no servidor quebra grupos entre páginas (mesmo encaminhamento
+    // aparece em 2 páginas separadas).
+    const semPaginacao = ['ativo', 'pinda', 'retorno', 'pendente', 'finalizado'].includes(statusFiltro || '') && agruparPorSupinda
+      || ['ativo', 'pinda', 'retorno', 'pendente'].includes(statusFiltro || '')
 
-    let query = supabase
-      .from('contratos')
-      .select('id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, contrato_gc(etapa, cinzas_prontas, certificado_pronto, contato_status), protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id', { count: 'exact' })
-    if (agruparPorSupinda) {
-      query = query.order('supinda_id', { ascending: true, nullsFirst: true })
-    }
-    query = query.order(campoOrdem, { ascending, nullsFirst: false })
-    if (semPaginacao) {
-      query = query.limit(1000)
-    } else {
-      query = query.range(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA - 1)
-    }
+    const SELECT_CONTRATO = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, contrato_gc(etapa, cinzas_prontas, certificado_pronto, contato_status), protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id'
 
-    if (currentUnit) {
-      // Filtrar por unidade — se toggle compartilhados ligado, inclui co-responsáveis
-      if (mostrarCompartilhados) {
-        query = query.or(`unidade_id.eq.${currentUnit.id},unidade_remocao_id.eq.${currentUnit.id},unidade_entrega_id.eq.${currentUnit.id}`)
-      } else {
-        query = query.eq('unidade_id', currentUnit.id)
+    function buildQuery() {
+      let q = supabase.from('contratos').select(SELECT_CONTRATO, { count: 'exact' })
+      if (agruparPorSupinda) {
+        q = q.order('supinda_id', { ascending: true, nullsFirst: true })
       }
+      q = q.order(campoOrdem, { ascending, nullsFirst: false })
+      if (currentUnit) {
+        if (mostrarCompartilhados) {
+          q = q.or(`unidade_id.eq.${currentUnit.id},unidade_remocao_id.eq.${currentUnit.id},unidade_entrega_id.eq.${currentUnit.id}`)
+        } else {
+          q = q.eq('unidade_id', currentUnit.id)
+        }
+      }
+      if (statusFiltro) q = q.eq('status', statusFiltro)
+      return q
     }
 
-    if (statusFiltro) {
-      query = query.eq('status', statusFiltro)
-    }
-
-    const { data, error, count } = await query
-
-    // Ignorar se outra operação (busca ou carregamento) já foi disparada
-    if (minhaBuscaId !== buscaIdRef.current) return
-
-    if (error) {
-      console.error('Erro ao carregar contratos:', error)
+    if (semPaginacao) {
+      // Paginação interna em chunks de 1000 — pega todos os contratos sem
+      // depender de limite arbitrário (cobre listas com >5000 sem cortar).
+      const CHUNK = 1000
+      let from = 0
+      const allData: Contrato[] = []
+      let totalCount = 0
+      let firstError: { message?: string } | null = null
+      while (true) {
+        const { data, error, count } = await buildQuery().range(from, from + CHUNK - 1)
+        if (error) { firstError = error; break }
+        if (count !== null && count !== undefined) totalCount = count
+        const arr = (data || []) as Contrato[]
+        allData.push(...arr)
+        if (arr.length < CHUNK) break
+        from += CHUNK
+      }
+      if (minhaBuscaId !== buscaIdRef.current) return
+      if (firstError) console.error('Erro ao carregar contratos:', firstError)
+      else {
+        setContratos(allData)
+        setTotal(totalCount)
+      }
     } else {
-      setContratos((data || []) as Contrato[])
-      setTotal(count || 0)
+      const { data, error, count } = await buildQuery().range(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA - 1)
+      if (minhaBuscaId !== buscaIdRef.current) return
+      if (error) console.error('Erro ao carregar contratos:', error)
+      else {
+        setContratos((data || []) as Contrato[])
+        setTotal(count || 0)
+      }
     }
 
     setLoading(false)
@@ -759,48 +778,60 @@ function ContratosContent() {
     const ascending = ordemAsc
     const agruparPorSupinda = agruparSupinda && statusFiltro !== 'preventivo'
 
-    let query = supabase
-      .from('contratos')
-      .select('id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, contrato_gc(etapa, cinzas_prontas, certificado_pronto, contato_status), protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id', { count: 'exact' })
-      .or(campoBusca === 'todos'
-        ? `codigo.ilike.%${termoBusca}%,pet_nome.ilike.%${termoBusca}%,tutor_nome.ilike.%${termoBusca}%,numero_lacre.ilike.%${termoBusca}%`
-        : campoBusca === 'pet' ? `pet_nome.ilike.%${termoBusca}%`
-        : campoBusca === 'tutor' ? `tutor_nome.ilike.%${termoBusca}%`
-        : campoBusca === 'codigo' ? `codigo.ilike.%${termoBusca}%`
-        : `numero_lacre.ilike.%${termoBusca}%`
-      )
-    if (agruparPorSupinda) {
-      query = query.order('supinda_id', { ascending: true, nullsFirst: true })
-    }
-    query = query
-      .order(campoOrdem, { ascending, nullsFirst: false })
-      .limit(1000)
+    const SELECT_BUSCA = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, contrato_gc(etapa, cinzas_prontas, certificado_pronto, contato_status), protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id'
+    // Sanitiza: escapa wildcards SQL (% _) e caracteres reservados PostgREST (, ( ) : * \)
+    // + limita 80 chars. Protege contra termo malicioso quebrar o filtro `or`.
+    const t = sanitizeBuscaPostgrest(termoBusca)
+    const buscaOr = campoBusca === 'todos'
+      ? `codigo.ilike.%${t}%,pet_nome.ilike.%${t}%,tutor_nome.ilike.%${t}%,numero_lacre.ilike.%${t}%`
+      : campoBusca === 'pet' ? `pet_nome.ilike.%${t}%`
+      : campoBusca === 'tutor' ? `tutor_nome.ilike.%${t}%`
+      : campoBusca === 'codigo' ? `codigo.ilike.%${t}%`
+      : `numero_lacre.ilike.%${t}%`
 
-    if (currentUnit) {
-      // Filtrar por unidade — se toggle compartilhados ligado, inclui co-responsáveis
-      if (mostrarCompartilhados) {
-        query = query.or(`unidade_id.eq.${currentUnit.id},unidade_remocao_id.eq.${currentUnit.id},unidade_entrega_id.eq.${currentUnit.id}`)
-      } else {
-        query = query.eq('unidade_id', currentUnit.id)
+    function buildBusca() {
+      let q = supabase.from('contratos').select(SELECT_BUSCA, { count: 'exact' }).or(buscaOr)
+      if (agruparPorSupinda) q = q.order('supinda_id', { ascending: true, nullsFirst: true })
+      q = q.order(campoOrdem, { ascending, nullsFirst: false })
+      if (currentUnit) {
+        if (mostrarCompartilhados) {
+          q = q.or(`unidade_id.eq.${currentUnit.id},unidade_remocao_id.eq.${currentUnit.id},unidade_entrega_id.eq.${currentUnit.id}`)
+        } else {
+          q = q.eq('unidade_id', currentUnit.id)
+        }
       }
+      return q
     }
 
-    const { data, error, count } = await query
+    // Paginação interna em chunks de 1000 — pega todos os hits da busca,
+    // mesmo quando o termo retorna milhares de resultados.
+    const CHUNK = 1000
+    let from = 0
+    const allData: Contrato[] = []
+    let totalCount = 0
+    let firstError: { message?: string } | null = null
+    while (true) {
+      const { data, error, count } = await buildBusca().range(from, from + CHUNK - 1)
+      if (error) { firstError = error; break }
+      if (count !== null && count !== undefined) totalCount = count
+      const arr = (data || []) as Contrato[]
+      allData.push(...arr)
+      if (arr.length < CHUNK) break
+      from += CHUNK
+    }
 
-    // Ignorar resultado se outra busca já foi disparada
     if (minhaBuscaId !== buscaIdRef.current) return
 
-    if (error) {
-      console.error('Erro na busca:', error)
+    if (firstError) {
+      console.error('Erro na busca:', firstError)
     } else {
-      const resultados = (data || []) as Contrato[]
-      setContratos(resultados)
-      setTotal(count || 0)
+      setContratos(allData)
+      setTotal(totalCount)
       atualizarURL({ busca: termoBusca })
 
       // Atualizar contagens do pipeline com base nos resultados da busca
       const buscaCounts: Record<string, number> = {}
-      resultados.forEach(c => {
+      allData.forEach(c => {
         buscaCounts[c.status] = (buscaCounts[c.status] || 0) + 1
       })
       setStatusCounts(buscaCounts)
@@ -3555,33 +3586,17 @@ ${petNome}`
                 }
               }
 
-              // Ordenar grupos seguindo a mesma escolha do user (data ou nome).
+              // Ordenar GRUPOS pelo NÚMERO da supinda (estável, previsível),
+              // respeitando a direção asc/desc da ordenação primária.
               // "Sem encaminhamento" sempre primeiro.
+              // Os pets DENTRO do grupo continuam ordenados por data/nome (lógica acima).
               grupos.sort((a, b) => {
                 if (a.numero === null && b.numero === null) return 0
                 if (a.numero === null) return -1
                 if (b.numero === null) return 1
-
-                if (ordenacao === 'data') {
-                  const datasA = a.contratos.map(dataEfetiva).filter(t => t > 0)
-                  const datasB = b.contratos.map(dataEfetiva).filter(t => t > 0)
-                  if (datasA.length === 0 && datasB.length === 0) return 0
-                  if (datasA.length === 0) return 1
-                  if (datasB.length === 0) return -1
-                  const refA = ordemAsc ? Math.min(...datasA) : Math.max(...datasA)
-                  const refB = ordemAsc ? Math.min(...datasB) : Math.max(...datasB)
-                  return ordemAsc ? refA - refB : refB - refA
-                }
-
-                if (ordenacao === 'nome') {
-                  const namesA = a.contratos.map(c => (c.pet_nome || '').toLowerCase()).sort()
-                  const namesB = b.contratos.map(c => (c.pet_nome || '').toLowerCase()).sort()
-                  const refA = ordemAsc ? namesA[0] : namesA[namesA.length - 1]
-                  const refB = ordemAsc ? namesB[0] : namesB[namesB.length - 1]
-                  return ordemAsc ? refA.localeCompare(refB) : refB.localeCompare(refA)
-                }
-
-                return 0
+                const numA = parseInt(a.numero.replace(/^[A-Z]+/, ''), 10) || 0
+                const numB = parseInt(b.numero.replace(/^[A-Z]+/, ''), 10) || 0
+                return ordemAsc ? numA - numB : numB - numA
               })
 
               return (
