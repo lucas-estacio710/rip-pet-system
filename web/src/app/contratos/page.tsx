@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { FileText, Search, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ArrowUp, ArrowDown, Star, X, Printer, XCircle, Plus, Weight, Copy, Check, Clock, CheckCheck, CalendarClock, SearchCheck, Flame, CheckCircle2 } from 'lucide-react'
+import { FileText, Search, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ArrowUp, ArrowDown, Star, X, Printer, XCircle, Plus, Weight, Copy, Check, Clock, CheckCheck, CalendarClock, SearchCheck, Flame, CheckCircle2, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { sanitizeBuscaPostgrest } from '@/lib/sanitize'
 import Link from 'next/link'
@@ -257,6 +257,9 @@ function ContratosContent() {
   const [statusCountsOriginal, setStatusCountsOriginal] = useState<Record<string, number>>({})
   const buscaIdRef = useRef(0) // Evita race condition entre buscas
   const [loading, setLoading] = useState(true)
+  const [carregandoMais, setCarregandoMais] = useState(false)
+  const sentinelRef = useRef<HTMLDivElement | null>(null)
+  const paginaRef = useRef(0)  // pra detectar incremento (append) vs reset (substituir)
   const [busca, setBusca] = useState(searchParams.get('busca') || '')
   const buscaDebounced = useDebounce(busca, 300)
   const [campoBusca, setCampoBusca] = useState<'todos' | 'pet' | 'tutor' | 'codigo' | 'lacre'>('todos')
@@ -631,9 +634,29 @@ function ContratosContent() {
 
   useEffect(() => {
     if (!buscaDebounced.trim()) {
-      carregarContratos()
+      // Pagina incrementou (scroll pediu mais) → append.
+      // Caso contrário (filtros mudaram, primeira carga, reset) → substitui.
+      const append = pagina > 0 && pagina > paginaRef.current
+      paginaRef.current = pagina
+      carregarContratos(append ? { append: true } : {})
     }
   }, [pagina, statusFiltro, ordenacao, ordemAsc, mostrarCompartilhados, currentUnit?.id])
+
+  // IntersectionObserver: dispara carregamento da próxima página quando chega no fim da lista
+  useEffect(() => {
+    if (loading || carregandoMais) return
+    if (contratos.length >= total) return  // já carregou tudo
+    if (buscaDebounced.trim()) return  // busca ativa não tem scroll infinito
+
+    const sentinel = sentinelRef.current
+    if (!sentinel) return
+
+    const obs = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting) setPagina(p => p + 1)
+    }, { rootMargin: '400px' })
+    obs.observe(sentinel)
+    return () => obs.disconnect()
+  }, [loading, carregandoMais, contratos.length, total, buscaDebounced])
 
   // Contar compartilhados (ativo a pendente) em background
   useEffect(() => {
@@ -686,76 +709,51 @@ function ContratosContent() {
     if (data) setProdutosRescaldo(data as typeof produtosRescaldo)
   }
 
-  async function carregarContratos() {
+  async function carregarContratos(opts: { append?: boolean } = {}) {
     if (!currentUnit) { setLoading(false); return }
     const minhaBuscaId = ++buscaIdRef.current
 
-    setLoading(true)
+    if (opts.append) setCarregandoMais(true)
+    else setLoading(true)
 
     // Definir campo e direção da ordenação
     const campoOrdem = ordenacao === 'nome' ? 'pet_nome' : 'data_acolhimento'
     const ascending = ordemAsc
     // Agrupar por encaminhamento: toggle do user, mas preventivo nunca agrupa (não tem supinda).
     const agruparPorSupinda = agruparSupinda && statusFiltro !== 'preventivo'
-    // Sem paginação quando há agrupamento por encaminhamento — caso contrário
-    // a paginação no servidor quebra grupos entre páginas (mesmo encaminhamento
-    // aparece em 2 páginas separadas).
-    const semPaginacao = ['ativo', 'pinda', 'retorno', 'pendente', 'finalizado'].includes(statusFiltro || '') && agruparPorSupinda
-      || ['ativo', 'pinda', 'retorno', 'pendente'].includes(statusFiltro || '')
 
     const SELECT_CONTRATO = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, contrato_gc(etapa, cinzas_prontas, certificado_pronto, contato_status), protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id'
 
-    function buildQuery() {
-      let q = supabase.from('contratos').select(SELECT_CONTRATO, { count: 'exact' })
-      if (agruparPorSupinda) {
-        q = q.order('supinda_id', { ascending: true, nullsFirst: true })
-      }
-      q = q.order(campoOrdem, { ascending, nullsFirst: false })
-      if (currentUnit) {
-        if (mostrarCompartilhados) {
-          q = q.or(`unidade_id.eq.${currentUnit.id},unidade_remocao_id.eq.${currentUnit.id},unidade_entrega_id.eq.${currentUnit.id}`)
-        } else {
-          q = q.eq('unidade_id', currentUnit.id)
-        }
-      }
-      if (statusFiltro) q = q.eq('status', statusFiltro)
-      return q
+    let query = supabase.from('contratos').select(SELECT_CONTRATO, { count: 'exact' })
+    if (agruparPorSupinda) {
+      // Ordena pelos contratos do MESMO encaminhamento juntos, e os encaminhamentos
+      // entre si pela DATA da supinda (cronológico). Pets sem supinda (null) vêm primeiro.
+      query = query.order('data', { foreignTable: 'supinda', ascending, nullsFirst: true })
     }
-
-    if (semPaginacao) {
-      // Paginação interna em chunks de 1000 — pega todos os contratos sem
-      // depender de limite arbitrário (cobre listas com >5000 sem cortar).
-      const CHUNK = 1000
-      let from = 0
-      const allData: Contrato[] = []
-      let totalCount = 0
-      let firstError: { message?: string } | null = null
-      while (true) {
-        const { data, error, count } = await buildQuery().range(from, from + CHUNK - 1)
-        if (error) { firstError = error; break }
-        if (count !== null && count !== undefined) totalCount = count
-        const arr = (data || []) as Contrato[]
-        allData.push(...arr)
-        if (arr.length < CHUNK) break
-        from += CHUNK
-      }
-      if (minhaBuscaId !== buscaIdRef.current) return
-      if (firstError) console.error('Erro ao carregar contratos:', firstError)
-      else {
-        setContratos(allData)
-        setTotal(totalCount)
-      }
-    } else {
-      const { data, error, count } = await buildQuery().range(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA - 1)
-      if (minhaBuscaId !== buscaIdRef.current) return
-      if (error) console.error('Erro ao carregar contratos:', error)
-      else {
-        setContratos((data || []) as Contrato[])
-        setTotal(count || 0)
+    query = query.order(campoOrdem, { ascending, nullsFirst: false })
+    if (currentUnit) {
+      if (mostrarCompartilhados) {
+        query = query.or(`unidade_id.eq.${currentUnit.id},unidade_remocao_id.eq.${currentUnit.id},unidade_entrega_id.eq.${currentUnit.id}`)
+      } else {
+        query = query.eq('unidade_id', currentUnit.id)
       }
     }
+    if (statusFiltro) query = query.eq('status', statusFiltro)
 
-    setLoading(false)
+    // Paginação tradicional (range) — banco já entrega ordenado, sem precisar
+    // carregar tudo no client.
+    const { data, error, count } = await query.range(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA - 1)
+    if (minhaBuscaId !== buscaIdRef.current) return
+    if (error) console.error('Erro ao carregar contratos:', error)
+    else {
+      const arr = (data || []) as Contrato[]
+      if (opts.append) setContratos(prev => [...prev, ...arr])
+      else setContratos(arr)
+      setTotal(count || 0)
+    }
+
+    if (opts.append) setCarregandoMais(false)
+    else setLoading(false)
   }
 
   async function buscarContratos(termo?: string) {
@@ -789,49 +787,36 @@ function ContratosContent() {
       : campoBusca === 'codigo' ? `codigo.ilike.%${t}%`
       : `numero_lacre.ilike.%${t}%`
 
-    function buildBusca() {
-      let q = supabase.from('contratos').select(SELECT_BUSCA, { count: 'exact' }).or(buscaOr)
-      if (agruparPorSupinda) q = q.order('supinda_id', { ascending: true, nullsFirst: true })
-      q = q.order(campoOrdem, { ascending, nullsFirst: false })
-      if (currentUnit) {
-        if (mostrarCompartilhados) {
-          q = q.or(`unidade_id.eq.${currentUnit.id},unidade_remocao_id.eq.${currentUnit.id},unidade_entrega_id.eq.${currentUnit.id}`)
-        } else {
-          q = q.eq('unidade_id', currentUnit.id)
-        }
+    let query = supabase.from('contratos').select(SELECT_BUSCA, { count: 'exact' }).or(buscaOr)
+    if (agruparPorSupinda) {
+      query = query.order('data', { foreignTable: 'supinda', ascending, nullsFirst: true })
+    }
+    query = query.order(campoOrdem, { ascending, nullsFirst: false })
+    if (currentUnit) {
+      if (mostrarCompartilhados) {
+        query = query.or(`unidade_id.eq.${currentUnit.id},unidade_remocao_id.eq.${currentUnit.id},unidade_entrega_id.eq.${currentUnit.id}`)
+      } else {
+        query = query.eq('unidade_id', currentUnit.id)
       }
-      return q
     }
 
-    // Paginação interna em chunks de 1000 — pega todos os hits da busca,
-    // mesmo quando o termo retorna milhares de resultados.
-    const CHUNK = 1000
-    let from = 0
-    const allData: Contrato[] = []
-    let totalCount = 0
-    let firstError: { message?: string } | null = null
-    while (true) {
-      const { data, error, count } = await buildBusca().range(from, from + CHUNK - 1)
-      if (error) { firstError = error; break }
-      if (count !== null && count !== undefined) totalCount = count
-      const arr = (data || []) as Contrato[]
-      allData.push(...arr)
-      if (arr.length < CHUNK) break
-      from += CHUNK
-    }
+    // Paginação tradicional (range) — banco já entrega ordenado, sem precisar
+    // carregar tudo no client. Limita a 200 hits por página de busca.
+    const { data, error, count } = await query.range(0, 199)
 
     if (minhaBuscaId !== buscaIdRef.current) return
 
-    if (firstError) {
-      console.error('Erro na busca:', firstError)
+    if (error) {
+      console.error('Erro na busca:', error)
     } else {
-      setContratos(allData)
-      setTotal(totalCount)
+      const resultados = (data || []) as Contrato[]
+      setContratos(resultados)
+      setTotal(count || 0)
       atualizarURL({ busca: termoBusca })
 
       // Atualizar contagens do pipeline com base nos resultados da busca
       const buscaCounts: Record<string, number> = {}
-      allData.forEach(c => {
+      resultados.forEach(c => {
         buscaCounts[c.status] = (buscaCounts[c.status] || 0) + 1
       })
       setStatusCounts(buscaCounts)
@@ -2927,7 +2912,6 @@ ${petNome}`
   }
 
   const totalPaginas = Math.ceil(total / POR_PAGINA)
-  const semPaginacaoRender = ['ativo', 'pinda', 'retorno', 'pendente'].includes(statusFiltro || '')
 
   // Aguardar contexto de unidade carregar (tela em branco, sem flash)
   if (unitLoading || !currentUnit) {
@@ -4256,31 +4240,17 @@ ${petNome}`
       </div>
       )}
 
-      {/* Paginação */}
-      {totalPaginas > 1 && !semPaginacaoRender && (
-        <div className="flex flex-col md:flex-row items-center justify-between mt-4 gap-2">
-          <p className="text-sm text-slate-400">
-            Mostrando {pagina * POR_PAGINA + 1} - {Math.min((pagina + 1) * POR_PAGINA, total)} de {total}
-          </p>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setPagina(p => Math.max(0, p - 1))}
-              disabled={pagina === 0}
-              className="p-2 border rounded-lg hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <ChevronLeft className="h-5 w-5" />
-            </button>
-            <span className="px-4 py-2 text-sm">
-              Página {pagina + 1} de {totalPaginas}
+      {/* Scroll infinito: sentinel dispara próxima página automaticamente */}
+      {contratos.length < total && !buscaDebounced.trim() && (
+        <div ref={sentinelRef} className="py-6 text-center text-xs text-[var(--surface-400)]">
+          {carregandoMais ? (
+            <span className="inline-flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Carregando mais...
             </span>
-            <button
-              onClick={() => setPagina(p => Math.min(totalPaginas - 1, p + 1))}
-              disabled={pagina >= totalPaginas - 1}
-              className="p-2 border rounded-lg hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <ChevronRight className="h-5 w-5" />
-            </button>
-          </div>
+          ) : (
+            <span>{total - contratos.length} restantes</span>
+          )}
         </div>
       )}
 
