@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ClipboardList, Search, X, Clock, CheckCircle2, FileText, Phone, MapPin, Stethoscope, ArrowRight, MessageCircle, Download, Pencil, Bell, BellOff, Copy } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { sanitizeBuscaPostgrest } from '@/lib/sanitize'
 import { useDebounce } from '@/hooks/useDebounce'
 import { Skeleton } from '@/components/ui/Skeleton'
 import EmptyState from '@/components/ui/EmptyState'
@@ -253,7 +254,7 @@ export default function FichasPage() {
 
     // Search (sanitize to prevent PostgREST filter injection)
     if (buscaDebounced.trim()) {
-      const termo = buscaDebounced.trim().replace(/[,.()"'\\]/g, '')
+      const termo = sanitizeBuscaPostgrest(buscaDebounced)
       if (termo) {
         query = query.or(`nome_completo.ilike.%${termo}%,nome_pet.ilike.%${termo}%,cpf.ilike.%${termo}%,telefone.ilike.%${termo}%`)
       }

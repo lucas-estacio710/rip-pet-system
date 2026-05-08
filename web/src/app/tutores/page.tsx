@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Users, Search, ChevronLeft, ChevronRight, Phone, MapPin, FileText, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { sanitizeBuscaPostgrest } from '@/lib/sanitize'
 import Link from 'next/link'
 import { useDebounce } from '@/hooks/useDebounce'
 import { Skeleton, SkeletonTableRow } from '@/components/ui/Skeleton'
@@ -77,7 +78,7 @@ export default function TutoresPage() {
 
     setLoading(true)
 
-    const termoSafe = termoBusca.trim().replace(/[,.()"'\\]/g, '')
+    const termoSafe = sanitizeBuscaPostgrest(termoBusca)
     if (!termoSafe) {
       carregarTutores()
       return

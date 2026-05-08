@@ -7,6 +7,7 @@ import {
   TrendingDown, ArrowRight, Monitor, Smartphone, Tablet, ChevronDown, ChevronUp
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { sanitizeBuscaPostgrest } from '@/lib/sanitize'
 import { useDebounce } from '@/hooks/useDebounce'
 import { Skeleton } from '@/components/ui/Skeleton'
 import EmptyState from '@/components/ui/EmptyState'
@@ -730,7 +731,7 @@ export default function LeadsPage() {
     // Status é filtrado client-side após agrupar por visitante
 
     if (buscaDebounced.trim()) {
-      const termo = buscaDebounced.trim().replace(/[,.()"'\\]/g, '')
+      const termo = sanitizeBuscaPostgrest(buscaDebounced)
       if (termo) {
         query = query.or(`nome.ilike.%${termo}%,cidade.ilike.%${termo}%,geo_city.ilike.%${termo}%`)
       }

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Search, ChevronLeft, ChevronRight, Heart, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { sanitizeBuscaPostgrest } from '@/lib/sanitize'
 import Link from 'next/link'
 import { useDebounce } from '@/hooks/useDebounce'
 import AtivarModal from '@/components/contratos/modals/AtivarModal'
@@ -115,7 +116,7 @@ export default function PreventivosPage() {
       .order('data_contrato', { ascending: false })
 
     if (buscaDebounced.trim()) {
-      const termo = buscaDebounced.trim().replace(/[,.()"'\\]/g, '')
+      const termo = sanitizeBuscaPostgrest(buscaDebounced)
       if (termo) {
         query = query.or(`codigo.ilike.%${termo}%,pet_nome.ilike.%${termo}%,tutor_nome.ilike.%${termo}%`)
       }
