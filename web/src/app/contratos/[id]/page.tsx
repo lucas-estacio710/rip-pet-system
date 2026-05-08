@@ -6,6 +6,7 @@ import { captureElementAsBlob, fichaFilename } from '@/lib/ficha-generator'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, User, Phone, Mail, MapPin, DollarSign, FileText, X, Search, Plus, Pencil, Trash2, Check, Copy, Package, AlertTriangle, Star, Download, Share2, Receipt, RefreshCw } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { copyToClipboard } from '@/lib/clipboard'
 import Link from 'next/link'
 import { ProtocoloData, getNomeRetorno, isProtocoloExcluido, montarProtocoloData, normalizarProtocoloData, formatarValor } from '@/components/protocolo/protocolo-utils'
 import ProtocoloEntrega from '@/components/protocolo/ProtocoloEntrega'
@@ -384,6 +385,12 @@ export default function ContratoDetalhe() {
   const [codigoCopied, setCodigoCopied] = useState(false)
   const [refCopied, setRefCopied] = useState(false)
 
+  // Editor inline de data_acolhimento (para preencher quando vier NULL)
+  const [acolhEditing, setAcolhEditing] = useState(false)
+  const [acolhDataInput, setAcolhDataInput] = useState('')
+  const [acolhHoraInput, setAcolhHoraInput] = useState('')
+  const [acolhSaving, setAcolhSaving] = useState(false)
+
   // Lacre inline edit
   const [lacrePopup, setLacrePopup] = useState(false)
   const [editandoLacre, setEditandoLacre] = useState(false)
@@ -484,6 +491,103 @@ export default function ContratoDetalhe() {
       .order('nome')
 
     if (data) setUrnas(data)
+  }
+
+  async function iniciarEdicaoAcolhimento() {
+    if (!contrato) return
+
+    function aplicarDate(d: Date) {
+      const yyyy = d.getFullYear()
+      const mm = String(d.getMonth() + 1).padStart(2, '0')
+      const dd = String(d.getDate()).padStart(2, '0')
+      const hh = String(d.getHours()).padStart(2, '0')
+      const min = String(d.getMinutes()).padStart(2, '0')
+      setAcolhDataInput(`${yyyy}-${mm}-${dd}`)
+      setAcolhHoraInput(`${hh}:${min}`)
+    }
+
+    // 1. Já tem no contrato? edita o existente
+    if (contrato.data_acolhimento) {
+      aplicarDate(new Date(contrato.data_acolhimento))
+      setAcolhEditing(true)
+      return
+    }
+
+    // 2. Tenta puxar da ficha vinculada (op_dados.dataHoraAcolhimento)
+    try {
+      const { data: fichaData } = await supabase
+        .from('fichas')
+        .select('op_dados')
+        .eq('contrato_id', contrato.id)
+        .maybeSingle()
+      const op = (fichaData as { op_dados?: Record<string, unknown> } | null)?.op_dados ?? null
+      const dha = op?.dataHoraAcolhimento as string | undefined
+      if (dha) {
+        const d = new Date(dha)
+        if (!isNaN(d.getTime())) {
+          aplicarDate(d)
+          setAcolhEditing(true)
+          return
+        }
+      }
+    } catch { /* ignora — cai pro fallback */ }
+
+    // 3. Fallback: data_contrato como base, hora vazia
+    if (contrato.data_contrato) {
+      setAcolhDataInput(contrato.data_contrato.slice(0, 10))
+    } else {
+      setAcolhDataInput('')
+    }
+    setAcolhHoraInput('')
+    setAcolhEditing(true)
+  }
+
+  async function salvarAcolhimento() {
+    if (!contrato) return
+    if (!acolhDataInput || !acolhHoraInput) {
+      alert('Preencha data E hora')
+      return
+    }
+    setAcolhSaving(true)
+    try {
+      const dataHora = new Date(`${acolhDataInput}T${acolhHoraInput}:00`)
+      if (isNaN(dataHora.getTime())) {
+        alert('Data/hora inválida')
+        setAcolhSaving(false)
+        return
+      }
+      const valorAnterior = contrato.data_acolhimento
+      const valorNovo = dataHora.toISOString()
+
+      const { error } = await supabase
+        .from('contratos')
+        .update({ data_acolhimento: valorNovo } as never)
+        .eq('id', contrato.id)
+      if (error) throw error
+
+      // Log auditoria
+      const { data: { user } } = await supabase.auth.getUser()
+      await supabase.from('historico_alteracoes').insert({
+        entidade: 'contratos',
+        entidade_id: contrato.id,
+        entidade_nome: contrato.codigo,
+        campo: 'data_acolhimento',
+        campo_label: 'Data/Hora de Acolhimento',
+        valor_anterior: valorAnterior ?? null,
+        valor_novo: valorNovo,
+        tipo: 'edicao',
+        alterado_por: user?.id ?? null,
+        alterado_por_email: user?.email ?? null,
+      } as never)
+
+      setContrato(prev => prev ? { ...prev, data_acolhimento: valorNovo } as typeof prev : prev)
+      setAcolhEditing(false)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Erro ao salvar'
+      alert(msg)
+    } finally {
+      setAcolhSaving(false)
+    }
   }
 
   async function salvarUrna() {
@@ -1999,8 +2103,8 @@ ${petNome}`
             {/* Códigos (pushed right on desktop): contrato + referência, empilhados */}
             <div className="md:ml-auto flex flex-col items-end gap-1">
               <button
-                onClick={() => {
-                  navigator.clipboard.writeText(contrato.codigo)
+                onClick={async () => {
+                  await copyToClipboard(contrato.codigo)
                   setCodigoCopied(true)
                   setTimeout(() => setCodigoCopied(false), 1500)
                 }}
@@ -2015,9 +2119,9 @@ ${petNome}`
                 {contrato.codigo}
               </button>
               <button
-                onClick={() => {
+                onClick={async () => {
                   const ref = gerarCodigoReferencia()
-                  navigator.clipboard.writeText(ref)
+                  await copyToClipboard(ref)
                   setRefCopied(true)
                   setTimeout(() => setRefCopied(false), 1500)
                 }}
@@ -2047,28 +2151,78 @@ ${petNome}`
           </div>
 
           {/* Row 2.5: Infos do acolhimento */}
-          {(contrato.data_acolhimento || contrato.funcionario?.nome || contrato.local_coleta) && (
-            <div className="flex items-center gap-1.5 text-xs text-[var(--surface-500)] mb-3 flex-wrap">
-              <span className="text-[var(--surface-400)]">🕒</span>
-              <span className="font-medium text-[var(--surface-600)]">Acolhimento:</span>
-              {contrato.data_acolhimento && (
-                <>
-                  <span className="font-mono">
-                    {(() => {
-                      const d = new Date(contrato.data_acolhimento)
-                      const meses = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
-                      const dia = String(d.getDate()).padStart(2, '0')
-                      const mes = meses[d.getMonth()]
-                      const ano = d.getFullYear()
-                      return `${dia}/${mes}/${ano}`
-                    })()}
-                  </span>
-                  <span className="text-[var(--surface-300)]">·</span>
-                  <span className="font-mono">
-                    {new Date(contrato.data_acolhimento).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                </>
-              )}
+          <div className="flex items-center gap-1.5 text-xs text-[var(--surface-500)] mb-3 flex-wrap">
+            <span className="text-[var(--surface-400)]">🕒</span>
+            <span className="font-medium text-[var(--surface-600)]">Acolhimento:</span>
+            {acolhEditing ? (
+              <>
+                <input
+                  type="date"
+                  value={acolhDataInput}
+                  onChange={e => setAcolhDataInput(e.target.value)}
+                  disabled={acolhSaving}
+                  className="text-xs px-2 py-0.5 rounded border border-[var(--surface-300)] bg-[var(--surface-0)] text-[var(--surface-800)]"
+                />
+                <input
+                  type="time"
+                  value={acolhHoraInput}
+                  onChange={e => setAcolhHoraInput(e.target.value)}
+                  disabled={acolhSaving}
+                  className="text-xs px-2 py-0.5 rounded border border-[var(--surface-300)] bg-[var(--surface-0)] text-[var(--surface-800)]"
+                />
+                <button
+                  onClick={salvarAcolhimento}
+                  disabled={acolhSaving || !acolhDataInput || !acolhHoraInput}
+                  className="px-2 py-0.5 rounded text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {acolhSaving ? 'Salvando…' : 'Salvar'}
+                </button>
+                <button
+                  onClick={() => setAcolhEditing(false)}
+                  disabled={acolhSaving}
+                  className="px-1.5 py-0.5 rounded text-[var(--surface-400)] hover:text-[var(--surface-700)] hover:bg-[var(--surface-100)]"
+                  title="Cancelar"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </>
+            ) : contrato.data_acolhimento ? (
+              <>
+                <span className="font-mono">
+                  {(() => {
+                    const d = new Date(contrato.data_acolhimento)
+                    const meses = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+                    const dia = String(d.getDate()).padStart(2, '0')
+                    const mes = meses[d.getMonth()]
+                    const ano = d.getFullYear()
+                    return `${dia}/${mes}/${ano}`
+                  })()}
+                </span>
+                <span className="text-[var(--surface-300)]">·</span>
+                <span className="font-mono">
+                  {new Date(contrato.data_acolhimento).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+                <button
+                  onClick={iniciarEdicaoAcolhimento}
+                  className="p-0.5 rounded text-[var(--surface-400)] hover:text-[var(--brand-500)] hover:bg-[var(--surface-100)] transition-colors"
+                  title="Editar data/hora de acolhimento"
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-900/20 text-amber-400 font-medium">
+                  ⚠️ Não preenchido
+                </span>
+                <button
+                  onClick={iniciarEdicaoAcolhimento}
+                  className="px-2 py-0.5 rounded text-[11px] font-semibold text-amber-400 border border-amber-500/40 hover:bg-amber-900/20 transition-colors"
+                >
+                  Definir
+                </button>
+              </>
+            )}
               {contrato.funcionario?.nome && (
                 <>
                   <span className="text-[var(--surface-300)]">·</span>
@@ -2090,8 +2244,7 @@ ${petNome}`
                   </span>
                 )
               })()}
-            </div>
-          )}
+          </div>
 
           {/* Row 3: Tags */}
           <div className="mb-3">

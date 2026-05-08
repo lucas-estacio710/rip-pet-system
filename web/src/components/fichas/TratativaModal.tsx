@@ -897,10 +897,11 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   const dataHoraOk = semDataHora || !!dataHoraAcolhimento
   const lacreOk = semLacre || !!lacre.trim()
   const valorOk = !!valorPlano.trim()
+  const fonteOk = !!(ficha?.como_conheceu && ficha.como_conheceu.length > 0)
   const acolhimentoValido = telefoneOk && localOk && responsavelOk && dataHoraOk && lacreOk && valorOk
 
-  // Iniciar Fluxo: mais rigoroso — local, responsável e data/hora NÃO podem ser provisórios (só lacre pode)
-  const fluxoValido = telefoneOk && !!localColeta && !!funcionarioId && !!dataHoraAcolhimento && lacreOk && valorOk
+  // Iniciar Fluxo: mais rigoroso — local, responsável, data/hora e fonte de conhec. NÃO podem ser provisórios (só lacre pode)
+  const fluxoValido = telefoneOk && !!localColeta && !!funcionarioId && !!dataHoraAcolhimento && lacreOk && valorOk && fonteOk
 
   const footer = somenteLeitura ? (
     /* Modo somente leitura (recebidas) — Cancelar, Fechar e Processar */
@@ -958,27 +959,28 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         >
           Ver Contrato
         </a>
-      ) : isVisible('tela_fichas', 'btn_iniciar_fluxo') && (
-        <button
-          onClick={() => {
-            if (!fluxoValido) {
-              const faltam: string[] = []
-              if (!telefoneOk) faltam.push('Telefone')
-              if (!localColeta) faltam.push('Local de Acolhimento')
-              if (!funcionarioId) faltam.push('Responsável')
-              if (!dataHoraAcolhimento) faltam.push('Data/Hora')
-              if (!valorPlano.trim()) faltam.push('Valor do Plano')
-              toast(`Preencha antes de iniciar: ${faltam.join(', ')}`, 'error')
-              return
-            }
-            criarContrato()
-          }}
-          disabled={salvando}
-          className={`py-2 px-3 rounded-lg text-xs font-semibold text-white transition-colors ${fluxoValido ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-emerald-600/40 cursor-pointer'}`}
-        >
-          {salvando ? 'Criando...' : 'Iniciar Fluxo'}
-        </button>
-      )}
+      ) : isVisible('tela_fichas', 'btn_iniciar_fluxo') && (() => {
+        const faltam: string[] = []
+        if (!telefoneOk) faltam.push('Telefone')
+        if (!localColeta) faltam.push('Local de Acolhimento')
+        if (!funcionarioId) faltam.push('Responsável')
+        if (!dataHoraAcolhimento) faltam.push('Data/Hora')
+        if (!valorPlano.trim()) faltam.push('Valor do Plano')
+        if (!fonteOk) faltam.push('Como nos conheceu')
+        const titulo = fluxoValido
+          ? 'Iniciar Fluxo (criar contrato)'
+          : `Preencha antes: ${faltam.join(', ')}`
+        return (
+          <button
+            onClick={criarContrato}
+            disabled={salvando || !fluxoValido}
+            title={titulo}
+            className="py-2 px-3 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:bg-emerald-600/40 disabled:cursor-not-allowed"
+          >
+            {salvando ? 'Criando...' : 'Iniciar Fluxo'}
+          </button>
+        )
+      })()}
     </div>
   ) : (
     <div className="flex gap-3 justify-between w-full">
