@@ -92,6 +92,17 @@ function especieEmoji(especie: string): string {
   return '🐾'
 }
 
+// Mapeamento das opções da ficha pra ícone visual (mesma identidade do pipeline)
+const FICHA_FONTE_ICONS: Record<string, { img?: string; icon?: string; title: string }> = {
+  'Google':                  { img: '/icons/google.svg',   title: 'Google' },
+  'Veterinário':             { img: '/icons/hospital.svg', title: 'Veterinário (Indicação em Clínica)' },
+  'Instagram/Facebook':      { img: '/icons/meta.svg',     title: 'Instagram/Facebook' },
+  'Parente/Amigo':           { icon: '👥',                 title: 'Parente/Amigo' },
+  'Já utilizei a R.I.P. Pet':{ icon: '🔄',                 title: 'Já utilizei a R.I.P. Pet (Cliente)' },
+  'Passei pela Unidade':     { icon: '📍',                 title: 'Passei pela Unidade (Ponto)' },
+  'Outro':                   { icon: '📝',                 title: 'Outro' },
+}
+
 function formatarTelefone(tel: string | null): string {
   if (!tel) return ''
   const limpo = tel.replace(/\D/g, '')
@@ -677,6 +688,32 @@ export default function FichasPage() {
                           className="text-green-400 hover:text-green-300" onClick={e => e.stopPropagation()}>
                           <Phone className="h-3 w-3" />
                         </a>
+                      )}
+                      {ficha.como_conheceu && ficha.como_conheceu.length > 0 && (
+                        <span className="inline-flex items-center gap-0.5">
+                          {ficha.como_conheceu.map(opt => {
+                            const cfg = FICHA_FONTE_ICONS[opt]
+                            if (!cfg) return null
+                            return (
+                              <span
+                                key={opt}
+                                className="w-4 h-4 rounded-full inline-flex items-center justify-center overflow-hidden shrink-0"
+                                style={{
+                                  background: 'linear-gradient(135deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)',
+                                  border: '1px solid #cbd5e1',
+                                }}
+                                title={cfg.title}
+                              >
+                                {cfg.img ? (
+                                  /* eslint-disable-next-line @next/next/no-img-element */
+                                  <img src={cfg.img} alt={cfg.title} className="w-2.5 h-2.5 object-contain" />
+                                ) : (
+                                  <span className="text-[9px] leading-none">{cfg.icon}</span>
+                                )}
+                              </span>
+                            )
+                          })}
+                        </span>
                       )}
                       <span className="text-[var(--surface-200)]">|</span>
                       <span className="inline-flex items-center gap-0.5"><MapPin className="h-2.5 w-2.5" />{(() => {
