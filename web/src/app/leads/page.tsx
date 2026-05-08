@@ -968,9 +968,10 @@ export default function LeadsPage() {
               <div
                 key={group.visitor_id}
                 className={`card p-4 card-hover transition-all ${
-                  status === 'abandonado' ? 'border-l-2 border-l-red-500/50' :
+                  status === 'abandonado' ? 'border-l-2 border-l-red-500/50 bg-red-500/5' :
+                  status === 'completo'   ? 'border-l-2 border-l-emerald-500/50 bg-emerald-500/5' :
                   status === 'convertido' ? 'border-l-2 border-l-green-500/50' :
-                  status === 'contatado' ? 'border-l-2 border-l-cyan-500/50' :
+                  status === 'contatado'  ? 'border-l-2 border-l-cyan-500/50' :
                   ''
                 }`}
               >
