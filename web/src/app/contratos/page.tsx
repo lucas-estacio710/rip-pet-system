@@ -263,9 +263,12 @@ function ContratosContent() {
   const [pagina, setPagina] = useState(parseInt(searchParams.get('pagina') || '0', 10))
   const [total, setTotal] = useState(0)
   const [totalGeral, setTotalGeral] = useState(0)
-  const [ordenacao, setOrdenacao] = useState<'data' | 'nome' | 'supinda'>((searchParams.get('ordenacao') as 'data' | 'nome' | 'supinda') || 'data')
-  const [ordemAsc, setOrdemAsc] = useState(searchParams.get('ordemAsc') !== 'false') // true = antigo→novo / A→Z
+  const [ordenacao, setOrdenacao] = useState<'data' | 'nome'>((searchParams.get('ordenacao') as 'data' | 'nome') || 'data')
+  // Default: novo → antigo (descending) p/ data; A→Z (ascending) p/ nome
+  const [ordemAsc, setOrdemAsc] = useState(searchParams.get('ordemAsc') === 'true')
   const [agruparCidade, setAgruparCidade] = useState(searchParams.get('cidade') === 'true')
+  // Default: agrupado por encaminhamento (mantém comportamento histórico). URL ?encam=false desliga.
+  const [agruparSupinda, setAgruparSupinda] = useState(searchParams.get('encam') !== 'false')
   const [agruparBairro, setAgruparBairro] = useState(searchParams.get('bairro') === 'true')
 
   // Filtro de dificuldade de montagem (só para aba Retorno)
@@ -597,16 +600,17 @@ function ContratosContent() {
     if (statusFiltro) params.set('status', statusFiltro)
     if (pagina > 0) params.set('pagina', pagina.toString())
     if (ordenacao !== 'data') params.set('ordenacao', ordenacao)
-    if (!ordemAsc) params.set('ordemAsc', 'false')
+    if (ordemAsc) params.set('ordemAsc', 'true')
     if (agruparCidade) params.set('cidade', 'true')
     if (agruparBairro) params.set('bairro', 'true')
+    if (!agruparSupinda) params.set('encam', 'false')
 
     const queryString = params.toString()
     const newUrl = queryString ? `/contratos?${queryString}` : '/contratos'
 
     // Usar replace para não criar histórico a cada mudança de filtro
     router.replace(newUrl, { scroll: false })
-  }, [statusFiltro, pagina, ordenacao, ordemAsc, agruparCidade, agruparBairro])
+  }, [statusFiltro, pagina, ordenacao, ordemAsc, agruparCidade, agruparBairro, agruparSupinda])
 
   useEffect(() => {
     carregarContagens()
@@ -689,13 +693,9 @@ function ContratosContent() {
 
     // Definir campo e direção da ordenação
     const campoOrdem = ordenacao === 'nome' ? 'pet_nome' : 'data_acolhimento'
-    const ascending = ordenacao === 'supinda' ? true : ordemAsc
-    // Agrupar por encaminhamento (exceto preventivo): primário supinda_id
-    // (mesmo UUID = mesmo grupo, nulls primeiro = sem encaminhamento no topo).
-    // Secundário: escolha do user (data_acolhimento ou pet_nome).
-    const agruparPorSupinda = statusFiltro !== 'preventivo'
-    // Ativo/Pinda/Retorno/Pendente: sem paginação (mostra todos os grupos inteiros).
-    // Preventivo e Finalizado: paginação de 30 em 30 mantida.
+    const ascending = ordemAsc
+    // Agrupar por encaminhamento: toggle do user, mas preventivo nunca agrupa (não tem supinda).
+    const agruparPorSupinda = agruparSupinda && statusFiltro !== 'preventivo'
     const semPaginacao = ['ativo', 'pinda', 'retorno', 'pendente'].includes(statusFiltro || '')
 
     let query = supabase
@@ -756,8 +756,8 @@ function ContratosContent() {
 
     // Usar mesma ordenação da listagem
     const campoOrdem = ordenacao === 'nome' ? 'pet_nome' : 'data_acolhimento'
-    const ascending = ordenacao === 'supinda' ? true : ordemAsc
-    const agruparPorSupinda = statusFiltro !== 'preventivo'
+    const ascending = ordemAsc
+    const agruparPorSupinda = agruparSupinda && statusFiltro !== 'preventivo'
 
     let query = supabase
       .from('contratos')
@@ -817,9 +817,10 @@ function ContratosContent() {
     if (statusFiltro) params.set('status', statusFiltro)
     if (pagina > 0) params.set('pagina', pagina.toString())
     if (ordenacao !== 'data') params.set('ordenacao', ordenacao)
-    if (!ordemAsc) params.set('ordemAsc', 'false')
+    if (ordemAsc) params.set('ordemAsc', 'true')
     if (agruparCidade) params.set('cidade', 'true')
     if (agruparBairro) params.set('bairro', 'true')
+    if (!agruparSupinda) params.set('encam', 'false')
 
     const queryString = params.toString()
     const newUrl = queryString ? `/contratos?${queryString}` : '/contratos'
@@ -2966,10 +2967,11 @@ ${petNome}`
         </select>
         {/* Sort/Group — desktop inline */}
         <div className="hidden md:flex items-center gap-1.5 ml-auto">
+          {/* Ordenação: data (asc/desc) | alfabético (asc/desc) */}
           <div className="flex items-center bg-slate-800 rounded-lg p-0.5 gap-0.5">
             <button
               onClick={() => {
-                if (ordenacao === 'data') { setOrdemAsc(!ordemAsc) } else { setOrdenacao('data'); setOrdemAsc(true) }
+                if (ordenacao === 'data') { setOrdemAsc(!ordemAsc) } else { setOrdenacao('data'); setOrdemAsc(false) }
                 setPagina(0)
               }}
               className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
@@ -2987,31 +2989,31 @@ ${petNome}`
               className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
                 ordenacao === 'nome' ? 'bg-slate-700 text-purple-300' : 'text-slate-400 hover:text-slate-200'
               }`}
-              title={ordenacao === 'nome' ? (ordemAsc ? 'A → Z' : 'Z → A') : 'Ordenar por nome'}
+              title={ordenacao === 'nome' ? (ordemAsc ? 'A → Z' : 'Z → A') : 'Ordenar A-Z'}
             >
-              {ordemAsc || ordenacao !== 'nome' ? 'A→Z' : 'Z→A'} {ordenacao === 'nome' && (ordemAsc ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
+              {ordenacao === 'nome' && !ordemAsc ? 'Z→A' : 'A→Z'} {ordenacao === 'nome' && (ordemAsc ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
             </button>
-            {statusFiltro !== 'preventivo' && (
-              <button
-                onClick={() => {
-                  if (ordenacao === 'supinda') { setOrdemAsc(!ordemAsc) } else { setOrdenacao('supinda'); setOrdemAsc(false) }
-                  setPagina(0)
-                }}
-                className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
-                  ordenacao === 'supinda' ? 'bg-slate-700 text-orange-300' : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title={ordenacao === 'supinda' ? (ordemAsc ? 'Antiga → Nova' : 'Nova → Antiga') : 'Ordenar por encaminhamento'}
-              >
-                🚐 {ordenacao === 'supinda' && (ordemAsc ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
-              </button>
-            )}
           </div>
+          {/* Toggle: agrupar por encaminhamento */}
+          {statusFiltro !== 'preventivo' && (
+            <button
+              onClick={() => { setAgruparSupinda(!agruparSupinda); setPagina(0) }}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
+                agruparSupinda ? 'bg-orange-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+              }`}
+              title={agruparSupinda ? 'Desagrupar encaminhamento' : 'Agrupar por encaminhamento'}
+            >
+              🚐 Encam.
+            </button>
+          )}
+          {/* Toggle: agrupar por cidade */}
           {!(statusFiltro === 'retorno' && montagemInline) && (
             <button
               onClick={() => { setAgruparCidade(!agruparCidade); if (agruparCidade) setAgruparBairro(false) }}
               className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
                 agruparCidade ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'
               }`}
+              title={agruparCidade ? 'Desagrupar cidade' : 'Agrupar por cidade'}
             >
               📍 Cidade
             </button>
@@ -3214,7 +3216,7 @@ ${petNome}`
                   setOrdemAsc(!ordemAsc)
                 } else {
                   setOrdenacao('data')
-                  setOrdemAsc(true)
+                  setOrdemAsc(false)
                 }
                 setPagina(0)
               }}
@@ -3242,32 +3244,24 @@ ${petNome}`
                   ? 'bg-slate-700 text-purple-300 shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
-              title={ordenacao === 'nome' ? (ordemAsc ? 'A → Z' : 'Z → A') : 'Ordenar por nome'}
+              title={ordenacao === 'nome' ? (ordemAsc ? 'A → Z' : 'Z → A') : 'Ordenar A-Z'}
             >
-              {ordemAsc || ordenacao !== 'nome' ? 'A→Z' : 'Z→A'} {ordenacao === 'nome' && (ordemAsc ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
+              {ordenacao === 'nome' && !ordemAsc ? 'Z→A' : 'A→Z'} {ordenacao === 'nome' && (ordemAsc ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
             </button>
-            {statusFiltro !== 'preventivo' && (
-              <button
-                onClick={() => {
-                  if (ordenacao === 'supinda') {
-                    setOrdemAsc(!ordemAsc)
-                  } else {
-                    setOrdenacao('supinda')
-                    setOrdemAsc(false)
-                  }
-                  setPagina(0)
-                }}
-                className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                  ordenacao === 'supinda'
-                    ? 'bg-slate-700 text-orange-300 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title={ordenacao === 'supinda' ? (ordemAsc ? 'Antiga → Nova' : 'Nova → Antiga') : 'Ordenar por encaminhamento'}
-              >
-                🚐 {ordenacao === 'supinda' && (ordemAsc ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
-              </button>
-            )}
           </div>
+
+          {/* Toggle: agrupar por encaminhamento */}
+          {statusFiltro !== 'preventivo' && (
+            <button
+              onClick={() => { setAgruparSupinda(!agruparSupinda); setPagina(0) }}
+              className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                agruparSupinda ? 'bg-orange-600 text-white' : 'bg-slate-700 text-slate-400 hover:text-slate-200'
+              }`}
+              title={agruparSupinda ? 'Desagrupar encaminhamento' : 'Agrupar por encaminhamento'}
+            >
+              🚐 Encam.
+            </button>
+          )}
 
           {/* Agrupar por cidade (esconde quando inline ativo) */}
           {!(statusFiltro === 'retorno' && montagemInline) && (
@@ -3519,8 +3513,8 @@ ${petNome}`
 
             const cidades = Object.keys(contratosAgrupados).sort()
 
-            // Agrupar contratos por supinda (para todos os status exceto preventivo)
-            const deveAgruparSupinda = statusFiltro !== 'preventivo'
+            // Agrupar contratos por supinda: toggle do user, sem efeito em preventivo
+            const deveAgruparSupinda = agruparSupinda && statusFiltro !== 'preventivo'
 
             function renderSupindaGroup(lista: Contrato[], renderFn: (c: Contrato) => React.ReactNode) {
               if (!deveAgruparSupinda) {
@@ -3538,15 +3532,56 @@ ${petNome}`
                 }
                 mapaGrupos.get(num)!.push(c)
               }
-              // Ordenar: sem encaminhamento SEMPRE primeiro, depois por número (default desc = maior primeiro)
-              const supindaAsc = ordenacao === 'supinda' ? ordemAsc : false
+              // Helper: data efetiva = data_acolhimento ?? data_contrato (em ms, 0 se vazio)
+              const dataEfetiva = (c: Contrato): number => {
+                const d = c.data_acolhimento || c.data_contrato
+                return d ? new Date(d).getTime() : 0
+              }
+
+              // Re-ordena contratos DENTRO de cada grupo pelo critério escolhido (com fallback p/ data_contrato)
+              for (const g of grupos) {
+                if (ordenacao === 'data') {
+                  g.contratos.sort((a, b) => {
+                    const ta = dataEfetiva(a)
+                    const tb = dataEfetiva(b)
+                    return ordemAsc ? ta - tb : tb - ta
+                  })
+                } else if (ordenacao === 'nome') {
+                  g.contratos.sort((a, b) => {
+                    const na = (a.pet_nome || '').toLowerCase()
+                    const nb = (b.pet_nome || '').toLowerCase()
+                    return ordemAsc ? na.localeCompare(nb) : nb.localeCompare(na)
+                  })
+                }
+              }
+
+              // Ordenar grupos seguindo a mesma escolha do user (data ou nome).
+              // "Sem encaminhamento" sempre primeiro.
               grupos.sort((a, b) => {
                 if (a.numero === null && b.numero === null) return 0
                 if (a.numero === null) return -1
                 if (b.numero === null) return 1
-                const numA = parseInt(a.numero.replace(/^[A-Z]+/, ''), 10) || 0
-                const numB = parseInt(b.numero.replace(/^[A-Z]+/, ''), 10) || 0
-                return supindaAsc ? numA - numB : numB - numA
+
+                if (ordenacao === 'data') {
+                  const datasA = a.contratos.map(dataEfetiva).filter(t => t > 0)
+                  const datasB = b.contratos.map(dataEfetiva).filter(t => t > 0)
+                  if (datasA.length === 0 && datasB.length === 0) return 0
+                  if (datasA.length === 0) return 1
+                  if (datasB.length === 0) return -1
+                  const refA = ordemAsc ? Math.min(...datasA) : Math.max(...datasA)
+                  const refB = ordemAsc ? Math.min(...datasB) : Math.max(...datasB)
+                  return ordemAsc ? refA - refB : refB - refA
+                }
+
+                if (ordenacao === 'nome') {
+                  const namesA = a.contratos.map(c => (c.pet_nome || '').toLowerCase()).sort()
+                  const namesB = b.contratos.map(c => (c.pet_nome || '').toLowerCase()).sort()
+                  const refA = ordemAsc ? namesA[0] : namesA[namesA.length - 1]
+                  const refB = ordemAsc ? namesB[0] : namesB[namesB.length - 1]
+                  return ordemAsc ? refA.localeCompare(refB) : refB.localeCompare(refA)
+                }
+
+                return 0
               })
 
               return (
