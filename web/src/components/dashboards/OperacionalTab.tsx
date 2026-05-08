@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import RemocoesKPI from './RemocoesKPI'
 import TipoCremacaoKPI from './TipoCremacaoKPI'
 import LocalRemocaoKPI from './LocalRemocaoKPI'
@@ -14,6 +15,10 @@ type Props = {
 }
 
 export default function OperacionalTab({ range, comparePrev }: Props) {
+  // Disparado pelo FonteOutroKPI quando reclassifica → invalida cache do ComoConheceuKPI
+  const [refreshKey, setRefreshKey] = useState(0)
+  const triggerRefresh = () => setRefreshKey(k => k + 1)
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -23,8 +28,8 @@ export default function OperacionalTab({ range, comparePrev }: Props) {
         <EspecieKPI range={range} comparePrev={comparePrev} />
       </div>
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <ComoConheceuKPI range={range} comparePrev={comparePrev} />
-        <FonteOutroKPI range={range} />
+        <ComoConheceuKPI range={range} comparePrev={comparePrev} refreshKey={refreshKey} />
+        <FonteOutroKPI range={range} onChange={triggerRefresh} />
       </div>
     </div>
   )

@@ -9,11 +9,26 @@ import { computePreviousRange, type PeriodRange } from '@/lib/dashboard-period'
 type Props = {
   range: PeriodRange
   comparePrev: boolean
+  /** Incrementa pra forçar re-fetch (ex: após reclassificação no FonteOutroKPI) */
+  refreshKey?: number
 }
 
 const STATUS_REMOVIDO = ['ativo', 'pinda', 'retorno', 'pendente', 'finalizado']
-const TOP_N = 6
 const MODE_KEY = 'dashboards.comoConheceu.mode'
+
+// 9 fontes canônicas (sempre exibidas, mesmo com 0).
+// 7 vêm da ficha pública + 2 só via reclassificação interna (Seguradora, IA)
+const FONTES_CANONICAS: string[] = [
+  'Indicação em Clínica',
+  'Google',
+  'Cliente',
+  'Outro',
+  'Parente/Amigo',
+  'Ponto',
+  'Instagram/Facebook',
+  'Seguradora',
+  'IA',
+]
 
 type Mode = 'fracionario' | 'absoluto'
 
@@ -25,15 +40,14 @@ const FONTE_CONFIG: Record<string, FonteConfig> = {
   'indicação em clínica':  { color: '#10b981', img: '/icons/hospital.svg' },   // verde
   'cliente':               { color: '#7c3aed', icon: '🔄' },                   // roxo
   'parente/amigo':         { color: '#a78bfa', icon: '👥' },                   // lilás
-  'seguradora':            { color: '#4338ca', icon: '🛡️' },
+  'seguradora':            { color: '#4338ca', icon: '🛡️' },                   // índigo
   'ponto':                 { color: '#dc2626', icon: '📍' },
+  'ia':                    { color: '#ec4899', icon: '🤖' },                   // magenta
   'outro':                 { color: '#64748b', icon: '📝' },                   // cinza
 }
 const FONTE_FALLBACK: FonteConfig = { color: 'var(--surface-400)' }
-const FONTE_OUTROS:   FonteConfig = { color: 'var(--surface-500)' }
 
-function getFonteConfig(nome: string, isOutros: boolean): FonteConfig {
-  if (isOutros) return FONTE_OUTROS
+function getFonteConfig(nome: string): FonteConfig {
   return FONTE_CONFIG[nome.toLowerCase().trim()] ?? FONTE_FALLBACK
 }
 
@@ -44,7 +58,7 @@ type ContratoRow = {
 }
 type RankItem = { id: string; nome: string; count: number; prevCount: number }
 
-export default function ComoConheceuKPI({ range, comparePrev }: Props) {
+export default function ComoConheceuKPI({ range, comparePrev, refreshKey = 0 }: Props) {
   const { currentUnit } = useUnit()
   const [items, setItems] = useState<RankItem[]>([])
   const [total, setTotal] = useState(0)
@@ -71,15 +85,16 @@ export default function ComoConheceuKPI({ range, comparePrev }: Props) {
     setLoading(true)
 
     async function load() {
-      // 1. Carregar nomes das fontes
+      // 1. Carregar id por nome das fontes canônicas. Se houver duplicatas no banco
+      //    com o mesmo nome, soma todas elas no mesmo bucket pelo nome.
       const { data: fontesData } = await supabase
         .from('fontes_conhecimento')
         .select('id,nome')
-      const fontesMap = new Map<string, string>()
       const fontes = (fontesData ?? []) as FonteRow[]
-      fontes.forEach(f => fontesMap.set(f.id, f.nome))
+      const idToNome = new Map<string, string>()
+      fontes.forEach(f => idToNome.set(f.id, f.nome))
 
-      // 2. Aggregate respeitando o modo (fracionário 1/N ou absoluto 1)
+      // 2. Aggregate por NOME (não por id) — soma duplicatas
       const aggregate = async (from: Date, to: Date): Promise<Map<string, number>> => {
         const counts = new Map<string, number>()
         const { data, error } = await supabase
@@ -98,7 +113,9 @@ export default function ComoConheceuKPI({ range, comparePrev }: Props) {
           if (ids.length === 0) continue
           const w = mode === 'fracionario' ? 1 / ids.length : 1
           for (const id of ids) {
-            counts.set(id, (counts.get(id) ?? 0) + w)
+            const nome = idToNome.get(id)
+            if (!nome) continue
+            counts.set(nome, (counts.get(nome) ?? 0) + w)
           }
         }
         return counts
@@ -112,35 +129,25 @@ export default function ComoConheceuKPI({ range, comparePrev }: Props) {
 
       if (cancelled) return
 
-      // 3. Lista ordenada
-      const list: RankItem[] = Array.from(currMap.entries())
-        .map(([id, count]) => ({
-          id,
-          nome: fontesMap.get(id) ?? '— sem nome —',
-          count,
-          prevCount: prevMap.get(id) ?? 0,
+      // 3. Sempre as 7 canônicas (mesmo com 0), ordenadas por contagem desc
+      const list: RankItem[] = FONTES_CANONICAS
+        .map(nome => ({
+          id: nome,
+          nome,
+          count: currMap.get(nome) ?? 0,
+          prevCount: prevMap.get(nome) ?? 0,
         }))
         .sort((a, b) => b.count - a.count)
 
-      // 4. Top N + agrupar resto em "Outros"
-      let topList = list
-      if (list.length > TOP_N) {
-        const top = list.slice(0, TOP_N)
-        const rest = list.slice(TOP_N)
-        const restCount = rest.reduce((s, x) => s + x.count, 0)
-        const restPrev  = rest.reduce((s, x) => s + x.prevCount, 0)
-        topList = [...top, { id: '_outros', nome: 'Outros', count: restCount, prevCount: restPrev }]
-      }
-
       const sumCurr = list.reduce((s, x) => s + x.count, 0)
-      setItems(topList)
+      setItems(list)
       setTotal(sumCurr)
       setLoading(false)
     }
 
     load()
     return () => { cancelled = true }
-  }, [range.key, range.from.getTime(), range.to.getTime(), comparePrev, currentUnit?.id, mode])
+  }, [range.key, range.from.getTime(), range.to.getTime(), comparePrev, currentUnit?.id, mode, refreshKey])
 
   const max = items[0]?.count ?? 0
 
@@ -179,8 +186,6 @@ export default function ComoConheceuKPI({ range, comparePrev }: Props) {
 
       {loading ? (
         <div className="h-32 flex items-center justify-center text-3xl text-[var(--surface-300)]">…</div>
-      ) : items.length === 0 ? (
-        <div className="text-sm text-[var(--surface-400)] py-8 text-center">Sem dados no período</div>
       ) : (
         <ul className="space-y-2">
           {items.map(item => {
@@ -191,11 +196,10 @@ export default function ComoConheceuKPI({ range, comparePrev }: Props) {
             const trendPct = item.prevCount > 0 ? Math.round((delta / item.prevCount) * 100) : (item.count > 0 ? 100 : 0)
             const trendColor = delta > 0 ? '#10b981' : '#ef4444'
             const TrendIcon = delta > 0 ? TrendingUp : TrendingDown
-
-            const isOutros = item.id === '_outros'
-            const cfg = getFonteConfig(item.nome, isOutros)
+            const cfg = getFonteConfig(item.nome)
+            const isZero = item.count === 0
             return (
-              <li key={item.id} className="flex items-center gap-2.5 text-xs">
+              <li key={item.id} className={`flex items-center gap-2.5 text-xs ${isZero ? 'opacity-40' : ''}`}>
                 <span
                   className="w-5 h-5 rounded-full inline-flex items-center justify-center shrink-0 overflow-hidden"
                   style={{
@@ -215,7 +219,10 @@ export default function ComoConheceuKPI({ range, comparePrev }: Props) {
                 <div className="w-24 sm:w-32 truncate text-[var(--surface-700)] font-medium" title={item.nome}>
                   {item.nome}
                 </div>
-                <div className="flex-1 h-2 bg-[var(--surface-200)] rounded-full overflow-hidden min-w-0">
+                <div
+                  className="flex-1 h-2 rounded-full overflow-hidden min-w-0 transition-colors"
+                  style={{ background: item.count === 0 ? 'var(--surface-100)' : 'var(--surface-200)' }}
+                >
                   <div
                     className="h-full transition-all duration-700 ease-out"
                     style={{ width: `${pct}%`, background: cfg.color }}
