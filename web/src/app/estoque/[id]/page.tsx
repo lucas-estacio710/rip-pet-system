@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, TrendingUp, TrendingDown, Save, X, Pencil, Package, DollarSign, Target, ShoppingCart, Plus } from 'lucide-react'
+import { ArrowLeft, TrendingUp, TrendingDown, Save, X, Pencil, Package, DollarSign, Target, ShoppingCart, Plus, Check } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import Link from 'next/link'
@@ -91,6 +91,13 @@ export default function ProdutoDetalhePage() {
 
   // Estoque DA UNIDADE ATIVA (vem de produtos_estoque)
   const [estoqueUnidade, setEstoqueUnidade] = useState<number>(0)
+  const [minimoUnidade, setMinimoUnidade] = useState<number>(0)
+  const [vendidaUnidade, setVendidaUnidade] = useState<number>(0)
+
+  // Editor inline de estoque_minimo (por unidade)
+  const [editandoMinimo, setEditandoMinimo] = useState(false)
+  const [minimoInput, setMinimoInput] = useState('')
+  const [salvandoMinimo, setSalvandoMinimo] = useState(false)
 
   // Modal "Nova entrada"
   const [novaEntradaModal, setNovaEntradaModal] = useState(false)
@@ -124,15 +131,17 @@ export default function ProdutoDetalhePage() {
       setNovoPreco((produtoData as Produto).preco?.toString() || '0')
     }
 
-    // Estoque DA UNIDADE ATIVA (produtos_estoque)
+    // Estoque DA UNIDADE ATIVA (produtos_estoque) — atual + mínimo + vendida
     if (currentUnit?.id) {
       const { data: peData } = await supabase
         .from('produtos_estoque')
-        .select('estoque_atual')
+        .select('estoque_atual, estoque_minimo, qtde_vendida')
         .eq('produto_id', params.id as string)
         .eq('unidade_id', currentUnit.id)
-        .maybeSingle<{ estoque_atual: number }>()
+        .maybeSingle<{ estoque_atual: number; estoque_minimo: number; qtde_vendida: number }>()
       setEstoqueUnidade(peData?.estoque_atual ?? 0)
+      setMinimoUnidade(peData?.estoque_minimo ?? 0)
+      setVendidaUnidade(peData?.qtde_vendida ?? 0)
     }
 
     // Entradas DA UNIDADE ATIVA
@@ -195,6 +204,30 @@ export default function ProdutoDetalhePage() {
     await carregarDados()
   }
 
+  async function salvarMinimo() {
+    if (!produto || !currentUnit?.id) return
+    const novo = parseInt(minimoInput, 10)
+    if (!Number.isFinite(novo) || novo < 0) {
+      alert('Valor inválido (use 0 ou maior)')
+      return
+    }
+    if (novo === minimoUnidade) { setEditandoMinimo(false); return }
+    setSalvandoMinimo(true)
+    const { error } = await (supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ error: { message: string } | null }>)('set_estoque_minimo_unidade', {
+      p_produto_id: produto.id,
+      p_unidade_id: currentUnit.id,
+      p_minimo: novo,
+    })
+    if (error) {
+      alert('Erro ao salvar mínimo: ' + error.message)
+      setSalvandoMinimo(false)
+      return
+    }
+    setMinimoUnidade(novo)
+    setEditandoMinimo(false)
+    setSalvandoMinimo(false)
+  }
+
   async function salvarPreco() {
     if (!produto) return
     setSalvando(true)
@@ -239,7 +272,7 @@ export default function ProdutoDetalhePage() {
 
   const totalEntradas = entradas.reduce((sum, e) => sum + e.quantidade, 0)
   const totalSaidas = saidas.reduce((sum, s) => sum + s.quantidade, 0)
-  const estoqueOk = produto.estoque_infinito || estoqueUnidade >= produto.estoque_minimo
+  const estoqueOk = produto.estoque_infinito || estoqueUnidade >= minimoUnidade
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -355,25 +388,68 @@ export default function ProdutoDetalhePage() {
                 </span>
               </div>
 
-              {/* Estoque Ideal */}
+              {/* Estoque Ideal (por unidade) */}
               <div className="bg-slate-700 rounded-lg p-3 border border-slate-600 shadow-sm">
                 <div className="flex items-center gap-2 text-slate-400 text-xs mb-1">
                   <Target className="h-3.5 w-3.5" />
-                  Estoque Ideal
+                  Estoque Ideal {currentUnit?.codigo ? `(${currentUnit.codigo})` : ''}
                 </div>
-                <span className="font-bold text-lg text-slate-300">
-                  {produto.estoque_infinito ? '-' : produto.estoque_minimo}
-                </span>
+                {produto.estoque_infinito ? (
+                  <span className="font-bold text-lg text-slate-300">-</span>
+                ) : editandoMinimo ? (
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min="0"
+                      autoFocus
+                      value={minimoInput}
+                      onChange={e => setMinimoInput(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') salvarMinimo()
+                        if (e.key === 'Escape') setEditandoMinimo(false)
+                      }}
+                      disabled={salvandoMinimo}
+                      className="w-16 px-2 py-1 bg-slate-900 border border-slate-600 rounded text-slate-200 text-sm focus:outline-none focus:border-emerald-500"
+                    />
+                    <button
+                      onClick={salvarMinimo}
+                      disabled={salvandoMinimo}
+                      className="p-1 text-green-400 hover:text-green-300 disabled:opacity-50"
+                      title="Salvar (Enter)"
+                    >
+                      <Check className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => setEditandoMinimo(false)}
+                      disabled={salvandoMinimo}
+                      className="p-1 text-slate-400 hover:text-slate-300 disabled:opacity-50"
+                      title="Cancelar (Esc)"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-lg text-slate-300">{minimoUnidade}</span>
+                    <button
+                      onClick={() => { setMinimoInput(String(minimoUnidade)); setEditandoMinimo(true) }}
+                      className="p-1 text-slate-400 hover:text-emerald-400 rounded"
+                      title="Editar mínimo nesta unidade"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
               </div>
 
-              {/* Total Vendido */}
+              {/* Total Vendido (por unidade) */}
               <div className="bg-slate-700 rounded-lg p-3 border border-slate-600 shadow-sm">
                 <div className="flex items-center gap-2 text-slate-400 text-xs mb-1">
                   <ShoppingCart className="h-3.5 w-3.5" />
-                  Total Vendido
+                  Vendido {currentUnit?.codigo ? `(${currentUnit.codigo})` : ''}
                 </div>
                 <span className="font-bold text-lg text-purple-400">
-                  {produto.qtde_vendida || 0}
+                  {vendidaUnidade}
                 </span>
               </div>
             </div>

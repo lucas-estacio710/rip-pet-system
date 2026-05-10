@@ -20,8 +20,6 @@ type Produto = {
   categoria: string | null
   custo: number | null
   preco: number | null
-  estoque_atual: number
-  estoque_minimo: number
   estoque_infinito: boolean
   imagem_url: string | null
   precisa_foto: boolean

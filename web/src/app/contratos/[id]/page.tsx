@@ -842,21 +842,26 @@ export default function ContratoDetalhe() {
     if (error) { console.error('Erro ao carregar produtos:', error); return }
     if (!produtosData) return
 
-    // Estoque DA UNIDADE DO CONTRATO (substitui estoque_atual global pelo local)
+    // Estoque DA UNIDADE DO CONTRATO (atual + mínimo) — substitui campos globais
     const unidadeId = contrato?.unidade_id
-    let estoqueMap = new Map<string, number>()
+    type PeRow = { produto_id: string; estoque_atual: number; estoque_minimo: number }
+    const peMap = new Map<string, PeRow>()
     if (unidadeId) {
       const { data: peData } = await supabase
         .from('produtos_estoque')
-        .select('produto_id, estoque_atual')
+        .select('produto_id, estoque_atual, estoque_minimo')
         .eq('unidade_id', unidadeId)
-      const rows = (peData || []) as { produto_id: string; estoque_atual: number }[]
-      estoqueMap = new Map(rows.map(r => [r.produto_id, r.estoque_atual]))
+      const rows = (peData || []) as PeRow[]
+      rows.forEach(r => peMap.set(r.produto_id, r))
     }
-    const merged = produtosData.map((p: Produto) => ({
-      ...p,
-      estoque_atual: estoqueMap.get(p.id) ?? 0,
-    }))
+    const merged = produtosData.map((p: Produto) => {
+      const pe = peMap.get(p.id)
+      return {
+        ...p,
+        estoque_atual: pe?.estoque_atual ?? 0,
+        estoque_minimo: pe?.estoque_minimo ?? 0,
+      }
+    })
     setTodosProdutos(merged)
   }
 
