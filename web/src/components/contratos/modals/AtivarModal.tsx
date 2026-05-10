@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { X } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { X, Search, Check } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 type ContratoMinimal = {
@@ -25,6 +25,8 @@ type Props = {
   }) => void
 }
 
+type Estab = { id: string; nome: string; tipo: string | null }
+
 export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Props) {
   const supabase = createClient()
 
@@ -33,6 +35,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
     hora_acolhimento: '',
     local_coleta: 'Residência' as 'Residência' | 'Unidade' | 'Clínica',
     clinica_coleta: '',
+    estabelecimento_id: '' as string,
     numero_lacre: '',
     funcionario_id: '',
     supinda_id: '',
@@ -40,6 +43,9 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
   const [salvando, setSalvando] = useState(false)
   const [funcionarios, setFuncionarios] = useState<{ id: string; nome: string }[]>([])
   const [supindas, setSupindas] = useState<{ id: string; numero: string; data: string }[]>([])
+  const [estabelecimentos, setEstabelecimentos] = useState<Estab[]>([])
+  const [estabAberto, setEstabAberto] = useState(false)
+  const estabRef = useRef<HTMLDivElement | null>(null)
 
   // On open: reset form with current date/time and load auxiliary data
   useEffect(() => {
@@ -54,6 +60,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
       hora_acolhimento: horaStr,
       local_coleta: 'Residência',
       clinica_coleta: '',
+      estabelecimento_id: '',
       numero_lacre: '',
       funcionario_id: '',
       supinda_id: '',
@@ -78,7 +85,27 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
       .then(({ data }) => {
         if (data) setSupindas(data)
       })
+
+    // Load estabelecimentos (clínicas e hospitais) para autocomplete
+    supabase
+      .from('estabelecimentos')
+      .select('id, nome, tipo')
+      .in('tipo', ['clinica', 'hospital'])
+      .order('nome')
+      .then(({ data }) => {
+        if (data) setEstabelecimentos(data as Estab[])
+      })
   }, [isOpen]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Click fora do dropdown fecha
+  useEffect(() => {
+    if (!estabAberto) return
+    function handle(e: MouseEvent) {
+      if (estabRef.current && !estabRef.current.contains(e.target as Node)) setEstabAberto(false)
+    }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [estabAberto])
 
   function subtrairTempo(tipo: 'dia' | 'hora') {
     const dataHora = new Date(`${form.data_acolhimento}T${form.hora_acolhimento}:00`)
@@ -104,13 +131,15 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
       // Combine date + time into ISO datetime
       const dataHora = new Date(`${form.data_acolhimento}T${form.hora_acolhimento}:00`)
 
+      const isClinica = form.local_coleta === 'Clínica'
       const { error } = await supabase
         .from('contratos')
         .update({
           status: 'ativo',
           data_acolhimento: dataHora.toISOString(),
           local_coleta: form.local_coleta,
-          clinica_coleta: form.local_coleta === 'Clínica' ? form.clinica_coleta : null,
+          clinica_coleta: isClinica ? form.clinica_coleta : null,
+          estabelecimento_id: isClinica ? (form.estabelecimento_id || null) : null,
           numero_lacre: form.numero_lacre || null,
           funcionario_id: form.funcionario_id || null,
           supinda_id: form.supinda_id || null,
@@ -222,6 +251,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
                       ...form,
                       local_coleta: local,
                       clinica_coleta: local !== 'Clínica' ? '' : form.clinica_coleta,
+                      estabelecimento_id: local !== 'Clínica' ? '' : form.estabelecimento_id,
                     })
                   }
                   className={`py-2 px-3 rounded-lg text-sm font-medium border-2 transition-all ${
@@ -237,17 +267,63 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
                 </button>
               ))}
             </div>
-            {/* Campo nome da clinica */}
-            {form.local_coleta === 'Clínica' && (
-              <input
-                type="text"
-                value={form.clinica_coleta}
-                onChange={(e) => setForm({ ...form, clinica_coleta: e.target.value })}
-                placeholder="Nome da clínica..."
-                className="w-full mt-2 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                autoFocus
-              />
-            )}
+            {/* Campo clinica - combobox com autocomplete */}
+            {form.local_coleta === 'Clínica' && (() => {
+              const busca = form.clinica_coleta.toLowerCase().trim()
+              const filtrados = busca
+                ? estabelecimentos.filter(e => e.nome.toLowerCase().includes(busca)).slice(0, 12)
+                : estabelecimentos.slice(0, 12)
+              const matchExato = busca && estabelecimentos.some(e => e.nome.toLowerCase() === busca)
+              return (
+                <div ref={estabRef} className="relative mt-2">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={form.clinica_coleta}
+                    onChange={(e) => setForm({ ...form, clinica_coleta: e.target.value, estabelecimento_id: '' })}
+                    onFocus={() => setEstabAberto(true)}
+                    placeholder="Buscar clínica..."
+                    className="w-full pl-9 pr-9 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                    autoFocus
+                  />
+                  {form.estabelecimento_id && (
+                    <Check className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-green-500" />
+                  )}
+                  {estabAberto && (filtrados.length > 0 || (busca && !matchExato)) && (
+                    <div className="absolute z-30 mt-1 w-full max-h-56 overflow-y-auto bg-slate-700 border border-slate-600 rounded-lg shadow-lg">
+                      {filtrados.map(e => (
+                        <button
+                          key={e.id}
+                          type="button"
+                          onClick={() => {
+                            setForm(f => ({ ...f, clinica_coleta: e.nome, estabelecimento_id: e.id }))
+                            setEstabAberto(false)
+                          }}
+                          className={`w-full text-left px-3 py-2 text-sm transition-colors flex items-center justify-between hover:bg-slate-600 ${
+                            form.estabelecimento_id === e.id ? 'bg-slate-600 text-slate-100 font-medium' : 'text-slate-300'
+                          }`}
+                        >
+                          <span>{e.nome}</span>
+                          {e.tipo && <span className="text-xs text-slate-400">{e.tipo}</span>}
+                        </button>
+                      ))}
+                      {busca && !matchExato && (
+                        <button
+                          type="button"
+                          onClick={() => setEstabAberto(false)}
+                          className="w-full text-left px-3 py-2 text-xs text-amber-400 hover:bg-amber-900/20 border-t border-slate-600"
+                        >
+                          Manter &quot;{form.clinica_coleta.trim()}&quot; como texto livre (sem vínculo)
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {form.clinica_coleta.trim() && !form.estabelecimento_id && !estabAberto && (
+                    <p className="mt-1 text-xs text-amber-400">Sem vínculo a estabelecimento cadastrado</p>
+                  )}
+                </div>
+              )
+            })()}
           </div>
 
           {/* Funcionario e Encaminhamento */}
