@@ -29,8 +29,8 @@ const CATEGORIA_URNA_LABELS: Record<string, string> = {
   'Arca/Sleeping': 'Arca/Sleeping',
   'Porta/Box': 'Porta/Box',
   'Pedras': 'Pedras',
-  'High Prices': 'High Prices',
-  'Low Prices': 'Low Prices',
+  'Potes': 'Potes',
+  'Standard': 'Standard',
   'Avulsos Legado RIP': 'Avulsos Legado',
 }
 

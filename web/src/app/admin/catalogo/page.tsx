@@ -482,7 +482,7 @@ export default function CatalogoPage() {
                   onChange={e => setForm(f => ({ ...f, categoria: e.target.value }))}
                   className="w-full px-3 py-2 rounded-lg text-sm outline-none"
                   style={{ background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155' }}
-                  placeholder="Ex: Low Prices, Arca/Sleeping, Pedras..."
+                  placeholder="Ex: Standard, Potes, Pedras..."
                 />
               </div>
 
