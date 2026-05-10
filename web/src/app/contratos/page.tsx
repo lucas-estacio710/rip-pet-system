@@ -554,41 +554,31 @@ function ContratosContent() {
   const POR_PAGINA = 30
   const supabase = createClient()
 
-  // Função auxiliar para ajustar estoque de um produto
-  // quantidade positiva = creditar (devolver), negativa = debitar (retirar)
-  async function ajustarEstoque(produtoId: string, quantidade: number, estoqueInfinito?: boolean) {
-    if (estoqueInfinito) return
-
-    const { data: produto } = await supabase
-      .from('produtos')
-      .select('estoque_atual')
-      .eq('id', produtoId)
-      .single<{ estoque_atual: number }>()
-
-    if (produto) {
-      const novoEstoque = Math.max(0, (produto.estoque_atual || 0) + quantidade)
-      await supabase
-        .from('produtos')
-        .update({ estoque_atual: novoEstoque } as never)
-        .eq('id', produtoId)
+  // Ajusta estoque DA UNIDADE (produtos_estoque). Quantidade positiva = creditar,
+  // negativa = debitar. Vai a negativo silenciosamente. estoque_infinito tratado server-side.
+  async function ajustarEstoque(produtoId: string, quantidade: number, _estoqueInfinito?: boolean | null, unidadeId?: string) {
+    const uid = unidadeId || currentUnit?.id
+    if (!uid) {
+      console.warn('[ajustarEstoque] sem unidade_id — pulando ajuste')
+      return
     }
+    const { error } = await (supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ error: { message: string } | null }>)('ajustar_estoque_unidade', {
+      p_produto_id: produtoId,
+      p_unidade_id: uid,
+      p_delta: quantidade,
+    })
+    if (error) console.error('[ajustarEstoque]', error)
   }
 
-  // Função auxiliar para ajustar estoque por código do produto
-  async function ajustarEstoquePorCodigo(codigo: string, quantidade: number) {
+  // Variante por código do produto (resolve ID e chama o helper)
+  async function ajustarEstoquePorCodigo(codigo: string, quantidade: number, unidadeId?: string) {
     const { data: produto } = await supabase
       .from('produtos')
-      .select('id, estoque_atual, estoque_infinito')
+      .select('id, estoque_infinito')
       .eq('codigo', codigo)
-      .single<{ id: string; estoque_atual: number; estoque_infinito: boolean | null }>()
-
-    if (produto && !produto.estoque_infinito) {
-      const novoEstoque = Math.max(0, (produto.estoque_atual || 0) + quantidade)
-      await supabase
-        .from('produtos')
-        .update({ estoque_atual: novoEstoque } as never)
-        .eq('id', produto.id)
-    }
+      .maybeSingle<{ id: string; estoque_infinito: boolean | null }>()
+    if (!produto) return
+    await ajustarEstoque(produto.id, quantidade, produto.estoque_infinito, unidadeId)
   }
 
   // Função para formatar moeda
@@ -744,7 +734,7 @@ function ContratosContent() {
     // carregar tudo no client.
     const { data, error, count } = await query.range(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA - 1)
     if (minhaBuscaId !== buscaIdRef.current) return
-    if (error) console.error('Erro ao carregar contratos:', error)
+    if (error) console.error('Erro ao carregar contratos:', { message: error.message, code: error.code, details: error.details, hint: error.hint })
     else {
       const arr = (data || []) as Contrato[]
       if (opts.append) setContratos(prev => [...prev, ...arr])
@@ -2519,8 +2509,8 @@ ${petNome}`
           .eq('contrato_id', urnaContrato.id)
           .eq('produto_id', ultimaUrna.produto_id)
 
-        // Creditar estoque da urna removida
-        await ajustarEstoquePorCodigo(ultimaUrna.produto?.nome || '', +1) // fallback pelo nome se não tiver código
+        // Creditar estoque da urna removida DA UNIDADE DO CONTRATO
+        await ajustarEstoquePorCodigo(ultimaUrna.produto?.nome || '', +1, urnaContrato.unidade_id)
       }
 
       // Verificar se já existe registro para a nova urna
@@ -2553,8 +2543,8 @@ ${petNome}`
             valor: valorFinal,
           } as never)
 
-        // Debitar estoque da nova urna
-        await ajustarEstoque(urnaSelecionada.id, -1, urnaSelecionada.estoque_infinito)
+        // Debitar estoque da nova urna DA UNIDADE DO CONTRATO
+        await ajustarEstoque(urnaSelecionada.id, -1, urnaSelecionada.estoque_infinito, urnaContrato.unidade_id)
       }
 
       // Atualiza contrato_produtos na lista local
@@ -2846,7 +2836,7 @@ ${petNome}`
     if (!error && data) {
       const novoProduto = data as ContratoProduto
       // Debitar estoque
-      await ajustarEstoquePorCodigo(produto.codigo, -1)
+      await ajustarEstoquePorCodigo(produto.codigo, -1, rescaldoContrato.unidade_id)
       // Atualizar estado local
       setContratos(prev => prev.map(c => {
         if (c.id !== rescaldoContrato.id) return c
@@ -2895,8 +2885,8 @@ ${petNome}`
       .eq('id', cpId)
 
     if (!error) {
-      // Creditar estoque
-      await ajustarEstoque(produtoId, 1)
+      // Creditar estoque DA UNIDADE DO CONTRATO
+      await ajustarEstoque(produtoId, 1, undefined, rescaldoContrato.unidade_id)
       const filtrar = (prods?: ContratoProduto[]) =>
         prods?.filter(cp => cp.id !== cpId)
 

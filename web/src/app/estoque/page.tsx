@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Boxes, Grid, List, Search, Package, AlertTriangle, ShoppingCart, Target, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useUnit } from '@/contexts/UnitContext'
 import { Skeleton } from '@/components/ui/Skeleton'
 import EmptyState from '@/components/ui/EmptyState'
 
@@ -68,6 +69,7 @@ const TIPO_BORDER: Record<string, string> = {
 
 export default function EstoquePage() {
   const router = useRouter()
+  const { currentUnit } = useUnit()
   const [produtos, setProdutos] = useState<Produto[]>([])
   const [loading, setLoading] = useState(true)
   const [filtro, setFiltro] = useState<string>('')
@@ -80,21 +82,36 @@ export default function EstoquePage() {
 
   useEffect(() => {
     carregarProdutos()
-  }, [])
+  }, [currentUnit?.id])
 
   async function carregarProdutos() {
     setLoading(true)
 
-    const { data, error } = await supabase
+    const { data: produtosData, error } = await supabase
       .from('produtos')
       .select('*')
       .eq('ativo', true)
       .order('tipo')
       .order('nome')
 
-    if (!error) {
-      setProdutos(data || [])
+    if (error) { setLoading(false); return }
+    if (!produtosData) { setLoading(false); return }
+
+    // Estoque DA UNIDADE ATIVA (substitui estoque_atual global)
+    let estoqueMap = new Map<string, number>()
+    if (currentUnit?.id) {
+      const { data: peData } = await supabase
+        .from('produtos_estoque')
+        .select('produto_id, estoque_atual')
+        .eq('unidade_id', currentUnit.id)
+      const rows = (peData || []) as { produto_id: string; estoque_atual: number }[]
+      estoqueMap = new Map(rows.map(r => [r.produto_id, r.estoque_atual]))
     }
+    const merged = produtosData.map((p: Produto) => ({
+      ...p,
+      estoque_atual: estoqueMap.get(p.id) ?? 0,
+    }))
+    setProdutos(merged)
     setLoading(false)
   }
 

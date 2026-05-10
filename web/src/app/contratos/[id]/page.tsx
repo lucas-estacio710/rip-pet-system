@@ -161,6 +161,7 @@ type Tutor = {
 type Contrato = {
   id: string
   codigo: string
+  unidade_id: string
   pet_nome: string
   pet_especie: string | null
   pet_raca: string | null
@@ -294,13 +295,8 @@ export default function ContratoDetalhe() {
   const router = useRouter()
   const [contrato, setContrato] = useState<Contrato | null>(null)
   const [loading, setLoading] = useState(true)
-  const [urnaModal, setUrnaModal] = useState(false)
-  const [urnaPrompt, setUrnaPrompt] = useState(false)
-  const [urnaModoEdicao, setUrnaModoEdicao] = useState(false)
-  const [urnas, setUrnas] = useState<Produto[]>([])
-  const [urnaSelecionada, setUrnaSelecionada] = useState<Produto | null>(null)
-  const [buscaUrna, setBuscaUrna] = useState('')
-  const [filtroUrnaCategoria, setFiltroUrnaCategoria] = useState<string>('')
+  // Prompt "Adicionar nova ou Trocar?" quando user adiciona urna mas já existe outra no contrato
+  const [trocaUrnaPrompt, setTrocaUrnaPrompt] = useState<{ urnaAnterior: ContratoProduto } | null>(null)
   const [salvando, setSalvando] = useState(false)
   const [contratoProdutos, setContratoProdutos] = useState<ContratoProduto[]>([])
   const [carregandoProdutos, setCarregandoProdutos] = useState(true)
@@ -444,53 +440,33 @@ export default function ContratoDetalhe() {
 
   // Função auxiliar para ajustar estoque de um produto
   // quantidade positiva = creditar (devolver), negativa = debitar (retirar)
-  async function ajustarEstoque(produtoId: string, quantidade: number, estoqueInfinito?: boolean) {
-    // Não ajusta produtos com estoque infinito
-    if (estoqueInfinito) return
-
-    // Buscar estoque atual
-    const { data: produto } = await supabase
-      .from('produtos')
-      .select('estoque_atual')
-      .eq('id', produtoId)
-      .single<{ estoque_atual: number }>()
-
-    if (produto) {
-      const novoEstoque = (produto.estoque_atual || 0) + quantidade
-      await supabase
-        .from('produtos')
-        .update({ estoque_atual: novoEstoque } as never)
-        .eq('id', produtoId)
+  // Ajusta estoque DA UNIDADE (produtos_estoque). Delta positivo = credita,
+  // negativo = debita. Vai a negativo silenciosamente. estoque_infinito é
+  // tratado server-side pela RPC.
+  // unidadeId: passe contrato.unidade_id (a unidade que vendeu).
+  async function ajustarEstoque(produtoId: string, quantidade: number, _estoqueInfinito?: boolean | null, unidadeId?: string) {
+    const uid = unidadeId || contrato?.unidade_id
+    if (!uid) {
+      console.warn('[ajustarEstoque] sem unidade_id — pulando ajuste')
+      return
     }
+    const { error } = await (supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ error: { message: string } | null }>)('ajustar_estoque_unidade', {
+      p_produto_id: produtoId,
+      p_unidade_id: uid,
+      p_delta: quantidade,
+    })
+    if (error) console.error('[ajustarEstoque]', error)
   }
 
-  // Função auxiliar para ajustar estoque por código do produto
-  async function ajustarEstoquePorCodigo(codigo: string, quantidade: number) {
-    // Buscar produto pelo código
+  // Variante por código do produto (usado em rescaldo). Resolve ID e chama o helper.
+  async function ajustarEstoquePorCodigo(codigo: string, quantidade: number, unidadeId?: string) {
     const { data: produto } = await supabase
       .from('produtos')
-      .select('id, estoque_atual, estoque_infinito')
+      .select('id, estoque_infinito')
       .eq('codigo', codigo)
-      .single<{ id: string; estoque_atual: number; estoque_infinito: boolean | null }>()
-
-    if (produto && !produto.estoque_infinito) {
-      const novoEstoque = (produto.estoque_atual || 0) + quantidade
-      await supabase
-        .from('produtos')
-        .update({ estoque_atual: novoEstoque } as never)
-        .eq('id', produto.id)
-    }
-  }
-
-  async function carregarUrnas() {
-    const { data } = await supabase
-      .from('produtos')
-      .select('id, codigo, nome, tipo, preco, estoque_atual, imagem_url, estoque_infinito')
-      .eq('tipo', 'urna')
-      .eq('ativo', true)
-      .order('nome')
-
-    if (data) setUrnas(data)
+      .maybeSingle<{ id: string; estoque_infinito: boolean | null }>()
+    if (!produto) return
+    await ajustarEstoque(produto.id, quantidade, produto.estoque_infinito, unidadeId)
   }
 
   async function iniciarEdicaoAcolhimento() {
@@ -590,80 +566,30 @@ export default function ContratoDetalhe() {
     }
   }
 
-  async function salvarUrna() {
-    if (!contrato || !urnaSelecionada) return
-    setSalvando(true)
-
-    if (urnaModoEdicao) {
-      // Modo edição: trocar a última urna existente
-      const urnaAnterior = contratoProdutos.find(cp => cp.produto?.tipo === 'urna')
-
-      if (urnaAnterior && urnaAnterior.produto?.id !== urnaSelecionada.id) {
-        await supabase
-          .from('contrato_produtos')
-          .delete()
-          .eq('id', urnaAnterior.id)
-
-        // Creditar estoque da urna removida
-        if (urnaAnterior.produto?.codigo) {
-          await ajustarEstoquePorCodigo(urnaAnterior.produto.codigo, +1)
-        }
-      }
-
-      // Inserir nova urna (se não for a mesma)
-      if (!urnaAnterior || urnaAnterior.produto?.id !== urnaSelecionada.id) {
-        await supabase
-          .from('contrato_produtos')
-          .insert({
-            contrato_id: contrato.id,
-            produto_id: urnaSelecionada.id,
-            quantidade: 1,
-            valor: urnaSelecionada.preco || 0,
-          } as never)
-
-        await ajustarEstoque(urnaSelecionada.id, -1, urnaSelecionada.estoque_infinito)
-      }
-    } else {
-      // Modo adicionar: inserir nova urna sem remover existentes
-      await supabase
-        .from('contrato_produtos')
-        .insert({
-          contrato_id: contrato.id,
-          produto_id: urnaSelecionada.id,
-          quantidade: 1,
-          valor: urnaSelecionada.preco || 0,
-        } as never)
-
-      await ajustarEstoque(urnaSelecionada.id, -1, urnaSelecionada.estoque_infinito)
-    }
-
-    // Recarregar produtos para refletir a mudança
-    await carregarProdutosContrato()
-    setUrnaModal(false)
-    setSalvando(false)
-  }
-
-  async function abrirUrnaModal() {
-    setBuscaUrna('')
-    setFiltroUrnaCategoria('')
-    setUrnaSelecionada(null)
-    setUrnaModoEdicao(false)
-
-    // Se já tem urna, mostra prompt (Adicionar nova ou Trocar)
-    const urnasExistentes = contratoProdutos.filter(cp => cp.produto?.tipo === 'urna')
-    if (urnasExistentes.length > 0) {
-      setUrnaPrompt(true)
-    } else {
-      setUrnaModal(true)
-      if (urnas.length === 0) await carregarUrnas()
+  // Re-fetch valor_acessorios e desconto_acessorios do contrato após mudanças em
+  // contrato_produtos. O trigger SQL (migration 074) atualiza esses campos
+  // automaticamente — só precisamos sincronizar o estado local.
+  async function recarregarValoresContrato() {
+    if (!params.id) return
+    const { data } = await supabase
+      .from('contratos')
+      .select('valor_acessorios, desconto_acessorios')
+      .eq('id', params.id as string)
+      .single<{ valor_acessorios: number; desconto_acessorios: number }>()
+    if (data) {
+      setContrato(prev => prev ? { ...prev, ...data } as typeof prev : prev)
     }
   }
 
-  function urnaPromptAcao(acao: 'adicionar' | 'editar') {
-    setUrnaPrompt(false)
-    setUrnaModoEdicao(acao === 'editar')
-    setUrnaModal(true)
-    if (urnas.length === 0) carregarUrnas()
+  // Abre o modal genérico de adicionar produto, opcionalmente com filtro de tipo
+  // pré-aplicado. Substitui o antigo `abrirUrnaModal` específico.
+  async function abrirAddProdutoModalComFiltro(filtroTipo: 'urna' | 'acessorio' | 'incluso' | '' = '') {
+    setAddProdutoModal(true)
+    setBuscaProduto('')
+    setFiltroProdutoTipo(filtroTipo)
+    setFiltroProdutoCategoria('')
+    setProdutoParaAdicionar(null)
+    await carregarTodosProdutos()
   }
 
   async function carregarProdutosContrato() {
@@ -839,20 +765,32 @@ export default function ContratoDetalhe() {
   }
 
   async function carregarTodosProdutos() {
-    const { data, error } = await supabase
+    // Produtos do catálogo
+    const { data: produtosData, error } = await supabase
       .from('produtos')
       .select('id, codigo, nome, tipo, categoria, preco, estoque_atual, estoque_minimo, imagem_url, estoque_infinito')
       .eq('ativo', true)
       .order('tipo')
       .order('nome')
+    if (error) { console.error('Erro ao carregar produtos:', error); return }
+    if (!produtosData) return
 
-    if (error) {
-      console.error('Erro ao carregar produtos:', error)
+    // Estoque DA UNIDADE DO CONTRATO (substitui estoque_atual global pelo local)
+    const unidadeId = contrato?.unidade_id
+    let estoqueMap = new Map<string, number>()
+    if (unidadeId) {
+      const { data: peData } = await supabase
+        .from('produtos_estoque')
+        .select('produto_id, estoque_atual')
+        .eq('unidade_id', unidadeId)
+      const rows = (peData || []) as { produto_id: string; estoque_atual: number }[]
+      estoqueMap = new Map(rows.map(r => [r.produto_id, r.estoque_atual]))
     }
-    if (data) {
-      console.log('Produtos carregados:', data.length)
-      setTodosProdutos(data)
-    }
+    const merged = produtosData.map((p: Produto) => ({
+      ...p,
+      estoque_atual: estoqueMap.get(p.id) ?? 0,
+    }))
+    setTodosProdutos(merged)
   }
 
   async function abrirAddProdutoModal() {
@@ -869,39 +807,6 @@ export default function ContratoDetalhe() {
     if (atual <= 0) return { status: 'critico', color: 'bg-red-500', label: 'Sem estoque' }
     if (atual <= minimo) return { status: 'baixo', color: 'bg-yellow-500', label: 'Estoque baixo' }
     return { status: 'ok', color: 'bg-green-500', label: 'OK' }
-  }
-
-  // Recalcula valor_acessorios no contrato baseado nos produtos vinculados
-  // novoDesconto: se passado, preserva esse valor de desconto_acessorios no estado
-  async function recalcularValorAcessorios(novoDesconto?: number) {
-    if (!params.id || !contrato) return
-
-    // Buscar todos os produtos do contrato com seus valores
-    const { data: produtos } = await supabase
-      .from('contrato_produtos')
-      .select('valor, quantidade, produto:produtos(tipo)')
-      .eq('contrato_id', params.id)
-
-    if (!produtos) return
-
-    // Somar valores (exceto inclusos que são grátis)
-    const valorTotal = (produtos as Array<{ valor: number; quantidade: number; produto: { tipo: string } | null }>).reduce((sum, p) => {
-      if (p.produto?.tipo === 'incluso') return sum
-      return sum + ((p.valor || 0) * (p.quantidade || 1))
-    }, 0)
-
-    // Atualizar no contrato
-    await supabase
-      .from('contratos')
-      .update({ valor_acessorios: valorTotal } as never)
-      .eq('id', params.id as string)
-
-    // Atualizar estado local preservando desconto se passado
-    setContrato(prev => prev ? {
-      ...prev,
-      valor_acessorios: valorTotal,
-      ...(novoDesconto !== undefined ? { desconto_acessorios: novoDesconto } : {})
-    } : prev)
   }
 
   // Sincroniza pelinho_quantidade/quer/feito baseado nos contrato_produtos reais
@@ -937,60 +842,69 @@ export default function ContratoDetalhe() {
     setMostrarOpcoesProduto(false)
   }
 
-  async function confirmarAdicionarProduto() {
+  async function confirmarAdicionarProduto(opts: { trocarUrna?: ContratoProduto; forcarAdicionarNova?: boolean } = {}) {
     if (!params.id || !produtoParaAdicionar || !contrato) return
+
+    // Se for urna E já existe urna no contrato E não veio decisão explícita,
+    // pergunta se é pra adicionar nova ou trocar a existente.
+    const decisaoTomada = opts.trocarUrna !== undefined || opts.forcarAdicionarNova === true
+    if (!decisaoTomada && produtoParaAdicionar.tipo === 'urna') {
+      const urnaAnterior = contratoProdutos.find(cp => cp.produto?.tipo === 'urna')
+      if (urnaAnterior) {
+        setTrocaUrnaPrompt({ urnaAnterior })
+        return
+      }
+    }
+
     setSalvando(true)
+
+    // Se trocar: deletar urna anterior e creditar estoque ANTES de inserir a nova
+    if (opts.trocarUrna) {
+      await supabase.from('contrato_produtos').delete().eq('id', opts.trocarUrna.id)
+      if (opts.trocarUrna.produto?.id) {
+        await ajustarEstoque(
+          opts.trocarUrna.produto.id,
+          +(opts.trocarUrna.quantidade || 1),
+          opts.trocarUrna.produto.estoque_infinito,
+        )
+      }
+    }
 
     const precoOriginal = produtoParaAdicionar.preco || 0
     const precoBase = typeof addProdutoForm.precoCustom === 'number' ? addProdutoForm.precoCustom : precoOriginal
     let descontoPorUnidade = 0
 
-    // Calcular desconto por unidade baseado no tipo
     if (addProdutoForm.descontoTipo === 'percent' && addProdutoForm.descontoPercent && addProdutoForm.descontoPercent > 0) {
       descontoPorUnidade = precoBase * (addProdutoForm.descontoPercent / 100)
     } else if (addProdutoForm.descontoTipo === 'valor' && addProdutoForm.descontoValor && addProdutoForm.descontoValor > 0) {
       descontoPorUnidade = addProdutoForm.descontoValor
     }
 
-    // Criar array de produtos - uma linha para cada unidade
     const produtosParaInserir = Array.from({ length: addProdutoForm.quantidade }, () => ({
       contrato_id: params.id,
       produto_id: produtoParaAdicionar.id,
       quantidade: 1,
       valor: precoBase,
-      desconto: descontoPorUnidade
+      desconto: descontoPorUnidade,
     }))
 
-    // Inserir todos os produtos
     const { error } = await supabase
       .from('contrato_produtos')
       .insert(produtosParaInserir as never)
 
-    // Desconto total para atualizar no contrato
-    const desconto = descontoPorUnidade * addProdutoForm.quantidade
-
     if (!error) {
-      // Debitar estoque (quantidade negativa)
       await ajustarEstoque(
         produtoParaAdicionar.id,
         -addProdutoForm.quantidade,
-        produtoParaAdicionar.estoque_infinito
+        produtoParaAdicionar.estoque_infinito,
       )
 
-      // Atualizar desconto_acessorios no contrato (soma o desconto pré-venda)
-      const novoDescontoAcessorios = (contrato.desconto_acessorios || 0) + desconto
-      if (desconto > 0) {
-        await supabase
-          .from('contratos')
-          .update({ desconto_acessorios: novoDescontoAcessorios } as never)
-          .eq('id', params.id as string)
-      }
-
+      // Trigger SQL atualizou valor_acessorios e desconto_acessorios → só sincroniza local
       await carregarProdutosContrato()
-      // Passar o novo desconto para preservar no estado
-      await recalcularValorAcessorios(novoDescontoAcessorios)
+      await recarregarValoresContrato()
       setProdutoParaAdicionar(null)
       setAddProdutoModal(false)
+      setTrocaUrnaPrompt(null)
     }
     setSalvando(false)
   }
@@ -1008,33 +922,33 @@ export default function ContratoDetalhe() {
     if (!contrato) return
     setSalvando(true)
 
-    // Buscar produto atual para calcular diferença de desconto
-    const produtoAtual = contratoProdutos.find(cp => cp.id === cpId)
-    const descontoAnterior = produtoAtual ? (produtoAtual.desconto || 0) * (produtoAtual.quantidade || 1) : 0
-    const descontoNovo = (editForm.desconto === '' ? 0 : editForm.desconto) * editForm.quantidade
-    const diferencaDesconto = descontoNovo - descontoAnterior
+    // Ajustar estoque pela DIFERENÇA de quantidade (delta)
+    const cpAtual = contratoProdutos.find(cp => cp.id === cpId)
+    const qtdAnterior = cpAtual?.quantidade || 1
+    const qtdNova = editForm.quantidade
+    const delta = qtdNova - qtdAnterior  // +N = aumentou (debitar mais), -N = diminuiu (creditar)
 
     const { error } = await supabase
       .from('contrato_produtos')
       .update({
         quantidade: editForm.quantidade,
         valor: editForm.valor,
-        desconto: editForm.desconto === '' ? 0 : editForm.desconto
+        desconto: editForm.desconto === '' ? 0 : editForm.desconto,
       } as never)
       .eq('id', cpId)
 
     if (!error) {
-      // Ajustar desconto_acessorios do contrato se houve mudança
-      const novoDescontoAcessorios = Math.max(0, (contrato.desconto_acessorios || 0) + diferencaDesconto)
-      if (diferencaDesconto !== 0) {
-        await supabase
-          .from('contratos')
-          .update({ desconto_acessorios: novoDescontoAcessorios } as never)
-          .eq('id', params.id as string)
+      // Sincronizar estoque com a nova quantidade (debita ou credita o delta)
+      if (delta !== 0 && cpAtual?.produto?.id) {
+        await ajustarEstoque(
+          cpAtual.produto.id,
+          -delta,                              // delta positivo = debitar mais
+          cpAtual.produto.estoque_infinito,
+        )
       }
-
+      // Trigger SQL atualizou valor_acessorios e desconto_acessorios → só sincroniza local
       await carregarProdutosContrato()
-      await recalcularValorAcessorios(novoDescontoAcessorios)
+      await recarregarValoresContrato()
       setEditandoProduto(null)
     }
     setSalvando(false)
@@ -1045,9 +959,7 @@ export default function ContratoDetalhe() {
     if (!contrato) return
     setSalvando(true)
 
-    // Buscar o produto para saber o desconto e dados do estoque antes de remover
     const produtoRemovido = contratoProdutos.find(cp => cp.id === cpId)
-    const descontoRemovido = produtoRemovido ? (produtoRemovido.desconto || 0) * (produtoRemovido.quantidade || 1) : 0
 
     const { error } = await supabase
       .from('contrato_produtos')
@@ -1059,18 +971,9 @@ export default function ContratoDetalhe() {
       if (produtoRemovido?.produto) {
         await ajustarEstoque(
           produtoRemovido.produto.id,
-          +(produtoRemovido.quantidade || 1), // positivo = creditar
-          produtoRemovido.produto.estoque_infinito
+          +(produtoRemovido.quantidade || 1),
+          produtoRemovido.produto.estoque_infinito,
         )
-      }
-
-      // Subtrair desconto do desconto_acessorios do contrato
-      const novoDescontoAcessorios = Math.max(0, (contrato.desconto_acessorios || 0) - descontoRemovido)
-      if (descontoRemovido > 0) {
-        await supabase
-          .from('contratos')
-          .update({ desconto_acessorios: novoDescontoAcessorios } as never)
-          .eq('id', params.id as string)
       }
 
       // Sincronizar pelinho se removeu um
@@ -1078,8 +981,9 @@ export default function ContratoDetalhe() {
         await sincronizarPelinho()
       }
 
+      // Trigger SQL atualizou valor_acessorios e desconto_acessorios → só sincroniza local
       await carregarProdutosContrato()
-      await recalcularValorAcessorios(novoDescontoAcessorios)
+      await recarregarValoresContrato()
     }
     setSalvando(false)
   }
@@ -1501,14 +1405,6 @@ export default function ContratoDetalhe() {
       .map(p => p.categoria!)
   )].sort()
 
-  // Filtrar urnas pela busca e categoria
-  const urnasFiltradas = urnas.filter(u => {
-    const matchBusca = u.nome.toLowerCase().includes(buscaUrna.toLowerCase()) ||
-      u.codigo.toLowerCase().includes(buscaUrna.toLowerCase())
-    const matchCategoria = !filtroUrnaCategoria || u.categoria === filtroUrnaCategoria
-    return matchBusca && matchCategoria
-  })
-
   useEffect(() => {
     carregarContrato()
     carregarProdutosContrato()
@@ -1570,6 +1466,8 @@ export default function ContratoDetalhe() {
       // Debitar estoque
       await ajustarEstoquePorCodigo(produto.codigo, -1)
       setContratoProdutos(prev => [...prev, data as ContratoProduto])
+      // Trigger SQL atualizou valor_acessorios e desconto_acessorios → só sincroniza local
+      await recarregarValoresContrato()
     } else {
       alert('Erro ao adicionar produto de rescaldo')
     }
@@ -1597,7 +1495,7 @@ export default function ContratoDetalhe() {
       .eq('id', cpId)
 
     if (!error) {
-      await ajustarEstoque(produtoId, 1)
+      await ajustarEstoque(produtoId, 1, cpRemovido?.produto?.estoque_infinito)
       setContratoProdutos(prev => prev.filter(cp => cp.id !== cpId))
 
       // Sincronizar pelinho se removeu um
@@ -1605,8 +1503,8 @@ export default function ContratoDetalhe() {
         await sincronizarPelinho()
       }
 
-      // Recalcular valor_acessorios
-      await recalcularValorAcessorios()
+      // Trigger SQL atualizou valor_acessorios e desconto_acessorios → só sincroniza local
+      await recarregarValoresContrato()
     }
   }
 
@@ -2265,7 +2163,7 @@ ${petNome}`
               }}
               handlers={{
                 pelinho: () => setPelinhoModalOpen(true),
-                urna: () => abrirUrnaModal(),
+                urna: () => abrirAddProdutoModalComFiltro('urna'),
                 certificado: () => setCertificadoModalOpen(true),
                 foto: () => setFotoModal(true),
                 pagamento: () => abrirMegaPagamento(0, 0),
@@ -3171,289 +3069,48 @@ ${petNome}`
         <HistoricoCard contratoId={contrato.id} />
       </div>
 
-      {/* Modal Prompt Urna - Adicionar nova ou editar? */}
-      {urnaPrompt && contrato && (() => {
-        const urnasExistentes = contratoProdutos.filter(cp => cp.produto?.tipo === 'urna')
-        const nomesUrnas = urnasExistentes.map(u => u.produto?.nome || 'Urna').join(', ')
 
-        return (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setUrnaPrompt(false)}>
-            <div className="bg-slate-800 rounded-xl shadow-xl max-w-sm w-full mx-4 p-6" onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-slate-200">⚱️ Urna já definida</h3>
-                <button onClick={() => setUrnaPrompt(false)} className="text-slate-400 hover:text-slate-200">
-                  ✕
-                </button>
-              </div>
-
-              <p className="text-sm text-slate-400 mb-4">
-                <strong>{contrato.pet_nome}</strong> já tem {urnasExistentes.length} urna(s): <span className="font-mono text-purple-400">{nomesUrnas}</span>
-              </p>
-
-              <div className="flex gap-2">
-                <button
-                  onClick={() => urnaPromptAcao('adicionar')}
-                  className="flex-1 py-3 px-4 bg-green-900/40 border-2 border-green-500 text-green-300 rounded-lg font-medium hover:bg-green-900/50 transition-colors"
-                >
-                  ➕ Adicionar nova
-                </button>
-                <button
-                  onClick={() => urnaPromptAcao('editar')}
-                  className="flex-1 py-3 px-4 bg-purple-900/40 border-2 border-purple-500 text-purple-300 rounded-lg font-medium hover:bg-purple-900/50 transition-colors"
-                >
-                  ✏️ Trocar última
-                </button>
-              </div>
-            </div>
-          </div>
-        )
-      })()}
-
-      {/* Modal Urna */}
-      {urnaModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setUrnaModal(false)}>
-          <div className="bg-slate-800 rounded-2xl w-full max-w-4xl max-h-[90vh] shadow-xl flex flex-col" onClick={e => e.stopPropagation()}>
-            {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="text-lg font-semibold text-slate-200">⚱️ {urnaModoEdicao ? 'Editar Urna' : 'Escolher Urna'}</h3>
-              <button onClick={() => setUrnaModal(false)} className="text-slate-400 hover:text-slate-200">
-                <X className="h-5 w-5" />
+      {/* Modal Adicionar Produto */}
+      {/* Prompt: Adicionar nova urna OU Trocar pela existente? */}
+      {trocaUrnaPrompt && contrato && produtoParaAdicionar && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4" onClick={() => setTrocaUrnaPrompt(null)}>
+          <div className="bg-slate-800 rounded-xl shadow-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-slate-200 mb-2">⚱️ Já existe uma urna no contrato</h3>
+            <p className="text-sm text-slate-400 mb-4">
+              Atual: <span className="text-slate-200 font-medium">{trocaUrnaPrompt.urnaAnterior.produto?.nome || 'urna'}</span>
+              <br />
+              Nova: <span className="text-slate-200 font-medium">{produtoParaAdicionar.nome}</span>
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => confirmarAdicionarProduto({ trocarUrna: trocaUrnaPrompt.urnaAnterior })}
+                disabled={salvando}
+                className="w-full py-2 px-3 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold disabled:opacity-50"
+              >
+                {salvando ? 'Trocando…' : 'Trocar pela existente (devolve a anterior pro estoque)'}
               </button>
-            </div>
-
-            {/* Busca + Filtros */}
-            <div className="p-4 border-b space-y-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Buscar urna..."
-                  value={buscaUrna}
-                  onChange={(e) => setBuscaUrna(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                />
-              </div>
-              {categoriasUrnasModal.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  <button
-                    onClick={() => setFiltroUrnaCategoria('')}
-                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                      !filtroUrnaCategoria
-                        ? 'bg-purple-900/40 text-purple-400 border-purple-300'
-                        : 'bg-slate-700/50 text-slate-400 border-slate-600 hover:bg-slate-700'
-                    }`}
-                  >
-                    Todas ({urnas.length})
-                  </button>
-                  {categoriasUrnasModal.map(cat => {
-                    const count = urnas.filter(u => u.categoria === cat).length
-                    return (
-                      <button
-                        key={cat}
-                        onClick={() => setFiltroUrnaCategoria(filtroUrnaCategoria === cat ? '' : cat)}
-                        className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                          filtroUrnaCategoria === cat
-                            ? 'bg-purple-900/40 text-purple-400 border-purple-300'
-                            : 'bg-slate-700/50 text-slate-400 border-slate-600 hover:bg-slate-700'
-                        }`}
-                      >
-                        {CATEGORIA_URNA_LABELS[cat] || cat} ({count})
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Grid de Urnas */}
-            <div className="flex-1 overflow-y-auto p-4">
-              {urnas.length === 0 ? (
-                <div className="text-center py-8 text-slate-400">Carregando urnas...</div>
-              ) : urnasFiltradas.length === 0 ? (
-                <div className="text-center py-8 text-slate-400">Nenhuma urna encontrada</div>
-              ) : filtroUrnaCategoria ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                  {urnasFiltradas.map((urna) => (
-                    <button
-                      key={urna.id}
-                      onClick={() => setUrnaSelecionada(urna)}
-                      className={`rounded-xl border-2 overflow-hidden transition-all hover:shadow-lg ${
-                        urnaSelecionada?.id === urna.id
-                          ? 'border-purple-500 ring-2 ring-purple-200'
-                          : 'border-slate-600 hover:border-purple-300'
-                      }`}
-                    >
-                      <div className="aspect-square bg-slate-700 relative">
-                        <img
-                          src={urna.imagem_url || getImagemUrl(urna.codigo)}
-                          alt={urna.nome}
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement
-                            const currentSrc = target.src
-                            if (urna.imagem_url && currentSrc.includes(urna.imagem_url)) {
-                              target.src = `/estoque/${urna.codigo}.png`
-                            } else if (currentSrc.endsWith('.png')) {
-                              target.src = `/estoque/${urna.codigo}.jpg`
-                            } else {
-                              target.style.display = 'none'
-                            }
-                          }}
-                        />
-                        {urnaSelecionada?.id === urna.id && (
-                          <div className="absolute top-2 right-2 w-6 h-6 bg-purple-500 rounded-full flex items-center justify-center">
-                            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                            </svg>
-                          </div>
-                        )}
-                        {!urna.estoque_infinito && urna.estoque_atual <= 0 && (
-                          <div className="absolute top-2 left-2 px-1.5 py-0.5 bg-red-500 rounded text-white text-[10px] font-bold">
-                            {urna.estoque_atual}
-                          </div>
-                        )}
-                      </div>
-                      <div className="p-2 text-left">
-                        <p className="font-medium text-slate-200 text-sm line-clamp-2 min-h-[2.5rem]">{urna.nome}</p>
-                        <div className="flex justify-between items-center mt-1">
-                          <span className={`text-xs font-semibold ${
-                            urna.estoque_infinito ? 'text-blue-500' :
-                            urna.estoque_atual <= 0 ? 'text-red-500' :
-                            urna.estoque_atual <= 2 ? 'text-amber-500' :
-                            'text-slate-400'
-                          }`}>
-                            {urna.estoque_infinito ? '∞' : `${urna.estoque_atual} un`}
-                          </span>
-                          {urna.preco && urna.preco > 0 && (
-                            <span className="text-xs font-semibold text-green-400">R$ {urna.preco.toFixed(0)}</span>
-                          )}
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {(() => {
-                    const porCategoria = new Map<string, Produto[]>()
-                    urnasFiltradas.forEach(u => {
-                      const cat = u.categoria || 'Sem categoria'
-                      if (!porCategoria.has(cat)) porCategoria.set(cat, [])
-                      porCategoria.get(cat)!.push(u)
-                    })
-                    return [...porCategoria.entries()].map(([cat, prods]) => (
-                      <div key={cat}>
-                        <div className="flex items-center gap-2 mb-3">
-                          <h4 className="text-sm font-semibold text-purple-400">{CATEGORIA_URNA_LABELS[cat] || cat}</h4>
-                          <span className="text-xs text-slate-400">({prods.length})</span>
-                          <div className="flex-1 h-px bg-purple-200" />
-                        </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                          {prods.map((urna) => (
-                            <button
-                              key={urna.id}
-                              onClick={() => setUrnaSelecionada(urna)}
-                              className={`rounded-xl border-2 overflow-hidden transition-all hover:shadow-lg ${
-                                urnaSelecionada?.id === urna.id
-                                  ? 'border-purple-500 ring-2 ring-purple-200'
-                                  : 'border-slate-600 hover:border-purple-300'
-                              }`}
-                            >
-                              <div className="aspect-square bg-slate-700 relative">
-                                <img
-                                  src={urna.imagem_url || getImagemUrl(urna.codigo)}
-                                  alt={urna.nome}
-                                  className="w-full h-full object-cover"
-                                  onError={(e) => {
-                                    const target = e.target as HTMLImageElement
-                                    const currentSrc = target.src
-                                    if (urna.imagem_url && currentSrc.includes(urna.imagem_url)) {
-                                      target.src = `/estoque/${urna.codigo}.png`
-                                    } else if (currentSrc.endsWith('.png')) {
-                                      target.src = `/estoque/${urna.codigo}.jpg`
-                                    } else {
-                                      target.style.display = 'none'
-                                    }
-                                  }}
-                                />
-                                {urnaSelecionada?.id === urna.id && (
-                                  <div className="absolute top-2 right-2 w-6 h-6 bg-purple-500 rounded-full flex items-center justify-center">
-                                    <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                    </svg>
-                                  </div>
-                                )}
-                                {!urna.estoque_infinito && urna.estoque_atual <= 0 && (
-                                  <div className="absolute top-2 left-2 px-1.5 py-0.5 bg-red-500 rounded text-white text-[10px] font-bold">
-                                    {urna.estoque_atual}
-                                  </div>
-                                )}
-                              </div>
-                              <div className="p-2 text-left">
-                                <p className="font-medium text-slate-200 text-sm line-clamp-2 min-h-[2.5rem]">{urna.nome}</p>
-                                <div className="flex justify-between items-center mt-1">
-                                  <span className={`text-xs font-semibold ${
-                                    urna.estoque_infinito ? 'text-blue-500' :
-                                    urna.estoque_atual <= 0 ? 'text-red-500' :
-                                    urna.estoque_atual <= 2 ? 'text-amber-500' :
-                                    'text-slate-400'
-                                  }`}>
-                                    {urna.estoque_infinito ? '∞' : `${urna.estoque_atual} un`}
-                                  </span>
-                                  {urna.preco && urna.preco > 0 && (
-                                    <span className="text-xs font-semibold text-green-400">R$ {urna.preco.toFixed(0)}</span>
-                                  )}
-                                </div>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ))
-                  })()}
-                </div>
-              )}
-            </div>
-
-            {/* Footer com urna selecionada e botões */}
-            <div className="p-4 border-t bg-slate-700/50">
-              {urnaSelecionada ? (
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <img
-                      src={urnaSelecionada.imagem_url || getImagemUrl(urnaSelecionada.codigo)}
-                      alt=""
-                      className="w-12 h-12 rounded-lg object-cover"
-                      onError={(e) => {
-                        const target = e.target as HTMLImageElement
-                        if (urnaSelecionada.imagem_url && target.src.includes(urnaSelecionada.imagem_url)) {
-                          target.src = `/estoque/${urnaSelecionada.codigo}.png`
-                        } else if (target.src.endsWith('.png')) {
-                          target.src = `/estoque/${urnaSelecionada.codigo}.jpg`
-                        }
-                      }}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-slate-200 line-clamp-2">{urnaSelecionada.nome}</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={salvarUrna}
-                    disabled={salvando}
-                    className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {salvando ? 'Salvando...' : 'Confirmar'}
-                  </button>
-                </div>
-              ) : (
-                <p className="text-center text-slate-400">Selecione uma urna acima</p>
-              )}
+              <button
+                onClick={() => {
+                  setTrocaUrnaPrompt(null)
+                  confirmarAdicionarProduto({ forcarAdicionarNova: true })
+                }}
+                disabled={salvando}
+                className="w-full py-2 px-3 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold disabled:opacity-50"
+              >
+                Adicionar como NOVA urna (manter a existente)
+              </button>
+              <button
+                onClick={() => setTrocaUrnaPrompt(null)}
+                disabled={salvando}
+                className="w-full py-2 px-3 rounded-lg text-slate-400 hover:text-slate-200 text-sm disabled:opacity-50"
+              >
+                Cancelar
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal Adicionar Produto */}
       {addProdutoModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setAddProdutoModal(false)}>
           <div className="bg-slate-800 rounded-2xl w-full max-w-5xl max-h-[90vh] shadow-xl flex flex-col" onClick={e => e.stopPropagation()}>
@@ -3957,7 +3614,7 @@ ${petNome}`
                 Cancelar
               </button>
               <button
-                onClick={confirmarAdicionarProduto}
+                onClick={() => confirmarAdicionarProduto()}
                 disabled={salvando}
                 className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
               >
