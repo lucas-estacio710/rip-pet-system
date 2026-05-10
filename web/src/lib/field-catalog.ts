@@ -102,6 +102,7 @@ export const CAMPOS_BOTOES: ChildItemDef[] = [
   { key: 'btn_alteracao_fase', tela: 'tela_contrato', label: 'Botões Alteração Fase', desc: '3-way: Pipeline ↔ Contrato', modo: 'toggle' },
   { key: 'btn_fluxo_retorno', tela: 'tela_contrato', label: 'Fluxo Retorno', desc: '3-way: Pipeline ↔ Contrato. Complexidade + Protocolo', modo: 'toggle' },
   { key: 'btn_compartilhar', tela: 'tela_contrato', label: 'Compartilhar', desc: 'Botão 🔄 compartilhar remoção/entrega com outra unidade', modo: 'toggle' },
+  { key: 'valor_plano', tela: 'tela_contrato', label: 'Valor do Plano', desc: 'Edição inline (lápis) do valor_plano no card Financeiro' },
 
   // --- FICHAS ---
   { key: 'btn_pdf_ficha', tela: 'tela_fichas', label: 'Gerar PDF', desc: 'Botão azul de gerar PDF do contrato no card da ficha', modo: 'toggle' },

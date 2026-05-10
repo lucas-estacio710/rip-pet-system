@@ -387,6 +387,11 @@ export default function ContratoDetalhe() {
   const [acolhHoraInput, setAcolhHoraInput] = useState('')
   const [acolhSaving, setAcolhSaving] = useState(false)
 
+  // Editor inline de valor_plano
+  const [valorPlanoEditing, setValorPlanoEditing] = useState(false)
+  const [valorPlanoInput, setValorPlanoInput] = useState('')
+  const [valorPlanoSaving, setValorPlanoSaving] = useState(false)
+
   // Lacre inline edit
   const [lacrePopup, setLacrePopup] = useState(false)
   const [editandoLacre, setEditandoLacre] = useState(false)
@@ -563,6 +568,68 @@ export default function ContratoDetalhe() {
       alert(msg)
     } finally {
       setAcolhSaving(false)
+    }
+  }
+
+  function abrirEditorValorPlano() {
+    if (!contrato) return
+    setValorPlanoInput(contrato.valor_plano != null ? String(contrato.valor_plano) : '')
+    setValorPlanoEditing(true)
+  }
+
+  async function salvarValorPlano() {
+    if (!contrato) return
+    const limpo = valorPlanoInput.replace(',', '.').trim()
+    const novo = parseFloat(limpo)
+    if (!Number.isFinite(novo) || novo < 0) {
+      alert('Valor inválido')
+      return
+    }
+    const anterior = contrato.valor_plano
+    if (novo === anterior) { setValorPlanoEditing(false); return }
+
+    // Guard: total já pago em "plano" maior que o novo valor (alerta, não bloqueia)
+    const totalPagoPlano = pagamentos
+      .filter(p => p.tipo === 'plano')
+      .reduce((acc, p) => acc + (p.valor || 0), 0)
+    const descontoPrePlano = contrato.desconto_plano || 0
+    const novoLiquido = novo - descontoPrePlano
+    if (totalPagoPlano > 0 && totalPagoPlano > novoLiquido) {
+      const dif = totalPagoPlano - novoLiquido
+      if (!confirm(`Atenção: já há R$ ${totalPagoPlano.toFixed(2)} pago em plano e o novo valor líquido seria R$ ${novoLiquido.toFixed(2)} — sobra de R$ ${dif.toFixed(2)} (excedente).\n\nDeseja continuar?`)) {
+        return
+      }
+    }
+
+    setValorPlanoSaving(true)
+    try {
+      const { error } = await supabase
+        .from('contratos')
+        .update({ valor_plano: novo } as never)
+        .eq('id', contrato.id)
+      if (error) throw error
+
+      const { data: { user } } = await supabase.auth.getUser()
+      await supabase.from('historico_alteracoes').insert({
+        entidade: 'contratos',
+        entidade_id: contrato.id,
+        entidade_nome: contrato.codigo,
+        campo: 'valor_plano',
+        campo_label: 'Valor do Plano',
+        valor_anterior: anterior != null ? String(anterior) : null,
+        valor_novo: String(novo),
+        tipo: 'edicao',
+        alterado_por: user?.id ?? null,
+        alterado_por_email: user?.email ?? null,
+      } as never)
+
+      setContrato(prev => prev ? { ...prev, valor_plano: novo } as typeof prev : prev)
+      setValorPlanoEditing(false)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Erro ao salvar'
+      alert(msg)
+    } finally {
+      setValorPlanoSaving(false)
     }
   }
 
@@ -2577,9 +2644,55 @@ ${petNome}`
                 <div className="bg-slate-700/50 rounded-lg p-3">
                   <p className="text-xs text-slate-400 uppercase mb-2">Valores</p>
                   <div className="space-y-1">
-                    <div className="flex justify-between">
+                    <div className="flex justify-between items-center">
                       <span className="text-xs text-slate-400">Plano:</span>
-                      <span className="text-sm font-semibold text-slate-200">{formatarMoeda(contrato.valor_plano)}</span>
+                      {valorPlanoEditing ? (
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-slate-400">R$</span>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            autoFocus
+                            value={valorPlanoInput}
+                            onChange={e => setValorPlanoInput(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') salvarValorPlano()
+                              if (e.key === 'Escape') setValorPlanoEditing(false)
+                            }}
+                            disabled={valorPlanoSaving}
+                            className="w-20 px-1.5 py-0.5 bg-slate-900 border border-slate-600 rounded text-xs text-slate-200 text-right focus:outline-none focus:border-blue-500"
+                          />
+                          <button
+                            onClick={salvarValorPlano}
+                            disabled={valorPlanoSaving}
+                            className="p-0.5 text-green-400 hover:text-green-300 disabled:opacity-50"
+                            title="Salvar (Enter)"
+                          >
+                            <Check className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setValorPlanoEditing(false)}
+                            disabled={valorPlanoSaving}
+                            className="p-0.5 text-slate-400 hover:text-slate-300 disabled:opacity-50"
+                            title="Cancelar (Esc)"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm font-semibold text-slate-200">{formatarMoeda(contrato.valor_plano)}</span>
+                          {isVisible(T, 'valor_plano') && canEdit(T, 'valor_plano') && (
+                            <button
+                              onClick={abrirEditorValorPlano}
+                              className="p-0.5 text-slate-500 hover:text-blue-400 transition-colors"
+                              title="Editar valor do plano"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <div className="flex justify-between">
                       <span className="text-xs text-slate-400">Acessórios:</span>
