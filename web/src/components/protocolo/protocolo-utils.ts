@@ -46,7 +46,7 @@ export type ProtocoloData = {
     valor: number
     valorDisplay?: string  // texto livre (ex: "Incluso", "Cortesia Vet", "Seguradora")
     pago: 'ok' | 'pend' | ''  // "Ok", "Pendente" ou vazio
-    tipo: 'cremacao' | 'urna' | 'acessorio' | 'incluso'
+    tipo: 'cremacao' | 'urna' | 'acessorio'
   }[]
   // Financeiro (editáveis no modal — a ficha é a fonte da verdade)
   totalAPagar: number
@@ -192,11 +192,11 @@ export function montarProtocoloData(
       nomeRetorno: cp.produto!.nome_retorno || getNomeRetorno(cp.produto!.nome),
       valor: cp.valor || cp.produto!.preco || 0,
       pago: 'ok' as const,
-      tipo: (cp.produto!.tipo || 'acessorio') as 'urna' | 'acessorio' | 'incluso',
+      tipo: (cp.produto!.tipo || 'acessorio') as 'urna' | 'acessorio',
     }))
 
-  // Ordenar: urna primeiro, depois acessorio, depois incluso; dentro do tipo, mais caro primeiro
-  const tipoOrdem: Record<string, number> = { urna: 0, acessorio: 1, incluso: 2 }
+  // Ordenar: urna primeiro, depois acessorio; dentro do tipo, mais caro primeiro
+  const tipoOrdem: Record<string, number> = { urna: 0, acessorio: 1 }
   produtosProtocolo.sort((a, b) => {
     const ordemA = tipoOrdem[a.tipo] ?? 3
     const ordemB = tipoOrdem[b.tipo] ?? 3

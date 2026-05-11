@@ -23,6 +23,7 @@ import AtivarModal from '@/components/contratos/modals/AtivarModal'
 import FinalizadoraModal from '@/components/contratos/modals/FinalizadoraModal'
 import ChegamosModal from '@/components/contratos/modals/ChegamosModal'
 import ChegaramModal from '@/components/contratos/modals/ChegaramModal'
+import { ordenarCategoriasUrnas } from '@/lib/categorias'
 
 function PixIcon({ className = "h-5 w-5" }: { className?: string }) {
   return (
@@ -107,7 +108,7 @@ type Produto = {
   id: string
   codigo: string
   nome: string
-  tipo: 'urna' | 'acessorio' | 'incluso'
+  tipo: 'urna' | 'acessorio'
   categoria: string | null
   preco: number | null
   estoque_atual: number
@@ -117,9 +118,11 @@ type Produto = {
 }
 
 const CATEGORIA_URNA_LABELS: Record<string, string> = {
-  'Arca/Sleeping': 'Arca/Sleeping',
+  'Sleeping': 'Sleeping',
+  'Resinas': 'Resinas',
   'Porta/Box': 'Porta/Box',
   'Pedras': 'Pedras',
+  'Biournas': 'Biournas',
   'Potes': 'Potes',
   'Standard': 'Standard',
   'Avulsos Legado RIP': 'Avulsos Legado',
@@ -2593,9 +2596,9 @@ ${petNome}`
   }
 
   // Urna - categorias disponíveis
-  const categoriasUrnasModal = [...new Set(
+  const categoriasUrnasModal = ordenarCategoriasUrnas([...new Set(
     urnas.filter(u => u.categoria).map(u => u.categoria!)
-  )].sort()
+  )])
 
   // Urna - filtro de busca e categoria
   const urnasFiltradas = urnas.filter(u => {

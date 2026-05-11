@@ -73,11 +73,10 @@ export default function NomeRetorno() {
   }
 
   const contadores = useMemo(() => {
-    const c = { todos: produtos.length, urna: 0, acessorio: 0, incluso: 0 }
+    const c = { todos: produtos.length, urna: 0, acessorio: 0 }
     produtos.forEach((p) => {
       if (p.tipo === 'urna') c.urna++
       else if (p.tipo === 'acessorio') c.acessorio++
-      else if (p.tipo === 'incluso') c.incluso++
     })
     return c
   }, [produtos])
@@ -268,7 +267,7 @@ export default function NomeRetorno() {
       <div className="bg-slate-700/50 rounded-lg p-3 mb-4 space-y-2">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs font-medium text-slate-500 mr-1">Tipo:</span>
-          {(['todos', 'urna', 'acessorio', 'incluso'] as const).map((t) => (
+          {(['todos', 'urna', 'acessorio'] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTipoFiltro(t)}

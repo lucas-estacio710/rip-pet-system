@@ -16,7 +16,7 @@ type Produto = {
   id: string
   codigo: string
   nome: string
-  tipo: 'urna' | 'acessorio' | 'incluso'
+  tipo: 'urna' | 'acessorio'
   categoria: string | null
   custo: number | null
   preco: number | null
@@ -237,7 +237,6 @@ export default function CatalogoPage() {
             { key: 'todos', label: 'Todos' },
             { key: 'urna', label: 'Urnas' },
             { key: 'acessorio', label: 'Acessórios' },
-            { key: 'incluso', label: 'Inclusos' },
           ].map(t => (
             <button
               key={t.key}
@@ -362,9 +361,26 @@ export default function CatalogoPage() {
                   {/* Custo */}
                   <td className="px-3 py-2.5 text-right text-xs text-[var(--surface-400)]">{formatMoeda(p.custo)}</td>
 
-                  {/* Preço */}
+                  {/* Preço — edição inline */}
                   <td className="px-3 py-2.5 text-right">
-                    <span className="font-semibold text-[var(--surface-700)]">{formatMoeda(p.preco)}</span>
+                    <div className="inline-flex items-center gap-1 rounded border border-transparent hover:border-[var(--surface-200)] focus-within:border-emerald-500 focus-within:bg-emerald-500/5 transition-all px-2 py-1">
+                      <span className="text-[10px] font-medium text-[var(--surface-400)]">R$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        defaultValue={p.preco ?? ''}
+                        placeholder="0,00"
+                        className="w-20 text-right text-xs font-semibold outline-none bg-transparent text-[var(--surface-700)]"
+                        onBlur={e => {
+                          const raw = e.target.value.trim()
+                          const novo = raw === '' ? null : parseFloat(raw)
+                          if (novo !== null && (!Number.isFinite(novo) || novo < 0)) { e.target.value = String(p.preco ?? ''); return }
+                          if (novo !== (p.preco ?? null)) updateField(p.id, 'preco', novo)
+                        }}
+                        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') { (e.target as HTMLInputElement).value = String(p.preco ?? ''); (e.target as HTMLInputElement).blur() } }}
+                      />
+                    </div>
                   </td>
 
                   {/* Nome Retorno (protocolo) — edição inline */}
@@ -457,7 +473,6 @@ export default function CatalogoPage() {
                   >
                     <option value="urna">Urna</option>
                     <option value="acessorio">Acessório</option>
-                    <option value="incluso">Incluso</option>
                   </select>
                 </div>
               </div>

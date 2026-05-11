@@ -99,7 +99,7 @@ export type Database = {
       tipo_plano: 'emergencial' | 'preventivo'
       especie_pet: 'canina' | 'felina' | 'exotica'
       genero_pet: 'macho' | 'femea'
-      tipo_produto: 'urna' | 'acessorio' | 'incluso'
+      tipo_produto: 'urna' | 'acessorio'
       metodo_pagamento: 'pix' | 'dinheiro' | 'credito' | 'debito'
       tipo_rescaldo: 'molde_patinha' | 'pelinho' | 'pelo_extra' | 'carimbo'
       status_rescaldo: 'nao_pediu' | 'pendente' | 'feito'

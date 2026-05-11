@@ -62,6 +62,7 @@ export type ContratoProduto = {
 
 export type Produto = {
   id: string
+  codigo: string
   nome: string
   tipo: string
   preco: number | null
@@ -564,7 +565,7 @@ function RecordacoesInsight({ contratos, contratoProdutos, produtos }: {
 
   // Rescaldo products analysis
   const rescaldoStats = useMemo(() => {
-    const rescaldoProdutos = produtos.filter(p => p.tipo === 'incluso')
+    const rescaldoProdutos = produtos.filter(p => p.codigo === '0004')
     const rescaldoIds = new Set(rescaldoProdutos.map(p => p.id))
     const comRescaldo = new Set<string>()
     const rescaldoByTipo: Record<string, number> = {}
