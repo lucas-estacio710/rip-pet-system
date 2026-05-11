@@ -262,7 +262,7 @@ function ContratosContent() {
   const [loading, setLoading] = useState(true)
   const [carregandoMais, setCarregandoMais] = useState(false)
   const sentinelRef = useRef<HTMLDivElement | null>(null)
-  const paginaRef = useRef(0)  // pra detectar incremento (append) vs reset (substituir)
+  const paginaRef = useRef(parseInt(searchParams.get('pagina') || '0', 10))  // mesma inicialização do state `pagina` pra evitar falso append na primeira carga
   const [busca, setBusca] = useState(searchParams.get('busca') || '')
   const buscaDebounced = useDebounce(busca, 300)
   const [campoBusca, setCampoBusca] = useState<'todos' | 'pet' | 'tutor' | 'codigo' | 'lacre'>('todos')
@@ -612,7 +612,9 @@ function ContratosContent() {
   useEffect(() => {
     carregarContagens()
     carregarProdutosRescaldo()
-  }, [currentUnit?.id])
+    // Trocar de unidade reseta página pra 0 (evita 416 se a nova unidade tiver menos contratos)
+    setPagina(0)
+  }, [currentUnit?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Busca em tempo real com debounce
   useEffect(() => {
@@ -702,6 +704,70 @@ function ContratosContent() {
     if (data) setProdutosRescaldo(data as typeof produtosRescaldo)
   }
 
+  // Enriquece os contratos já carregados com embeds pesados (em paralelo, sem bloquear UI).
+  async function enriquecerContratos(arr: Contrato[], minhaBuscaId: number) {
+    const ids = arr.map(c => c.id)
+    const fonteIds = Array.from(new Set(arr.map(c => (c as { fonte_conhecimento_id?: string }).fonte_conhecimento_id).filter(Boolean))) as string[]
+
+    // Dispara 3 queries em paralelo (não aguarda — cada uma faz seu próprio merge)
+    // 1. contrato_produtos (com produto)
+    supabase
+      .from('contrato_produtos')
+      .select('id, contrato_id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)')
+      .in('contrato_id', ids)
+      .then(({ data, error }) => {
+        if (error || !data) return
+        if (minhaBuscaId !== buscaIdRef.current) return
+        const byContrato = new Map<string, typeof data>()
+        for (const cp of data) {
+          const cid = (cp as { contrato_id: string }).contrato_id
+          if (!byContrato.has(cid)) byContrato.set(cid, [])
+          byContrato.get(cid)!.push(cp)
+        }
+        setContratos(prev => prev.map(c => ({
+          ...c,
+          contrato_produtos: byContrato.get(c.id) || [],
+        }) as Contrato))
+      })
+
+    // 2. contrato_gc
+    supabase
+      .from('contrato_gc')
+      .select('contrato_id, etapa, cinzas_prontas, certificado_pronto, contato_status')
+      .in('contrato_id', ids)
+      .then(({ data, error }) => {
+        if (error || !data) return
+        if (minhaBuscaId !== buscaIdRef.current) return
+        const byContrato = new Map<string, unknown>()
+        for (const g of data) byContrato.set((g as { contrato_id: string }).contrato_id, g)
+        setContratos(prev => prev.map(c => ({
+          ...c,
+          contrato_gc: (byContrato.get(c.id) ?? null) as Contrato['contrato_gc'],
+        }) as Contrato))
+      })
+
+    // 3. fontes_conhecimento (só se houver IDs)
+    if (fonteIds.length > 0) {
+      supabase
+        .from('fontes_conhecimento')
+        .select('id, nome')
+        .in('id', fonteIds)
+        .then(({ data, error }) => {
+          if (error || !data) return
+          if (minhaBuscaId !== buscaIdRef.current) return
+          const byId = new Map<string, { id: string; nome: string }>()
+          for (const f of data as { id: string; nome: string }[]) byId.set(f.id, f)
+          setContratos(prev => prev.map(c => {
+            const fid = (c as { fonte_conhecimento_id?: string }).fonte_conhecimento_id
+            return {
+              ...c,
+              fonte_conhecimento: fid ? (byId.get(fid) ?? null) : null,
+            } as Contrato
+          }))
+        })
+    }
+  }
+
   async function carregarContratos(opts: { append?: boolean } = {}) {
     if (!currentUnit) { setLoading(false); return }
     const minhaBuscaId = ++buscaIdRef.current
@@ -715,38 +781,106 @@ function ContratosContent() {
     // Agrupar por encaminhamento: toggle do user, mas preventivo nunca agrupa (não tem supinda).
     const agruparPorSupinda = agruparSupinda && statusFiltro !== 'preventivo'
 
-    const SELECT_CONTRATO = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, contrato_gc(etapa, cinzas_prontas, certificado_pronto, contato_status), protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id'
+    // SELECT principal — só dados base + embeds leves essenciais (tutor + supinda + pagamentos).
+    // Embeds pesados (contrato_produtos, contrato_gc, fonte_conhecimento) carregam em paralelo após.
+    const SELECT_CONTRATO = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento_id, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id'
 
-    let query = supabase.from('contratos').select(SELECT_CONTRATO, { count: 'exact' })
-    if (agruparPorSupinda) {
-      // Ordena pelos contratos do MESMO encaminhamento juntos, e os encaminhamentos
-      // entre si pela DATA da supinda (cronológico). Pets sem supinda (null) vêm primeiro.
-      query = query.order('data', { foreignTable: 'supinda', ascending, nullsFirst: true })
+    // Helper para aplicar filtros comuns (unidade + status + compartilhados).
+    // Tipo `any` aqui porque o builder do supabase-js encadeia tipos genéricos complexos
+    // e os filtros são todos string-based — sem perda real de segurança.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const aplicarFiltros = (q: any) => {
+      let r = q
+      if (currentUnit) {
+        if (mostrarCompartilhados) {
+          r = r.or(`unidade_id.eq.${currentUnit.id},unidade_remocao_id.eq.${currentUnit.id},unidade_entrega_id.eq.${currentUnit.id}`)
+        } else {
+          r = r.eq('unidade_id', currentUnit.id)
+        }
+      }
+      if (statusFiltro) r = r.eq('status', statusFiltro)
+      return r
     }
-    query = query.order(campoOrdem, { ascending, nullsFirst: false })
-    if (currentUnit) {
-      if (mostrarCompartilhados) {
-        query = query.or(`unidade_id.eq.${currentUnit.id},unidade_remocao_id.eq.${currentUnit.id},unidade_entrega_id.eq.${currentUnit.id}`)
+
+    try {
+      if (agruparPorSupinda) {
+        // ============================================
+        // 2 QUERIES: sem encaminhamento (todos no topo) + com encaminhamento (paginado)
+        // ============================================
+        // Query A: SEM supinda — sempre TODOS no topo (não pagina; geralmente é pouco)
+        // Só carrega na primeira página (append=false)
+        let semSupindaData: Contrato[] = []
+        if (!opts.append) {
+          let querySem = supabase.from('contratos').select(SELECT_CONTRATO).is('supinda_id', null)
+          querySem = aplicarFiltros(querySem)
+          querySem = querySem.order(campoOrdem, { ascending, nullsFirst: false })
+          const { data: semData, error: semErr } = await querySem
+          if (semErr) throw semErr
+          semSupindaData = (semData || []) as Contrato[]
+        }
+
+        // Query B: COM supinda — paginada, ordenada por supinda.data DESC + secundário
+        let queryCom = supabase.from('contratos').select(SELECT_CONTRATO, { count: 'exact' }).not('supinda_id', 'is', null)
+        queryCom = aplicarFiltros(queryCom)
+        queryCom = queryCom.order('data', { foreignTable: 'supinda', ascending, nullsFirst: false })
+        queryCom = queryCom.order(campoOrdem, { ascending, nullsFirst: false })
+        const { data: comData, error: comErr, count: comCount } = await queryCom.range(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA - 1)
+        if (minhaBuscaId !== buscaIdRef.current) return
+
+        const isRangeError = comErr && (comErr.message === '{"' || /range/i.test(comErr.message || ''))
+        if (comErr && !isRangeError) throw comErr
+
+        const comSupindaData = (comData || []) as Contrato[]
+
+        if (opts.append) {
+          // append só dos com supinda (os sem já estão na lista)
+          setContratos(prev => [...prev, ...comSupindaData])
+        } else {
+          // primeira página: sem + com
+          setContratos([...semSupindaData, ...comSupindaData])
+        }
+        // total = sem.length + count(com)
+        const totalCom = isRangeError ? (opts.append ? total - semSupindaData.length : comSupindaData.length) : (comCount || 0)
+        setTotal(semSupindaData.length + totalCom)
+
+        // Enriquecimento paralelo (ambos os grupos)
+        const todos = opts.append ? comSupindaData : [...semSupindaData, ...comSupindaData]
+        if (todos.length > 0) enriquecerContratos(todos, minhaBuscaId)
       } else {
-        query = query.eq('unidade_id', currentUnit.id)
+        // ============================================
+        // 1 QUERY tradicional (sem agrupamento por supinda)
+        // ============================================
+        let query = supabase.from('contratos').select(SELECT_CONTRATO, { count: 'exact' })
+        query = aplicarFiltros(query)
+        query = query.order(campoOrdem, { ascending, nullsFirst: false })
+
+        const { data, error, count } = await query.range(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA - 1)
+        if (minhaBuscaId !== buscaIdRef.current) return
+        if (error) {
+          const isRangeError = error.message === '{"' || /range/i.test(error.message || '')
+          if (isRangeError) {
+            setTotal(contratos.length)
+          } else {
+            console.error('[carregarContratos] erro PostgREST:', { message: error.message, code: error.code, details: error.details, hint: error.hint, raw: error })
+            if (!opts.append) setContratos([])
+          }
+        } else {
+          const arr = (data || []) as Contrato[]
+          if (opts.append) setContratos(prev => [...prev, ...arr])
+          else setContratos(arr)
+          setTotal(count || 0)
+          if (arr.length > 0) enriquecerContratos(arr, minhaBuscaId)
+        }
+      }
+    } catch (e) {
+      console.error('[carregarContratos] exception:', e)
+      if (!opts.append) setContratos([])
+    } finally {
+      if (minhaBuscaId === buscaIdRef.current) {
+        if (opts.append) setCarregandoMais(false)
+        else setLoading(false)
       }
     }
-    if (statusFiltro) query = query.eq('status', statusFiltro)
-
-    // Paginação tradicional (range) — banco já entrega ordenado, sem precisar
-    // carregar tudo no client.
-    const { data, error, count } = await query.range(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA - 1)
-    if (minhaBuscaId !== buscaIdRef.current) return
-    if (error) console.error('Erro ao carregar contratos:', { message: error.message, code: error.code, details: error.details, hint: error.hint })
-    else {
-      const arr = (data || []) as Contrato[]
-      if (opts.append) setContratos(prev => [...prev, ...arr])
-      else setContratos(arr)
-      setTotal(count || 0)
-    }
-
-    if (opts.append) setCarregandoMais(false)
-    else setLoading(false)
   }
 
   async function buscarContratos(termo?: string) {
@@ -769,7 +903,8 @@ function ContratosContent() {
     const ascending = ordemAsc
     const agruparPorSupinda = agruparSupinda && statusFiltro !== 'preventivo'
 
-    const SELECT_BUSCA = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento:fontes_conhecimento(nome), fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, contrato_produtos(id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)), valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, contrato_gc(etapa, cinzas_prontas, certificado_pronto, contato_status), protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id'
+    // Mesmo padrão da listagem: SELECT leve + enriquecimento paralelo
+    const SELECT_BUSCA = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento_id, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id'
     // Sanitiza: escapa wildcards SQL (% _) e caracteres reservados PostgREST (, ( ) : * \)
     // + limita 80 chars. Protege contra termo malicioso quebrar o filtro `or`.
     const t = sanitizeBuscaPostgrest(termoBusca)
@@ -813,6 +948,9 @@ function ContratosContent() {
         buscaCounts[c.status] = (buscaCounts[c.status] || 0) + 1
       })
       setStatusCounts(buscaCounts)
+
+      // Enriquecimento paralelo (mesmo padrão da listagem)
+      if (resultados.length > 0) enriquecerContratos(resultados, minhaBuscaId)
     }
 
     setLoading(false)
@@ -3581,17 +3719,24 @@ ${petNome}`
                   {grupos.map((grupo) => (
                     <div key={grupo.numero ?? 'sem'}>
                       {/* Separador visual da supinda */}
-                      <div className="flex items-center gap-2 py-1.5 px-1">
-                        <div className="flex-1 h-px" style={{ background: 'linear-gradient(90deg, transparent 0%, #ea580c 30%, #ea580c 70%, transparent 100%)' }} />
-                        <span className="text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0" style={{
-                          background: grupo.numero !== null ? 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)' : '#475569',
-                          color: 'white',
-                        }}>
-                          {grupo.numero !== null ? `Encaminhamento #${grupo.numero}` : 'Sem encaminhamento'}
-                        </span>
-                        <span className="text-[10px] text-slate-400 flex-shrink-0">{grupo.contratos.length} pet{grupo.contratos.length !== 1 ? 's' : ''}</span>
-                        <div className="flex-1 h-px" style={{ background: 'linear-gradient(90deg, #ea580c 0%, #ea580c 30%, transparent 70%, transparent 100%)' }} />
-                      </div>
+                      {(() => {
+                        const corPrimaria = grupo.numero !== null ? '#65a30d' : '#dc2626'
+                        const corSecundaria = grupo.numero !== null ? '#84cc16' : '#ef4444'
+                        const corTexto = grupo.numero !== null ? '#1a2e05' : 'white'
+                        return (
+                          <div className="flex items-center gap-2 py-1.5 px-1">
+                            <div className="flex-1 h-px" style={{ background: `linear-gradient(90deg, transparent 0%, ${corPrimaria} 30%, ${corPrimaria} 70%, transparent 100%)` }} />
+                            <span className="text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0" style={{
+                              background: `linear-gradient(135deg, ${corPrimaria} 0%, ${corSecundaria} 100%)`,
+                              color: corTexto,
+                            }}>
+                              {grupo.numero !== null ? `Encaminhamento #${grupo.numero}` : 'Sem encaminhamento'}
+                            </span>
+                            <span className="text-[10px] text-slate-400 flex-shrink-0">{grupo.contratos.length} pet{grupo.contratos.length !== 1 ? 's' : ''}</span>
+                            <div className="flex-1 h-px" style={{ background: `linear-gradient(90deg, ${corPrimaria} 0%, ${corPrimaria} 30%, transparent 70%, transparent 100%)` }} />
+                          </div>
+                        )
+                      })()}
                       <div className="space-y-2">
                         {grupo.contratos.map(renderFn)}
                       </div>
