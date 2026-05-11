@@ -26,6 +26,8 @@ import ChegaramModal from '@/components/contratos/modals/ChegaramModal'
 import { gerarContratoPDF, contratoFilename } from '@/lib/contrato-pdf'
 import ObservacoesCard from '@/components/contratos/ObservacoesCard'
 import HistoricoCard from '@/components/contratos/HistoricoCard'
+import { ordenarCategoriasUrnas } from '@/lib/categorias'
+import FilterDropdown, { type FilterOption } from '@/components/ui/FilterDropdown'
 
 function PixIcon({ className = "h-5 w-5" }: { className?: string }) {
   return (
@@ -51,7 +53,7 @@ type Produto = {
   id: string
   codigo: string
   nome: string
-  tipo: 'urna' | 'acessorio' | 'incluso'
+  tipo: 'urna' | 'acessorio'
   categoria: string | null
   preco: number | null
   estoque_atual: number
@@ -64,9 +66,11 @@ type Produto = {
 
 // Labels das categorias
 const CATEGORIA_URNA_LABELS: Record<string, string> = {
-  'Arca/Sleeping': 'Arca/Sleeping',
+  'Sleeping': 'Sleeping',
+  'Resinas': 'Resinas',
   'Porta/Box': 'Porta/Box',
   'Pedras': 'Pedras',
+  'Biournas': 'Biournas',
   'Potes': 'Potes',
   'Standard': 'Standard',
   'Avulsos Legado RIP': 'Avulsos Legado',
@@ -78,7 +82,7 @@ const CATEGORIA_ACESSORIO_LABELS: Record<string, string> = {
   'Porta-Cinzas': 'Porta-Cinzas',
   'Porta-Retratos': 'Porta-Retratos',
   'Miniaturas': 'Miniaturas',
-  'Outros': 'Outros',
+  'Personalizados': 'Personalizados',
 }
 
 const TIPO_LABELS: Record<string, string> = {
@@ -650,7 +654,7 @@ export default function ContratoDetalhe() {
 
   // Abre o modal genérico de adicionar produto, opcionalmente com filtro de tipo
   // pré-aplicado. Substitui o antigo `abrirUrnaModal` específico.
-  async function abrirAddProdutoModalComFiltro(filtroTipo: 'urna' | 'acessorio' | 'incluso' | '' = '') {
+  async function abrirAddProdutoModalComFiltro(filtroTipo: 'urna' | 'acessorio' | '' = '') {
     setAddProdutoModal(true)
     setBuscaProduto('')
     setFiltroProdutoTipo(filtroTipo)
@@ -1460,15 +1464,14 @@ export default function ContratoDetalhe() {
     total: todosProdutos.length,
     urna: todosProdutos.filter(p => p.tipo === 'urna').length,
     acessorio: todosProdutos.filter(p => p.tipo === 'acessorio').length,
-    incluso: todosProdutos.filter(p => p.tipo === 'incluso').length,
   }
 
   // Categorias disponíveis para urnas no modal
-  const categoriasUrnasModal = [...new Set(
+  const categoriasUrnasModal = ordenarCategoriasUrnas([...new Set(
     todosProdutos
       .filter(p => p.tipo === 'urna' && p.categoria)
       .map(p => p.categoria!)
-  )].sort()
+  )])
 
   // Categorias disponíveis para acessórios no modal
   const categoriasAcessoriosModal = [...new Set(
@@ -2974,8 +2977,8 @@ ${petNome}`
             <div className="space-y-2">
               {[...contratoProdutos]
                 .sort((a, b) => {
-                  // 1. Ordenar por tipo: urna primeiro, depois acessorio, depois incluso
-                  const tipoOrdem = { urna: 0, acessorio: 1, incluso: 2 }
+                  // 1. Ordenar por tipo: urna primeiro, depois acessorio
+                  const tipoOrdem = { urna: 0, acessorio: 1 }
                   const tipoA = tipoOrdem[a.produto.tipo as keyof typeof tipoOrdem] ?? 3
                   const tipoB = tipoOrdem[b.produto.tipo as keyof typeof tipoOrdem] ?? 3
                   if (tipoA !== tipoB) return tipoA - tipoB
@@ -3240,105 +3243,64 @@ ${petNome}`
               </button>
             </div>
 
-            {/* Busca */}
-            <div className="p-4 border-b">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
+            {/* Toolbar única: busca + dropdowns */}
+            <div className="p-4 border-b flex items-center gap-2 flex-wrap">
+              <div className="relative flex-1 min-w-[200px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                 <input
                   type="text"
-                  placeholder="Buscar produto por nome ou código..."
+                  placeholder="Buscar produto..."
                   value={buscaProduto}
                   onChange={(e) => setBuscaProduto(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full pl-9 pr-9 py-1.5 text-sm bg-slate-700 border border-slate-600 rounded-lg text-slate-200 focus:outline-none focus:border-purple-500"
                 />
-              </div>
-            </div>
-
-            {/* Filtros por tipo */}
-            <div className="px-4 pt-4">
-              <div className="flex gap-2 flex-wrap">
-                <button
-                  onClick={() => { setFiltroProdutoTipo(''); setFiltroProdutoCategoria(''); }}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    filtroProdutoTipo === '' ? 'bg-purple-600 text-white' : 'text-slate-400 bg-slate-700 hover:bg-slate-600'
-                  }`}
-                >
-                  Todos ({contadoresProdutos.total})
-                </button>
-                <button
-                  onClick={() => { setFiltroProdutoTipo('urna'); setFiltroProdutoCategoria(''); }}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    filtroProdutoTipo === 'urna' ? 'bg-purple-600 text-white' : 'text-slate-400 bg-slate-700 hover:bg-slate-600'
-                  }`}
-                >
-                  Urnas ({contadoresProdutos.urna})
-                </button>
-                <button
-                  onClick={() => { setFiltroProdutoTipo('acessorio'); setFiltroProdutoCategoria(''); }}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    filtroProdutoTipo === 'acessorio' ? 'bg-purple-600 text-white' : 'text-slate-400 bg-slate-700 hover:bg-slate-600'
-                  }`}
-                >
-                  Acessórios ({contadoresProdutos.acessorio})
-                </button>
-                <button
-                  onClick={() => { setFiltroProdutoTipo('incluso'); setFiltroProdutoCategoria(''); }}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    filtroProdutoTipo === 'incluso' ? 'bg-purple-600 text-white' : 'text-slate-400 bg-slate-700 hover:bg-slate-600'
-                  }`}
-                >
-                  Inclusos ({contadoresProdutos.incluso})
-                </button>
+                {buscaProduto && (
+                  <button
+                    onClick={() => setBuscaProduto('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
               </div>
 
-              {/* Filtros por categoria de urna */}
+              <FilterDropdown
+                label="Tipo"
+                icon={Package}
+                value={filtroProdutoTipo}
+                options={[
+                  { value: 'urna', label: 'Urnas', count: contadoresProdutos.urna },
+                  { value: 'acessorio', label: 'Acessórios', count: contadoresProdutos.acessorio },
+                ]}
+                onChange={(v) => { setFiltroProdutoTipo(v); setFiltroProdutoCategoria('') }}
+                toneActive="purple"
+              />
+
               {filtroProdutoTipo === 'urna' && categoriasUrnasModal.length > 0 && (
-                <div className="flex gap-2 mt-3 flex-wrap">
-                  <button
-                    onClick={() => setFiltroProdutoCategoria('')}
-                    className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                      filtroProdutoCategoria === '' ? 'bg-amber-500 text-white' : 'text-slate-400 bg-slate-700 hover:bg-slate-600'
-                    }`}
-                  >
-                    Todas
-                  </button>
-                  {categoriasUrnasModal.map(cat => (
-                    <button
-                      key={cat}
-                      onClick={() => setFiltroProdutoCategoria(cat)}
-                      className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                        filtroProdutoCategoria === cat ? 'bg-amber-500 text-white' : 'text-slate-400 bg-slate-700 hover:bg-slate-600'
-                      }`}
-                    >
-                      {CATEGORIA_URNA_LABELS[cat] || cat}
-                    </button>
-                  ))}
-                </div>
+                <FilterDropdown
+                  label="Categoria"
+                  value={filtroProdutoCategoria}
+                  options={categoriasUrnasModal.map<FilterOption>(cat => ({
+                    value: cat,
+                    label: CATEGORIA_URNA_LABELS[cat] || cat,
+                  }))}
+                  onChange={setFiltroProdutoCategoria}
+                  allLabel="Todas categorias"
+                  toneActive="amber"
+                />
               )}
-
-              {/* Filtros por categoria de acessório */}
               {filtroProdutoTipo === 'acessorio' && categoriasAcessoriosModal.length > 0 && (
-                <div className="flex gap-2 mt-3 flex-wrap">
-                  <button
-                    onClick={() => setFiltroProdutoCategoria('')}
-                    className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                      filtroProdutoCategoria === '' ? 'bg-blue-500 text-white' : 'text-slate-400 bg-slate-700 hover:bg-slate-600'
-                    }`}
-                  >
-                    Todas
-                  </button>
-                  {categoriasAcessoriosModal.map(cat => (
-                    <button
-                      key={cat}
-                      onClick={() => setFiltroProdutoCategoria(cat)}
-                      className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                        filtroProdutoCategoria === cat ? 'bg-blue-500 text-white' : 'text-slate-400 bg-slate-700 hover:bg-slate-600'
-                      }`}
-                    >
-                      {CATEGORIA_ACESSORIO_LABELS[cat] || cat}
-                    </button>
-                  ))}
-                </div>
+                <FilterDropdown
+                  label="Categoria"
+                  value={filtroProdutoCategoria}
+                  options={categoriasAcessoriosModal.map<FilterOption>(cat => ({
+                    value: cat,
+                    label: CATEGORIA_ACESSORIO_LABELS[cat] || cat,
+                  }))}
+                  onChange={setFiltroProdutoCategoria}
+                  allLabel="Todas categorias"
+                  toneActive="blue"
+                />
               )}
             </div>
 
@@ -3352,14 +3314,13 @@ ${petNome}`
                 </div>
               ) : (() => {
                 // Agrupar por tipo (se "Todos") e depois por categoria
-                const TIPO_ORDER = ['urna', 'acessorio', 'incluso']
+                const TIPO_ORDER = ['urna', 'acessorio']
                 const tiposParaMostrar = filtroProdutoTipo ? [filtroProdutoTipo] : TIPO_ORDER
 
                 const CATEGORIA_LABELS: Record<string, string> = { ...CATEGORIA_URNA_LABELS, ...CATEGORIA_ACESSORIO_LABELS }
                 const TIPO_HEADER_COLORS: Record<string, string> = {
                   urna: 'text-purple-400 border-purple-200 bg-purple-900/30',
                   acessorio: 'text-blue-400 border-blue-200 bg-blue-900/30',
-                  incluso: 'text-green-400 border-green-200 bg-green-900/30',
                 }
 
                 return (

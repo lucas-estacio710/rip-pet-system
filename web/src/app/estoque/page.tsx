@@ -7,12 +7,14 @@ import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import { Skeleton } from '@/components/ui/Skeleton'
 import EmptyState from '@/components/ui/EmptyState'
+import FilterDropdown, { type FilterOption } from '@/components/ui/FilterDropdown'
+import { ordenarCategoriasUrnas, ORDEM_ACESSORIOS } from '@/lib/categorias'
 
 type Produto = {
   id: string
   codigo: string
   nome: string
-  tipo: 'urna' | 'acessorio' | 'incluso'
+  tipo: 'urna' | 'acessorio'
   categoria: string | null
   custo: number | null
   preco: number | null
@@ -26,9 +28,11 @@ type Produto = {
 }
 
 const CATEGORIA_URNA_LABELS: Record<string, string> = {
-  'Arca/Sleeping': 'Arca/Sleeping',
+  'Sleeping': 'Sleeping',
+  'Resinas': 'Resinas',
   'Porta/Box': 'Porta/Box',
   'Pedras': 'Pedras',
+  'Biournas': 'Biournas',
   'Potes': 'Potes',
   'Standard': 'Standard',
   'Avulsos Legado RIP': 'Avulsos Legado',
@@ -40,7 +44,7 @@ const CATEGORIA_ACESSORIO_LABELS: Record<string, string> = {
   'Porta-Cinzas': 'Porta-Cinzas',
   'Porta-Retratos': 'Porta-Retratos',
   'Miniaturas': 'Miniaturas',
-  'Outros': 'Outros',
+  'Personalizados': 'Personalizados',
 }
 
 const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg']
@@ -92,6 +96,11 @@ export default function EstoquePage() {
   const [salvandoLote, setSalvandoLote] = useState(false)
   const [loteData, setLoteData] = useState(new Date().toISOString().slice(0, 10))
   const [loteRemessa, setLoteRemessa] = useState('')
+
+  // Tab Mínimo — linha em edição (lápis para abrir, disquete para fechar)
+  const [editandoMinimoId, setEditandoMinimoId] = useState<string | null>(null)
+  // Vendas por produto na unidade ativa — em 30d / 90d / 180d
+  const [vendasPorProduto, setVendasPorProduto] = useState<Record<string, { d30: number; d90: number; d180: number }>>({})
 
   // Tab Histórico (Últimas Entradas)
   type ItemRemessa = { id: string; produto_id: string; produto_nome: string; produto_codigo: string; quantidade: number; custo_unitario: number | null }
@@ -248,6 +257,50 @@ export default function EstoquePage() {
   // ====================================
   // Tab Histórico (Últimas Entradas)
   // ====================================
+  // Carrega contagem de vendas por produto em 30d/90d/180d (na unidade ativa).
+  // 2 queries explícitas pra evitar limitação do PostgREST com filtro em embed.
+  async function carregarVendasPeriodo() {
+    if (!currentUnit?.id) { setVendasPorProduto({}); return }
+    const agora = Date.now()
+    const d180Iso = new Date(agora - 180 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+    const t30 = agora - 30 * 24 * 3600 * 1000
+    const t90 = agora - 90 * 24 * 3600 * 1000
+
+    // 1. Contratos da unidade ativa nos últimos 180 dias
+    const { data: contratos } = await supabase
+      .from('contratos')
+      .select('id, data_contrato')
+      .eq('unidade_id', currentUnit.id)
+      .gte('data_contrato', d180Iso)
+    type CRow = { id: string; data_contrato: string }
+    const contratoData = new Map<string, string>()
+    for (const c of (contratos || []) as CRow[]) contratoData.set(c.id, c.data_contrato)
+    if (contratoData.size === 0) { setVendasPorProduto({}); return }
+
+    // 2. contrato_produtos cujos contratos estão no set acima — fatiar em chunks por causa do limit do .in()
+    const ids = Array.from(contratoData.keys())
+    const map: Record<string, { d30: number; d90: number; d180: number }> = {}
+    const CHUNK = 200
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const slice = ids.slice(i, i + CHUNK)
+      const { data: cps } = await supabase
+        .from('contrato_produtos')
+        .select('produto_id, contrato_id')
+        .in('contrato_id', slice)
+      type CpRow = { produto_id: string; contrato_id: string }
+      for (const cp of (cps || []) as CpRow[]) {
+        const dc = contratoData.get(cp.contrato_id)
+        if (!dc) continue
+        const t = new Date(dc + 'T00:00:00').getTime()
+        if (!map[cp.produto_id]) map[cp.produto_id] = { d30: 0, d90: 0, d180: 0 }
+        map[cp.produto_id].d180++
+        if (t >= t90) map[cp.produto_id].d90++
+        if (t >= t30) map[cp.produto_id].d30++
+      }
+    }
+    setVendasPorProduto(map)
+  }
+
   async function carregarHistorico() {
     if (!currentUnit?.id) { setHistoricoData([]); return }
     setLoadingHist(true)
@@ -291,6 +344,11 @@ export default function EstoquePage() {
   useEffect(() => {
     if (tab === 'historico') carregarHistorico()
   }, [tab, currentUnit?.id, verAntigos]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Vendas por período (30/90/180d) — carrega ao entrar na tab Mínimo ou Atual ou trocar unidade
+  useEffect(() => {
+    if (tab === 'minimo' || tab === 'atual') carregarVendasPeriodo()
+  }, [tab, currentUnit?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function logHistorico(args: { entidade_id: string; campo: string; campo_label: string; valor_anterior: string | null; valor_novo: string | null; tipo: 'edicao' | 'exclusao' | 'criacao'; entidade_nome?: string | null }) {
     const { data: { user } } = await supabase.auth.getUser()
@@ -432,14 +490,25 @@ export default function EstoquePage() {
     return out
   }, [produtos, filtro, filtroCategoria, filtroEstoque, busca, criticosPrimeiro, tab])
 
+  // Aplica só busca — base para contadores facetados
+  const produtosPorBusca = busca
+    ? produtos.filter(p => {
+        const t = busca.toLowerCase()
+        return p.nome.toLowerCase().includes(t) || p.codigo.toLowerCase().includes(t)
+      })
+    : produtos
+
   const contadores = {
-    total: produtos.length,
-    urna: produtos.filter(p => p.tipo === 'urna').length,
-    acessorio: produtos.filter(p => p.tipo === 'acessorio').length,
-    incluso: produtos.filter(p => p.tipo === 'incluso').length,
+    total: produtosPorBusca.length,
+    urna: produtosPorBusca.filter(p => p.tipo === 'urna').length,
+    acessorio: produtosPorBusca.filter(p => p.tipo === 'acessorio').length,
   }
 
-  const produtosFiltradosPorTipo = filtro ? produtos.filter(p => p.tipo === filtro) : produtos
+  const produtosFiltradosPorTipo = produtosPorBusca.filter(p => {
+    if (filtro && p.tipo !== filtro) return false
+    if (filtroCategoria && p.categoria !== filtroCategoria) return false
+    return true
+  })
   const contadoresEstoque = {
     todos: produtosFiltradosPorTipo.length,
     critico: produtosFiltradosPorTipo.filter(p => !p.estoque_infinito && p.estoque_atual < p.estoque_minimo).length,
@@ -447,24 +516,23 @@ export default function EstoquePage() {
     zerado: produtosFiltradosPorTipo.filter(p => !p.estoque_infinito && p.estoque_atual === 0).length,
   }
 
-  const categoriasUrnas = [...new Set(
-    produtos.filter(p => p.tipo === 'urna' && p.categoria).map(p => p.categoria!)
-  )].sort()
+  const categoriasUrnas = ordenarCategoriasUrnas([...new Set(
+    produtosPorBusca.filter(p => p.tipo === 'urna' && p.categoria).map(p => p.categoria!)
+  )])
 
   const contadoresCategorias: Record<string, number> = {}
   categoriasUrnas.forEach(cat => {
-    contadoresCategorias[cat] = produtos.filter(p => p.tipo === 'urna' && p.categoria === cat).length
+    contadoresCategorias[cat] = produtosPorBusca.filter(p => p.tipo === 'urna' && p.categoria === cat).length
   })
 
-  const ORDEM_ACESSORIOS = ['Porta-Retratos', 'Porta-Pelos', 'Porta-Cinzas', 'Miniaturas', 'Chaveiros Cinzas', 'Outros']
   const categoriasAcessoriosSet = new Set(
-    produtos.filter(p => p.tipo === 'acessorio' && p.categoria).map(p => p.categoria!)
+    produtosPorBusca.filter(p => p.tipo === 'acessorio' && p.categoria).map(p => p.categoria!)
   )
   const categoriasAcessorios = ORDEM_ACESSORIOS.filter(cat => categoriasAcessoriosSet.has(cat))
 
   const contadoresCategoriasAcessorios: Record<string, number> = {}
   categoriasAcessorios.forEach(cat => {
-    contadoresCategoriasAcessorios[cat] = produtos.filter(p => p.tipo === 'acessorio' && p.categoria === cat).length
+    contadoresCategoriasAcessorios[cat] = produtosPorBusca.filter(p => p.tipo === 'acessorio' && p.categoria === cat).length
   })
 
   return (
@@ -533,175 +601,104 @@ export default function EstoquePage() {
         })}
       </div>
 
-      {/* Busca */}
-      <div className="mb-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-[var(--surface-400)]" />
+      {/* Toolbar única: busca + 3 dropdowns + toggle críticos */}
+      <div className="mb-4 flex items-center gap-2 flex-wrap">
+        {/* Busca */}
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--surface-400)]" />
           <input
             type="text"
             placeholder="Buscar produto..."
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            className="input pl-10 pr-10"
+            className="input pl-9 pr-9 py-1.5 text-sm"
           />
           {busca && (
             <button
               onClick={() => setBusca('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--surface-400)] hover:text-[var(--surface-600)]"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--surface-400)] hover:text-[var(--surface-600)]"
             >
               <X className="h-4 w-4" />
             </button>
           )}
         </div>
-      </div>
 
-      {/* Filtros estoque */}
-      <div className="flex gap-2 mb-4 flex-wrap">
-        <button
-          onClick={() => setFiltroEstoque('')}
-          className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
-            filtroEstoque === '' ? 'bg-[var(--surface-800)] text-white' : 'bg-[var(--surface-0)] border border-[var(--surface-200)] text-[var(--surface-600)] hover:border-[var(--surface-300)]'
-          }`}
-        >
-          Todos ({contadoresEstoque.todos})
-        </button>
-        <button
-          onClick={() => setFiltroEstoque('critico')}
-          className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all flex items-center gap-1.5 ${
-            filtroEstoque === 'critico' ? 'bg-red-600 text-white' : 'bg-red-50 border border-red-200 text-red-700 hover:border-red-300'
-          }`}
-        >
-          <AlertTriangle className="h-3.5 w-3.5" />
-          Abaixo do ideal ({contadoresEstoque.critico})
-        </button>
-        <button
-          onClick={() => setFiltroEstoque('zerado')}
-          className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
-            filtroEstoque === 'zerado' ? 'bg-orange-600 text-white' : 'bg-orange-50 border border-orange-200 text-orange-700 hover:border-orange-300'
-          }`}
-        >
-          Sem estoque ({contadoresEstoque.zerado})
-        </button>
-        <button
-          onClick={() => setFiltroEstoque('ok')}
-          className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
-            filtroEstoque === 'ok' ? 'bg-green-600 text-white' : 'bg-green-50 border border-green-200 text-green-700 hover:border-green-300'
-          }`}
-        >
-          OK ({contadoresEstoque.ok})
-        </button>
-      </div>
+        {/* Tipo */}
+        <FilterDropdown
+          label="Tipo"
+          icon={Package}
+          value={filtro}
+          options={[
+            { value: 'urna', label: 'Urnas', count: contadores.urna },
+            { value: 'acessorio', label: 'Acessórios', count: contadores.acessorio },
+          ]}
+          onChange={(v) => { setFiltro(v); setFiltroCategoria('') }}
+          toneActive="purple"
+        />
 
-      {/* Filtros tipo */}
-      <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide pb-1">
-        <button
-          onClick={() => { setFiltro(''); setFiltroCategoria(''); }}
-          className={`px-4 py-2 rounded-full font-medium transition-all whitespace-nowrap ${
-            filtro === '' ? 'bg-[var(--brand-500)] text-white shadow-md' : 'bg-[var(--surface-0)] border border-[var(--surface-200)] text-[var(--surface-600)] hover:border-[var(--surface-300)]'
-          }`}
-        >
-          Todos ({contadores.total})
-        </button>
-        <button
-          onClick={() => { setFiltro('urna'); setFiltroCategoria(''); }}
-          className={`px-4 py-2 rounded-full font-medium transition-all whitespace-nowrap ${
-            filtro === 'urna' ? 'bg-[var(--brand-500)] text-white shadow-md' : 'bg-[var(--surface-0)] border border-[var(--surface-200)] text-[var(--surface-600)] hover:border-[var(--surface-300)]'
-          }`}
-        >
-          Urnas ({contadores.urna})
-        </button>
-        <button
-          onClick={() => { setFiltro('acessorio'); setFiltroCategoria(''); }}
-          className={`px-4 py-2 rounded-full font-medium transition-all whitespace-nowrap ${
-            filtro === 'acessorio' ? 'bg-[var(--brand-500)] text-white shadow-md' : 'bg-[var(--surface-0)] border border-[var(--surface-200)] text-[var(--surface-600)] hover:border-[var(--surface-300)]'
-          }`}
-        >
-          Acessórios ({contadores.acessorio})
-        </button>
-        <button
-          onClick={() => { setFiltro('incluso'); setFiltroCategoria(''); }}
-          className={`px-4 py-2 rounded-full font-medium transition-all whitespace-nowrap ${
-            filtro === 'incluso' ? 'bg-[var(--brand-500)] text-white shadow-md' : 'bg-[var(--surface-0)] border border-[var(--surface-200)] text-[var(--surface-600)] hover:border-[var(--surface-300)]'
-          }`}
-        >
-          Inclusos ({contadores.incluso})
-        </button>
-      </div>
+        {/* Status */}
+        <FilterDropdown
+          label="Status"
+          icon={AlertTriangle}
+          value={filtroEstoque}
+          options={[
+            { value: 'critico', label: 'Abaixo do ideal', count: contadoresEstoque.critico },
+            { value: 'zerado', label: 'Sem estoque', count: contadoresEstoque.zerado },
+            { value: 'ok', label: 'OK', count: contadoresEstoque.ok },
+          ]}
+          onChange={setFiltroEstoque}
+          toneActive={filtroEstoque === 'critico' ? 'red' : filtroEstoque === 'zerado' ? 'orange' : 'green'}
+        />
 
-      {/* Filtros categoria urna */}
-      {filtro === 'urna' && categoriasUrnas.length > 0 && (
-        <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide pb-1">
-          <button
-            onClick={() => setFiltroCategoria('')}
-            className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all whitespace-nowrap ${
-              filtroCategoria === '' ? 'bg-amber-500 text-white' : 'bg-[var(--surface-0)] border border-[var(--surface-200)] text-[var(--surface-600)] hover:border-[var(--surface-300)]'
-            }`}
-          >
-            Todas categorias
-          </button>
-          {categoriasUrnas.map(cat => (
-            <button
-              key={cat}
-              onClick={() => setFiltroCategoria(cat)}
-              className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all whitespace-nowrap ${
-                filtroCategoria === cat ? 'bg-amber-500 text-white' : 'bg-[var(--surface-0)] border border-[var(--surface-200)] text-[var(--surface-600)] hover:border-[var(--surface-300)]'
-              }`}
-            >
-              {CATEGORIA_URNA_LABELS[cat] || cat} ({contadoresCategorias[cat]})
-            </button>
-          ))}
-        </div>
-      )}
+        {/* Categoria — só urna ou acessorio */}
+        {filtro === 'urna' && categoriasUrnas.length > 0 && (
+          <FilterDropdown
+            label="Categoria"
+            value={filtroCategoria}
+            options={categoriasUrnas.map<FilterOption>(cat => ({
+              value: cat,
+              label: CATEGORIA_URNA_LABELS[cat] || cat,
+              count: contadoresCategorias[cat],
+            }))}
+            onChange={setFiltroCategoria}
+            allLabel="Todas categorias"
+            toneActive="amber"
+          />
+        )}
+        {filtro === 'acessorio' && categoriasAcessorios.length > 0 && (
+          <FilterDropdown
+            label="Categoria"
+            value={filtroCategoria}
+            options={categoriasAcessorios.map<FilterOption>(cat => ({
+              value: cat,
+              label: CATEGORIA_ACESSORIO_LABELS[cat] || cat,
+              count: contadoresCategoriasAcessorios[cat],
+            }))}
+            onChange={setFiltroCategoria}
+            allLabel="Todas categorias"
+            toneActive="blue"
+          />
+        )}
 
-      {/* Filtros categoria acessório */}
-      {filtro === 'acessorio' && categoriasAcessorios.length > 0 && (
-        <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide pb-1">
-          <button
-            onClick={() => setFiltroCategoria('')}
-            className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all whitespace-nowrap ${
-              filtroCategoria === '' ? 'bg-blue-500 text-white' : 'bg-[var(--surface-0)] border border-[var(--surface-200)] text-[var(--surface-600)] hover:border-[var(--surface-300)]'
-            }`}
-          >
-            Todas categorias
-          </button>
-          {categoriasAcessorios.map(cat => (
-            <button
-              key={cat}
-              onClick={() => setFiltroCategoria(cat)}
-              className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all whitespace-nowrap ${
-                filtroCategoria === cat ? 'bg-blue-500 text-white' : 'bg-[var(--surface-0)] border border-[var(--surface-200)] text-[var(--surface-600)] hover:border-[var(--surface-300)]'
-              }`}
-            >
-              {CATEGORIA_ACESSORIO_LABELS[cat] || cat} ({contadoresCategoriasAcessorios[cat]})
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Toggle "Críticos primeiro" — visível apenas nas tabs Entrada/Mínimo */}
-      {(tab === 'entrada' || tab === 'minimo') && (
-        <div className="mb-3 flex items-center gap-2">
+        {/* Críticos primeiro — só nas tabs Entrada/Mínimo */}
+        {(tab === 'entrada' || tab === 'minimo') && (
           <button
             onClick={() => setCriticosPrimeiro(v => !v)}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
+            className={`inline-flex items-center justify-center w-9 h-9 rounded-full transition-all ${
               criticosPrimeiro
                 ? 'bg-red-600 text-white shadow-md'
                 : 'bg-red-50 border border-red-200 text-red-700 hover:border-red-300'
             }`}
-            title="Mostrar produtos críticos no topo da lista"
+            title={`Críticos primeiro (${produtosFiltrados.filter(isCritico).length} críticos · ${produtosFiltrados.length} total)`}
           >
-            <Flame className="h-3.5 w-3.5" />
-            Críticos primeiro
+            <Flame className="h-4 w-4" />
           </button>
-          <span className="text-xs text-[var(--surface-400)]">
-            ({produtosFiltrados.filter(isCritico).length} críticos · {produtosFiltrados.length} total)
-          </span>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Content — Tab Atual */}
       {tab === 'atual' && (loading ? (
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+        <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-9 gap-2.5">
           {Array.from({ length: 12 }).map((_, i) => (
             <div key={i} className="card overflow-hidden">
               <Skeleton className="aspect-square w-full rounded-none" />
@@ -719,7 +716,7 @@ export default function EstoquePage() {
           description={busca ? 'Tente ajustar o termo de busca' : 'Nenhum produto cadastrado'}
         />
       ) : viewMode === 'grid' ? (
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 stagger-children">
+        <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-9 gap-2.5 stagger-children">
           {produtosFiltrados.map((produto) => {
             const statusEstoque = getStatusEstoque(produto.estoque_atual, produto.estoque_minimo, produto.estoque_infinito)
 
@@ -756,7 +753,7 @@ export default function EstoquePage() {
                   {statusEstoque.status !== 'ok' && statusEstoque.status !== 'infinito' && (
                     <div className={`absolute top-2 right-2 w-3 h-3 rounded-full ${statusEstoque.color} ring-2 ring-white`} title={statusEstoque.label} />
                   )}
-                  <div className={`absolute bottom-2 right-2 text-white text-xs font-bold px-2 py-1 rounded-[var(--radius-sm)] shadow-md ${
+                  <div className={`absolute bottom-1 right-1 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-[var(--radius-sm)] shadow-md ${
                     produto.preco && produto.preco > 0 ? 'bg-green-600' : 'bg-[var(--surface-500)]'
                   }`}>
                     {produto.preco && produto.preco > 0 ? `R$ ${produto.preco.toFixed(0)}` : 'Incluso'}
@@ -764,15 +761,15 @@ export default function EstoquePage() {
                 </div>
 
                 {/* Info */}
-                <div className="p-3">
-                  <p className="font-medium text-[var(--surface-800)] text-sm leading-tight min-h-[2.5rem]">{produto.nome}</p>
+                <div className="p-2">
+                  <p className="font-medium text-[var(--surface-800)] text-[11px] leading-tight min-h-[2rem] line-clamp-2">{produto.nome}</p>
 
-                  <div className="flex items-center justify-between mt-2 text-sm">
-                    <div className="flex items-center gap-1 w-12" title="Estoque atual">
-                      {statusEstoque.status === 'critico' && <AlertTriangle className="h-4 w-4 text-red-500" />}
-                      {statusEstoque.status === 'ok' && <Package className="h-4 w-4 text-green-500" />}
-                      {statusEstoque.status === 'infinito' && <Package className="h-4 w-4 text-blue-500" />}
-                      <span className={`font-bold text-base text-mono ${
+                  <div className="flex items-center justify-between mt-1.5 text-xs">
+                    <div className="flex items-center gap-0.5" title="Estoque atual">
+                      {statusEstoque.status === 'critico' && <AlertTriangle className="h-3 w-3 text-red-500" />}
+                      {statusEstoque.status === 'ok' && <Package className="h-3 w-3 text-green-500" />}
+                      {statusEstoque.status === 'infinito' && <Package className="h-3 w-3 text-blue-500" />}
+                      <span className={`font-bold text-mono ${
                         statusEstoque.status === 'infinito' ? 'text-blue-400' :
                         statusEstoque.status === 'critico' ? 'text-red-400' :
                         'text-green-400'
@@ -781,14 +778,14 @@ export default function EstoquePage() {
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-1 w-12 justify-center text-[var(--surface-400)]" title="Estoque ideal">
-                      <Target className="h-4 w-4" />
-                      <span className="text-base text-mono">{produto.estoque_infinito ? '-' : produto.estoque_minimo}</span>
+                    <div className="flex items-center gap-0.5 text-[var(--surface-400)]" title="Estoque ideal">
+                      <Target className="h-3 w-3" />
+                      <span className="text-mono">{produto.estoque_infinito ? '-' : produto.estoque_minimo}</span>
                     </div>
 
-                    <div className="flex items-center gap-1 w-12 justify-end text-[var(--brand-600)]" title="Qtde vendida">
-                      <ShoppingCart className="h-4 w-4" />
-                      <span className="font-medium text-base text-mono">{produto.qtde_vendida || 0}</span>
+                    <div className="flex items-center gap-0.5 text-[var(--brand-600)]" title="Qtde vendida">
+                      <ShoppingCart className="h-3 w-3" />
+                      <span className="font-medium text-mono">{produto.qtde_vendida || 0}</span>
                     </div>
                   </div>
                 </div>
@@ -927,7 +924,7 @@ export default function EstoquePage() {
             <EmptyState icon={Package} title="Nenhum produto" description={busca ? 'Ajuste a busca' : 'Sem produtos cadastrados'} />
           ) : (
             <div className="card overflow-hidden">
-              {produtosFiltrados.map(p => {
+              {produtosFiltrados.filter(p => !p.estoque_infinito).map(p => {
                 const qtd = carrinhoEntrada[p.id] || 0
                 const status = getStatusEstoque(p.estoque_atual, p.estoque_minimo, p.estoque_infinito)
                 const apos = p.estoque_infinito ? null : p.estoque_atual + qtd
@@ -946,9 +943,19 @@ export default function EstoquePage() {
                       </div>
                       <p className="text-xs text-[var(--surface-400)]">{TIPO_LABELS[p.tipo]}</p>
                     </div>
-                    <div className="text-xs text-right text-[var(--surface-500)] hidden sm:block">
-                      <div>atual: <span className={`font-semibold text-mono ${status.status === 'critico' ? 'text-red-600' : status.status === 'infinito' ? 'text-blue-500' : 'text-[var(--surface-700)]'}`}>{p.estoque_infinito ? '∞' : p.estoque_atual}</span></div>
-                      <div>mín: <span className="text-mono text-[var(--surface-600)]">{p.estoque_infinito ? '-' : p.estoque_minimo}</span></div>
+                    <div className="text-right hidden sm:flex gap-4">
+                      <div className="flex flex-col items-end">
+                        <span className="text-[10px] uppercase tracking-wide text-[var(--surface-400)]">Estoque Atual</span>
+                        <span className={`text-xl font-bold text-mono leading-none mt-0.5 ${status.status === 'critico' ? 'text-red-600' : status.status === 'infinito' ? 'text-blue-500' : 'text-[var(--surface-700)]'}`}>
+                          {p.estoque_infinito ? '∞' : p.estoque_atual}
+                        </span>
+                      </div>
+                      <div className="flex flex-col items-end">
+                        <span className="text-[10px] uppercase tracking-wide text-[var(--surface-400)]">Mínimo Ideal</span>
+                        <span className="text-xl font-bold text-mono leading-none mt-0.5 text-[var(--surface-500)]">
+                          {p.estoque_infinito ? '-' : p.estoque_minimo}
+                        </span>
+                      </div>
                     </div>
                     <div className="flex items-center gap-1">
                       <button onClick={() => incCarrinhoEntrada(p.id, -1)} disabled={desabilitado || qtd === 0}
@@ -1021,7 +1028,7 @@ export default function EstoquePage() {
             <EmptyState icon={Package} title="Nenhum produto" description={busca ? 'Ajuste a busca' : 'Sem produtos cadastrados'} />
           ) : (
             <div className="card overflow-hidden">
-              {produtosFiltrados.map(p => {
+              {produtosFiltrados.filter(p => !p.estoque_infinito).map(p => {
                 const minAtual = p.estoque_minimo
                 const valor = carrinhoMinimo[p.id] !== undefined ? carrinhoMinimo[p.id] : minAtual
                 const alterado = carrinhoMinimo[p.id] !== undefined
@@ -1040,26 +1047,87 @@ export default function EstoquePage() {
                       </div>
                       <p className="text-xs text-[var(--surface-400)]">{p.codigo} · {TIPO_LABELS[p.tipo]}</p>
                     </div>
-                    <div className="text-xs text-[var(--surface-500)] hidden sm:block">
-                      atual: <span className="text-mono font-semibold text-[var(--surface-700)]">{p.estoque_atual}</span>
+                    <div className="text-right hidden sm:flex flex-col items-end">
+                      <span className="text-[10px] uppercase tracking-wide text-[var(--surface-400)]">Estoque Atual</span>
+                      <span className="text-xl font-bold text-mono leading-none mt-0.5 text-[var(--surface-700)]">
+                        {p.estoque_atual}
+                      </span>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <button onClick={() => setCarrinhoMinimoVal(p.id, Math.max(0, valor - 1), minAtual)} disabled={desabilitado || valor === 0}
-                        className="w-7 h-7 flex items-center justify-center rounded-md bg-[var(--surface-100)] text-[var(--surface-700)] hover:bg-[var(--surface-200)] disabled:opacity-30">
-                        <Minus className="h-3.5 w-3.5" />
-                      </button>
-                      <input
-                        type="number" min="0" value={valor}
-                        onChange={e => setCarrinhoMinimoVal(p.id, Math.max(0, parseInt(e.target.value) || 0), minAtual)}
-                        disabled={desabilitado}
-                        className={`w-14 h-7 text-center text-sm border rounded-md text-mono focus:outline-none focus:border-amber-500 disabled:opacity-50 ${alterado ? 'bg-amber-50 border-amber-300 text-amber-800 font-semibold' : 'bg-[var(--surface-50)] border-[var(--surface-200)]'}`}
-                      />
-                      <button onClick={() => setCarrinhoMinimoVal(p.id, valor + 1, minAtual)} disabled={desabilitado}
-                        className="w-7 h-7 flex items-center justify-center rounded-md bg-amber-100 text-amber-700 hover:bg-amber-200 disabled:opacity-30">
-                        <Plus className="h-3.5 w-3.5" />
-                      </button>
+                    {/* Vendas: total + janelas 30/90/180 dias */}
+                    <div className="hidden md:flex flex-col items-end min-w-[140px]">
+                      <span className="text-[10px] uppercase tracking-wide text-[var(--surface-400)]">Vendas</span>
+                      <div className="flex items-baseline gap-1.5 mt-0.5">
+                        <span className="text-xl font-bold text-mono leading-none text-purple-600">{p.qtde_vendida || 0}</span>
+                        <span className="text-[9px] text-[var(--surface-400)] uppercase">total</span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1 text-[10px] tabular-nums text-[var(--surface-500)]">
+                        {([
+                          { v: vendasPorProduto[p.id]?.d30 || 0, label: '30d' },
+                          { v: vendasPorProduto[p.id]?.d90 || 0, label: '90d' },
+                          { v: vendasPorProduto[p.id]?.d180 || 0, label: '180d' },
+                        ]).map((j, i, arr) => {
+                          const cor = j.v > 0 ? 'text-blue-500' : 'text-amber-500'
+                          return (
+                            <span key={j.label} className="flex items-center gap-2">
+                              <span className={cor}>
+                                <span className="font-semibold">{j.v}</span>
+                                <span className="text-[9px]">/{j.label}</span>
+                              </span>
+                              {i < arr.length - 1 && <span>·</span>}
+                            </span>
+                          )
+                        })}
+                      </div>
                     </div>
-                    {alterado && (
+                    {(() => {
+                      const emEdicao = editandoMinimoId === p.id
+                      if (!emEdicao) {
+                        return (
+                          <div className="flex items-center gap-2">
+                            <div className="flex flex-col items-end">
+                              <span className="text-[10px] uppercase tracking-wide text-[var(--surface-400)]">Mínimo Ideal</span>
+                              <span className={`text-xl font-bold text-mono leading-none mt-0.5 ${alterado ? 'text-amber-700' : 'text-[var(--surface-500)]'}`}>
+                                {valor}
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => setEditandoMinimoId(p.id)}
+                              disabled={desabilitado}
+                              className="p-1.5 text-[var(--surface-500)] hover:text-amber-600 hover:bg-amber-50 rounded transition-colors disabled:opacity-30"
+                              title="Editar mínimo"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        )
+                      }
+                      return (
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => setCarrinhoMinimoVal(p.id, Math.max(0, valor - 1), minAtual)} disabled={desabilitado || valor === 0}
+                            className="w-7 h-7 flex items-center justify-center rounded-md bg-[var(--surface-100)] text-[var(--surface-700)] hover:bg-[var(--surface-200)] disabled:opacity-30">
+                            <Minus className="h-3.5 w-3.5" />
+                          </button>
+                          <input
+                            type="number" min="0" value={valor}
+                            autoFocus
+                            onChange={e => setCarrinhoMinimoVal(p.id, Math.max(0, parseInt(e.target.value) || 0), minAtual)}
+                            onKeyDown={e => { if (e.key === 'Enter') setEditandoMinimoId(null); if (e.key === 'Escape') setEditandoMinimoId(null) }}
+                            disabled={desabilitado}
+                            className={`w-14 h-7 text-center text-sm border rounded-md text-mono focus:outline-none focus:border-amber-500 disabled:opacity-50 ${alterado ? 'bg-amber-50 border-amber-300 text-amber-800 font-semibold' : 'bg-[var(--surface-50)] border-[var(--surface-200)]'}`}
+                          />
+                          <button onClick={() => setCarrinhoMinimoVal(p.id, valor + 1, minAtual)} disabled={desabilitado}
+                            className="w-7 h-7 flex items-center justify-center rounded-md bg-amber-100 text-amber-700 hover:bg-amber-200 disabled:opacity-30">
+                            <Plus className="h-3.5 w-3.5" />
+                          </button>
+                          <button onClick={() => setEditandoMinimoId(null)}
+                            className="ml-1 w-7 h-7 flex items-center justify-center rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+                            title="Fechar edição (mudança fica no carrinho)">
+                            <Save className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      )
+                    })()}
+                    {alterado && editandoMinimoId !== p.id && (
                       <div className="text-xs text-amber-700 font-semibold w-16 text-right hidden sm:block">
                         {minAtual} → {valor}
                       </div>

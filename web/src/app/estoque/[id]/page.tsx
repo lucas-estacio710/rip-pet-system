@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, TrendingUp, TrendingDown, Save, X, Pencil, Package, DollarSign, Target, ShoppingCart, Plus, Check } from 'lucide-react'
+import { ArrowLeft, TrendingUp, TrendingDown, X, Pencil, Package, DollarSign, Target, ShoppingCart, Plus, Check } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import Link from 'next/link'
@@ -11,7 +11,7 @@ type Produto = {
   id: string
   codigo: string
   nome: string
-  tipo: 'urna' | 'acessorio' | 'incluso'
+  tipo: 'urna' | 'acessorio'
   categoria: string | null
   custo: number | null
   preco: number | null
@@ -85,9 +85,6 @@ export default function ProdutoDetalhePage() {
   const [entradas, setEntradas] = useState<Entrada[]>([])
   const [saidas, setSaidas] = useState<Saida[]>([])
   const [loading, setLoading] = useState(true)
-  const [editandoPreco, setEditandoPreco] = useState(false)
-  const [novoPreco, setNovoPreco] = useState('')
-  const [salvando, setSalvando] = useState(false)
 
   // Estoque DA UNIDADE ATIVA (vem de produtos_estoque)
   const [estoqueUnidade, setEstoqueUnidade] = useState<number>(0)
@@ -128,7 +125,6 @@ export default function ProdutoDetalhePage() {
 
     if (produtoData) {
       setProduto(produtoData as Produto)
-      setNovoPreco((produtoData as Produto).preco?.toString() || '0')
     }
 
     // Estoque DA UNIDADE ATIVA (produtos_estoque) — atual + mínimo + vendida
@@ -228,25 +224,6 @@ export default function ProdutoDetalhePage() {
     setSalvandoMinimo(false)
   }
 
-  async function salvarPreco() {
-    if (!produto) return
-    setSalvando(true)
-
-    const preco = parseFloat(novoPreco) || 0
-
-    const { error } = await supabase
-      .from('produtos')
-      .update({ preco } as never)
-      .eq('id', produto.id)
-
-    if (!error) {
-      setProduto({ ...produto, preco })
-      setEditandoPreco(false)
-    }
-
-    setSalvando(false)
-  }
-
   function getImagemUrl(codigo: string): string {
     return `/estoque/${codigo}.png`
   }
@@ -315,53 +292,15 @@ export default function ProdutoDetalhePage() {
 
             {/* Stats horizontais */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4">
-              {/* Preço editável */}
+              {/* Preço Catálogo (read-only — editar em /admin/catalogo) */}
               <div className="bg-slate-700 rounded-lg p-3 border border-slate-600 shadow-sm">
                 <div className="flex items-center gap-2 text-slate-400 text-xs mb-1">
                   <DollarSign className="h-3.5 w-3.5" />
                   Preço Catálogo
                 </div>
-                {editandoPreco ? (
-                  <div className="flex items-center gap-1">
-                    <input
-                      type="number"
-                      value={novoPreco}
-                      onChange={(e) => setNovoPreco(e.target.value)}
-                      className="w-20 px-2 py-1 text-sm border rounded focus:outline-none focus:ring-1 focus:ring-purple-500"
-                      step="0.01"
-                      min="0"
-                      autoFocus
-                    />
-                    <button
-                      onClick={salvarPreco}
-                      disabled={salvando}
-                      className="p-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
-                    >
-                      <Save className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        setEditandoPreco(false)
-                        setNovoPreco(produto.preco?.toString() || '0')
-                      }}
-                      className="p-1 bg-slate-600 text-slate-400 rounded hover:bg-slate-500"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between">
-                    <span className={`font-bold ${produto.preco && produto.preco > 0 ? 'text-green-400' : 'text-slate-400'}`}>
-                      {formatarMoeda(produto.preco)}
-                    </span>
-                    <button
-                      onClick={() => setEditandoPreco(true)}
-                      className="p-1 text-slate-400 hover:text-purple-400 rounded"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                )}
+                <span className={`font-bold ${produto.preco && produto.preco > 0 ? 'text-green-400' : 'text-slate-400'}`}>
+                  {formatarMoeda(produto.preco)}
+                </span>
               </div>
 
               {/* Estoque Atual */}
