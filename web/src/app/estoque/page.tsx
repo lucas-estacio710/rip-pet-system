@@ -99,6 +99,8 @@ export default function EstoquePage() {
 
   // Tab Mínimo — linha em edição (lápis para abrir, disquete para fechar)
   const [editandoMinimoId, setEditandoMinimoId] = useState<string | null>(null)
+  // Carrinho expandido (header sticky pode mostrar lista dos itens)
+  const [carrinhoExpandido, setCarrinhoExpandido] = useState(false)
   // Vendas por produto na unidade ativa — em 30d / 90d / 180d
   const [vendasPorProduto, setVendasPorProduto] = useState<Record<string, { d30: number; d90: number; d180: number }>>({})
 
@@ -885,35 +887,66 @@ export default function EstoquePage() {
       {/* ============================ */}
       {tab === 'entrada' && (
         <div>
-          {/* Header sticky com contadores e ações */}
-          <div className="sticky top-0 z-10 bg-[var(--surface-0)]/95 backdrop-blur-sm border border-[var(--surface-200)] rounded-lg p-3 mb-3 flex items-center justify-between gap-2 shadow-sm">
-            <div className="text-sm">
-              {totalItensEntrada === 0 ? (
-                <span className="text-[var(--surface-400)]">Carrinho vazio — use os botões para adicionar quantidades</span>
-              ) : (
-                <span className="text-[var(--surface-700)]">
-                  <strong>{totalItensEntrada}</strong> produto{totalItensEntrada > 1 ? 's' : ''} ·{' '}
-                  <strong>{totalUnidadesEntrada}</strong> unidade{totalUnidadesEntrada > 1 ? 's' : ''}
-                </span>
-              )}
-            </div>
-            <div className="flex gap-2">
-              {totalItensEntrada > 0 && (
-                <button
-                  onClick={() => { if (confirm('Limpar todo o carrinho?')) setCarrinhoEntrada({}) }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-md transition-colors"
-                >
-                  <Trash2 className="h-3.5 w-3.5" /> Limpar
-                </button>
-              )}
+          {/* Header sticky com contadores, lista expansível e ações */}
+          <div className="sticky top-0 z-10 bg-[var(--surface-0)]/95 backdrop-blur-sm border border-[var(--surface-200)] rounded-lg mb-3 shadow-sm">
+            <div className="p-3 flex items-center justify-between gap-2">
               <button
-                onClick={() => setModalSalvarEntrada(true)}
+                onClick={() => totalItensEntrada > 0 && setCarrinhoExpandido(v => !v)}
                 disabled={totalItensEntrada === 0}
-                className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold bg-emerald-600 text-white rounded-md hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                className="flex items-center gap-2 text-sm text-left flex-1 min-w-0 disabled:cursor-default"
               >
-                <Save className="h-3.5 w-3.5" /> Salvar entrada
+                <ShoppingCart className={`h-4 w-4 flex-shrink-0 ${totalItensEntrada > 0 ? 'text-emerald-600' : 'text-[var(--surface-400)]'}`} />
+                {totalItensEntrada === 0 ? (
+                  <span className="text-[var(--surface-400)]">Carrinho vazio — use os botões para adicionar quantidades</span>
+                ) : (
+                  <>
+                    <span className="text-[var(--surface-700)]">
+                      <strong>{totalItensEntrada}</strong> produto{totalItensEntrada > 1 ? 's' : ''} ·{' '}
+                      <strong>{totalUnidadesEntrada}</strong> unidade{totalUnidadesEntrada > 1 ? 's' : ''}
+                    </span>
+                    <span className={`text-[var(--surface-400)] transition-transform text-xs ${carrinhoExpandido ? 'rotate-180' : ''}`}>▼</span>
+                  </>
+                )}
               </button>
+              <div className="flex gap-2">
+                {totalItensEntrada > 0 && (
+                  <button
+                    onClick={() => { if (confirm('Limpar todo o carrinho?')) setCarrinhoEntrada({}) }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> Limpar
+                  </button>
+                )}
+                <button
+                  onClick={() => setModalSalvarEntrada(true)}
+                  disabled={totalItensEntrada === 0}
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold bg-emerald-600 text-white rounded-md hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <Save className="h-3.5 w-3.5" /> Salvar entrada
+                </button>
+              </div>
             </div>
+            {carrinhoExpandido && totalItensEntrada > 0 && (
+              <div className="border-t border-[var(--surface-100)] bg-[var(--surface-50)]/50 max-h-48 overflow-y-auto">
+                {Object.entries(carrinhoEntrada).map(([pid, qtd]) => {
+                  const prod = produtos.find(p => p.id === pid)
+                  if (!prod) return null
+                  return (
+                    <div key={pid} className="flex items-center gap-2 px-3 py-1.5 text-xs border-b border-[var(--surface-100)] last:border-b-0 hover:bg-[var(--surface-100)]/50">
+                      <span className="flex-1 truncate text-[var(--surface-700)]">{prod.nome}</span>
+                      <span className="text-mono font-semibold text-emerald-700 tabular-nums">+{qtd}</span>
+                      <button
+                        onClick={() => setCarrinhoEntradaQtd(pid, 0)}
+                        className="text-red-500 hover:text-red-700 hover:bg-red-50 rounded p-0.5"
+                        title="Remover do carrinho"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           {loading ? (
@@ -991,33 +1024,66 @@ export default function EstoquePage() {
       {/* ============================ */}
       {tab === 'minimo' && (
         <div>
-          <div className="sticky top-0 z-10 bg-[var(--surface-0)]/95 backdrop-blur-sm border border-[var(--surface-200)] rounded-lg p-3 mb-3 flex items-center justify-between gap-2 shadow-sm">
-            <div className="text-sm">
-              {totalItensMinimo === 0 ? (
-                <span className="text-[var(--surface-400)]">Sem alterações pendentes</span>
-              ) : (
-                <span className="text-[var(--surface-700)]">
-                  <strong>{totalItensMinimo}</strong> produto{totalItensMinimo > 1 ? 's' : ''} alterado{totalItensMinimo > 1 ? 's' : ''}
-                </span>
-              )}
-            </div>
-            <div className="flex gap-2">
-              {totalItensMinimo > 0 && (
-                <button
-                  onClick={() => { if (confirm('Descartar todas as alterações?')) setCarrinhoMinimo({}) }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-md transition-colors"
-                >
-                  <Trash2 className="h-3.5 w-3.5" /> Limpar
-                </button>
-              )}
+          <div className="sticky top-0 z-10 bg-[var(--surface-0)]/95 backdrop-blur-sm border border-[var(--surface-200)] rounded-lg mb-3 shadow-sm">
+            <div className="p-3 flex items-center justify-between gap-2">
               <button
-                onClick={() => setModalSalvarMinimo(true)}
+                onClick={() => totalItensMinimo > 0 && setCarrinhoExpandido(v => !v)}
                 disabled={totalItensMinimo === 0}
-                className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold bg-emerald-600 text-white rounded-md hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                className="flex items-center gap-2 text-sm text-left flex-1 min-w-0 disabled:cursor-default"
               >
-                <Save className="h-3.5 w-3.5" /> Salvar mínimos
+                <Sliders className={`h-4 w-4 flex-shrink-0 ${totalItensMinimo > 0 ? 'text-amber-600' : 'text-[var(--surface-400)]'}`} />
+                {totalItensMinimo === 0 ? (
+                  <span className="text-[var(--surface-400)]">Sem alterações pendentes</span>
+                ) : (
+                  <>
+                    <span className="text-[var(--surface-700)]">
+                      <strong>{totalItensMinimo}</strong> produto{totalItensMinimo > 1 ? 's' : ''} alterado{totalItensMinimo > 1 ? 's' : ''}
+                    </span>
+                    <span className={`text-[var(--surface-400)] transition-transform text-xs ${carrinhoExpandido ? 'rotate-180' : ''}`}>▼</span>
+                  </>
+                )}
               </button>
+              <div className="flex gap-2">
+                {totalItensMinimo > 0 && (
+                  <button
+                    onClick={() => { if (confirm('Descartar todas as alterações?')) setCarrinhoMinimo({}) }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> Limpar
+                  </button>
+                )}
+                <button
+                  onClick={() => setModalSalvarMinimo(true)}
+                  disabled={totalItensMinimo === 0}
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold bg-emerald-600 text-white rounded-md hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <Save className="h-3.5 w-3.5" /> Salvar mínimos
+                </button>
+              </div>
             </div>
+            {carrinhoExpandido && totalItensMinimo > 0 && (
+              <div className="border-t border-[var(--surface-100)] bg-[var(--surface-50)]/50 max-h-48 overflow-y-auto">
+                {Object.entries(carrinhoMinimo).map(([pid, novoMin]) => {
+                  const prod = produtos.find(p => p.id === pid)
+                  if (!prod) return null
+                  return (
+                    <div key={pid} className="flex items-center gap-2 px-3 py-1.5 text-xs border-b border-[var(--surface-100)] last:border-b-0 hover:bg-[var(--surface-100)]/50">
+                      <span className="flex-1 truncate text-[var(--surface-700)]">{prod.nome}</span>
+                      <span className="text-mono text-[var(--surface-500)] tabular-nums">{prod.estoque_minimo}</span>
+                      <span className="text-[var(--surface-400)]">→</span>
+                      <span className="text-mono font-semibold text-amber-700 tabular-nums">{novoMin}</span>
+                      <button
+                        onClick={() => setCarrinhoMinimo(prev => { const n = { ...prev }; delete n[pid]; return n })}
+                        className="text-red-500 hover:text-red-700 hover:bg-red-50 rounded p-0.5"
+                        title="Descartar alteração"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           {loading ? (
