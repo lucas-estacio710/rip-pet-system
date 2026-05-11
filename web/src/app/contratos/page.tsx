@@ -2588,16 +2588,34 @@ ${petNome}`
     }
   }
 
-  // Urna - carrega lista de urnas
-  async function carregarUrnas() {
-    const { data } = await supabase
+  // Urna - carrega lista de urnas com saldo da unidade do contrato
+  async function carregarUrnas(unidadeId?: string) {
+    const { data: produtosData } = await supabase
       .from('produtos')
-      .select('id, codigo, nome, tipo, categoria, preco, estoque_atual, imagem_url, estoque_infinito')
+      .select('id, codigo, nome, tipo, categoria, preco, imagem_url, estoque_infinito')
       .eq('tipo', 'urna')
       .eq('ativo', true)
       .order('nome')
 
-    if (data) setUrnas(data as Produto[])
+    if (!produtosData) return
+
+    // Estoque DA UNIDADE DO CONTRATO (não o legado global de produtos.estoque_atual)
+    const uid = unidadeId || currentUnit?.id
+    const estoqueMap = new Map<string, number>()
+    if (uid) {
+      const { data: peData } = await supabase
+        .from('produtos_estoque')
+        .select('produto_id, estoque_atual')
+        .eq('unidade_id', uid)
+      const rows = (peData || []) as { produto_id: string; estoque_atual: number }[]
+      rows.forEach(r => estoqueMap.set(r.produto_id, r.estoque_atual))
+    }
+
+    const merged = (produtosData as unknown as Produto[]).map((p) => ({
+      ...p,
+      estoque_atual: estoqueMap.get(p.id) ?? 0,
+    }))
+    setUrnas(merged)
   }
 
   // Urna - abre modal (com prompt se já tem urna)
@@ -2619,7 +2637,8 @@ ${petNome}`
     } else {
       // Abre direto o modal de seleção
       setUrnaModal(true)
-      if (urnas.length === 0) carregarUrnas()
+      // Sempre recarrega com a unidade do contrato (saldos por unidade)
+      carregarUrnas(contrato.unidade_id)
     }
   }
 
@@ -2628,7 +2647,7 @@ ${petNome}`
     setUrnaPrompt(false)
     setUrnaModoEdicao(acao === 'editar')
     setUrnaModal(true)
-    if (urnas.length === 0) carregarUrnas()
+    carregarUrnas(urnaContrato?.unidade_id)
   }
 
   // Urna - salva seleção
@@ -2651,7 +2670,7 @@ ${petNome}`
           .eq('produto_id', ultimaUrna.produto_id)
 
         // Creditar estoque da urna removida DA UNIDADE DO CONTRATO
-        await ajustarEstoquePorCodigo(ultimaUrna.produto?.nome || '', +1, urnaContrato.unidade_id)
+        await ajustarEstoquePorCodigo(ultimaUrna.produto?.codigo || '', +1, urnaContrato.unidade_id)
       }
 
       // Verificar se já existe registro para a nova urna
