@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { X, Search, Check } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { dataLocal } from '@/lib/date-local'
 
 type ContratoMinimal = {
   id: string
@@ -52,7 +53,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
     if (!isOpen) return
 
     const agora = new Date()
-    const dataStr = agora.toISOString().split('T')[0]
+    const dataStr = dataLocal(agora)
     const horaStr = agora.toTimeString().slice(0, 5)
 
     setForm({
@@ -114,7 +115,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
     } else {
       dataHora.setHours(dataHora.getHours() - 1)
     }
-    const dataStr = dataHora.toISOString().split('T')[0]
+    const dataStr = dataLocal(dataHora)
     const horaStr = dataHora.toTimeString().slice(0, 5)
     setForm({ ...form, data_acolhimento: dataStr, hora_acolhimento: horaStr })
   }

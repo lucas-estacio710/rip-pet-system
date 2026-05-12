@@ -4,6 +4,7 @@ import { useRef, useState, useEffect, useCallback } from 'react'
 import { Route, ChevronLeft, ChevronRight, ChevronDown, CheckCircle2, Cross, Dog, Cat, Bug, Flame, Plus, X, Loader2, ListChecks, Snowflake, Award, Package, Pencil, Trash2, HelpCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
+import { dataLocal } from '@/lib/date-local'
 import Modal from '@/components/ui/Modal'
 
 const UNIT_COLORS: Record<string, string> = {
@@ -69,7 +70,7 @@ type ContratoEnc = {
   contrato_gc: ContratoGC[] | null
   supinda_id: string | null
   supinda_volta_id: string | null
-  certificado_confirmado: boolean
+  acondicionado: boolean
   cinzas_recebidas: boolean
   certificado_recebido: boolean
 }
@@ -89,7 +90,7 @@ function formatDataCurta(d: string): string {
 type EncResumo = { id: string; numero: string; data: string; codigo_unidade: string; responsavel: string | null; quantidade_pets: number; peso_total: number; status: string; observacoes: string | null }
 
 function getEncsDia(encs: EncResumo[], dia: Date): EncResumo[] {
-  const dStr = dia.toISOString().slice(0, 10)
+  const dStr = dataLocal(dia)
   return encs.filter(e => e.data === dStr)
 }
 
@@ -176,7 +177,7 @@ export default function EncaminhamentosPage() {
     return parts.join(' + ')
   }
 
-  async function toggleCheck(id: string, campo: 'certificado_confirmado' | 'cinzas_recebidas' | 'certificado_recebido', atual: boolean) {
+  async function toggleCheck(id: string, campo: 'acondicionado' | 'cinzas_recebidas' | 'certificado_recebido', atual: boolean) {
     const novo = !atual
     await supabase.from('contratos').update({ [campo]: novo } as never).eq('id', id)
     const update = (list: ContratoEnc[]) => list.map(c => c.id === id ? { ...c, [campo]: novo } : c)
@@ -263,7 +264,7 @@ export default function EncaminhamentosPage() {
 
   // Tela edição encaminhamento
   const [telaEdicao, setTelaEdicao] = useState(false)
-  const [novoData, setNovoData] = useState(hoje.toISOString().slice(0, 10))
+  const [novoData, setNovoData] = useState(dataLocal(hoje))
   const [novoResponsavel, setNovoResponsavel] = useState('')
   const [novoObs, setNovoObs] = useState('')
   const [novoCodigo, setNovoCodigo] = useState('')
@@ -286,7 +287,7 @@ export default function EncaminhamentosPage() {
   useEffect(() => {
     if (!currentUnit) return
     async function carregar() {
-      const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, certificado_confirmado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
+      const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
       const [{ data: crem }, { data: ativ }, { data: funcs }, { data: encs }, { data: vinc }] = await Promise.all([
         filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_contrato', { ascending: true }),
         filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_contrato', { ascending: true }),
@@ -436,7 +437,7 @@ export default function EncaminhamentosPage() {
     setEncAbertos(prev => { const next = new Set(prev); next.add(enc.id); return next })
 
     // Recarregar
-    const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, certificado_confirmado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
+    const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
     const [{ data: crem }, { data: ativ }, { data: encs }, { data: vinc }] = await Promise.all([
       filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_contrato', { ascending: true }),
       filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_contrato', { ascending: true }),
@@ -480,7 +481,7 @@ export default function EncaminhamentosPage() {
 
     // Recarregar tudo (mesmo padrão de incluirEmExistente)
     setEncAbertos(prev => { const next = new Set(prev); next.delete(enc.id); return next })
-    const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, certificado_confirmado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
+    const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
     const [{ data: crem }, { data: ativ }, { data: encs }, { data: vinc }] = await Promise.all([
       filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_contrato', { ascending: true }),
       filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_contrato', { ascending: true }),
@@ -499,7 +500,7 @@ export default function EncaminhamentosPage() {
   async function abrirTelaEdicao(dataPreenchida?: Date, idsSelecionados?: Set<string>) {
     const cod = await gerarProximoCodigo()
     setNovoCodigo(cod)
-    setNovoData(dataPreenchida ? dataPreenchida.toISOString().slice(0, 10) : hoje.toISOString().slice(0, 10))
+    setNovoData(dataPreenchida ? dataLocal(dataPreenchida) : dataLocal(hoje))
     setNovoResponsavel('')
     setNovoObs('')
 
@@ -564,7 +565,7 @@ export default function EncaminhamentosPage() {
     setEncAbertos(prev => { const next = new Set(prev); next.add(novaSupinda.id); return next })
 
     // Recarregar tudo
-    const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, certificado_confirmado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
+    const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
     const [{ data: crem }, { data: ativ }, { data: encs }, { data: vinc }] = await Promise.all([
       filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_contrato', { ascending: true }),
       filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_contrato', { ascending: true }),
@@ -855,7 +856,7 @@ export default function EncaminhamentosPage() {
               const ehHoje = isMesmoDia(dia, hoje)
               const selecionado = isMesmoDia(dia, diaSelecionado)
               const fds = dia.getDay() === 0 || dia.getDay() === 6
-              const diaKey = dia.toISOString().slice(0, 10)
+              const diaKey = dataLocal(dia)
               const isDropTarget = dragging && dragOverDia === diaKey
 
               return (
@@ -935,7 +936,7 @@ export default function EncaminhamentosPage() {
             const ehHoje = isMesmoDia(dia, hoje)
             const selecionado = isMesmoDia(dia, diaSelecionado)
             const fds = dia.getDay() === 0 || dia.getDay() === 6
-            const diaKey = dia.toISOString().slice(0, 10)
+            const diaKey = dataLocal(dia)
             const isDropTarget = dragging && dragOverDia === diaKey
 
             return (
@@ -1014,7 +1015,7 @@ export default function EncaminhamentosPage() {
               const cor = UNIT_COLORS[enc.codigo_unidade] || '#6366f1'
               const encIda = vinculados.filter(c => c.supinda_id === enc.id)
               const encVolta = vinculados.filter(c => c.supinda_volta_id === enc.id)
-              const idaChecksOk = encIda.every(c => c.certificado_confirmado)
+              const idaChecksOk = encIda.every(c => c.acondicionado)
               const voltaChecksOk = encVolta.every(c => {
                 if (c.tipo_cremacao !== 'coletiva') return c.cinzas_recebidas && c.certificado_recebido
                 return c.certificado_recebido
@@ -1154,7 +1155,7 @@ export default function EncaminhamentosPage() {
                           }
                           setEncaminhamentos(prev => prev.map(x => x.id === enc.id ? { ...x, status: 'finalizada' } : x))
                           // Recarregar contratos
-                          const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, certificado_confirmado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
+                          const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
                           const [{ data: crem }, { data: ativ }, { data: vinc2 }] = await Promise.all([
                             filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_contrato', { ascending: true }),
                             filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_contrato', { ascending: true }),
@@ -1191,15 +1192,15 @@ export default function EncaminhamentosPage() {
                                   <h4 className="text-[10px] font-bold text-[var(--surface-500)] uppercase tracking-wider flex items-center gap-1">
                                     <span className="text-amber-400">↑</span> Levar ({ida.length})
                                   </h4>
-                                  {enc.status === 'embarcada' && ida.some(c => !c.certificado_confirmado) && (() => {
-                                    const pendentes = ida.filter(c => !c.certificado_confirmado)
+                                  {enc.status === 'embarcada' && ida.some(c => !c.acondicionado) && (() => {
+                                    const pendentes = ida.filter(c => !c.acondicionado)
                                     return (
                                       <button
                                         onClick={async () => {
                                           if (!confirm(`Marcar ${pendentes.length} pet${pendentes.length > 1 ? 's' : ''} como acondicionado${pendentes.length > 1 ? 's' : ''}?`)) return
                                           const ids = pendentes.map(c => c.id)
-                                          await supabase.from('contratos').update({ certificado_confirmado: true } as never).in('id', ids)
-                                          const update = (list: ContratoEnc[]) => list.map(x => ids.includes(x.id) ? { ...x, certificado_confirmado: true } : x)
+                                          await supabase.from('contratos').update({ acondicionado: true } as never).in('id', ids)
+                                          const update = (list: ContratoEnc[]) => list.map(x => ids.includes(x.id) ? { ...x, acondicionado: true } : x)
                                           setCremados(update)
                                           setAtivos(update)
                                           setVinculados(update)
@@ -1215,7 +1216,7 @@ export default function EncaminhamentosPage() {
                                 </div>
                                 <div className="divide-y divide-[var(--surface-200)]">
                                   {ida.map(c => (
-                                      <div key={c.id} className={`px-2 py-2 ${c.certificado_confirmado ? 'bg-cyan-900/10' : ''}`}>
+                                      <div key={c.id} className={`px-2 py-2 ${c.acondicionado ? 'bg-cyan-900/10' : ''}`}>
                                         <div className="flex items-center gap-2">
                                           {c.numero_lacre && <span className="text-[8px] font-mono font-bold text-blue-300 bg-blue-900/30 px-1 py-0.5 rounded">{c.numero_lacre}</span>}
                                           <span className={`text-[8px] px-1 py-0.5 rounded-full font-medium ${c.tipo_cremacao === 'coletiva' ? 'bg-purple-900/30 text-purple-400' : 'bg-emerald-900/30 text-emerald-400'}`}>
@@ -1234,7 +1235,7 @@ export default function EncaminhamentosPage() {
                                                     quantidade_pets: Math.max(0, enc.quantidade_pets - 1),
                                                     peso_total: Math.max(0, enc.peso_total - (c.pet_peso || 0)),
                                                   } as never).eq('id', enc.id)
-                                                  const campos2 = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, certificado_confirmado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
+                                                  const campos2 = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
                                                   const [{ data: crem }, { data: ativ }, { data: vinc4 }, { data: encs2 }] = await Promise.all([
                                                     filterUnit(supabase.from('contratos').select(campos2)).eq('status', 'pinda').order('data_contrato', { ascending: true }),
                                                     filterUnit(supabase.from('contratos').select(campos2)).eq('status', 'ativo').order('data_contrato', { ascending: true }),
@@ -1260,9 +1261,9 @@ export default function EncaminhamentosPage() {
                                           })()}
                                           {enc.status === 'embarcada' && (
                                             <button
-                                              onClick={e => { e.stopPropagation(); toggleCheck(c.id, 'certificado_confirmado', c.certificado_confirmado) }}
-                                              className={`p-2 rounded-lg transition-colors shrink-0 ${c.certificado_confirmado ? 'text-cyan-400 bg-cyan-900/30' : 'text-[var(--surface-400)] hover:text-cyan-400 hover:bg-cyan-900/10'}`}
-                                              title={c.certificado_confirmado ? 'Acondicionado' : 'Marcar acondicionado'}
+                                              onClick={e => { e.stopPropagation(); toggleCheck(c.id, 'acondicionado', c.acondicionado) }}
+                                              className={`p-2 rounded-lg transition-colors shrink-0 ${c.acondicionado ? 'text-cyan-400 bg-cyan-900/30' : 'text-[var(--surface-400)] hover:text-cyan-400 hover:bg-cyan-900/10'}`}
+                                              title={c.acondicionado ? 'Acondicionado' : 'Marcar acondicionado'}
                                             >
                                               <Snowflake className="h-4 w-4" />
                                             </button>
@@ -1300,7 +1301,7 @@ export default function EncaminhamentosPage() {
                                               onClick={async () => {
                                                 if (!confirm(`Remover ${c.pet_nome} do encaminhamento?`)) return
                                                 await supabase.from('contratos').update({ supinda_volta_id: null } as never).eq('id', c.id)
-                                                const campos2 = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, certificado_confirmado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
+                                                const campos2 = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
                                                 const [{ data: crem }, { data: ativ }, { data: vinc4 }, { data: encs2 }] = await Promise.all([
                                                   filterUnit(supabase.from('contratos').select(campos2)).eq('status', 'pinda').order('data_contrato', { ascending: true }),
                                                   filterUnit(supabase.from('contratos').select(campos2)).eq('status', 'ativo').order('data_contrato', { ascending: true }),

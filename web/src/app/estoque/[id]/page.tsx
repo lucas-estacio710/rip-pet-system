@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, TrendingUp, TrendingDown, X, Pencil, Package, DollarSign, Target, ShoppingCart, Plus, Check } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
+import { hojeLocal } from '@/lib/date-local'
 import Link from 'next/link'
 
 type Produto = {
@@ -102,7 +103,7 @@ export default function ProdutoDetalhePage() {
     quantidade: '',
     custoUnitario: '',
     remessa: '',
-    dataEntrada: new Date().toISOString().slice(0, 10),
+    dataEntrada: hojeLocal(),
   })
   const [salvandoEntrada, setSalvandoEntrada] = useState(false)
 
@@ -195,7 +196,7 @@ export default function ProdutoDetalhePage() {
       return
     }
     setNovaEntradaModal(false)
-    setNovaEntradaForm({ quantidade: '', custoUnitario: '', remessa: '', dataEntrada: new Date().toISOString().slice(0, 10) })
+    setNovaEntradaForm({ quantidade: '', custoUnitario: '', remessa: '', dataEntrada: hojeLocal() })
     setSalvandoEntrada(false)
     await carregarDados()
   }

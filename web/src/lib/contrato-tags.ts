@@ -32,9 +32,10 @@ export type ContratoTagData = {
   certificado_nome_5?: string | null
   // Financeiro
   valor_plano: number | null
-  desconto_plano: number | null
+  desconto_plano_unificado: number | null  // novo (substitui desconto_plano + pagamentos.desconto pós)
   valor_acessorios: number | null
-  desconto_acessorios: number | null
+  desconto_acessorios: number | null       // SUM(cp.desconto*qtd) via trigger 074
+  desconto_acessorios_ajuste: number | null // ajuste manual (substitui pagamentos.desconto pós de catálogo)
   pagamentos?: { tipo: string; valor: number }[]
   // Protocolo
   protocolo_data: unknown | null
@@ -67,9 +68,9 @@ export const TAG_STATE_STYLES: Record<TagState, TagStyle> = {
 
 // --- Helpers ---
 
-export function getPagamentoPendente(contrato: Pick<ContratoTagData, 'valor_plano' | 'desconto_plano' | 'valor_acessorios' | 'desconto_acessorios' | 'pagamentos'>): { planoPendente: boolean; acessoriosPendente: boolean } {
-  const valorPlanoEsperado = (contrato.valor_plano || 0) - (contrato.desconto_plano || 0)
-  const valorAcessoriosEsperado = (contrato.valor_acessorios || 0) - (contrato.desconto_acessorios || 0)
+export function getPagamentoPendente(contrato: Pick<ContratoTagData, 'valor_plano' | 'desconto_plano_unificado' | 'valor_acessorios' | 'desconto_acessorios' | 'desconto_acessorios_ajuste' | 'pagamentos'>): { planoPendente: boolean; acessoriosPendente: boolean } {
+  const valorPlanoEsperado = (contrato.valor_plano || 0) - (contrato.desconto_plano_unificado || 0)
+  const valorAcessoriosEsperado = (contrato.valor_acessorios || 0) - (contrato.desconto_acessorios || 0) - (contrato.desconto_acessorios_ajuste || 0)
 
   const pagamentos = contrato.pagamentos || []
   const totalPagoPlano = pagamentos

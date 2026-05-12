@@ -91,7 +91,7 @@ export default function TutorDetalhe() {
     // Carregar contratos do tutor
     const { data: contratosData, error: contratosError } = await supabase
       .from('contratos')
-      .select('id, codigo, pet_nome, pet_especie, pet_raca, pet_genero, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, certificado_confirmado, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, pelinho_quer, pelinho_feito, pelinho_quantidade, protocolo_data, valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), contrato_produtos(foto_recebida, rescaldo_feito, produto:produtos(codigo, tipo, precisa_foto, rescaldo_tipo))')
+      .select('id, codigo, pet_nome, pet_especie, pet_raca, pet_genero, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, certificado_confirmado, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, pelinho_quer, pelinho_feito, pelinho_quantidade, protocolo_data, valor_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), contrato_produtos(foto_recebida, rescaldo_feito, produto:produtos(codigo, tipo, precisa_foto, rescaldo_tipo))')
       .eq('tutor_id', tutorId)
       .order('data_contrato', { ascending: false })
 

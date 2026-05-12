@@ -3,11 +3,17 @@
 import { useState, useEffect } from 'react'
 import { ChevronUp, ChevronDown } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { tituloNome } from '@/lib/certificado-pdf'
+import RacaAutocomplete from '@/components/ui/RacaAutocomplete'
+import type { EspeciePet } from '@/lib/racas'
 
 type ContratoMinimal = {
   id: string
   codigo: string
   pet_nome: string
+  pet_especie?: string | null
+  pet_raca?: string | null
+  pet_genero?: string | null
   tutor_nome: string
   tutor?: { nome: string } | null
   certificado_nome_1: string | null
@@ -26,6 +32,8 @@ type Props = {
   contrato: ContratoMinimal
   onSuccess?: (updated: {
     id: string
+    // Único campo que ainda é gravado em `contratos` via este modal:
+    pet_raca_normalizada: string | null
     certificado_nome_1: string | null
     certificado_nome_2: string | null
     certificado_nome_3: string | null
@@ -34,13 +42,29 @@ type Props = {
     certificado_nome_6: string | null
     certificado_nome_7: string | null
     certificado_confirmado: true
+    // Snapshot atualizado em contrato_gc (consumido pelo GC para refletir UI sem reload):
+    contrato_gc?: {
+      pet_nome: string
+      pet_especie: string | null
+      pet_raca: string | null
+      pet_genero: string | null
+    }
   }) => void
 }
 
 export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess }: Props) {
   const [certificadoNomes, setCertificadoNomes] = useState<string[]>(['', '', '', '', '', '', ''])
-  const [certificadoTextoColado, setCertificadoTextoColado] = useState('')
   const [salvando, setSalvando] = useState(false)
+  const [slotsVisiveis, setSlotsVisiveis] = useState(1)
+  // Estados editáveis — lidos do contrato_gc (snapshot) se existir; senão do contratos.
+  const [petNome, setPetNome] = useState('')
+  const [petEspecie, setPetEspecie] = useState<string>('')
+  const [petRaca, setPetRaca] = useState('')
+  const [petGenero, setPetGenero] = useState<string>('')
+  // Indica se já existe linha em contrato_gc para este contrato (pra escolher UPDATE vs INSERT)
+  const [temContratoGc, setTemContratoGc] = useState(false)
+  // Dados originais que o tutor inseriu na ficha (read-only, pra conferência)
+  const [fichaOrig, setFichaOrig] = useState<{ nome_pet: string | null; especie: string | null; raca: string | null; genero: string | null } | null>(null)
 
   const supabase = createClient()
 
@@ -61,44 +85,51 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
     // Se nenhum nome definido, colocar o tutor principal no primeiro campo
     if (!nomes.some(n => n.trim())) {
       const tutorNome = contrato.tutor?.nome || contrato.tutor_nome || ''
-      nomes[0] = tutorNome.toUpperCase()
+      nomes[0] = tituloNome(tutorNome)
     }
 
     setCertificadoNomes(nomes)
-    setCertificadoTextoColado('')
-  }, [isOpen, contrato])
+    // Mostra apenas slots já preenchidos (+1 vazio se ainda houver espaço pra adicionar)
+    const preenchidos = nomes.filter(n => n.trim()).length
+    setSlotsVisiveis(Math.max(1, Math.min(7, preenchidos)))
 
-  // Colar texto do clipboard para area de trabalho
-  async function colarTextoClipboard() {
-    try {
-      const texto = await navigator.clipboard.readText()
-      setCertificadoTextoColado(texto)
-    } catch (err) {
-      console.error('Erro ao acessar clipboard:', err)
-      alert('Nao foi possivel acessar a area de transferencia')
-    }
-  }
+    // Default inicial vindo de `contratos` — será sobrescrito se houver snapshot em contrato_gc
+    setPetNome(contrato.pet_nome || '')
+    setPetEspecie(contrato.pet_especie || '')
+    setPetRaca(contrato.pet_raca || '')
+    setPetGenero(contrato.pet_genero || '')
+    setTemContratoGc(false)
 
-  // Adicionar texto selecionado (ou todo o texto) ao proximo campo vazio
-  function adicionarNomeAoProximoVazio() {
-    const selecao = window.getSelection()?.toString().trim()
-    const texto = selecao || certificadoTextoColado.trim()
+    // Busca snapshot do GC (se existir) — fonte de verdade após migration 081
+    supabase
+      .from('contrato_gc')
+      .select('pet_nome, pet_especie, pet_raca, pet_genero')
+      .eq('contrato_id', contrato.id)
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          setTemContratoGc(true)
+          const gc = data as { pet_nome: string | null; pet_especie: string | null; pet_raca: string | null; pet_genero: string | null }
+          if (gc.pet_nome != null) setPetNome(gc.pet_nome)
+          if (gc.pet_especie != null) setPetEspecie(gc.pet_especie)
+          if (gc.pet_raca != null) setPetRaca(gc.pet_raca)
+          if (gc.pet_genero != null) setPetGenero(gc.pet_genero)
+        }
+      })
 
-    if (!texto) {
-      alert('Selecione um texto ou cole algo primeiro')
-      return
-    }
-
-    const indiceVazio = certificadoNomes.findIndex(n => !n.trim())
-    if (indiceVazio === -1) {
-      alert('Todos os campos ja estao preenchidos')
-      return
-    }
-
-    const novos = [...certificadoNomes]
-    novos[indiceVazio] = texto.toUpperCase()
-    setCertificadoNomes(novos)
-  }
+    // Busca dados originais da ficha (read-only, pra conferência)
+    setFichaOrig(null)
+    supabase
+      .from('fichas')
+      .select('nome_pet, especie, raca, genero')
+      .eq('contrato_id', contrato.id)
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) setFichaOrig(data as { nome_pet: string | null; especie: string | null; raca: string | null; genero: string | null })
+      })
+  }, [isOpen, contrato, supabase])
 
   // Mover nome para cima
   function moverTutorCima(index: number) {
@@ -125,28 +156,60 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
     setSalvando(true)
 
     try {
-      const nomesUpper = certificadoNomes.map(n => n.trim().toUpperCase())
+      // Tutores: Title Case (preserva conectivos minúsculos: de, do, da, dos, das, e…)
+      // Pet: CAPS no nome (padrão do sistema). O tituloNome só roda na geração do PDF.
+      const nomesNorm = certificadoNomes.map(n => tituloNome(n.trim()))
+      const petNomeNorm = petNome.trim().toUpperCase()
+      const petRacaNorm = petRaca.trim() ? tituloNome(petRaca.trim()) : null
 
-      const updateData: Record<string, unknown> = { certificado_confirmado: true }
-      nomesUpper.forEach((n, i) => { updateData[`certificado_nome_${i + 1}`] = n || null })
+      // 1) Atualiza `contratos`: apenas nomes do certificado, confirmação e raça normalizada.
+      //    Os 4 campos sensíveis do pet (nome/espécie/raça/gênero) ficam intactos.
+      const contratoUpdate: Record<string, unknown> = {
+        certificado_confirmado: true,
+        pet_raca_normalizada: petRacaNorm,
+      }
+      nomesNorm.forEach((n, i) => { contratoUpdate[`certificado_nome_${i + 1}`] = n || null })
 
-      const { error } = await supabase
+      const { error: errContrato } = await supabase
         .from('contratos')
-        .update(updateData as never)
+        .update(contratoUpdate as never)
         .eq('id', contrato.id)
+      if (errContrato) throw errContrato
 
-      if (error) throw error
+      // 2) Atualiza/insere snapshot em `contrato_gc` (4 campos sensíveis).
+      const gcSnapshot = {
+        pet_nome: petNomeNorm,
+        pet_especie: petEspecie || null,
+        pet_raca: petRacaNorm,
+        pet_genero: petGenero || null,
+      }
+      if (temContratoGc) {
+        const { error: errGc } = await supabase
+          .from('contrato_gc')
+          .update(gcSnapshot as never)
+          .eq('contrato_id', contrato.id)
+        if (errGc) throw errGc
+      } else {
+        // Pet ainda não chegou no GC — cria a linha com etapa default. O trigger BEFORE INSERT
+        // (migration 081) preenche os campos não fornecidos a partir de contratos.
+        const { error: errIns } = await supabase
+          .from('contrato_gc')
+          .insert({ contrato_id: contrato.id, ...gcSnapshot } as never)
+        if (errIns) throw errIns
+      }
 
       onSuccess?.({
         id: contrato.id,
-        certificado_nome_1: nomesUpper[0] || null,
-        certificado_nome_2: nomesUpper[1] || null,
-        certificado_nome_3: nomesUpper[2] || null,
-        certificado_nome_4: nomesUpper[3] || null,
-        certificado_nome_5: nomesUpper[4] || null,
-        certificado_nome_6: nomesUpper[5] || null,
-        certificado_nome_7: nomesUpper[6] || null,
+        pet_raca_normalizada: petRacaNorm,
+        certificado_nome_1: nomesNorm[0] || null,
+        certificado_nome_2: nomesNorm[1] || null,
+        certificado_nome_3: nomesNorm[2] || null,
+        certificado_nome_4: nomesNorm[3] || null,
+        certificado_nome_5: nomesNorm[4] || null,
+        certificado_nome_6: nomesNorm[5] || null,
+        certificado_nome_7: nomesNorm[6] || null,
         certificado_confirmado: true,
+        contrato_gc: gcSnapshot,
       })
 
       onClose()
@@ -172,7 +235,7 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-slate-200">
-            📜 Nomes para Certificado
+            📜 Certificado de Cremação
           </h3>
           <button
             onClick={onClose}
@@ -182,53 +245,91 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
           </button>
         </div>
 
-        {/* Pet info */}
-        <p className="text-sm text-slate-400 mb-4">
-          <strong>{contrato.pet_nome}</strong> - {contrato.codigo}
-        </p>
+        {/* Código do contrato */}
+        <p className="text-[10px] text-slate-500 mb-3 font-mono">{contrato.codigo}</p>
 
-        {/* Area para colar texto do WhatsApp */}
-        <div className="bg-slate-700/50 rounded-lg p-3 mb-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-slate-400">
-              📋 Area de trabalho
-            </span>
-            <div className="flex gap-1">
-              <button
-                onClick={colarTextoClipboard}
-                className="px-2 py-1 text-xs bg-slate-600 hover:bg-slate-500 rounded transition-colors"
-                title="Colar da area de transferencia"
-              >
-                📋 Colar
-              </button>
-              <button
-                onClick={adicionarNomeAoProximoVazio}
-                className="px-2 py-1 text-xs bg-purple-900/40 hover:bg-purple-900/50 text-purple-300 rounded transition-colors font-medium"
-                title="Selecione um texto e clique para adicionar ao proximo campo vazio"
-              >
-                ➕ Adicionar seleção
-              </button>
+        {/* Dados do pet (editáveis — vão para o certificado e atualizam o contrato) */}
+        <div className="bg-slate-700/30 rounded-lg p-3 mb-3 space-y-2">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">🐾 Dados do pet</p>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[10px] font-medium text-slate-400 mb-0.5 block">Nome</label>
+              <input
+                type="text"
+                value={petNome}
+                onChange={e => setPetNome(e.target.value.toUpperCase())}
+                placeholder="NOME DO PET"
+                className="w-full px-2 py-1.5 border border-slate-600 rounded text-sm focus:ring-1 focus:ring-purple-500 focus:border-purple-500 uppercase"
+                style={{ textTransform: 'uppercase' }}
+              />
+              {fichaOrig?.nome_pet && (
+                <p className="text-[9px] text-amber-400/80 mt-0.5 italic">🐾 Ficha: {fichaOrig.nome_pet}</p>
+              )}
+            </div>
+            <div>
+              <label className="text-[10px] font-medium text-slate-400 mb-0.5 block">Raça</label>
+              <RacaAutocomplete
+                value={petRaca}
+                onChange={setPetRaca}
+                especie={(petEspecie || null) as EspeciePet | null}
+                placeholder="Buscar raça…"
+              />
+              {fichaOrig?.raca && (
+                <p className="text-[9px] text-amber-400/80 mt-0.5 italic">🐾 Ficha: {fichaOrig.raca}</p>
+              )}
             </div>
           </div>
-          <textarea
-            value={certificadoTextoColado}
-            onChange={(e) => setCertificadoTextoColado(e.target.value)}
-            placeholder="Cole aqui a mensagem do WhatsApp. Depois selecione o nome e clique em 'Adicionar seleção'"
-            className="w-full h-20 px-2 py-1.5 text-xs border border-slate-600 rounded resize-none focus:ring-1 focus:ring-purple-500 focus:border-purple-500"
-          />
-          <p className="text-[10px] text-slate-400 mt-1">
-            💡 Selecione o nome na area acima e clique em &quot;Adicionar seleção&quot; para inserir no proximo campo vazio
-          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[10px] font-medium text-slate-400 mb-0.5 block">Espécie</label>
+              <div className="flex gap-1">
+                {[
+                  { v: 'canina', l: 'Canina' },
+                  { v: 'felina', l: 'Felina' },
+                  { v: 'exotica', l: 'Exótica' },
+                ].map(o => (
+                  <button
+                    key={o.v}
+                    onClick={() => setPetEspecie(o.v)}
+                    className={`flex-1 px-1.5 py-1 rounded text-[10px] font-medium border transition-colors ${petEspecie === o.v ? 'border-purple-500 bg-purple-900/20 text-purple-300' : 'border-slate-600 text-slate-400 hover:bg-slate-700'}`}
+                  >
+                    {o.l}
+                  </button>
+                ))}
+              </div>
+              {fichaOrig?.especie && (
+                <p className="text-[9px] text-amber-400/80 mt-0.5 italic">🐾 Ficha: {fichaOrig.especie}</p>
+              )}
+            </div>
+            <div>
+              <label className="text-[10px] font-medium text-slate-400 mb-0.5 block">Gênero</label>
+              <div className="flex gap-1">
+                {[
+                  { v: 'macho', l: '♂ Macho', activeCls: 'border-blue-500 bg-blue-900/20 text-blue-300' },
+                  { v: 'femea', l: '♀ Fêmea', activeCls: 'border-pink-500 bg-pink-900/20 text-pink-300' },
+                ].map(o => (
+                  <button
+                    key={o.v}
+                    onClick={() => setPetGenero(o.v)}
+                    className={`flex-1 px-1.5 py-1 rounded text-[10px] font-medium border transition-colors ${petGenero === o.v ? o.activeCls : 'border-slate-600 text-slate-400 hover:bg-slate-700'}`}
+                  >
+                    {o.l}
+                  </button>
+                ))}
+              </div>
+              {fichaOrig?.genero && (
+                <p className="text-[9px] text-amber-400/80 mt-0.5 italic">🐾 Ficha: {fichaOrig.genero}</p>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Hint */}
-        <p className="text-xs text-slate-400 mb-2">
-          Os nomes serão salvos em MAIÚSCULAS. Use as setas para reordenar.
-        </p>
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">📜 Nomes no certificado</p>
 
-        {/* 5 input fields */}
-        <div className="space-y-2 mb-4">
-          {certificadoNomes.map((nome, index) => (
+        {/* Inputs (mostra só os slots visíveis; + adiciona próximo) */}
+        <div className="space-y-2 mb-3">
+          {certificadoNomes.slice(0, slotsVisiveis).map((nome, index) => (
             <div key={index} className="flex items-center gap-1">
               <span className="text-xs text-slate-400 w-4">{index + 1}.</span>
               <input
@@ -236,12 +337,16 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
                 value={nome}
                 onChange={(e) => {
                   const novos = [...certificadoNomes]
-                  novos[index] = e.target.value.toUpperCase()
+                  novos[index] = e.target.value
+                  setCertificadoNomes(novos)
+                }}
+                onBlur={(e) => {
+                  const novos = [...certificadoNomes]
+                  novos[index] = tituloNome(e.target.value)
                   setCertificadoNomes(novos)
                 }}
                 placeholder={index === 0 ? 'Tutor principal' : `Nome ${index + 1} (opcional)`}
-                className="flex-1 px-3 py-2 border border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 uppercase"
-                style={{ textTransform: 'uppercase' }}
+                className="flex-1 px-3 py-2 border border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
               />
               <div className="flex flex-col">
                 <button
@@ -254,7 +359,7 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
                 </button>
                 <button
                   onClick={() => moverTutorBaixo(index)}
-                  disabled={index === certificadoNomes.length - 1 || !nome.trim()}
+                  disabled={index === slotsVisiveis - 1 || !nome.trim()}
                   className="p-0.5 text-slate-400 hover:text-purple-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                   title="Mover para baixo"
                 >
@@ -265,13 +370,20 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
           ))}
         </div>
 
+        {/* Botão para revelar próximo slot (até 7 no total) */}
+        {slotsVisiveis < 7 && (
+          <button
+            onClick={() => setSlotsVisiveis(s => Math.min(7, s + 1))}
+            className="w-full mb-4 py-2 text-xs font-medium text-purple-300 bg-purple-900/20 hover:bg-purple-900/30 border border-dashed border-purple-700/50 rounded-lg transition-colors"
+          >
+            + Adicionar nome
+          </button>
+        )}
+
         {/* Footer */}
         <div className="flex gap-2">
           <button
-            onClick={() => {
-              setCertificadoTextoColado('')
-              onClose()
-            }}
+            onClick={onClose}
             className="flex-1 py-2 px-4 border border-slate-600 rounded-lg text-slate-300 hover:bg-slate-700 transition-colors"
           >
             Cancelar

@@ -3,10 +3,12 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import {
   Church, Search, X, ChevronRight, ChevronLeft, Dog, Cat, Bug, MapPin,
-  User, Clock, Weight, Lock, Phone, Check, CheckCheck, Flame, CalendarClock, SearchCheck, CheckCircle2
+  User, Clock, Weight, Lock, Phone, Check, CheckCheck, Flame, CalendarClock, SearchCheck, CheckCircle2,
+  Calendar, ArrowDownAZ, Tag
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
+import { dataLocal } from '@/lib/date-local'
 import { Skeleton } from '@/components/ui/Skeleton'
 import EmptyState from '@/components/ui/EmptyState'
 import Link from 'next/link'
@@ -19,8 +21,9 @@ type ContratoGC = {
   id: string
   codigo: string
   pet_nome: string
-  pet_especie: string
+  pet_especie: string | null
   pet_peso: number | null
+  pet_genero: string | null
   tutor_nome: string | null
   tutor_telefone: string | null
   pet_raca: string | null
@@ -31,6 +34,15 @@ type ContratoGC = {
   observacoes: string | null
   unidade_id: string
   supinda_id: string | null
+  // Certificado (nomes que vão no documento de cremação)
+  certificado_nome_1: string | null
+  certificado_nome_2: string | null
+  certificado_nome_3: string | null
+  certificado_nome_4: string | null
+  certificado_nome_5: string | null
+  certificado_nome_6: string | null
+  certificado_nome_7: string | null
+  certificado_confirmado: boolean | null
   // GC tracking
   gc: {
     id: string
@@ -136,6 +148,7 @@ export default function GCPage() {
   const [supindas, setSupindas] = useState<{ id: string; numero: string; data: string; status: string; codigo_unidade: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
+  const [ordenacao, setOrdenacao] = useState<'data' | 'nome' | 'lacre'>('data')
   const [acaoModal, setAcaoModal] = useState<ContratoGC | null>(null)
 
   // Calendário-line
@@ -154,7 +167,7 @@ export default function GCPage() {
     const [contratosRes, unidadesRes, supindasRes] = await Promise.all([
       supabase
         .from('contratos')
-        .select('id, codigo, pet_nome, pet_especie, pet_peso, pet_raca, tutor_nome, tutor_telefone, tipo_cremacao, status, data_acolhimento, numero_lacre, observacoes, unidade_id, supinda_id, contrato_gc(*)')
+        .select('id, codigo, pet_nome, pet_especie, pet_peso, pet_raca, pet_genero, tutor_nome, tutor_telefone, tipo_cremacao, status, data_acolhimento, numero_lacre, observacoes, unidade_id, supinda_id, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_nome_6, certificado_nome_7, certificado_confirmado, contrato_gc(*)')
         .not('supinda_id', 'is', null)
         .in('status', ['ativo', 'pinda'])
         .order('data_acolhimento', { ascending: true }),
@@ -171,10 +184,20 @@ export default function GCPage() {
         .order('data'),
     ])
 
-    const rawData = (contratosRes.data || []).map((c: any) => ({
-      ...c,
-      gc: Array.isArray(c.contrato_gc) ? c.contrato_gc[0] || null : c.contrato_gc || null,
-    }))
+    // Merge: campos sensíveis do pet (nome/espécie/raça/gênero) preferem o snapshot
+    // do contrato_gc (migration 081) ao valor original em contratos.
+    const mergePet = (c: any) => {
+      const gc = Array.isArray(c.contrato_gc) ? c.contrato_gc[0] || null : c.contrato_gc || null
+      return {
+        ...c,
+        pet_nome:    gc?.pet_nome    ?? c.pet_nome,
+        pet_especie: gc?.pet_especie ?? c.pet_especie,
+        pet_raca:    gc?.pet_raca    ?? c.pet_raca,
+        pet_genero:  gc?.pet_genero  ?? c.pet_genero,
+        gc,
+      }
+    }
+    const rawData = (contratosRes.data || []).map(mergePet)
 
     // Criar contrato_gc automaticamente para pets sem row
     const semGC = rawData.filter((c: any) => !c.gc)
@@ -189,15 +212,12 @@ export default function GCPage() {
       // Recarregar pra pegar as rows criadas
       const { data: reloadData } = await supabase
         .from('contratos')
-        .select('id, codigo, pet_nome, pet_especie, pet_peso, pet_raca, tutor_nome, tutor_telefone, tipo_cremacao, status, data_acolhimento, numero_lacre, observacoes, unidade_id, supinda_id, contrato_gc(*)')
+        .select('id, codigo, pet_nome, pet_especie, pet_peso, pet_raca, pet_genero, tutor_nome, tutor_telefone, tipo_cremacao, status, data_acolhimento, numero_lacre, observacoes, unidade_id, supinda_id, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_nome_6, certificado_nome_7, certificado_confirmado, contrato_gc(*)')
         .not('supinda_id', 'is', null)
         .in('status', ['ativo', 'pinda'])
         .order('data_acolhimento', { ascending: true })
 
-      const data2 = (reloadData || []).map((c: any) => ({
-        ...c,
-        gc: Array.isArray(c.contrato_gc) ? c.contrato_gc[0] || null : c.contrato_gc || null,
-      }))
+      const data2 = (reloadData || []).map(mergePet)
       setContratos(data2 as ContratoGC[])
     } else {
       setContratos(rawData as ContratoGC[])
@@ -254,7 +274,7 @@ export default function GCPage() {
 
   // Supindas por dia (pra calendário-line)
   function getSupindasDia(dia: Date) {
-    const dStr = dia.toISOString().slice(0, 10)
+    const dStr = dataLocal(dia)
     return supindas.filter(s => s.data === dStr)
   }
 
@@ -276,6 +296,19 @@ export default function GCPage() {
       c.tutor_nome?.toLowerCase().includes(t) ||
       c.codigo?.toLowerCase().includes(t) ||
       c.numero_lacre?.includes(t)
+  }).sort((a, b) => {
+    if (ordenacao === 'nome') {
+      return (a.pet_nome || '').localeCompare(b.pet_nome || '', 'pt-BR', { sensitivity: 'base' })
+    }
+    if (ordenacao === 'lacre') {
+      // Tenta numérico; se não der, cai pra string
+      const na = parseInt((a.numero_lacre || '').replace(/\D/g, ''), 10)
+      const nb = parseInt((b.numero_lacre || '').replace(/\D/g, ''), 10)
+      if (!isNaN(na) && !isNaN(nb)) return na - nb
+      return (a.numero_lacre || '').localeCompare(b.numero_lacre || '', 'pt-BR', { numeric: true })
+    }
+    // default: data_acolhimento ascendente
+    return (a.data_acolhimento || '').localeCompare(b.data_acolhimento || '')
   })
 
   // Contagem por unidade (sem filtro de busca/aba, sempre total)
@@ -494,21 +527,44 @@ export default function GCPage() {
         </div>
       </div>
 
-      {/* Busca */}
-      <div className="mb-4 relative max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--surface-400)]" />
-        <input
-          type="text"
-          value={busca}
-          onChange={e => setBusca(e.target.value)}
-          placeholder="Buscar pet, tutor, código, lacre..."
-          className="input w-full pl-9 pr-8 text-sm"
-        />
-        {busca && (
-          <button onClick={() => setBusca('')} className="absolute right-2 top-1/2 -translate-y-1/2">
-            <X className="h-3.5 w-3.5 text-[var(--surface-400)]" />
-          </button>
-        )}
+      {/* Busca + Ordenação */}
+      <div className="mb-4 flex items-center gap-2 flex-wrap">
+        <div className="relative flex-1 min-w-[200px] max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--surface-400)]" />
+          <input
+            type="text"
+            value={busca}
+            onChange={e => setBusca(e.target.value)}
+            placeholder="Buscar pet, tutor, código, lacre..."
+            className="input w-full pl-9 pr-8 text-sm"
+          />
+          {busca && (
+            <button onClick={() => setBusca('')} className="absolute right-2 top-1/2 -translate-y-1/2">
+              <X className="h-3.5 w-3.5 text-[var(--surface-400)]" />
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-1 rounded-lg border border-[var(--surface-200)] p-0.5 bg-[var(--surface-50)]">
+          {([
+            { v: 'data',  l: 'Data',  icon: Calendar },
+            { v: 'nome',  l: 'Nome',  icon: ArrowDownAZ },
+            { v: 'lacre', l: 'Lacre', icon: Tag },
+          ] as const).map(o => {
+            const Ico = o.icon
+            const ativo = ordenacao === o.v
+            return (
+              <button
+                key={o.v}
+                onClick={() => setOrdenacao(o.v)}
+                title={`Ordenar por ${o.l.toLowerCase()}`}
+                className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors ${ativo ? 'bg-[var(--brand-500)] text-white' : 'text-[var(--surface-500)] hover:bg-[var(--surface-100)]'}`}
+              >
+                <Ico className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">{o.l}</span>
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       {/* Lista agrupada por encaminhamento */}
@@ -540,9 +596,20 @@ export default function GCPage() {
           </div>
         )
 
+        // Ordena os grupos por data da supinda asc (mais antigo → mais novo).
+        // Grupos sem supinda ('sem' / null) vão pro fim.
+        const gruposOrdenados = Array.from(grupos.entries()).sort(([, a], [, b]) => {
+          const da = a.sup?.data || ''
+          const db = b.sup?.data || ''
+          if (!da && !db) return 0
+          if (!da) return 1
+          if (!db) return -1
+          return da.localeCompare(db)
+        })
+
         return (
           <div className="space-y-4">
-            {Array.from(grupos.entries()).map(([key, grupo]) => {
+            {gruposOrdenados.map(([key, grupo]) => {
               const sup = grupo.sup
               const cor = sup ? (UNIT_COLORS[sup.codigo_unidade] || '#6366f1') : '#64748b'
               const todosNoNicho = grupo.contratos.length > 0 && grupo.contratos.every(c => c.gc?.etapa === 'disponivel')
@@ -714,9 +781,36 @@ export default function GCPage() {
           petEspecie={acaoModal.pet_especie}
           petPeso={acaoModal.pet_peso}
           petRaca={acaoModal.pet_raca}
+          petGenero={acaoModal.pet_genero}
           numeroLacre={acaoModal.numero_lacre}
           tutorNome={acaoModal.tutor_nome}
           tutorTelefone={acaoModal.tutor_telefone}
+          contratoCodigo={acaoModal.codigo}
+          certificadoNomesRaw={[acaoModal.certificado_nome_1, acaoModal.certificado_nome_2, acaoModal.certificado_nome_3, acaoModal.certificado_nome_4, acaoModal.certificado_nome_5, acaoModal.certificado_nome_6, acaoModal.certificado_nome_7]}
+          certificadoConfirmado={!!acaoModal.certificado_confirmado}
+          onCertificadoSaved={(nomes, confirmado, petDados) => {
+            setContratos(prev => prev.map(c => c.id === acaoModal.id ? {
+              ...c,
+              certificado_nome_1: nomes[0],
+              certificado_nome_2: nomes[1],
+              certificado_nome_3: nomes[2],
+              certificado_nome_4: nomes[3],
+              certificado_nome_5: nomes[4],
+              certificado_nome_6: nomes[5],
+              certificado_nome_7: nomes[6],
+              certificado_confirmado: confirmado,
+              // Snapshot do contrato_gc + raiz mergeada (para consistência com mergePet)
+              ...(petDados ? petDados : {}),
+              gc: c.gc && petDados ? { ...c.gc, ...petDados } : c.gc,
+            } as ContratoGC : c))
+            if (petDados) {
+              setAcaoModal(prev => prev ? {
+                ...prev,
+                ...petDados,
+                gc: prev.gc && petDados ? { ...prev.gc, ...petDados } : prev.gc,
+              } : prev)
+            }
+          }}
           supindaStatus={supindas.find(s => s.id === acaoModal.supinda_id)?.status || null}
           gcAtual={acaoModal.gc as any}
           onClose={() => setAcaoModal(null)}

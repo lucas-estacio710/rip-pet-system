@@ -33,7 +33,7 @@ type Contrato = {
   data_contrato: string | null
   seguradora: string | null
   valor_plano: number | null
-  desconto_plano: number | null
+  desconto_plano_unificado: number | null
   contrato_produtos?: {
     id: string
     produto: { codigo: string; nome: string; tipo: string } | null
@@ -46,7 +46,7 @@ const SELECT_FIELDS = `
   id, codigo, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero,
   tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone,
   tutor_cidade, tutor_bairro, tipo_cremacao, tipo_plano, status, data_contrato,
-  seguradora, valor_plano, desconto_plano,
+  seguradora, valor_plano, desconto_plano_unificado,
   contrato_produtos(id, produto:produtos(codigo, nome, tipo))
 `
 
@@ -230,7 +230,7 @@ export default function PreventivosPage() {
             const dataBox = formatarData(contrato.data_contrato)
             const tutorNome = contrato.tutor?.nome || contrato.tutor_nome || '—'
             const telefone = contrato.tutor?.telefone || contrato.tutor_telefone
-            const valor = (contrato.valor_plano || 0) - (contrato.desconto_plano || 0)
+            const valor = (contrato.valor_plano || 0) - (contrato.desconto_plano_unificado || 0)
             const urna = getUrnaReservada(contrato)
 
             return (

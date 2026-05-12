@@ -98,11 +98,12 @@ export async function POST(request: NextRequest) {
       cep: contrato.tutor_cep
     }
 
-    // Calcular valor total
+    // Calcular valor total (descontos unificados)
     const valorServicos = (contrato.valor_plano || 0) +
       (contrato.valor_acessorios || 0) -
-      (contrato.desconto_plano || 0) -
-      (contrato.desconto_acessorios || 0)
+      (contrato.desconto_plano_unificado || 0) -
+      (contrato.desconto_acessorios || 0) -
+      (contrato.desconto_acessorios_ajuste || 0)
 
     if (valorServicos <= 0) {
       return NextResponse.json(

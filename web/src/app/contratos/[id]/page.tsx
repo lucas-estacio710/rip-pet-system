@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import FichaRemocao from '@/components/fichas/FichaRemocao'
 import { captureElementAsBlob, fichaFilename } from '@/lib/ficha-generator'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, User, Phone, Mail, MapPin, DollarSign, FileText, X, Search, Plus, Pencil, Trash2, Check, Copy, Package, AlertTriangle, Star, Download, Share2, Receipt, RefreshCw } from 'lucide-react'
+import { ArrowLeft, User, Phone, Mail, MapPin, DollarSign, FileText, X, Search, Plus, Pencil, Trash2, Check, Copy, Package, AlertTriangle, Star, Download, Share2, Receipt, RefreshCw, Award } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { copyToClipboard } from '@/lib/clipboard'
 import Link from 'next/link'
@@ -27,6 +27,7 @@ import { gerarContratoPDF, contratoFilename } from '@/lib/contrato-pdf'
 import ObservacoesCard from '@/components/contratos/ObservacoesCard'
 import HistoricoCard from '@/components/contratos/HistoricoCard'
 import { ordenarCategoriasUrnas } from '@/lib/categorias'
+import { hojeLocal } from '@/lib/date-local'
 import FilterDropdown, { type FilterOption } from '@/components/ui/FilterDropdown'
 
 function PixIcon({ className = "h-5 w-5" }: { className?: string }) {
@@ -169,6 +170,7 @@ type Contrato = {
   pet_nome: string
   pet_especie: string | null
   pet_raca: string | null
+  pet_raca_normalizada?: string | null
   pet_cor: string | null
   pet_genero: string | null
   pet_idade_anos: number | null
@@ -209,8 +211,10 @@ type Contrato = {
   numero_lacre: string | null
   valor_plano: number | null
   valor_acessorios: number | null
-  desconto_plano: number | null
-  desconto_acessorios: number | null
+  desconto_plano: number | null  // DEPRECATED — usar desconto_plano_unificado
+  desconto_plano_unificado: number | null
+  desconto_acessorios: number | null  // SUM(cp.desconto*qtd) via trigger 074
+  desconto_acessorios_ajuste: number | null  // ajuste manual
   observacoes: string | null
   // NFS-e
   nfse_numero: string | null
@@ -281,15 +285,13 @@ const ITENS_IGNORAR_MONTAGEM = [
 
 /** Calcula financeiro para o protocolo a partir dos dados da ficha */
 function calcFinanceiroProtocolo(
-  contrato: { valor_plano: number | null; desconto_plano: number | null; valor_acessorios: number | null; desconto_acessorios: number | null },
-  pagamentos: { tipo: string; valor: number; desconto?: number | null }[]
+  contrato: { valor_plano: number | null; desconto_plano_unificado: number | null; valor_acessorios: number | null; desconto_acessorios: number | null; desconto_acessorios_ajuste: number | null },
+  pagamentos: { tipo: string; valor: number }[]
 ) {
-  const descontoPosPlano = pagamentos.filter(p => p.tipo === 'plano').reduce((s, p) => s + (p.desconto || 0), 0)
-  const descontoPosAcessorios = pagamentos.filter(p => p.tipo === 'catalogo').reduce((s, p) => s + (p.desconto || 0), 0)
-  const aPagarPlano = (contrato.valor_plano || 0) - (contrato.desconto_plano || 0) - descontoPosPlano
-  const aPagarAcessorios = (contrato.valor_acessorios || 0) - (contrato.desconto_acessorios || 0) - descontoPosAcessorios
+  const aPagarPlano = (contrato.valor_plano || 0) - (contrato.desconto_plano_unificado || 0)
+  const aPagarAcessorios = (contrato.valor_acessorios || 0) - (contrato.desconto_acessorios || 0) - (contrato.desconto_acessorios_ajuste || 0)
   const totalAPagar = aPagarPlano + aPagarAcessorios
-  const totalPago = pagamentos.reduce((s, p) => s + p.valor - (p.desconto || 0), 0)
+  const totalPago = pagamentos.reduce((s, p) => s + p.valor, 0)
   const saldo = Math.max(0, totalAPagar - totalPago)
   return { totalAPagar, totalPago, saldo, aPagarPlano }
 }
@@ -339,7 +341,7 @@ export default function ContratoDetalhe() {
     desconto: '',
     parcelas: 1,
     is_seguradora: false,
-    data_pagamento: new Date().toISOString().split('T')[0],
+    data_pagamento: hojeLocal(),
   })
   // Mega Pagamento (quitar saldo / novo pagamento / editar)
   const [megaPagamentoModal, setMegaPagamentoModal] = useState(false)
@@ -353,6 +355,11 @@ export default function ContratoDetalhe() {
     descontoAcessorio: '',
     descontoAcessorioAtivo: false,
     descontoProporcionalizar: '',  // Valor a proporcionalizar entre plano e acessório
+    // Modo "Plano fechado": acessórios embutidos no valor_plano. User informa total + plano puro;
+    // sobra vira valor de acessórios e o sistema ajusta desconto_acessorios_ajuste pra fechar.
+    planoFechado: false,
+    pfTotal: '',
+    pfPlanoPuro: '',
     metodo: 'pix' as 'pix' | 'cartao' | 'dinheiro',
     bandeira: 'master' as '' | 'master' | 'visa' | 'elo' | 'amex' | 'hiper',
     parcelas: '',  // debito, 1x, 2x, 3x...
@@ -395,6 +402,14 @@ export default function ContratoDetalhe() {
   const [valorPlanoEditing, setValorPlanoEditing] = useState(false)
   const [valorPlanoInput, setValorPlanoInput] = useState('')
   const [valorPlanoSaving, setValorPlanoSaving] = useState(false)
+
+  // Editores inline de desconto unificado
+  const [descontoPlanoEditing, setDescontoPlanoEditing] = useState(false)
+  const [descontoPlanoInput, setDescontoPlanoInput] = useState('')
+  const [descontoPlanoSaving, setDescontoPlanoSaving] = useState(false)
+  const [descontoAcessAjusteEditing, setDescontoAcessAjusteEditing] = useState(false)
+  const [descontoAcessAjusteInput, setDescontoAcessAjusteInput] = useState('')
+  const [descontoAcessAjusteSaving, setDescontoAcessAjusteSaving] = useState(false)
 
   // Lacre inline edit
   const [lacrePopup, setLacrePopup] = useState(false)
@@ -596,8 +611,8 @@ export default function ContratoDetalhe() {
     const totalPagoPlano = pagamentos
       .filter(p => p.tipo === 'plano')
       .reduce((acc, p) => acc + (p.valor || 0), 0)
-    const descontoPrePlano = contrato.desconto_plano || 0
-    const novoLiquido = novo - descontoPrePlano
+    const descontoUnif = contrato.desconto_plano_unificado || 0
+    const novoLiquido = novo - descontoUnif
     if (totalPagoPlano > 0 && totalPagoPlano > novoLiquido) {
       const dif = totalPagoPlano - novoLiquido
       if (!confirm(`Atenção: já há R$ ${totalPagoPlano.toFixed(2)} pago em plano e o novo valor líquido seria R$ ${novoLiquido.toFixed(2)} — sobra de R$ ${dif.toFixed(2)} (excedente).\n\nDeseja continuar?`)) {
@@ -637,6 +652,74 @@ export default function ContratoDetalhe() {
     }
   }
 
+  // Editor inline de desconto_plano_unificado
+  function abrirEditorDescontoPlano() {
+    if (!contrato) return
+    setDescontoPlanoInput(contrato.desconto_plano_unificado != null ? String(contrato.desconto_plano_unificado) : '0')
+    setDescontoPlanoEditing(true)
+  }
+
+  async function salvarDescontoPlano() {
+    if (!contrato) return
+    const limpo = descontoPlanoInput.replace(',', '.').trim()
+    const novo = parseFloat(limpo) || 0
+    if (novo < 0) { alert('Desconto não pode ser negativo'); return }
+    const anterior = contrato.desconto_plano_unificado || 0
+    if (novo === anterior) { setDescontoPlanoEditing(false); return }
+    setDescontoPlanoSaving(true)
+    try {
+      const { error } = await supabase.from('contratos').update({ desconto_plano_unificado: novo } as never).eq('id', contrato.id)
+      if (error) throw error
+      const { data: { user } } = await supabase.auth.getUser()
+      await supabase.from('historico_alteracoes').insert({
+        entidade: 'contratos', entidade_id: contrato.id, entidade_nome: contrato.codigo,
+        campo: 'desconto_plano_unificado', campo_label: 'Desconto Plano',
+        valor_anterior: String(anterior), valor_novo: String(novo),
+        tipo: 'edicao', alterado_por: user?.id ?? null, alterado_por_email: user?.email ?? null,
+      } as never)
+      setContrato(prev => prev ? { ...prev, desconto_plano_unificado: novo } as typeof prev : prev)
+      setDescontoPlanoEditing(false)
+    } catch (e) {
+      alert('Erro: ' + (e instanceof Error ? e.message : 'desconhecido'))
+    } finally {
+      setDescontoPlanoSaving(false)
+    }
+  }
+
+  // Editor inline de desconto_acessorios_ajuste
+  function abrirEditorDescontoAcessAjuste() {
+    if (!contrato) return
+    setDescontoAcessAjusteInput(contrato.desconto_acessorios_ajuste != null ? String(contrato.desconto_acessorios_ajuste) : '0')
+    setDescontoAcessAjusteEditing(true)
+  }
+
+  async function salvarDescontoAcessAjuste() {
+    if (!contrato) return
+    const limpo = descontoAcessAjusteInput.replace(',', '.').trim()
+    const novo = parseFloat(limpo) || 0
+    if (novo < 0) { alert('Ajuste não pode ser negativo'); return }
+    const anterior = contrato.desconto_acessorios_ajuste || 0
+    if (novo === anterior) { setDescontoAcessAjusteEditing(false); return }
+    setDescontoAcessAjusteSaving(true)
+    try {
+      const { error } = await supabase.from('contratos').update({ desconto_acessorios_ajuste: novo } as never).eq('id', contrato.id)
+      if (error) throw error
+      const { data: { user } } = await supabase.auth.getUser()
+      await supabase.from('historico_alteracoes').insert({
+        entidade: 'contratos', entidade_id: contrato.id, entidade_nome: contrato.codigo,
+        campo: 'desconto_acessorios_ajuste', campo_label: 'Desconto Acessórios (ajuste)',
+        valor_anterior: String(anterior), valor_novo: String(novo),
+        tipo: 'edicao', alterado_por: user?.id ?? null, alterado_por_email: user?.email ?? null,
+      } as never)
+      setContrato(prev => prev ? { ...prev, desconto_acessorios_ajuste: novo } as typeof prev : prev)
+      setDescontoAcessAjusteEditing(false)
+    } catch (e) {
+      alert('Erro: ' + (e instanceof Error ? e.message : 'desconhecido'))
+    } finally {
+      setDescontoAcessAjusteSaving(false)
+    }
+  }
+
   // Re-fetch valor_acessorios e desconto_acessorios do contrato após mudanças em
   // contrato_produtos. O trigger SQL (migration 074) atualiza esses campos
   // automaticamente — só precisamos sincronizar o estado local.
@@ -644,9 +727,9 @@ export default function ContratoDetalhe() {
     if (!params.id) return
     const { data } = await supabase
       .from('contratos')
-      .select('valor_acessorios, desconto_acessorios')
+      .select('valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, desconto_plano_unificado')
       .eq('id', params.id as string)
-      .single<{ valor_acessorios: number; desconto_acessorios: number }>()
+      .single<{ valor_acessorios: number; desconto_acessorios: number; desconto_acessorios_ajuste: number; desconto_plano_unificado: number }>()
     if (data) {
       setContrato(prev => prev ? { ...prev, ...data } as typeof prev : prev)
     }
@@ -756,7 +839,7 @@ export default function ContratoDetalhe() {
         desconto: pagamento.desconto ? String(pagamento.desconto) : '',
         parcelas: pagamento.parcelas,
         is_seguradora: pagamento.is_seguradora,
-        data_pagamento: pagamento.data_pagamento || new Date().toISOString().split('T')[0],
+        data_pagamento: pagamento.data_pagamento || hojeLocal(),
       })
     } else {
       setEditandoPagamento(null)
@@ -768,7 +851,7 @@ export default function ContratoDetalhe() {
         desconto: '',
         parcelas: 1,
         is_seguradora: false,
-        data_pagamento: new Date().toISOString().split('T')[0],
+        data_pagamento: hojeLocal(),
       })
     }
     setPagamentoModal(true)
@@ -782,8 +865,8 @@ export default function ContratoDetalhe() {
     setSalvando(true)
 
     const valor = parseFloat(pagamentoForm.valor)
-    const desconto = pagamentoForm.desconto ? parseFloat(pagamentoForm.desconto) : 0
-    const valorLiquido = valor - desconto
+    // Desconto não vive mais no pagamento (campo deprecated). Vive em contratos.desconto_plano_unificado
+    // ou desconto_acessorios_ajuste. Pagamento agora é só entrada de caixa.
 
     const dados = {
       contrato_id: params.id,
@@ -791,8 +874,8 @@ export default function ContratoDetalhe() {
       metodo: pagamentoForm.metodo,
       conta_id: pagamentoForm.conta_id || null,
       valor,
-      desconto,
-      valor_liquido: valorLiquido,
+      desconto: 0,
+      valor_liquido: valor,
       parcelas: pagamentoForm.parcelas,
       is_seguradora: pagamentoForm.is_seguradora,
       data_pagamento: pagamentoForm.data_pagamento,
@@ -1121,6 +1204,9 @@ export default function ContratoDetalhe() {
         descontoAcessorio: !isPlano && (pagamentoEditar.desconto ?? 0) > 0 ? pagamentoEditar.desconto!.toFixed(2) : '',
         descontoAcessorioAtivo: !isPlano && (pagamentoEditar.desconto ?? 0) > 0,
         descontoProporcionalizar: '',
+        planoFechado: false,
+        pfTotal: '',
+        pfPlanoPuro: '',
         metodo,
         bandeira: (pagamentoEditar.bandeira as '' | 'master' | 'visa' | 'elo' | 'amex' | 'hiper') || 'master',
         parcelas: metodo === 'cartao' ? parcelas : '',
@@ -1139,6 +1225,9 @@ export default function ContratoDetalhe() {
         descontoAcessorio: '',
         descontoAcessorioAtivo: false,
         descontoProporcionalizar: '',
+        planoFechado: false,
+        pfTotal: '',
+        pfPlanoPuro: '',
         metodo: 'pix',
         bandeira: 'master',
         parcelas: '',
@@ -1179,7 +1268,7 @@ export default function ContratoDetalhe() {
 
     // Determinar data de pagamento
     const dataPagamento = megaPagamentoForm.dataHoje
-      ? new Date().toISOString().split('T')[0]
+      ? hojeLocal()
       : megaPagamentoForm.data_pagamento
 
     // IDs fixos das contas (sincronizados com migrar_legado.py)
@@ -1214,13 +1303,53 @@ export default function ContratoDetalhe() {
       ? (megaPagamentoForm.parcelas === 'debito' ? 'debito' : 'credito')
       : megaPagamentoForm.metodo
 
-    // Calcular valores líquidos sem taxa
-    const valorPlano = megaPagamentoForm.valorPlano ? parseFloat(megaPagamentoForm.valorPlano) : 0
-    const descontoPlano = megaPagamentoForm.descontoPlanoAtivo && megaPagamentoForm.descontoPlano ? parseFloat(megaPagamentoForm.descontoPlano) : 0
-    const liquidoPlano = valorPlano - descontoPlano
+    // ===========================
+    // Modo "Plano fechado" (override): user informa total + plano puro;
+    // sistema calcula valor de acessórios + desconto automático no ajuste.
+    // ===========================
+    let valorPlano: number
+    let descontoPlano: number
+    let valorAcessorio: number
+    let descontoAcessorio: number
+    let ajusteAcessorioAdicional = 0 // delta a somar em desconto_acessorios_ajuste
 
-    const valorAcessorio = megaPagamentoForm.valorAcessorio ? parseFloat(megaPagamentoForm.valorAcessorio) : 0
-    const descontoAcessorio = megaPagamentoForm.descontoAcessorioAtivo && megaPagamentoForm.descontoAcessorio ? parseFloat(megaPagamentoForm.descontoAcessorio) : 0
+    if (megaPagamentoForm.planoFechado && !megaPagamentoEditando) {
+      const total = parseFloat(megaPagamentoForm.pfTotal || '0') || 0
+      const planoPuro = parseFloat(megaPagamentoForm.pfPlanoPuro || '0') || 0
+      const sobra = total - planoPuro
+
+      if (planoPuro > total) {
+        alert('O valor de plano puro não pode ser maior que o total recebido')
+        setSalvando(false)
+        return
+      }
+
+      // Saldo pendente de acessórios (descontando o que já foi pago)
+      const totalDescAcess = (contrato?.desconto_acessorios || 0) + (contrato?.desconto_acessorios_ajuste || 0)
+      const pagoAcessorios = pagamentos.filter(p => p.tipo === 'catalogo').reduce((s, p) => s + (p.valor || 0), 0)
+      const saldoAcessoriosPendente = (contrato?.valor_acessorios || 0) - totalDescAcess - pagoAcessorios
+
+      if (sobra > saldoAcessoriosPendente + 0.01) {
+        alert(`A sobra (${sobra.toFixed(2)}) é maior que o saldo pendente de acessórios (${saldoAcessoriosPendente.toFixed(2)}).`)
+        setSalvando(false)
+        return
+      }
+
+      // Desconto automático a aplicar no ajuste pra fechar a conta dos acessórios
+      ajusteAcessorioAdicional = saldoAcessoriosPendente - sobra
+
+      valorPlano = planoPuro
+      descontoPlano = 0
+      valorAcessorio = sobra
+      descontoAcessorio = 0
+    } else {
+      valorPlano = megaPagamentoForm.valorPlano ? parseFloat(megaPagamentoForm.valorPlano) : 0
+      descontoPlano = megaPagamentoForm.descontoPlanoAtivo && megaPagamentoForm.descontoPlano ? parseFloat(megaPagamentoForm.descontoPlano) : 0
+      valorAcessorio = megaPagamentoForm.valorAcessorio ? parseFloat(megaPagamentoForm.valorAcessorio) : 0
+      descontoAcessorio = megaPagamentoForm.descontoAcessorioAtivo && megaPagamentoForm.descontoAcessorio ? parseFloat(megaPagamentoForm.descontoAcessorio) : 0
+    }
+
+    const liquidoPlano = valorPlano - descontoPlano
     const liquidoAcessorio = valorAcessorio - descontoAcessorio
 
     // Total líquido e taxa total
@@ -1240,18 +1369,18 @@ export default function ContratoDetalhe() {
     // Bandeira do cartão (se for cartão)
     const bandeira = megaPagamentoForm.metodo === 'cartao' ? megaPagamentoForm.bandeira : null
 
-    // Pagamento de Plano
-    if (valorPlano > 0 || descontoPlano > 0) {
+    // Pagamento de Plano (desconto agora vive no contrato — não no pagamento)
+    if (valorPlano > 0) {
       pagamentosParaCriar.push({
         contrato_id: params.id,
         tipo: 'plano',
         metodo: metodoBanco,
         conta_id: contaId,
         valor: valorPlano,
-        desconto: descontoPlano,
+        desconto: 0,
         taxa: parseFloat(taxaPlano.toFixed(2)),
-        valor_liquido_sem_taxa: liquidoPlano,
-        valor_liquido: liquidoPlano - taxaPlano,
+        valor_liquido_sem_taxa: valorPlano,
+        valor_liquido: valorPlano - taxaPlano,
         parcelas: parcelas,
         id_transacao: idTransacao,
         bandeira: bandeira,
@@ -1261,23 +1390,42 @@ export default function ContratoDetalhe() {
     }
 
     // Pagamento de Acessório
-    if (valorAcessorio > 0 || descontoAcessorio > 0) {
+    if (valorAcessorio > 0) {
       pagamentosParaCriar.push({
         contrato_id: params.id,
         tipo: 'catalogo',
         metodo: metodoBanco,
         conta_id: contaId,
         valor: valorAcessorio,
-        desconto: descontoAcessorio,
+        desconto: 0,
         taxa: parseFloat(taxaAcessorio.toFixed(2)),
-        valor_liquido_sem_taxa: liquidoAcessorio,
-        valor_liquido: liquidoAcessorio - taxaAcessorio,
+        valor_liquido_sem_taxa: valorAcessorio,
+        valor_liquido: valorAcessorio - taxaAcessorio,
         parcelas: parcelas,
         id_transacao: idTransacao,
         bandeira: bandeira,
         data_pagamento: dataPagamento,
         mes_competencia: dataPagamento?.substring(0, 7).replace('-', '/'),
       })
+    }
+
+    // Se o user informou descontos no mega pagamento, soma no contrato (desconto unificado)
+    if (descontoPlano > 0 && !megaPagamentoEditando) {
+      const novoDesc = (contrato?.desconto_plano_unificado || 0) + descontoPlano
+      await supabase.from('contratos').update({ desconto_plano_unificado: novoDesc } as never).eq('id', params.id)
+      setContrato(prev => prev ? { ...prev, desconto_plano_unificado: novoDesc } as typeof prev : prev)
+    }
+    if (descontoAcessorio > 0 && !megaPagamentoEditando) {
+      const novoAj = (contrato?.desconto_acessorios_ajuste || 0) + descontoAcessorio
+      await supabase.from('contratos').update({ desconto_acessorios_ajuste: novoAj } as never).eq('id', params.id)
+      setContrato(prev => prev ? { ...prev, desconto_acessorios_ajuste: novoAj } as typeof prev : prev)
+    }
+
+    // Modo "Plano fechado": aplica o ajuste automático calculado no ajuste de acessórios
+    if (ajusteAcessorioAdicional > 0 && !megaPagamentoEditando) {
+      const novoAj = (contrato?.desconto_acessorios_ajuste || 0) + ajusteAcessorioAdicional
+      await supabase.from('contratos').update({ desconto_acessorios_ajuste: novoAj } as never).eq('id', params.id)
+      setContrato(prev => prev ? { ...prev, desconto_acessorios_ajuste: novoAj } as typeof prev : prev)
     }
 
     // Modo edição - atualiza o pagamento existente
@@ -1291,7 +1439,7 @@ export default function ContratoDetalhe() {
             metodo: dadosEditar.metodo,
             conta_id: dadosEditar.conta_id,
             valor: dadosEditar.valor,
-            desconto: dadosEditar.desconto,
+            desconto: 0,
             taxa: dadosEditar.taxa,
             valor_liquido_sem_taxa: dadosEditar.valor_liquido_sem_taxa,
             valor_liquido: dadosEditar.valor_liquido,
@@ -1867,7 +2015,7 @@ ${petNome}`
 
   const petIcon = getPetIcon(contrato.pet_especie, contrato.pet_peso)
   const statusConfig = STATUS_CONFIG[contrato.status] || STATUS_CONFIG.ativo
-  const valorTotal = (contrato.valor_plano || 0) + (contrato.valor_acessorios || 0) - (contrato.desconto_plano || 0) - (contrato.desconto_acessorios || 0)
+  const valorTotal = (contrato.valor_plano || 0) + (contrato.valor_acessorios || 0) - (contrato.desconto_plano_unificado || 0) - (contrato.desconto_acessorios || 0) - (contrato.desconto_acessorios_ajuste || 0)
 
   // Calcular complexidade de montagem (só relevante para retorno)
   const getComplexidadeMontagem = (): number => {
@@ -2290,6 +2438,30 @@ ${petNome}`
               />
             )}
 
+            {/* Botão Certificado (sempre visível) */}
+            {(() => {
+              const nomes = [
+                contrato.certificado_nome_1, contrato.certificado_nome_2, contrato.certificado_nome_3,
+                contrato.certificado_nome_4, contrato.certificado_nome_5,
+              ].filter(n => n && n.trim())
+              const qtd = nomes.length
+              const confirmado = !!contrato.certificado_confirmado
+              return (
+                <button
+                  onClick={() => setCertificadoModalOpen(true)}
+                  className="relative flex items-center justify-center w-7 h-7 bg-amber-500/90 text-white rounded-full hover:bg-amber-500 transition-colors"
+                  title={qtd > 0 ? `Certificado: ${qtd} nome(s)${confirmado ? ' · confirmado' : ' · não confirmado'}` : 'Definir nomes do certificado'}
+                >
+                  <Award className="h-4 w-4" />
+                  {qtd > 0 && (
+                    <span className={`absolute -top-1 -right-1 min-w-[14px] h-[14px] flex items-center justify-center rounded-full text-[8px] font-bold text-white ring-1 ring-slate-800 ${confirmado ? 'bg-emerald-500' : 'bg-orange-500'}`}>
+                      {qtd}
+                    </span>
+                  )}
+                </button>
+              )
+            })()}
+
             {/* Botão Compartilhar (FLS: btn_compartilhar) */}
             {isVisible(T, 'btn_compartilhar') && (
               <button
@@ -2629,19 +2801,11 @@ ${petNome}`
 
           {/* Resumo Financeiro */}
           {(() => {
-            // Calcular descontos pós-venda por tipo
-            const descontoPosPlano = pagamentos
-              .filter(p => p.tipo === 'plano')
-              .reduce((sum, p) => sum + (p.desconto || 0), 0)
-            const descontoPosAcessorios = pagamentos
-              .filter(p => p.tipo === 'catalogo')
-              .reduce((sum, p) => sum + (p.desconto || 0), 0)
+            // Descontos unificados (substituem o cálculo pré + pós)
+            const totalDescontoPlano = contrato.desconto_plano_unificado || 0
+            const totalDescontoAcessorios = (contrato.desconto_acessorios || 0) + (contrato.desconto_acessorios_ajuste || 0)
 
-            // Totais de desconto
-            const totalDescontoPlano = (contrato.desconto_plano || 0) + descontoPosPlano
-            const totalDescontoAcessorios = (contrato.desconto_acessorios || 0) + descontoPosAcessorios
-
-            // A pagar (descontando pré e pós)
+            // A pagar (já líquido de desconto)
             const aPagarPlano = (contrato.valor_plano || 0) - totalDescontoPlano
             const aPagarAcessorios = (contrato.valor_acessorios || 0) - totalDescontoAcessorios
             const aPagarTotal = aPagarPlano + aPagarAcessorios
@@ -2709,29 +2873,71 @@ ${petNome}`
                   </div>
                 </div>
 
-                {/* Descontos (Pré + Pós) */}
+                {/* Descontos (unificado) */}
                 <div className="bg-amber-900/30 rounded-lg p-3">
-                  <div className="flex justify-between items-center mb-2">
-                    <p className="text-xs text-amber-400 uppercase">Descontos</p>
-                    <div className="flex gap-3 text-[9px] text-slate-400 uppercase">
-                      <span>Pré</span>
-                      <span>Pós</span>
-                    </div>
-                  </div>
+                  <p className="text-xs text-amber-400 uppercase mb-2">Descontos</p>
                   <div className="space-y-1">
                     <div className="flex justify-between items-center">
                       <span className="text-xs text-slate-400">Plano:</span>
-                      <div className="flex gap-3">
-                        <span className="text-xs font-semibold text-amber-400 w-16 text-right">-{formatarMoeda(contrato.desconto_plano || 0)}</span>
-                        <span className="text-xs font-semibold text-orange-400 w-16 text-right">-{formatarMoeda(descontoPosPlano)}</span>
-                      </div>
+                      {descontoPlanoEditing ? (
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-slate-400">R$</span>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            autoFocus
+                            value={descontoPlanoInput}
+                            onChange={e => setDescontoPlanoInput(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') salvarDescontoPlano()
+                              if (e.key === 'Escape') setDescontoPlanoEditing(false)
+                            }}
+                            disabled={descontoPlanoSaving}
+                            className="w-20 px-1.5 py-0.5 bg-slate-900 border border-amber-600 rounded text-xs text-amber-200 text-right focus:outline-none focus:border-amber-400"
+                          />
+                          <button onClick={salvarDescontoPlano} disabled={descontoPlanoSaving} className="p-0.5 text-green-400 hover:text-green-300"><Check className="h-3.5 w-3.5" /></button>
+                          <button onClick={() => setDescontoPlanoEditing(false)} disabled={descontoPlanoSaving} className="p-0.5 text-slate-400 hover:text-slate-300"><X className="h-3.5 w-3.5" /></button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-semibold text-amber-400">-{formatarMoeda(totalDescontoPlano)}</span>
+                          <button onClick={abrirEditorDescontoPlano} className="p-0.5 text-slate-500 hover:text-amber-400 transition-colors" title="Editar desconto do plano">
+                            <Pencil className="h-3 w-3" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-xs text-slate-400">Acess.:</span>
-                      <div className="flex gap-3">
-                        <span className="text-xs font-semibold text-amber-400 w-16 text-right">-{formatarMoeda(contrato.desconto_acessorios || 0)}</span>
-                        <span className="text-xs font-semibold text-orange-400 w-16 text-right">-{formatarMoeda(descontoPosAcessorios)}</span>
-                      </div>
+                      {descontoAcessAjusteEditing ? (
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-slate-400">R$</span>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            autoFocus
+                            value={descontoAcessAjusteInput}
+                            onChange={e => setDescontoAcessAjusteInput(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') salvarDescontoAcessAjuste()
+                              if (e.key === 'Escape') setDescontoAcessAjusteEditing(false)
+                            }}
+                            disabled={descontoAcessAjusteSaving}
+                            className="w-20 px-1.5 py-0.5 bg-slate-900 border border-amber-600 rounded text-xs text-amber-200 text-right focus:outline-none focus:border-amber-400"
+                          />
+                          <button onClick={salvarDescontoAcessAjuste} disabled={descontoAcessAjusteSaving} className="p-0.5 text-green-400 hover:text-green-300"><Check className="h-3.5 w-3.5" /></button>
+                          <button onClick={() => setDescontoAcessAjusteEditing(false)} disabled={descontoAcessAjusteSaving} className="p-0.5 text-slate-400 hover:text-slate-300"><X className="h-3.5 w-3.5" /></button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-semibold text-amber-400" title={`Auto: ${formatarMoeda(contrato.desconto_acessorios || 0)} (dos produtos) + Manual: ${formatarMoeda(contrato.desconto_acessorios_ajuste || 0)}`}>
+                            -{formatarMoeda(totalDescontoAcessorios)}
+                          </span>
+                          <button onClick={abrirEditorDescontoAcessAjuste} className="p-0.5 text-slate-500 hover:text-amber-400 transition-colors" title="Ajustar desconto extra dos acessórios (além do desconto por produto)">
+                            <Pencil className="h-3 w-3" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2842,18 +3048,11 @@ ${petNome}`
             {/* Rodapé com totais */}
             {(() => {
               // Calcular valores
-              const valorRecebido = pagamentos.reduce((sum, p) => sum + p.valor - (p.desconto || 0), 0) // Dinheiro que entrou no caixa
+              const valorRecebido = pagamentos.reduce((sum, p) => sum + p.valor, 0) // Dinheiro que entrou no caixa
 
-              // Calcular A Pagar (consistente com o card acima)
-              const descontoPosPlano = pagamentos
-                .filter(p => p.tipo === 'plano')
-                .reduce((sum, p) => sum + (p.desconto || 0), 0)
-              const descontoPosAcessorios = pagamentos
-                .filter(p => p.tipo === 'catalogo')
-                .reduce((sum, p) => sum + (p.desconto || 0), 0)
-              // A pagar por tipo
-              const aPagarPlano = (contrato.valor_plano || 0) - (contrato.desconto_plano || 0) - descontoPosPlano
-              const aPagarAcessorios = (contrato.valor_acessorios || 0) - (contrato.desconto_acessorios || 0) - descontoPosAcessorios
+              // A pagar por tipo (descontos unificados)
+              const aPagarPlano = (contrato.valor_plano || 0) - (contrato.desconto_plano_unificado || 0)
+              const aPagarAcessorios = (contrato.valor_acessorios || 0) - (contrato.desconto_acessorios || 0) - (contrato.desconto_acessorios_ajuste || 0)
               const aPagarTotal = aPagarPlano + aPagarAcessorios
 
               // Saldo = A Pagar - Recebido
@@ -2862,10 +3061,10 @@ ${petNome}`
               // Calcular saldos por tipo para mega pagamento
               const recebidoPlano = pagamentos
                 .filter(p => p.tipo === 'plano')
-                .reduce((sum, p) => sum + p.valor - (p.desconto || 0), 0)
+                .reduce((sum, p) => sum + p.valor, 0)
               const recebidoAcessorio = pagamentos
                 .filter(p => p.tipo === 'catalogo')
-                .reduce((sum, p) => sum + p.valor - (p.desconto || 0), 0)
+                .reduce((sum, p) => sum + p.valor, 0)
               const saldoPlano = aPagarPlano - recebidoPlano
               const saldoAcessorio = aPagarAcessorios - recebidoAcessorio
 
@@ -2939,23 +3138,6 @@ ${petNome}`
               })()}
             </div>
             <div className="flex items-center gap-2">
-              {contratoProdutos.length > 0 && (
-                contratoProdutos.every(cp => cp.separado) ? (
-                  <button
-                    onClick={() => marcarTodosSeparados(false)}
-                    className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-green-900/40 text-green-400 hover:bg-red-900/40 hover:text-red-400 transition-colors"
-                  >
-                    📦 Todos ✓
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => marcarTodosSeparados(true)}
-                    className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-slate-700 text-slate-400 hover:bg-green-900/40 hover:text-green-400 transition-colors"
-                  >
-                    📦 Separar todos
-                  </button>
-                )
-              )}
               {isVisible(T, 'btn_add_produto') && (
                 <button
                   onClick={abrirAddProdutoModal}
@@ -3133,17 +3315,6 @@ ${petNome}`
                           </span>
                         </button>
                       )}
-
-                      {/* Status Separado (clicável) */}
-                      <button
-                        onClick={() => toggleSeparado(cp)}
-                        className="flex-shrink-0 hover:scale-110 transition-transform"
-                        title={cp.separado ? 'Clique para desmarcar' : 'Clique para marcar como separado'}
-                      >
-                        <span className={`text-lg ${cp.separado ? '' : 'opacity-30'}`}>
-                          📦
-                        </span>
-                      </button>
 
                       {/* Ações */}
                       <div className="flex items-center gap-1 flex-shrink-0">
@@ -3520,6 +3691,54 @@ ${petNome}`
                 </div>
               </div>
 
+              {/* Info de estoque com alertas */}
+              {(() => {
+                const inf = !!produtoParaAdicionar.estoque_infinito
+                const atual = produtoParaAdicionar.estoque_atual || 0
+                const minimo = produtoParaAdicionar.estoque_minimo || 0
+                const qtd = addProdutoForm.quantidade || 1
+                const apos = atual - qtd
+                let cor = 'bg-emerald-900/30 border-emerald-700/50 text-emerald-300'
+                let icone = '✓'
+                let label = 'Estoque OK'
+                let detalhe = ''
+                if (inf) {
+                  cor = 'bg-blue-900/30 border-blue-700/50 text-blue-300'
+                  icone = '∞'
+                  label = 'Estoque ilimitado'
+                  detalhe = 'Produto não controla estoque'
+                } else if (atual <= 0) {
+                  cor = 'bg-red-900/40 border-red-600/60 text-red-300'
+                  icone = '🚨'
+                  label = `Sem estoque (${atual})`
+                  detalhe = `Venda DESCOBERTA — saldo ficará em ${apos}`
+                } else if (apos < 0) {
+                  cor = 'bg-red-900/40 border-red-600/60 text-red-300'
+                  icone = '🚨'
+                  label = `Atual ${atual} · saldo ficará ${apos}`
+                  detalhe = `Venda descoberta — não há ${qtd} unidade(s) em estoque`
+                } else if (apos < minimo) {
+                  cor = 'bg-amber-900/30 border-amber-600/50 text-amber-300'
+                  icone = '⚠'
+                  label = `Atual ${atual} · saldo ficará ${apos}`
+                  detalhe = `Abaixo do mínimo ideal (${minimo})`
+                } else {
+                  label = `Atual ${atual} · saldo ficará ${apos}`
+                  detalhe = `Mínimo ideal: ${minimo}`
+                }
+                return (
+                  <div className={`mb-3 p-2.5 rounded-lg border ${cor}`}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg flex-shrink-0">{icone}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold">{label}</div>
+                        {detalhe && <div className="text-[11px] opacity-80">{detalhe}</div>}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
+
               {/* Toggle para opções avançadas (quantidade/desconto) */}
               <div className="mb-3">
                 <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -3749,30 +3968,18 @@ ${petNome}`
                 </div>
               </div>
 
-              {/* Valor e Desconto */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Valor *</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={pagamentoForm.valor}
-                    onChange={(e) => setPagamentoForm({ ...pagamentoForm, valor: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
-                    placeholder="0.00"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Desconto</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={pagamentoForm.desconto}
-                    onChange={(e) => setPagamentoForm({ ...pagamentoForm, desconto: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
-                    placeholder="0.00"
-                  />
-                </div>
+              {/* Valor */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Valor *</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={pagamentoForm.valor}
+                  onChange={(e) => setPagamentoForm({ ...pagamentoForm, valor: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="0.00"
+                />
+                <p className="mt-1 text-[10px] text-slate-400">Para dar desconto, edite o &quot;Desconto&quot; no card Financeiro acima (lápis).</p>
               </div>
 
               {/* Método */}
@@ -3909,7 +4116,7 @@ ${petNome}`
                       onClick={() => setMegaPagamentoForm({
                         ...megaPagamentoForm,
                         dataHoje: false,
-                        data_pagamento: new Date().toISOString().split('T')[0]
+                        data_pagamento: hojeLocal()
                       })}
                       className="px-2 py-0.5 rounded text-xs text-white/70 hover:text-white transition-colors"
                     >
@@ -3925,7 +4132,71 @@ ${petNome}`
 
             {/* Form compacto */}
             <div className="p-3 space-y-3">
-              {/* Plano e Acessório lado a lado */}
+              {/* Toggle Plano Fechado — só no modo "novo" (não em edição) */}
+              {!megaPagamentoEditando && (
+                <label className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer border ${
+                  megaPagamentoForm.planoFechado ? 'bg-amber-900/30 border-amber-500/50' : 'bg-slate-700/40 border-slate-600 hover:bg-slate-700'
+                }`}>
+                  <input
+                    type="checkbox"
+                    checked={megaPagamentoForm.planoFechado}
+                    onChange={e => setMegaPagamentoForm({ ...megaPagamentoForm, planoFechado: e.target.checked })}
+                    className="rounded accent-amber-500"
+                  />
+                  <span className="text-xs font-semibold text-amber-300">📦 Plano fechado (produtos embutidos no valor do contrato)</span>
+                </label>
+              )}
+
+              {/* Campos do modo Plano Fechado */}
+              {megaPagamentoForm.planoFechado && !megaPagamentoEditando && (() => {
+                const total = parseFloat(megaPagamentoForm.pfTotal || '0') || 0
+                const planoPuro = parseFloat(megaPagamentoForm.pfPlanoPuro || '0') || 0
+                const sobra = total - planoPuro
+                const totalDescAcess = (contrato?.desconto_acessorios || 0) + (contrato?.desconto_acessorios_ajuste || 0)
+                const pagoAcess = pagamentos.filter(p => p.tipo === 'catalogo').reduce((s, p) => s + (p.valor || 0), 0)
+                const saldoAcessPend = (contrato?.valor_acessorios || 0) - totalDescAcess - pagoAcess
+                const ajusteCalc = saldoAcessPend - sobra
+                const erroValor = planoPuro > total
+                const erroSobra = sobra > saldoAcessPend + 0.01
+                return (
+                  <div className="bg-amber-900/20 rounded-lg p-3 space-y-2 border border-amber-700/40">
+                    <div>
+                      <label className="text-xs text-amber-300 block mb-1">Total recebido</label>
+                      <input type="number" step="0.01"
+                        value={megaPagamentoForm.pfTotal}
+                        onChange={e => setMegaPagamentoForm({ ...megaPagamentoForm, pfTotal: e.target.value })}
+                        className="w-full px-3 py-2 border border-amber-700/50 rounded bg-slate-700 text-slate-200 text-sm focus:outline-none focus:border-amber-500"
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-amber-300 block mb-1">Desse total, quanto é de plano puro?</label>
+                      <input type="number" step="0.01"
+                        value={megaPagamentoForm.pfPlanoPuro}
+                        onChange={e => setMegaPagamentoForm({ ...megaPagamentoForm, pfPlanoPuro: e.target.value })}
+                        className="w-full px-3 py-2 border border-amber-700/50 rounded bg-slate-700 text-slate-200 text-sm focus:outline-none focus:border-amber-500"
+                        placeholder="0.00"
+                      />
+                    </div>
+                    {total > 0 && (
+                      <div className="text-xs space-y-0.5 mt-2 p-2 bg-slate-900/50 rounded">
+                        <div className="flex justify-between"><span className="text-slate-400">Plano (a registrar):</span><span className="font-mono text-slate-200">R$ {planoPuro.toFixed(2)}</span></div>
+                        <div className="flex justify-between"><span className="text-slate-400">Acessórios (sobra):</span><span className="font-mono text-slate-200">R$ {sobra.toFixed(2)}</span></div>
+                        <div className="flex justify-between"><span className="text-slate-400">Saldo acess. pendente:</span><span className="font-mono text-slate-400">R$ {saldoAcessPend.toFixed(2)}</span></div>
+                        <div className="flex justify-between border-t border-slate-700 pt-1 mt-1">
+                          <span className="text-amber-400 font-semibold">Desconto auto-aplicado:</span>
+                          <span className="font-mono text-amber-400 font-bold">R$ {Math.max(0, ajusteCalc).toFixed(2)}</span>
+                        </div>
+                        {erroValor && <div className="text-red-400 text-[10px] mt-1">⚠ Plano puro maior que o total</div>}
+                        {erroSobra && <div className="text-red-400 text-[10px] mt-1">⚠ Sobra maior que saldo pendente de acessórios ({saldoAcessPend.toFixed(2)})</div>}
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+
+              {/* Plano e Acessório lado a lado — só se NÃO está em modo plano fechado */}
+              {!megaPagamentoForm.planoFechado && (
               <div className="grid grid-cols-2 gap-2">
                 {/* Plano */}
                 <div className="bg-blue-900/30 rounded-lg p-2 min-w-0 overflow-hidden">
@@ -4009,9 +4280,10 @@ ${petNome}`
                   </div>
                 </div>
               </div>
+              )}
 
               {/* Proporcionalizar (quando ambos descontos ativos) */}
-              {megaPagamentoForm.descontoPlanoAtivo && megaPagamentoForm.descontoAcessorioAtivo && (
+              {!megaPagamentoForm.planoFechado && megaPagamentoForm.descontoPlanoAtivo && megaPagamentoForm.descontoAcessorioAtivo && (
                 <div className="flex items-center justify-center gap-2 py-1 px-2 bg-slate-700/50 rounded">
                   <span className="text-[10px] text-slate-400">Proporcionalizar:</span>
                   <input
@@ -4992,7 +5264,11 @@ ${petNome}`
             onClose={() => setCertificadoModalOpen(false)}
             contrato={contrato}
             onSuccess={(updated) => {
-              setContrato(prev => prev ? { ...prev, ...updated } : prev)
+              // `updated.contrato_gc` tem shape diferente (snapshot); descartamos pra
+              // não destruir o cache do estado local (que guarda etapa, etc.).
+              const { contrato_gc: _ignorado, ...rest } = updated
+              void _ignorado
+              setContrato(prev => prev ? { ...prev, ...rest } : prev)
             }}
           />
         </>

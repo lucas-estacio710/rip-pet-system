@@ -24,6 +24,7 @@ import FinalizadoraModal from '@/components/contratos/modals/FinalizadoraModal'
 import ChegamosModal from '@/components/contratos/modals/ChegamosModal'
 import ChegaramModal from '@/components/contratos/modals/ChegaramModal'
 import { ordenarCategoriasUrnas } from '@/lib/categorias'
+import { hojeLocal, dataLocal } from '@/lib/date-local'
 
 function PixIcon({ className = "h-5 w-5" }: { className?: string }) {
   return (
@@ -46,6 +47,7 @@ type Contrato = {
   pet_nome: string
   pet_especie: string | null
   pet_raca: string | null
+  pet_raca_normalizada?: string | null
   pet_cor: string | null
   pet_peso: number | null
   pet_genero: string | null
@@ -83,9 +85,11 @@ type Contrato = {
   contrato_produtos?: ContratoProduto[]
   // Valores e pagamentos
   valor_plano: number | null
-  desconto_plano: number | null
+  desconto_plano: number | null  // DEPRECATED — usar desconto_plano_unificado
+  desconto_plano_unificado: number | null
   valor_acessorios: number | null
-  desconto_acessorios: number | null
+  desconto_acessorios: number | null  // SUM(cp.desconto*qtd) via trigger 074
+  desconto_acessorios_ajuste: number | null  // ajuste manual
   pagamentos?: Pagamento[]
   // Supinda vinculada
   supinda_id: string | null
@@ -234,15 +238,13 @@ const STATUS_COLORS: Record<string, { bg: string; border: string; text: string; 
 
 /** Calcula financeiro para o protocolo a partir dos dados da ficha */
 function calcFinanceiroProtocolo(
-  contrato: { valor_plano: number | null; desconto_plano: number | null; valor_acessorios: number | null; desconto_acessorios: number | null },
-  pagamentos: { tipo: string; valor: number; desconto?: number | null }[]
+  contrato: { valor_plano: number | null; desconto_plano_unificado: number | null; valor_acessorios: number | null; desconto_acessorios: number | null; desconto_acessorios_ajuste: number | null },
+  pagamentos: { tipo: string; valor: number }[]
 ) {
-  const descontoPosPlano = pagamentos.filter(p => p.tipo === 'plano').reduce((s, p) => s + (p.desconto || 0), 0)
-  const descontoPosAcessorios = pagamentos.filter(p => p.tipo === 'catalogo').reduce((s, p) => s + (p.desconto || 0), 0)
-  const aPagarPlano = (contrato.valor_plano || 0) - (contrato.desconto_plano || 0) - descontoPosPlano
-  const aPagarAcessorios = (contrato.valor_acessorios || 0) - (contrato.desconto_acessorios || 0) - descontoPosAcessorios
+  const aPagarPlano = (contrato.valor_plano || 0) - (contrato.desconto_plano_unificado || 0)
+  const aPagarAcessorios = (contrato.valor_acessorios || 0) - (contrato.desconto_acessorios || 0) - (contrato.desconto_acessorios_ajuste || 0)
   const totalAPagar = aPagarPlano + aPagarAcessorios
-  const totalPago = pagamentos.reduce((s, p) => s + p.valor - (p.desconto || 0), 0)
+  const totalPago = pagamentos.reduce((s, p) => s + p.valor, 0)
   const saldo = Math.max(0, totalAPagar - totalPago)
   return { totalAPagar, totalPago, saldo, aPagarPlano }
 }
@@ -706,15 +708,20 @@ function ContratosContent() {
 
   // Enriquece os contratos já carregados com embeds pesados (em paralelo, sem bloquear UI).
   async function enriquecerContratos(arr: Contrato[], minhaBuscaId: number) {
-    const ids = arr.map(c => c.id)
+    const ids = new Set(arr.map(c => c.id))
+    const idsList = Array.from(ids)
     const fonteIds = Array.from(new Set(arr.map(c => (c as { fonte_conhecimento_id?: string }).fonte_conhecimento_id).filter(Boolean))) as string[]
 
     // Dispara 3 queries em paralelo (não aguarda — cada uma faz seu próprio merge)
+    // IMPORTANTE: ao mesclar com setContratos, só alteramos os contratos cujo id ESTÁ
+    // no batch atual. Outros contratos (já enriquecidos por chamadas anteriores)
+    // são preservados — senão a página 2 zeraria os faróis da página 1.
+
     // 1. contrato_produtos (com produto)
     supabase
       .from('contrato_produtos')
       .select('id, contrato_id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)')
-      .in('contrato_id', ids)
+      .in('contrato_id', idsList)
       .then(({ data, error }) => {
         if (error || !data) return
         if (minhaBuscaId !== buscaIdRef.current) return
@@ -724,26 +731,26 @@ function ContratosContent() {
           if (!byContrato.has(cid)) byContrato.set(cid, [])
           byContrato.get(cid)!.push(cp)
         }
-        setContratos(prev => prev.map(c => ({
-          ...c,
-          contrato_produtos: byContrato.get(c.id) || [],
-        }) as Contrato))
+        setContratos(prev => prev.map(c => {
+          if (!ids.has(c.id)) return c  // fora do batch — preserva
+          return { ...c, contrato_produtos: byContrato.get(c.id) || [] } as Contrato
+        }))
       })
 
     // 2. contrato_gc
     supabase
       .from('contrato_gc')
       .select('contrato_id, etapa, cinzas_prontas, certificado_pronto, contato_status')
-      .in('contrato_id', ids)
+      .in('contrato_id', idsList)
       .then(({ data, error }) => {
         if (error || !data) return
         if (minhaBuscaId !== buscaIdRef.current) return
         const byContrato = new Map<string, unknown>()
         for (const g of data) byContrato.set((g as { contrato_id: string }).contrato_id, g)
-        setContratos(prev => prev.map(c => ({
-          ...c,
-          contrato_gc: (byContrato.get(c.id) ?? null) as Contrato['contrato_gc'],
-        }) as Contrato))
+        setContratos(prev => prev.map(c => {
+          if (!ids.has(c.id)) return c
+          return { ...c, contrato_gc: (byContrato.get(c.id) ?? null) as Contrato['contrato_gc'] } as Contrato
+        }))
       })
 
     // 3. fontes_conhecimento (só se houver IDs)
@@ -758,11 +765,9 @@ function ContratosContent() {
           const byId = new Map<string, { id: string; nome: string }>()
           for (const f of data as { id: string; nome: string }[]) byId.set(f.id, f)
           setContratos(prev => prev.map(c => {
+            if (!ids.has(c.id)) return c
             const fid = (c as { fonte_conhecimento_id?: string }).fonte_conhecimento_id
-            return {
-              ...c,
-              fonte_conhecimento: fid ? (byId.get(fid) ?? null) : null,
-            } as Contrato
+            return { ...c, fonte_conhecimento: fid ? (byId.get(fid) ?? null) : null } as Contrato
           }))
         })
     }
@@ -783,7 +788,7 @@ function ContratosContent() {
 
     // SELECT principal — só dados base + embeds leves essenciais (tutor + supinda + pagamentos).
     // Embeds pesados (contrato_produtos, contrato_gc, fonte_conhecimento) carregam em paralelo após.
-    const SELECT_CONTRATO = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento_id, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id'
+    const SELECT_CONTRATO = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento_id, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id'
 
     // Helper para aplicar filtros comuns (unidade + status + compartilhados).
     // Tipo `any` aqui porque o builder do supabase-js encadeia tipos genéricos complexos
@@ -904,7 +909,7 @@ function ContratosContent() {
     const agruparPorSupinda = agruparSupinda && statusFiltro !== 'preventivo'
 
     // Mesmo padrão da listagem: SELECT leve + enriquecimento paralelo
-    const SELECT_BUSCA = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento_id, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, valor_plano, desconto_plano, valor_acessorios, desconto_acessorios, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id'
+    const SELECT_BUSCA = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento_id, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id'
     // Sanitiza: escapa wildcards SQL (% _) e caracteres reservados PostgREST (, ( ) : * \)
     // + limita 80 chars. Protege contra termo malicioso quebrar o filtro `or`.
     const t = sanitizeBuscaPostgrest(termoBusca)
@@ -1978,10 +1983,10 @@ Gratidão eterna!
     highlightContrato(contrato.id)
     const { planoPendente, acessoriosPendente } = getPagamentoPendente(contrato)
     const saldoPlano = planoPendente
-      ? (contrato.valor_plano || 0) - (contrato.desconto_plano || 0) - (contrato.pagamentos?.filter(p => p.tipo === 'plano').reduce((acc, p) => acc + (p.valor || 0), 0) || 0)
+      ? (contrato.valor_plano || 0) - (contrato.desconto_plano_unificado || 0) - (contrato.pagamentos?.filter(p => p.tipo === 'plano').reduce((acc, p) => acc + (p.valor || 0), 0) || 0)
       : 0
     const saldoAcessorio = acessoriosPendente
-      ? (contrato.valor_acessorios || 0) - (contrato.desconto_acessorios || 0) - (contrato.pagamentos?.filter(p => p.tipo === 'catalogo').reduce((acc, p) => acc + (p.valor || 0), 0) || 0)
+      ? (contrato.valor_acessorios || 0) - (contrato.desconto_acessorios || 0) - (contrato.desconto_acessorios_ajuste || 0) - (contrato.pagamentos?.filter(p => p.tipo === 'catalogo').reduce((acc, p) => acc + (p.valor || 0), 0) || 0)
       : 0
 
     setMegaPagamentoContrato(contrato)
@@ -2030,7 +2035,7 @@ Gratidão eterna!
     setSalvandoMegaPagamento(true)
 
     const dataPagamento = megaPagamentoForm.dataHoje
-      ? new Date().toISOString().split('T')[0]
+      ? hojeLocal()
       : megaPagamentoForm.data_pagamento
 
     const mesCompetencia = dataPagamento ? `${dataPagamento.slice(0, 4)}/${dataPagamento.slice(5, 7)}` : null
@@ -2441,7 +2446,7 @@ ${petNome}`
     setAtivarContrato(contrato)
     // Preenche com data/hora atual
     const agora = new Date()
-    const dataStr = agora.toISOString().split('T')[0]
+    const dataStr = dataLocal(agora)
     const horaStr = agora.toTimeString().slice(0, 5)
     setAtivarForm({
       data_acolhimento: dataStr,
@@ -2467,7 +2472,7 @@ ${petNome}`
     } else {
       dataHora.setHours(dataHora.getHours() - 1)
     }
-    const dataStr = dataHora.toISOString().split('T')[0]
+    const dataStr = dataLocal(dataHora)
     const horaStr = dataHora.toTimeString().slice(0, 5)
     setAtivarForm({ ...ativarForm, data_acolhimento: dataStr, hora_acolhimento: horaStr })
   }
@@ -2536,7 +2541,7 @@ ${petNome}`
     if (!entregaContrato) return
 
     const dataEntrega = entregaForm.dataHoje
-      ? new Date().toISOString().split('T')[0]
+      ? hojeLocal()
       : entregaForm.data_entrega
 
     if (!dataEntrega) {
@@ -2824,9 +2829,9 @@ ${petNome}`
     proxDomingo.setDate(hoje.getDate() + diasAteDomingo)
 
     return {
-      sabado: proxSabado.toISOString().split('T')[0],
-      domingo: proxDomingo.toISOString().split('T')[0],
-      hoje: hoje.toISOString().split('T')[0],
+      sabado: dataLocal(proxSabado),
+      domingo: dataLocal(proxDomingo),
+      hoje: dataLocal(hoje),
     }
   }
 
@@ -4798,7 +4803,7 @@ ${petNome}`
                       onClick={() => setMegaPagamentoForm({
                         ...megaPagamentoForm,
                         dataHoje: false,
-                        data_pagamento: new Date().toISOString().split('T')[0]
+                        data_pagamento: hojeLocal()
                       })}
                       className="px-2 py-0.5 rounded text-xs text-white/70 hover:text-white transition-colors"
                     >
@@ -5811,8 +5816,12 @@ ${petNome}`
           onClose={() => { setCertificadoModal(false); unhighlightContrato(); }}
           contrato={certificadoContrato}
           onSuccess={(updated) => {
+            // `updated.contrato_gc` tem shape diferente do que /contratos guarda
+            // (lá é só { etapa, cinzas_prontas, ... }); descartamos pra não destruir o cache.
+            const { contrato_gc: _ignorado, ...rest } = updated
+            void _ignorado
             setContratos(prev => prev.map(c =>
-              c.id === updated.id ? { ...c, ...updated } : c
+              c.id === updated.id ? { ...c, ...rest } : c
             ))
           }}
         />

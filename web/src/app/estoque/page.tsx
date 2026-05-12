@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import EmptyState from '@/components/ui/EmptyState'
 import FilterDropdown, { type FilterOption } from '@/components/ui/FilterDropdown'
 import { ordenarCategoriasUrnas, ORDEM_ACESSORIOS } from '@/lib/categorias'
+import { hojeLocal, dataLocal } from '@/lib/date-local'
 
 type Produto = {
   id: string
@@ -94,7 +95,7 @@ export default function EstoquePage() {
   const [modalSalvarEntrada, setModalSalvarEntrada] = useState(false)
   const [modalSalvarMinimo, setModalSalvarMinimo] = useState(false)
   const [salvandoLote, setSalvandoLote] = useState(false)
-  const [loteData, setLoteData] = useState(new Date().toISOString().slice(0, 10))
+  const [loteData, setLoteData] = useState(hojeLocal())
   const [loteRemessa, setLoteRemessa] = useState('')
 
   // Tab Mínimo — linha em edição (lápis para abrir, disquete para fechar)
@@ -238,7 +239,7 @@ export default function EstoquePage() {
     setCarrinhoEntrada({})
     setModalSalvarEntrada(false)
     setLoteRemessa('')
-    setLoteData(new Date().toISOString().slice(0, 10))
+    setLoteData(hojeLocal())
     await carregarProdutos()
   }
 
@@ -264,7 +265,7 @@ export default function EstoquePage() {
   async function carregarVendasPeriodo() {
     if (!currentUnit?.id) { setVendasPorProduto({}); return }
     const agora = Date.now()
-    const d180Iso = new Date(agora - 180 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+    const d180Iso = dataLocal(new Date(agora - 180 * 24 * 3600 * 1000))
     const t30 = agora - 30 * 24 * 3600 * 1000
     const t90 = agora - 90 * 24 * 3600 * 1000
 
@@ -313,7 +314,7 @@ export default function EstoquePage() {
       .order('data_entrada', { ascending: false })
       .order('created_at', { ascending: false })
     if (!verAntigos) {
-      const since = new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+      const since = dataLocal(new Date(Date.now() - 90 * 24 * 3600 * 1000))
       q = q.gte('data_entrada', since)
     }
     const { data } = await q

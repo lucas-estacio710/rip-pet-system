@@ -1,9 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { X, Loader2, Check, Phone, Calendar, Flame, Package, Award, ChevronDown, MessageSquare } from 'lucide-react'
+import { useState, useEffect, Fragment } from 'react'
+import { X, Loader2, Check, Phone, Calendar, Flame, Package, Award, ChevronDown, MessageSquare, FileDown } from 'lucide-react'
 import ObservacoesCard from '@/components/contratos/ObservacoesCard'
+import CertificadoModal from '@/components/contratos/modals/CertificadoModal'
 import { createClient } from '@/lib/supabase/client'
+import { gerarCertificadoPDF, certificadoFilename } from '@/lib/certificado-pdf'
 
 type GCData = {
   id?: string
@@ -28,14 +30,26 @@ type GCData = {
 
 type Props = {
   contratoId: string
+  contratoCodigo?: string
   petNome: string
   tipoCremacao: string
-  petEspecie?: string
+  petEspecie?: string | null
   petPeso?: number | null
   petRaca?: string | null
+  petGenero?: string | null
   numeroLacre?: string | null
   tutorNome?: string | null
   tutorTelefone?: string | null
+  /** Os 7 slots brutos do certificado (null para vazios). */
+  certificadoNomesRaw?: (string | null)[]
+  certificadoConfirmado?: boolean
+  /** Callback chamado quando o usuário salva os nomes do certificado no modal interno.
+   *  Também recebe `petDados` quando o usuário editou os dados do pet no mesmo modal. */
+  onCertificadoSaved?: (
+    nomes: (string | null)[],
+    confirmado: boolean,
+    petDados?: { pet_nome: string; pet_especie: string | null; pet_raca: string | null; pet_genero: string | null }
+  ) => void
   supindaStatus?: string | null
   gcAtual: GCData | null
   onClose: () => void
@@ -55,12 +69,71 @@ const CONTATO_STEPS = [
   { key: 'agendado', label: 'Agendado', color: '#1a73e8' },
 ]
 
-export default function GCAcaoModal({ contratoId, petNome, tipoCremacao, petEspecie, petPeso, petRaca, numeroLacre, tutorNome, tutorTelefone, supindaStatus, gcAtual, onClose, onSaved }: Props) {
+export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoCremacao, petEspecie, petPeso, petRaca, petGenero, numeroLacre, tutorNome, tutorTelefone, certificadoNomesRaw, certificadoConfirmado, onCertificadoSaved, supindaStatus, gcAtual, onClose, onSaved }: Props) {
   const supabase = createClient()
   const [salvando, setSalvando] = useState(false)
   const [gc, setGc] = useState<GCData>(
     gcAtual || { contrato_id: contratoId, etapa: 'provisionado', contato_status: null, cinzas_prontas: false, certificado_pronto: false }
   )
+  // Modal de edição dos nomes do certificado (mesmo componente do pipeline)
+  const [certModalOpen, setCertModalOpen] = useState(false)
+  // Cópia local dos nomes (atualiza ao salvar via modal pra refletir na badge sem precisar recarregar)
+  const [certNomes, setCertNomes] = useState<(string | null)[]>(certificadoNomesRaw || [])
+  const [certConfirmado, setCertConfirmado] = useState<boolean>(!!certificadoConfirmado)
+  useEffect(() => { setCertNomes(certificadoNomesRaw || []) }, [certificadoNomesRaw])
+  useEffect(() => { setCertConfirmado(!!certificadoConfirmado) }, [certificadoConfirmado])
+  const certNomesPreenchidos = certNomes.filter(n => n && n.trim()).length
+
+  // Dados editáveis do pet (espelham as props mas podem ser atualizados pelo CertificadoModal)
+  const [dadosPet, setDadosPet] = useState({
+    pet_nome: petNome,
+    pet_especie: petEspecie || null,
+    pet_raca: petRaca || null,
+    pet_genero: petGenero || null,
+  })
+  useEffect(() => {
+    setDadosPet({
+      pet_nome: petNome,
+      pet_especie: petEspecie || null,
+      pet_raca: petRaca || null,
+      pet_genero: petGenero || null,
+    })
+  }, [petNome, petEspecie, petRaca, petGenero])
+
+  // Gera o certificado (.pdf) client-side via pdf-lib
+  async function gerarCertificado() {
+    if (!gc.data_cremacao) {
+      alert('Marque a data de cremação antes de gerar o certificado.')
+      return
+    }
+    if (certNomesPreenchidos === 0) {
+      alert('Defina os nomes do certificado primeiro (botão 🏅 no topo).')
+      return
+    }
+    try {
+      const blob = await gerarCertificadoPDF({
+        codigo: contratoCodigo || '',
+        petNome: dadosPet.pet_nome,
+        petEspecie: dadosPet.pet_especie,
+        petRaca: dadosPet.pet_raca,
+        petGenero: dadosPet.pet_genero,
+        nomes: certNomes,
+        dataCremacao: gc.data_cremacao,
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = certificadoFilename(contratoCodigo || contratoId, dadosPet.pet_nome)
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      if (!gc.certificado_pronto) mudar({ certificado_pronto: true })
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Erro desconhecido'
+      alert('Falha ao gerar certificado: ' + msg)
+    }
+  }
 
   useEffect(() => {
     if (gcAtual) setGc(gcAtual)
@@ -156,14 +229,14 @@ export default function GCAcaoModal({ contratoId, petNome, tipoCremacao, petEspe
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               {numeroLacre && <span className="text-sm font-mono font-bold text-blue-300 bg-blue-900/30 px-2 py-0.5 rounded">{numeroLacre}</span>}
-              <h3 className="text-base font-bold text-[var(--shell-text)]">{petNome}</h3>
+              <h3 className="text-base font-bold text-[var(--shell-text)]">{dadosPet.pet_nome}</h3>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${isInd ? 'bg-emerald-900/30 text-emerald-400' : 'bg-purple-900/30 text-purple-400'}`}>
                 {isInd ? 'IND' : 'COL'}
               </span>
-              {petEspecie && <span className="text-[10px] text-[var(--surface-400)]">{petEspecie}</span>}
-              {petRaca && <span className="text-[10px] text-[var(--surface-400)]">· {petRaca}</span>}
+              {dadosPet.pet_especie && <span className="text-[10px] text-[var(--surface-400)]">{dadosPet.pet_especie}</span>}
+              {dadosPet.pet_raca && <span className="text-[10px] text-[var(--surface-400)]">· {dadosPet.pet_raca}</span>}
               {petPeso != null && <span className="text-[10px] text-[var(--surface-400)]">· {petPeso}kg</span>}
             </div>
             {tutorNome && (
@@ -189,6 +262,29 @@ export default function GCAcaoModal({ contratoId, petNome, tipoCremacao, petEspe
             )}
           </div>
           <div className="flex items-center gap-2 mt-1">
+            <button
+              onClick={() => setCertModalOpen(true)}
+              className="relative p-1.5 rounded-lg text-[var(--surface-400)] hover:text-amber-400 hover:bg-amber-900/10 transition-colors"
+              title="Certificado de Cremação — ver/editar nomes"
+            >
+              <Award className="h-5 w-5" />
+              {certNomesPreenchidos > 0 && (
+                <span className={`absolute -top-1 -right-1 min-w-[14px] h-[14px] flex items-center justify-center rounded-full text-[8px] font-bold text-white ${certConfirmado ? 'bg-emerald-500' : 'bg-amber-500'}`}>
+                  {certNomesPreenchidos}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={gerarCertificado}
+              disabled={!gc.data_cremacao}
+              className={`relative p-1.5 rounded-lg transition-colors ${gc.data_cremacao ? 'text-[var(--surface-400)] hover:text-emerald-400 hover:bg-emerald-900/10' : 'text-[var(--surface-300)] opacity-40 cursor-not-allowed'}`}
+              title={gc.data_cremacao ? 'Baixar Certificado de Cremação (.pdf)' : 'Disponível após registrar a data de cremação'}
+            >
+              <FileDown className="h-5 w-5" />
+              {gc.certificado_pronto && gc.data_cremacao && (
+                <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-500 ring-1 ring-slate-800" />
+              )}
+            </button>
             <button onClick={() => setObsAberto(true)} className={`relative p-1.5 rounded-lg transition-colors ${obsTemImportante ? 'text-red-400 bg-red-900/20 animate-pulse' : 'text-[var(--surface-400)] hover:text-amber-400 hover:bg-amber-900/10'}`} title="Observações">
               <MessageSquare className="h-5 w-5" />
               {obsCount > 0 && (
@@ -216,8 +312,8 @@ export default function GCAcaoModal({ contratoId, petNome, tipoCremacao, petEspe
                 const bgColor = ativo ? step.color : 'var(--surface-200)'
                 const dotTextColor = isAgendado && ativo ? '#fff' : ativo ? '#065f46' : 'var(--surface-400)'
                 return (
-                  <div key={step.key || 'null'} className="flex items-center flex-1">
-                    <div className="flex flex-col items-center gap-1">
+                  <Fragment key={step.key || 'null'}>
+                    <div className="flex flex-col items-center gap-1 flex-shrink-0">
                       <div
                         className={`w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold transition-all ${atual ? 'ring-2 ring-offset-2' : ''}`}
                         style={{ background: bgColor, color: dotTextColor, outlineColor: atual ? step.color : 'transparent' }}
@@ -229,7 +325,7 @@ export default function GCAcaoModal({ contratoId, petNome, tipoCremacao, petEspe
                     {i < CONTATO_STEPS.length - 1 && (
                       <div className="flex-1 h-0.5 mx-1" style={{ background: i < contatoIdx ? CONTATO_STEPS[i + 1].color : 'var(--surface-200)' }} />
                     )}
-                  </div>
+                  </Fragment>
                 )
               })}
             </div>
@@ -383,8 +479,8 @@ export default function GCAcaoModal({ contratoId, petNome, tipoCremacao, petEspe
                 const ativo = i <= etapaIdx
                 const atual = step.key === etapa
                 return (
-                  <div key={step.key} className="flex items-center flex-1">
-                    <div className="flex flex-col items-center gap-1">
+                  <Fragment key={step.key}>
+                    <div className="flex flex-col items-center gap-1 flex-shrink-0">
                       <div
                         className={`w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold transition-all ${atual ? 'ring-2 ring-offset-2' : ''}`}
                         style={{ background: ativo ? step.color : 'var(--surface-200)', color: ativo ? '#fff' : 'var(--surface-400)', outlineColor: atual ? step.color : 'transparent' }}
@@ -396,7 +492,7 @@ export default function GCAcaoModal({ contratoId, petNome, tipoCremacao, petEspe
                     {i < ETAPA_STEPS.length - 1 && (
                       <div className="flex-1 h-0.5 mx-1" style={{ background: i < etapaIdx ? ETAPA_STEPS[i + 1].color : 'var(--surface-200)' }} />
                     )}
-                  </div>
+                  </Fragment>
                 )
               })}
             </div>
@@ -456,11 +552,12 @@ export default function GCAcaoModal({ contratoId, petNome, tipoCremacao, petEspe
                   </span>
                 </button>
               )}
-              <button onClick={() => mudar({ certificado_pronto: !gc.certificado_pronto })}
+              <button
+                onClick={gerarCertificado}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-colors ${gc.certificado_pronto ? 'border-emerald-500 bg-emerald-900/10' : 'border-[var(--surface-200)] hover:bg-[var(--surface-50)]'}`}>
                 <Award className={`h-5 w-5 ${gc.certificado_pronto ? 'text-emerald-400' : 'text-[var(--surface-400)]'}`} />
                 <span className={`text-sm font-semibold ${gc.certificado_pronto ? 'text-emerald-400' : 'text-[var(--shell-text)]'}`}>
-                  Certificado {gc.certificado_pronto ? '✓' : 'no nicho'}
+                  {gc.certificado_pronto ? 'Certificado ✓ (regerar)' : 'Gerar Certificado'}
                 </span>
               </button>
               {((isInd && gc.cinzas_prontas && gc.certificado_pronto) || (!isInd && gc.certificado_pronto)) && (
@@ -524,6 +621,48 @@ export default function GCAcaoModal({ contratoId, petNome, tipoCremacao, petEspe
           </div>
         </div>
       )}
+
+      {/* Sub-modal Certificado — mesmo do pipeline. Two-way: salva no banco e atualiza local */}
+      <CertificadoModal
+        isOpen={certModalOpen}
+        onClose={() => setCertModalOpen(false)}
+        contrato={{
+          id: contratoId,
+          codigo: contratoCodigo || '',
+          pet_nome: dadosPet.pet_nome,
+          pet_especie: dadosPet.pet_especie,
+          pet_raca: dadosPet.pet_raca,
+          pet_genero: dadosPet.pet_genero,
+          tutor_nome: tutorNome || '',
+          tutor: tutorNome ? { nome: tutorNome } : null,
+          certificado_nome_1: certNomes[0] || null,
+          certificado_nome_2: certNomes[1] || null,
+          certificado_nome_3: certNomes[2] || null,
+          certificado_nome_4: certNomes[3] || null,
+          certificado_nome_5: certNomes[4] || null,
+          certificado_nome_6: certNomes[5] || null,
+          certificado_nome_7: certNomes[6] || null,
+          certificado_confirmado: certConfirmado,
+        }}
+        onSuccess={(upd) => {
+          const novos = [upd.certificado_nome_1, upd.certificado_nome_2, upd.certificado_nome_3, upd.certificado_nome_4, upd.certificado_nome_5, upd.certificado_nome_6, upd.certificado_nome_7]
+          setCertNomes(novos)
+          setCertConfirmado(upd.certificado_confirmado)
+          // Snapshot atualizado vem em upd.contrato_gc (após migration 081)
+          if (upd.contrato_gc) {
+            const petDadosNovos = {
+              pet_nome: upd.contrato_gc.pet_nome,
+              pet_especie: upd.contrato_gc.pet_especie,
+              pet_raca: upd.contrato_gc.pet_raca,
+              pet_genero: upd.contrato_gc.pet_genero,
+            }
+            setDadosPet(petDadosNovos)
+            onCertificadoSaved?.(novos, upd.certificado_confirmado, petDadosNovos)
+          } else {
+            onCertificadoSaved?.(novos, upd.certificado_confirmado)
+          }
+        }}
+      />
     </div>
   )
 }

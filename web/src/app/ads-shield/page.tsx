@@ -7,6 +7,7 @@ import {
   MousePointerClick, AlertTriangle, CheckCircle2
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { hojeLocal } from '@/lib/date-local'
 import { Skeleton } from '@/components/ui/Skeleton'
 import EmptyState from '@/components/ui/EmptyState'
 import Badge from '@/components/ui/Badge'
@@ -268,7 +269,7 @@ export default function AdsShieldPage() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `rip-shield-ips-${new Date().toISOString().slice(0, 10)}.txt`
+    a.download = `rip-shield-ips-${hojeLocal()}.txt`
     a.click()
     URL.revokeObjectURL(url)
   }

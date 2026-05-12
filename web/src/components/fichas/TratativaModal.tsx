@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
 import { gerarContratoPDF, contratoFilename } from '@/lib/contrato-pdf'
+import { hojeLocal } from '@/lib/date-local'
 
 // ============================================
 // Types
@@ -285,7 +286,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   // Legado (manter pra padronização com busca)
   const [clinicaTextoLivre, setClinicaTextoLivre] = useState('')
   // Outros
-  const [dataContrato, setDataContrato] = useState(new Date().toISOString().split('T')[0])
+  const [dataContrato, setDataContrato] = useState(hojeLocal())
 
   const [salvando, setSalvando] = useState(false)
   const [confirmarRetorno, setConfirmarRetorno] = useState(false)
@@ -385,7 +386,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       setValorPlano('')
       setLacre('')
       setSemLacre(false)
-      setDataContrato(new Date().toISOString().split('T')[0])
+      setDataContrato(hojeLocal())
       setSalvando(false)
       setTutorExistente(null)
       setTutorChecked(false)
@@ -777,7 +778,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         acompanhamento_online: f.acompanhamento?.includes('On-line') || false,
         acompanhamento_presencial: f.acompanhamento?.includes('Presencial') || false,
         valor_plano: valorPlano ? parseFloat(valorPlano) : null,
-        desconto_plano: (() => {
+        desconto_plano_unificado: (() => {
           const d = parseFloat(descontoPreVenda) || 0
           if (!d) return 0
           if (descontoTipo === 'percentual') return ((parseFloat(valorPlano) || 0) * d) / 100

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { hojeLocal } from '@/lib/date-local'
 
 type ContratoMinimal = {
   id: string
@@ -30,7 +31,7 @@ export default function EntregaModal({ isOpen, onClose, contrato, onSuccess }: P
 
   async function confirmarEntrega() {
     const dataEntrega = entregaForm.dataHoje
-      ? new Date().toISOString().split('T')[0]
+      ? hojeLocal()
       : entregaForm.data_entrega
 
     if (!dataEntrega) {
@@ -102,7 +103,7 @@ export default function EntregaModal({ isOpen, onClose, contrato, onSuccess }: P
                   type="button"
                   onClick={() => setEntregaForm({
                     dataHoje: false,
-                    data_entrega: new Date().toISOString().split('T')[0]
+                    data_entrega: hojeLocal()
                   })}
                   className="px-2 py-0.5 rounded text-xs text-white/70 hover:text-white transition-colors"
                 >
