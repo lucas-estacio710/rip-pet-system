@@ -1,13 +1,13 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, Fragment } from 'react'
 import { useRouter } from 'next/navigation'
-import { Boxes, Grid, List, Search, Package, AlertTriangle, ShoppingCart, Target, X, Plus, Minus, Trash2, Save, TrendingUp, Sliders, Flame, Pencil } from 'lucide-react'
+import { Boxes, Grid, List, Search, Package, AlertTriangle, ShoppingCart, Target, X, Plus, Minus, Trash2, Save, TrendingUp, Sliders, Pencil, Check } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import { Skeleton } from '@/components/ui/Skeleton'
 import EmptyState from '@/components/ui/EmptyState'
-import FilterDropdown, { type FilterOption } from '@/components/ui/FilterDropdown'
+import ProdutosFilterBar, { type StatusEstoqueFiltro } from '@/components/ui/ProdutosFilterBar'
 import { ordenarCategoriasUrnas, ORDEM_ACESSORIOS } from '@/lib/categorias'
 import { hojeLocal, dataLocal } from '@/lib/date-local'
 
@@ -89,7 +89,27 @@ export default function EstoquePage() {
   // Carrinhos (persist em localStorage por unidade)
   const [carrinhoEntrada, setCarrinhoEntrada] = useState<Record<string, number>>({})
   const [carrinhoMinimo, setCarrinhoMinimo] = useState<Record<string, number>>({})
-  const [criticosPrimeiro, setCriticosPrimeiro] = useState(false)
+  // Grupos família/subfamília colapsados nas tabs Entrada e Mínimo (chave: `${tab}|${tipo}|${categoria}`)
+  const [gruposColapsados, setGruposColapsados] = useState<Set<string>>(new Set())
+  function toggleGrupo(key: string) {
+    setGruposColapsados(prev => {
+      const n = new Set(prev)
+      if (n.has(key)) n.delete(key); else n.add(key)
+      return n
+    })
+  }
+  // Mosaico visual do estoque (uma imagem por unidade física)
+  const [visualEstoque, setVisualEstoque] = useState<{ tipoLabel: string; categoria: string; produtos: Produto[] } | null>(null)
+  // Tiques de validação visual no modal de "Visual do estoque" — não persiste em banco, resetam ao reabrir
+  const [tiquesVistos, setTiquesVistos] = useState<Set<string>>(new Set())
+  useEffect(() => { if (!visualEstoque) setTiquesVistos(new Set()) }, [visualEstoque])
+  function toggleTique(pid: string) {
+    setTiquesVistos(prev => {
+      const n = new Set(prev)
+      if (n.has(pid)) n.delete(pid); else n.add(pid)
+      return n
+    })
+  }
 
   // Salvamento
   const [modalSalvarEntrada, setModalSalvarEntrada] = useState(false)
@@ -106,7 +126,7 @@ export default function EstoquePage() {
   const [vendasPorProduto, setVendasPorProduto] = useState<Record<string, { d30: number; d90: number; d180: number }>>({})
 
   // Tab Histórico (Últimas Entradas)
-  type ItemRemessa = { id: string; produto_id: string; produto_nome: string; produto_codigo: string; quantidade: number; custo_unitario: number | null }
+  type ItemRemessa = { id: string; produto_id: string; produto_nome: string; produto_codigo: string; produto_imagem_url: string | null; quantidade: number; custo_unitario: number | null }
   type Remessa = { data: string; nome: string; itens: ItemRemessa[]; totalProdutos: number; totalUnidades: number }
   const [historicoData, setHistoricoData] = useState<Remessa[]>([])
   const [loadingHist, setLoadingHist] = useState(false)
@@ -309,7 +329,7 @@ export default function EstoquePage() {
     setLoadingHist(true)
     let q = supabase
       .from('estoque_entradas')
-      .select('id, produto_id, quantidade, data_entrada, remessa, custo_unitario, produtos!inner(nome, codigo)')
+      .select('id, produto_id, quantidade, data_entrada, remessa, custo_unitario, produtos!inner(nome, codigo, imagem_url)')
       .eq('unidade_id', currentUnit.id)
       .order('data_entrada', { ascending: false })
       .order('created_at', { ascending: false })
@@ -318,7 +338,7 @@ export default function EstoquePage() {
       q = q.gte('data_entrada', since)
     }
     const { data } = await q
-    type Row = { id: string; produto_id: string; quantidade: number; data_entrada: string; remessa: string | null; custo_unitario: number | null; produtos: { nome: string; codigo: string } }
+    type Row = { id: string; produto_id: string; quantidade: number; data_entrada: string; remessa: string | null; custo_unitario: number | null; produtos: { nome: string; codigo: string; imagem_url: string | null } }
     const rows = (data || []) as unknown as Row[]
     const map = new Map<string, Remessa>()
     for (const r of rows) {
@@ -333,6 +353,7 @@ export default function EstoquePage() {
         produto_id: r.produto_id,
         produto_nome: r.produtos?.nome || '(sem nome)',
         produto_codigo: r.produtos?.codigo || '?',
+        produto_imagem_url: r.produtos?.imagem_url || null,
         quantidade: r.quantidade,
         custo_unitario: r.custo_unitario,
       })
@@ -483,15 +504,8 @@ export default function EstoquePage() {
       }
       return true
     })
-    if (criticosPrimeiro && (tab === 'entrada' || tab === 'minimo')) {
-      out = [...out].sort((a, b) => {
-        const ca = isCritico(a) ? 1 : 0
-        const cb = isCritico(b) ? 1 : 0
-        return cb - ca
-      })
-    }
     return out
-  }, [produtos, filtro, filtroCategoria, filtroEstoque, busca, criticosPrimeiro, tab])
+  }, [produtos, filtro, filtroCategoria, filtroEstoque, busca, tab])
 
   // Aplica só busca — base para contadores facetados
   const produtosPorBusca = busca
@@ -604,99 +618,21 @@ export default function EstoquePage() {
         })}
       </div>
 
-      {/* Toolbar única: busca + 3 dropdowns + toggle críticos */}
-      <div className="mb-4 flex items-center gap-2 flex-wrap">
-        {/* Busca */}
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--surface-400)]" />
-          <input
-            type="text"
-            placeholder="Buscar produto..."
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            className="input pl-9 pr-9 py-1.5 text-sm"
+      {/* Toolbar nova: busca + status inline + chips de subfamílias */}
+      <div className="flex items-start gap-2">
+        <div className="flex-1 min-w-0">
+          <ProdutosFilterBar
+            produtos={produtos}
+            busca={busca}
+            onBusca={setBusca}
+            tipo={filtro}
+            onTipo={setFiltro}
+            categoria={filtroCategoria}
+            onCategoria={setFiltroCategoria}
+            status={filtroEstoque as StatusEstoqueFiltro}
+            onStatus={(v) => setFiltroEstoque(v)}
           />
-          {busca && (
-            <button
-              onClick={() => setBusca('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--surface-400)] hover:text-[var(--surface-600)]"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          )}
         </div>
-
-        {/* Tipo */}
-        <FilterDropdown
-          label="Tipo"
-          icon={Package}
-          value={filtro}
-          options={[
-            { value: 'urna', label: 'Urnas', count: contadores.urna },
-            { value: 'acessorio', label: 'Acessórios', count: contadores.acessorio },
-          ]}
-          onChange={(v) => { setFiltro(v); setFiltroCategoria('') }}
-          toneActive="purple"
-        />
-
-        {/* Status */}
-        <FilterDropdown
-          label="Status"
-          icon={AlertTriangle}
-          value={filtroEstoque}
-          options={[
-            { value: 'critico', label: 'Abaixo do ideal', count: contadoresEstoque.critico },
-            { value: 'zerado', label: 'Sem estoque', count: contadoresEstoque.zerado },
-            { value: 'ok', label: 'OK', count: contadoresEstoque.ok },
-          ]}
-          onChange={setFiltroEstoque}
-          toneActive={filtroEstoque === 'critico' ? 'red' : filtroEstoque === 'zerado' ? 'orange' : 'green'}
-        />
-
-        {/* Categoria — só urna ou acessorio */}
-        {filtro === 'urna' && categoriasUrnas.length > 0 && (
-          <FilterDropdown
-            label="Categoria"
-            value={filtroCategoria}
-            options={categoriasUrnas.map<FilterOption>(cat => ({
-              value: cat,
-              label: CATEGORIA_URNA_LABELS[cat] || cat,
-              count: contadoresCategorias[cat],
-            }))}
-            onChange={setFiltroCategoria}
-            allLabel="Todas categorias"
-            toneActive="amber"
-          />
-        )}
-        {filtro === 'acessorio' && categoriasAcessorios.length > 0 && (
-          <FilterDropdown
-            label="Categoria"
-            value={filtroCategoria}
-            options={categoriasAcessorios.map<FilterOption>(cat => ({
-              value: cat,
-              label: CATEGORIA_ACESSORIO_LABELS[cat] || cat,
-              count: contadoresCategoriasAcessorios[cat],
-            }))}
-            onChange={setFiltroCategoria}
-            allLabel="Todas categorias"
-            toneActive="blue"
-          />
-        )}
-
-        {/* Críticos primeiro — só nas tabs Entrada/Mínimo */}
-        {(tab === 'entrada' || tab === 'minimo') && (
-          <button
-            onClick={() => setCriticosPrimeiro(v => !v)}
-            className={`inline-flex items-center justify-center w-9 h-9 rounded-full transition-all ${
-              criticosPrimeiro
-                ? 'bg-red-600 text-white shadow-md'
-                : 'bg-red-50 border border-red-200 text-red-700 hover:border-red-300'
-            }`}
-            title={`Críticos primeiro (${produtosFiltrados.filter(isCritico).length} críticos · ${produtosFiltrados.length} total)`}
-          >
-            <Flame className="h-4 w-4" />
-          </button>
-        )}
       </div>
 
       {/* Content — Tab Atual */}
@@ -718,9 +654,62 @@ export default function EstoquePage() {
           title="Nenhum produto encontrado"
           description={busca ? 'Tente ajustar o termo de busca' : 'Nenhum produto cadastrado'}
         />
-      ) : viewMode === 'grid' ? (
-        <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-9 gap-2.5 stagger-children">
-          {produtosFiltrados.map((produto) => {
+      ) : viewMode === 'grid' ? (() => {
+        // Agrupa por família (tipo) e subfamília (categoria); ordena alfabeticamente.
+        type Grupo = { tipo: 'urna' | 'acessorio'; categoria: string; produtos: typeof produtosFiltrados }
+        const grupos: Grupo[] = []
+        for (const tipo of ['urna', 'acessorio'] as const) {
+          const doTipo = produtosFiltrados.filter(p => p.tipo === tipo)
+          if (doTipo.length === 0) continue
+          const semCat = '__sem_categoria__'
+          const distintas = [...new Set(doTipo.map(p => p.categoria || semCat))]
+          const conhecidas = distintas.filter(c => c !== semCat)
+          const ordenadas: string[] = tipo === 'urna'
+            ? ordenarCategoriasUrnas(conhecidas)
+            : [
+                ...(ORDEM_ACESSORIOS as readonly string[]).filter(c => conhecidas.includes(c)),
+                ...conhecidas.filter(c => !(ORDEM_ACESSORIOS as readonly string[]).includes(c)),
+              ]
+          const ordenadasComSemCat = [...ordenadas, ...(distintas.includes(semCat) ? [semCat] : [])]
+          for (const cat of ordenadasComSemCat) {
+            const produtosCat = doTipo
+              .filter(p => (p.categoria || semCat) === cat)
+              .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }))
+            grupos.push({ tipo, categoria: cat === semCat ? 'Sem categoria' : cat, produtos: produtosCat })
+          }
+        }
+        return (
+        <div className="space-y-3">
+        {grupos.map(g => {
+          const grupoKey = `atual|${g.tipo}|${g.categoria}`
+          const colapsado = gruposColapsados.has(grupoKey)
+          const totalUnidades = g.produtos.reduce((acc, p) => acc + (p.estoque_infinito ? 0 : p.estoque_atual), 0)
+          return (
+          <div key={grupoKey} className="card overflow-hidden">
+            <div className="w-full px-3 py-2 bg-[var(--surface-100)] border-b border-[var(--surface-200)] flex items-center gap-2">
+              <button type="button" onClick={() => toggleGrupo(grupoKey)}
+                className="flex items-center gap-2 hover:opacity-80 transition-opacity flex-1 min-w-0 text-left">
+                <span className={`text-[var(--surface-400)] transition-transform ${colapsado ? '-rotate-90' : ''}`}>▼</span>
+                <span className="text-[10px] uppercase tracking-wider font-bold text-[var(--surface-500)]">{TIPO_LABELS[g.tipo]}</span>
+                <span className="text-[10px] text-[var(--surface-400)]">›</span>
+                <span className="text-xs font-semibold text-[var(--surface-700)]">{g.categoria}</span>
+                <span className="text-[10px] text-[var(--surface-400)] tabular-nums">{g.produtos.length}</span>
+              </button>
+              {!filtroEstoque && (
+                <button type="button"
+                  onClick={(e) => { e.stopPropagation(); setVisualEstoque({ tipoLabel: TIPO_LABELS[g.tipo], categoria: g.categoria, produtos: g.produtos }) }}
+                  className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-semibold text-purple-700 bg-purple-100 hover:bg-purple-200 rounded transition-colors"
+                  title={`Visualização do estoque (${totalUnidades} un)`}
+                >
+                  <Package className="h-3 w-3" />
+                  <span className="hidden sm:inline">Visual</span>
+                  <span className="tabular-nums">{totalUnidades}</span>
+                </button>
+              )}
+            </div>
+            {!colapsado && (
+            <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-9 gap-2.5 p-2 stagger-children">
+          {g.produtos.map((produto) => {
             const statusEstoque = getStatusEstoque(produto.estoque_atual, produto.estoque_minimo, produto.estoque_infinito)
 
             return (
@@ -795,9 +784,53 @@ export default function EstoquePage() {
               </div>
             )
           })}
+            </div>
+            )}
+          </div>
+          )
+        })}
         </div>
-      ) : (
-        <div className="card overflow-hidden">
+        )
+      })() : (() => {
+        // Mesma lógica de agrupamento aplicada à tabela
+        type Grupo = { tipo: 'urna' | 'acessorio'; categoria: string; produtos: typeof produtosFiltrados }
+        const grupos: Grupo[] = []
+        for (const tipo of ['urna', 'acessorio'] as const) {
+          const doTipo = produtosFiltrados.filter(p => p.tipo === tipo)
+          if (doTipo.length === 0) continue
+          const semCat = '__sem_categoria__'
+          const distintas = [...new Set(doTipo.map(p => p.categoria || semCat))]
+          const conhecidas = distintas.filter(c => c !== semCat)
+          const ordenadas: string[] = tipo === 'urna'
+            ? ordenarCategoriasUrnas(conhecidas)
+            : [
+                ...(ORDEM_ACESSORIOS as readonly string[]).filter(c => conhecidas.includes(c)),
+                ...conhecidas.filter(c => !(ORDEM_ACESSORIOS as readonly string[]).includes(c)),
+              ]
+          const ordenadasComSemCat = [...ordenadas, ...(distintas.includes(semCat) ? [semCat] : [])]
+          for (const cat of ordenadasComSemCat) {
+            const produtosCat = doTipo
+              .filter(p => (p.categoria || semCat) === cat)
+              .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }))
+            grupos.push({ tipo, categoria: cat === semCat ? 'Sem categoria' : cat, produtos: produtosCat })
+          }
+        }
+        return (
+        <div className="space-y-3">
+        {grupos.map(g => {
+          const grupoKey = `atual|${g.tipo}|${g.categoria}`
+          const colapsado = gruposColapsados.has(grupoKey)
+          return (
+          <div key={grupoKey} className="card overflow-hidden">
+            <button type="button" onClick={() => toggleGrupo(grupoKey)}
+              className="w-full px-3 py-2 bg-[var(--surface-100)] border-b border-[var(--surface-200)] flex items-center gap-2 hover:bg-[var(--surface-200)] transition-colors">
+              <span className={`text-[var(--surface-400)] transition-transform ${colapsado ? '-rotate-90' : ''}`}>▼</span>
+              <span className="text-[10px] uppercase tracking-wider font-bold text-[var(--surface-500)]">{TIPO_LABELS[g.tipo]}</span>
+              <span className="text-[10px] text-[var(--surface-400)]">›</span>
+              <span className="text-xs font-semibold text-[var(--surface-700)]">{g.categoria}</span>
+              <span className="ml-auto text-[10px] text-[var(--surface-400)] tabular-nums">{g.produtos.length}</span>
+            </button>
+            {!colapsado && (
           <table className="w-full">
             <thead className="bg-[var(--surface-50)] border-b border-[var(--surface-200)]">
               <tr>
@@ -810,7 +843,7 @@ export default function EstoquePage() {
               </tr>
             </thead>
             <tbody>
-              {produtosFiltrados.map((produto) => {
+              {g.produtos.map((produto) => {
                 const statusEstoque = getStatusEstoque(produto.estoque_atual, produto.estoque_minimo, produto.estoque_infinito)
 
                 return (
@@ -880,8 +913,13 @@ export default function EstoquePage() {
               })}
             </tbody>
           </table>
+            )}
+          </div>
+          )
+        })}
         </div>
-      ))}
+        )
+      })())}
 
       {/* ============================ */}
       {/* Tab: ENTRADA (carrinho) */}
@@ -956,26 +994,77 @@ export default function EstoquePage() {
             </div>
           ) : produtosFiltrados.length === 0 ? (
             <EmptyState icon={Package} title="Nenhum produto" description={busca ? 'Ajuste a busca' : 'Sem produtos cadastrados'} />
-          ) : (
-            <div className="card overflow-hidden">
-              {produtosFiltrados.filter(p => !p.estoque_infinito).map(p => {
-                const qtd = carrinhoEntrada[p.id] || 0
-                const status = getStatusEstoque(p.estoque_atual, p.estoque_minimo, p.estoque_infinito)
-                const apos = p.estoque_infinito ? null : p.estoque_atual + qtd
-                const desabilitado = !!p.estoque_infinito
-                const critico = isCritico(p)
-                return (
+          ) : (() => {
+            // Agrupa por família (tipo) e subfamília (categoria); ordena alfabeticamente
+            // dentro de cada subgrupo.
+            const elegiveis = produtosFiltrados.filter(p => !p.estoque_infinito)
+            type Grupo = { tipo: 'urna' | 'acessorio'; categoria: string; produtos: typeof elegiveis }
+            const grupos: Grupo[] = []
+            for (const tipo of ['urna', 'acessorio'] as const) {
+              const doTipo = elegiveis.filter(p => p.tipo === tipo)
+              if (doTipo.length === 0) continue
+              const semCat = '__sem_categoria__'
+              const distintas = [...new Set(doTipo.map(p => p.categoria || semCat))]
+              const conhecidas = distintas.filter(c => c !== semCat)
+              const ordenadas: string[] = tipo === 'urna'
+                ? ordenarCategoriasUrnas(conhecidas)
+                : [
+                    ...(ORDEM_ACESSORIOS as readonly string[]).filter(c => conhecidas.includes(c)),
+                    ...conhecidas.filter(c => !(ORDEM_ACESSORIOS as readonly string[]).includes(c)),
+                  ]
+              const ordenadasComSemCat = [...ordenadas, ...(distintas.includes(semCat) ? [semCat] : [])]
+              for (const cat of ordenadasComSemCat) {
+                const produtosCat = doTipo
+                  .filter(p => (p.categoria || semCat) === cat)
+                  .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }))
+                grupos.push({
+                  tipo,
+                  categoria: cat === semCat ? 'Sem categoria' : cat,
+                  produtos: produtosCat,
+                })
+              }
+            }
+
+            return (
+              <div className="space-y-3">
+                {grupos.map(g => {
+                  const grupoKey = `entrada|${g.tipo}|${g.categoria}`
+                  const colapsado = gruposColapsados.has(grupoKey)
+                  const qtdNoGrupo = g.produtos.reduce((acc, p) => acc + (carrinhoEntrada[p.id] || 0), 0)
+                  return (
+                  <div key={grupoKey} className="card overflow-hidden">
+                    <button type="button" onClick={() => toggleGrupo(grupoKey)}
+                      className="w-full px-3 py-2 bg-[var(--surface-100)] border-b border-[var(--surface-200)] flex items-center gap-2 hover:bg-[var(--surface-200)] transition-colors">
+                      <span className={`text-[var(--surface-400)] transition-transform ${colapsado ? '-rotate-90' : ''}`}>▼</span>
+                      <span className="text-[10px] uppercase tracking-wider font-bold text-[var(--surface-500)]">{TIPO_LABELS[g.tipo]}</span>
+                      <span className="text-[10px] text-[var(--surface-400)]">›</span>
+                      <span className="text-xs font-semibold text-[var(--surface-700)]">{g.categoria}</span>
+                      {qtdNoGrupo > 0 && (
+                        <span className="ml-2 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">
+                          +{qtdNoGrupo}
+                        </span>
+                      )}
+                      <span className="ml-auto text-[10px] text-[var(--surface-400)] tabular-nums">{g.produtos.length}</span>
+                    </button>
+                    {!colapsado && (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 lg:gap-x-2">
+                    {g.produtos.map(p => {
+                      const qtd = carrinhoEntrada[p.id] || 0
+                      const status = getStatusEstoque(p.estoque_atual, p.estoque_minimo, p.estoque_infinito)
+                      const apos = p.estoque_infinito ? null : p.estoque_atual + qtd
+                      const desabilitado = !!p.estoque_infinito
+                      const critico = isCritico(p)
+                      return (
                   <div key={p.id} className={`flex items-center gap-3 p-3 border-b border-[var(--surface-100)] last:border-b-0 ${qtd > 0 ? 'bg-emerald-50/30' : ''} ${desabilitado ? 'opacity-50' : ''}`}>
                     <div className="w-12 h-12 rounded-md bg-[var(--surface-100)] overflow-hidden flex-shrink-0 relative">
                       <img src={p.imagem_url || getImagemUrl(p.codigo)} alt="" className="w-full h-full object-cover"
                         onError={(e) => { const t = e.target as HTMLImageElement; t.style.visibility = 'hidden' }} />
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium text-sm text-[var(--surface-800)] truncate">{p.nome}</p>
-                        {critico && <AlertTriangle className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />}
+                    <div className="flex-1 min-w-0 sm:flex-initial sm:w-[280px] sm:max-w-[280px] lg:flex-1 lg:w-auto lg:max-w-none xl:flex-initial xl:w-[280px] xl:max-w-[280px]">
+                      <div className="flex items-start gap-2">
+                        <p className="font-medium text-sm text-[var(--surface-800)] line-clamp-2 leading-tight">{p.nome}</p>
+                        {critico && <AlertTriangle className="h-3.5 w-3.5 text-red-500 flex-shrink-0 mt-0.5" />}
                       </div>
-                      <p className="text-xs text-[var(--surface-400)]">{TIPO_LABELS[p.tipo]}</p>
                     </div>
                     <div className="text-right hidden sm:flex gap-4">
                       <div className="flex flex-col items-end">
@@ -1014,9 +1103,15 @@ export default function EstoquePage() {
                     )}
                   </div>
                 )
-              })}
-            </div>
-          )}
+                    })}
+                    </div>
+                    )}
+                  </div>
+                  )
+                })}
+              </div>
+            )
+          })()}
         </div>
       )}
 
@@ -1093,26 +1188,77 @@ export default function EstoquePage() {
             </div>
           ) : produtosFiltrados.length === 0 ? (
             <EmptyState icon={Package} title="Nenhum produto" description={busca ? 'Ajuste a busca' : 'Sem produtos cadastrados'} />
-          ) : (
-            <div className="card overflow-hidden">
-              {produtosFiltrados.filter(p => !p.estoque_infinito).map(p => {
-                const minAtual = p.estoque_minimo
-                const valor = carrinhoMinimo[p.id] !== undefined ? carrinhoMinimo[p.id] : minAtual
-                const alterado = carrinhoMinimo[p.id] !== undefined
-                const desabilitado = !!p.estoque_infinito
-                const critico = isCritico(p)
-                return (
-                  <div key={p.id} className={`flex items-center gap-3 p-3 border-b border-[var(--surface-100)] last:border-b-0 ${alterado ? 'bg-amber-50/40' : ''} ${desabilitado ? 'opacity-50' : ''}`}>
+          ) : (() => {
+            // Agrupa por família (tipo) e subfamília (categoria); ordena alfabeticamente
+            // dentro de cada subgrupo.
+            const elegiveis = produtosFiltrados.filter(p => !p.estoque_infinito)
+            type Grupo = { tipo: 'urna' | 'acessorio'; categoria: string; produtos: typeof elegiveis }
+            const grupos: Grupo[] = []
+            for (const tipo of ['urna', 'acessorio'] as const) {
+              const doTipo = elegiveis.filter(p => p.tipo === tipo)
+              if (doTipo.length === 0) continue
+              const semCat = '__sem_categoria__'
+              const distintas = [...new Set(doTipo.map(p => p.categoria || semCat))]
+              const conhecidas = distintas.filter(c => c !== semCat)
+              const ordenadas: string[] = tipo === 'urna'
+                ? ordenarCategoriasUrnas(conhecidas)
+                : [
+                    ...(ORDEM_ACESSORIOS as readonly string[]).filter(c => conhecidas.includes(c)),
+                    ...conhecidas.filter(c => !(ORDEM_ACESSORIOS as readonly string[]).includes(c)),
+                  ]
+              const ordenadasComSemCat = [...ordenadas, ...(distintas.includes(semCat) ? [semCat] : [])]
+              for (const cat of ordenadasComSemCat) {
+                const produtosCat = doTipo
+                  .filter(p => (p.categoria || semCat) === cat)
+                  .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }))
+                grupos.push({
+                  tipo,
+                  categoria: cat === semCat ? 'Sem categoria' : cat,
+                  produtos: produtosCat,
+                })
+              }
+            }
+
+            return (
+              <div className="space-y-3">
+                {grupos.map(g => {
+                  const grupoKey = `minimo|${g.tipo}|${g.categoria}`
+                  const colapsado = gruposColapsados.has(grupoKey)
+                  const alteradosNoGrupo = g.produtos.filter(p => carrinhoMinimo[p.id] !== undefined).length
+                  return (
+                  <div key={grupoKey} className="card overflow-hidden">
+                    <button type="button" onClick={() => toggleGrupo(grupoKey)}
+                      className="w-full px-3 py-2 bg-[var(--surface-100)] border-b border-[var(--surface-200)] flex items-center gap-2 hover:bg-[var(--surface-200)] transition-colors">
+                      <span className={`text-[var(--surface-400)] transition-transform ${colapsado ? '-rotate-90' : ''}`}>▼</span>
+                      <span className="text-[10px] uppercase tracking-wider font-bold text-[var(--surface-500)]">{TIPO_LABELS[g.tipo]}</span>
+                      <span className="text-[10px] text-[var(--surface-400)]">›</span>
+                      <span className="text-xs font-semibold text-[var(--surface-700)]">{g.categoria}</span>
+                      {alteradosNoGrupo > 0 && (
+                        <span className="ml-2 text-[10px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
+                          {alteradosNoGrupo} alt.
+                        </span>
+                      )}
+                      <span className="ml-auto text-[10px] text-[var(--surface-400)] tabular-nums">{g.produtos.length}</span>
+                    </button>
+                    {!colapsado && (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 lg:gap-x-2">
+                    {g.produtos.map(p => {
+                      const minAtual = p.estoque_minimo
+                      const valor = carrinhoMinimo[p.id] !== undefined ? carrinhoMinimo[p.id] : minAtual
+                      const alterado = carrinhoMinimo[p.id] !== undefined
+                      const desabilitado = !!p.estoque_infinito
+                      const critico = isCritico(p)
+                      return (
+                  <div key={p.id} className={`flex items-center gap-3 p-3 border-b border-[var(--surface-100)] last:border-b-0 ${valor === 0 ? 'bg-slate-500/15' : 'bg-emerald-500/15'} ${desabilitado ? 'opacity-50' : ''}`}>
                     <div className="w-12 h-12 rounded-md bg-[var(--surface-100)] overflow-hidden flex-shrink-0">
                       <img src={p.imagem_url || getImagemUrl(p.codigo)} alt="" className="w-full h-full object-cover"
                         onError={(e) => { const t = e.target as HTMLImageElement; t.style.visibility = 'hidden' }} />
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium text-sm text-[var(--surface-800)] truncate">{p.nome}</p>
-                        {critico && <AlertTriangle className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />}
+                    <div className="flex-1 min-w-0 sm:flex-initial sm:w-[280px] sm:max-w-[280px] lg:flex-1 lg:w-auto lg:max-w-none xl:flex-initial xl:w-[280px] xl:max-w-[280px]">
+                      <div className="flex items-start gap-2">
+                        <p className="font-medium text-sm text-[var(--surface-800)] line-clamp-2 leading-tight">{p.nome}</p>
+                        {critico && <AlertTriangle className="h-3.5 w-3.5 text-red-500 flex-shrink-0 mt-0.5" />}
                       </div>
-                      <p className="text-xs text-[var(--surface-400)]">{p.codigo} · {TIPO_LABELS[p.tipo]}</p>
                     </div>
                     <div className="text-right hidden sm:flex flex-col items-end">
                       <span className="text-[10px] uppercase tracking-wide text-[var(--surface-400)]">Estoque Atual</span>
@@ -1121,7 +1267,7 @@ export default function EstoquePage() {
                       </span>
                     </div>
                     {/* Vendas: total + janelas 30/90/180 dias */}
-                    <div className="hidden md:flex flex-col items-end min-w-[140px]">
+                    <div className="hidden md:flex lg:hidden xl:flex flex-col items-end min-w-[140px]">
                       <span className="text-[10px] uppercase tracking-wide text-[var(--surface-400)]">Vendas</span>
                       <div className="flex items-baseline gap-1.5 mt-0.5">
                         <span className="text-xl font-bold text-mono leading-none text-purple-600">{p.qtde_vendida || 0}</span>
@@ -1201,9 +1347,15 @@ export default function EstoquePage() {
                     )}
                   </div>
                 )
-              })}
-            </div>
-          )}
+                    })}
+                    </div>
+                    )}
+                  </div>
+                  )
+                })}
+              </div>
+            )
+          })()}
         </div>
       )}
 
@@ -1307,13 +1459,15 @@ export default function EstoquePage() {
                       <div>
                         {remessa.itens.map(item => (
                           <div key={item.id} className="flex items-center gap-3 px-4 py-2 border-b border-[var(--surface-100)] last:border-b-0 hover:bg-[var(--surface-50)]">
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm text-[var(--surface-800)] truncate">{item.produto_nome}</p>
-                              <p className="text-[10px] text-[var(--surface-400)]">{item.produto_codigo}</p>
+                            <div className="w-10 h-10 rounded bg-[var(--surface-100)] overflow-hidden flex-shrink-0 flex items-center justify-center">
+                              <img
+                                src={item.produto_imagem_url || getImagemUrl(item.produto_codigo)}
+                                alt={item.produto_nome}
+                                className="w-full h-full object-cover"
+                                onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                              />
                             </div>
-                            {item.custo_unitario != null && item.custo_unitario > 0 && (
-                              <span className="text-xs text-[var(--surface-500)] hidden sm:inline">R$ {item.custo_unitario.toFixed(2)}/un</span>
-                            )}
+                            <p className="flex-1 min-w-0 text-sm text-[var(--surface-800)] truncate">{item.produto_nome}</p>
                             <input
                               type="number" min="0" defaultValue={item.quantidade}
                               onBlur={e => {
@@ -1411,6 +1565,91 @@ export default function EstoquePage() {
           </div>
         </div>
       )}
+
+      {/* Modal: Visual do estoque (mosaico — uma imagem por unidade física) */}
+      {visualEstoque && (() => {
+        const totalUnidades = visualEstoque.produtos.reduce((acc, p) => acc + (p.estoque_infinito ? 0 : p.estoque_atual), 0)
+        const totalProdutos = visualEstoque.produtos.filter(p => !p.estoque_infinito && p.estoque_atual > 0).length
+        return (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4" onClick={() => setVisualEstoque(null)}>
+          <div className="bg-[var(--surface-0)] rounded-2xl shadow-2xl max-w-5xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-[var(--surface-200)]"
+            onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="px-5 py-4 flex items-center justify-between border-b border-[var(--surface-200)] flex-shrink-0">
+              <div>
+                <h3 className="text-base font-bold text-[var(--shell-text)]">
+                  📦 Visual do estoque
+                </h3>
+                <p className="text-xs text-[var(--surface-500)] mt-0.5">
+                  <span className="font-semibold">{visualEstoque.tipoLabel}</span> › <span>{visualEstoque.categoria}</span>
+                  <span className="mx-2 text-[var(--surface-300)]">·</span>
+                  <span className="text-emerald-600 font-bold">{totalUnidades}</span> un em <span className="font-semibold">{totalProdutos}</span> produto{totalProdutos !== 1 ? 's' : ''}
+                </p>
+              </div>
+              <button onClick={() => setVisualEstoque(null)} className="text-[var(--surface-400)] hover:text-[var(--shell-text)]">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            {/* Conteúdo: mosaico contínuo — uma imagem por unidade física, com pequeno espaço entre produtos diferentes */}
+            <div className="overflow-y-auto p-4">
+              {(() => {
+                const comEstoque = visualEstoque.produtos.filter(p => !p.estoque_infinito && p.estoque_atual > 0)
+                if (comEstoque.length === 0) {
+                  return <p className="text-center text-sm text-[var(--surface-400)] py-8 italic">Nenhuma unidade em estoque nesta categoria.</p>
+                }
+                return (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {comEstoque.map((p, idx) => {
+                      const imgSrc = p.imagem_url || getImagemUrl(p.codigo)
+                      const visto = tiquesVistos.has(p.id)
+                      return (
+                        <Fragment key={p.id}>
+                          {/* Colchete de abertura + qtd + tique */}
+                          <div className="flex items-center gap-1 self-center text-xs font-mono text-[var(--surface-500)]">
+                            <span className="text-base leading-none text-[var(--surface-400)]">[</span>
+                            <span className="font-bold tabular-nums">{p.estoque_atual}</span>
+                            <button
+                              type="button"
+                              onClick={() => toggleTique(p.id)}
+                              className={`inline-flex items-center justify-center w-5 h-5 rounded border transition-colors ${visto ? 'bg-emerald-500 border-emerald-500 text-white' : 'bg-transparent border-[var(--surface-300)] text-transparent hover:border-emerald-400'}`}
+                              title={visto ? 'Marcar como não conferido' : 'Marcar como conferido'}
+                            >
+                              <Check className="h-3 w-3" />
+                            </button>
+                          </div>
+                          {/* Imagens — quando > 8, mostra só 1 thumb com badge "xN" pra não estourar o layout */}
+                          {p.estoque_atual > 8 ? (
+                            <div className={`relative w-14 h-14 rounded-md bg-[var(--surface-100)] overflow-hidden flex-shrink-0 transition-opacity ${visto ? 'opacity-50' : ''}`}
+                              title={`${p.nome} (${p.estoque_atual} un)`}>
+                              <img src={imgSrc} alt={p.nome} className="w-full h-full object-cover"
+                                onError={(e) => { const t = e.target as HTMLImageElement; t.style.visibility = 'hidden' }} />
+                              <span className="absolute bottom-0.5 right-0.5 text-white text-xs font-bold font-mono tabular-nums bg-black/70 rounded px-1 py-0 leading-tight">
+                                ×{p.estoque_atual}
+                              </span>
+                            </div>
+                          ) : (
+                            Array.from({ length: p.estoque_atual }).map((_, i) => (
+                              <div key={i} className={`w-14 h-14 rounded-md bg-[var(--surface-100)] overflow-hidden flex-shrink-0 transition-opacity ${visto ? 'opacity-50' : ''}`}
+                                title={`${p.nome} (${p.estoque_atual} un)`}>
+                                <img src={imgSrc} alt={p.nome} className="w-full h-full object-cover"
+                                  onError={(e) => { const t = e.target as HTMLImageElement; t.style.visibility = 'hidden' }} />
+                              </div>
+                            ))
+                          )}
+                          {/* Colchete de fechamento */}
+                          <span className="self-center text-base leading-none font-mono text-[var(--surface-400)]">]</span>
+                          {idx < comEstoque.length - 1 && <div className="w-3 h-14 flex-shrink-0" aria-hidden="true" />}
+                        </Fragment>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
+        </div>
+        )
+      })()}
     </div>
   )
 }

@@ -16,6 +16,7 @@ import ActionButtons from '@/components/contratos/ActionButtons'
 // Carrinho de encaminhamento removido do pipeline — operação na tela /encaminhamentos
 import EntregaModal from '@/components/contratos/modals/EntregaModal'
 import { useUnit } from '@/contexts/UnitContext'
+import ProdutosFilterBar from '@/components/ui/ProdutosFilterBar'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
 import PelinhoModal from '@/components/contratos/modals/PelinhoModal'
 import CertificadoModal from '@/components/contratos/modals/CertificadoModal'
@@ -5360,48 +5361,21 @@ ${petNome}`
               </button>
             </div>
 
-            {/* Busca + Filtros */}
-            <div className="p-4 border-b space-y-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Buscar urna..."
-                  value={buscaUrna}
-                  onChange={(e) => setBuscaUrna(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                />
-              </div>
-              {categoriasUrnasModal.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  <button
-                    onClick={() => setFiltroUrnaCategoria('')}
-                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                      !filtroUrnaCategoria
-                        ? 'bg-purple-900/40 text-purple-300 border-purple-300'
-                        : 'bg-slate-700/50 text-slate-400 border-slate-600 hover:bg-slate-700'
-                    }`}
-                  >
-                    Todas ({urnas.length})
-                  </button>
-                  {categoriasUrnasModal.map(cat => {
-                    const count = urnas.filter(u => u.categoria === cat).length
-                    return (
-                      <button
-                        key={cat}
-                        onClick={() => setFiltroUrnaCategoria(filtroUrnaCategoria === cat ? '' : cat)}
-                        className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                          filtroUrnaCategoria === cat
-                            ? 'bg-purple-900/40 text-purple-300 border-purple-300'
-                            : 'bg-slate-700/50 text-slate-400 border-slate-600 hover:bg-slate-700'
-                        }`}
-                      >
-                        {CATEGORIA_URNA_LABELS[cat] || cat} ({count})
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
+            {/* Busca + Filtros (toolbar compartilhada, apenas urnas neste modal) */}
+            <div className="p-4 border-b">
+              <ProdutosFilterBar
+                produtos={urnas as unknown as Array<{ tipo: 'urna' | 'acessorio'; categoria: string | null; estoque_atual: number; estoque_minimo: number; estoque_infinito?: boolean; nome?: string; codigo?: string }>}
+                busca={buscaUrna}
+                onBusca={setBuscaUrna}
+                tipo="urna"
+                onTipo={() => {}}
+                categoria={filtroUrnaCategoria}
+                onCategoria={setFiltroUrnaCategoria}
+                status=""
+                onStatus={() => {}}
+                semStatus
+                placeholder="Buscar urna..."
+              />
             </div>
 
             {/* Grid de Urnas */}

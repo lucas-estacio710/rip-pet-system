@@ -181,13 +181,18 @@ export default function ProdutoDetalhePage() {
       alert('Quantidade deve ser maior que zero')
       return
     }
+    const remessa = novaEntradaForm.remessa.trim()
+    if (!remessa) {
+      alert('Informe o nome da remessa')
+      return
+    }
     setSalvandoEntrada(true)
     const { error } = await (supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ error: { message: string } | null }>)('registrar_entrada_estoque', {
       p_produto_id: produto.id,
       p_unidade_id: currentUnit.id,
       p_quantidade: qtd,
       p_custo_unitario: novaEntradaForm.custoUnitario ? parseFloat(novaEntradaForm.custoUnitario) : null,
-      p_remessa: novaEntradaForm.remessa.trim() || null,
+      p_remessa: remessa,
       p_data_entrada: novaEntradaForm.dataEntrada,
     })
     if (error) {

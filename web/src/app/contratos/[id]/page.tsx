@@ -28,7 +28,7 @@ import ObservacoesCard from '@/components/contratos/ObservacoesCard'
 import HistoricoCard from '@/components/contratos/HistoricoCard'
 import { ordenarCategoriasUrnas } from '@/lib/categorias'
 import { hojeLocal } from '@/lib/date-local'
-import FilterDropdown, { type FilterOption } from '@/components/ui/FilterDropdown'
+import ProdutosFilterBar from '@/components/ui/ProdutosFilterBar'
 
 function PixIcon({ className = "h-5 w-5" }: { className?: string }) {
   return (
@@ -3414,65 +3414,20 @@ ${petNome}`
               </button>
             </div>
 
-            {/* Toolbar única: busca + dropdowns */}
-            <div className="p-4 border-b flex items-center gap-2 flex-wrap">
-              <div className="relative flex-1 min-w-[200px]">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Buscar produto..."
-                  value={buscaProduto}
-                  onChange={(e) => setBuscaProduto(e.target.value)}
-                  className="w-full pl-9 pr-9 py-1.5 text-sm bg-slate-700 border border-slate-600 rounded-lg text-slate-200 focus:outline-none focus:border-purple-500"
-                />
-                {buscaProduto && (
-                  <button
-                    onClick={() => setBuscaProduto('')}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-
-              <FilterDropdown
-                label="Tipo"
-                icon={Package}
-                value={filtroProdutoTipo}
-                options={[
-                  { value: 'urna', label: 'Urnas', count: contadoresProdutos.urna },
-                  { value: 'acessorio', label: 'Acessórios', count: contadoresProdutos.acessorio },
-                ]}
-                onChange={(v) => { setFiltroProdutoTipo(v); setFiltroProdutoCategoria('') }}
-                toneActive="purple"
+            {/* Toolbar nova: busca + subfamílias coloridas */}
+            <div className="p-4 border-b">
+              <ProdutosFilterBar
+                produtos={todosProdutos}
+                busca={buscaProduto}
+                onBusca={setBuscaProduto}
+                tipo={filtroProdutoTipo}
+                onTipo={setFiltroProdutoTipo}
+                categoria={filtroProdutoCategoria}
+                onCategoria={setFiltroProdutoCategoria}
+                status=""
+                onStatus={() => {}}
+                semStatus
               />
-
-              {filtroProdutoTipo === 'urna' && categoriasUrnasModal.length > 0 && (
-                <FilterDropdown
-                  label="Categoria"
-                  value={filtroProdutoCategoria}
-                  options={categoriasUrnasModal.map<FilterOption>(cat => ({
-                    value: cat,
-                    label: CATEGORIA_URNA_LABELS[cat] || cat,
-                  }))}
-                  onChange={setFiltroProdutoCategoria}
-                  allLabel="Todas categorias"
-                  toneActive="amber"
-                />
-              )}
-              {filtroProdutoTipo === 'acessorio' && categoriasAcessoriosModal.length > 0 && (
-                <FilterDropdown
-                  label="Categoria"
-                  value={filtroProdutoCategoria}
-                  options={categoriasAcessoriosModal.map<FilterOption>(cat => ({
-                    value: cat,
-                    label: CATEGORIA_ACESSORIO_LABELS[cat] || cat,
-                  }))}
-                  onChange={setFiltroProdutoCategoria}
-                  allLabel="Todas categorias"
-                  toneActive="blue"
-                />
-              )}
             </div>
 
             {/* Grid de Produtos agrupado por categoria */}
