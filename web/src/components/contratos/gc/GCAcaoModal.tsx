@@ -6,6 +6,7 @@ import ObservacoesCard from '@/components/contratos/ObservacoesCard'
 import CertificadoModal from '@/components/contratos/modals/CertificadoModal'
 import { createClient } from '@/lib/supabase/client'
 import { gerarCertificadoPDF, certificadoFilename } from '@/lib/certificado-pdf'
+import { linkAgendamentoDespedida, linkChatDireto } from '@/lib/whatsapp-msg'
 
 type GCData = {
   id?: string
@@ -37,6 +38,7 @@ type Props = {
   petPeso?: number | null
   petRaca?: string | null
   petGenero?: string | null
+  petCor?: string | null
   numeroLacre?: string | null
   tutorNome?: string | null
   tutorTelefone?: string | null
@@ -69,7 +71,7 @@ const CONTATO_STEPS = [
   { key: 'agendado', label: 'Agendado', color: '#1a73e8' },
 ]
 
-export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoCremacao, petEspecie, petPeso, petRaca, petGenero, numeroLacre, tutorNome, tutorTelefone, certificadoNomesRaw, certificadoConfirmado, onCertificadoSaved, supindaStatus, gcAtual, onClose, onSaved }: Props) {
+export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoCremacao, petEspecie, petPeso, petRaca, petGenero, petCor, numeroLacre, tutorNome, tutorTelefone, certificadoNomesRaw, certificadoConfirmado, onCertificadoSaved, supindaStatus, gcAtual, onClose, onSaved }: Props) {
   const supabase = createClient()
   const [salvando, setSalvando] = useState(false)
   const [gc, setGc] = useState<GCData>(
@@ -237,6 +239,7 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
               </span>
               {dadosPet.pet_especie && <span className="text-[10px] text-[var(--surface-400)]">{dadosPet.pet_especie}</span>}
               {dadosPet.pet_raca && <span className="text-[10px] text-[var(--surface-400)]">· {dadosPet.pet_raca}</span>}
+              {petCor && <span className="text-[10px] text-[var(--surface-400)]">· {petCor}</span>}
               {petPeso != null && <span className="text-[10px] text-[var(--surface-400)]">· {petPeso}kg</span>}
             </div>
             {tutorNome && (
@@ -244,19 +247,33 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
                 <div className="flex items-center gap-2">
                   <p className="text-xs text-[var(--surface-500)] truncate flex-1">{tutorNome}</p>
                   {tutorTelefone && (
-                    <a href={`https://wa.me/${tutorTelefone.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer"
-                      className="hidden md:inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[10px] font-semibold text-white shrink-0 hover:opacity-90 transition-opacity" style={{ background: '#25D366' }}>
-                      <Phone className="h-3 w-3" />
-                      Chamar no WhatsApp
-                    </a>
+                    <div className="hidden md:flex items-center gap-1 shrink-0">
+                      <a href={linkAgendamentoDespedida({ telefone: tutorTelefone, tutorNome, petNome: dadosPet.pet_nome, petGenero: dadosPet.pet_genero })} target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[10px] font-semibold text-white hover:opacity-90 transition-opacity" style={{ background: '#25D366' }}
+                        title="Enviar mensagem de agendamento da despedida">
+                        <Phone className="h-3 w-3" />
+                        Chamar no WhatsApp
+                      </a>
+                      <a href={linkChatDireto(tutorTelefone)} target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[10px] font-semibold text-white hover:opacity-90 transition-opacity" style={{ background: '#128C7E' }}
+                        title="Abrir conversa direta no WhatsApp (sem mensagem pré-preenchida)">
+                        Abrir Conversa
+                      </a>
+                    </div>
                   )}
                 </div>
                 {tutorTelefone && (
-                  <a href={`https://wa.me/${tutorTelefone.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer"
-                    className="md:hidden inline-flex items-center gap-1.5 px-3 py-1 mt-1 rounded-lg text-[10px] font-semibold text-white hover:opacity-90 transition-opacity" style={{ background: '#25D366' }}>
-                    <Phone className="h-3 w-3" />
-                    Chamar no WhatsApp
-                  </a>
+                  <div className="md:hidden flex items-center gap-1 mt-1">
+                    <a href={linkAgendamentoDespedida({ telefone: tutorTelefone, tutorNome, petNome: dadosPet.pet_nome, petGenero: dadosPet.pet_genero })} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[10px] font-semibold text-white hover:opacity-90 transition-opacity" style={{ background: '#25D366' }}>
+                      <Phone className="h-3 w-3" />
+                      Chamar no WhatsApp
+                    </a>
+                    <a href={linkChatDireto(tutorTelefone)} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[10px] font-semibold text-white hover:opacity-90 transition-opacity" style={{ background: '#128C7E' }}>
+                      Abrir Conversa
+                    </a>
+                  </div>
                 )}
               </div>
             )}
@@ -338,7 +355,7 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
               <Phone className="h-5 w-5 text-amber-400" />
               <div className="text-left">
                 <p className="text-sm font-semibold text-[var(--shell-text)]">Registrar Contato</p>
-                <p className="text-[10px] text-[var(--surface-400)]">Ligou pro tutor pra combinar</p>
+                <p className="text-[10px] text-[var(--surface-400)]">Saudação já enviada para o tutor. Aguardar agendamento</p>
               </div>
             </button>
           )}

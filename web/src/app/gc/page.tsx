@@ -9,6 +9,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import { dataLocal } from '@/lib/date-local'
+import { linkAgendamentoDespedida } from '@/lib/whatsapp-msg'
 import { Skeleton } from '@/components/ui/Skeleton'
 import EmptyState from '@/components/ui/EmptyState'
 import Link from 'next/link'
@@ -24,6 +25,7 @@ type ContratoGC = {
   pet_especie: string | null
   pet_peso: number | null
   pet_genero: string | null
+  pet_cor: string | null
   tutor_nome: string | null
   tutor_telefone: string | null
   pet_raca: string | null
@@ -167,7 +169,7 @@ export default function GCPage() {
     const [contratosRes, unidadesRes, supindasRes] = await Promise.all([
       supabase
         .from('contratos')
-        .select('id, codigo, pet_nome, pet_especie, pet_peso, pet_raca, pet_genero, tutor_nome, tutor_telefone, tipo_cremacao, status, data_acolhimento, numero_lacre, observacoes, unidade_id, supinda_id, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_nome_6, certificado_nome_7, certificado_confirmado, contrato_gc(*)')
+        .select('id, codigo, pet_nome, pet_especie, pet_peso, pet_raca, pet_genero, pet_cor, tutor_nome, tutor_telefone, tipo_cremacao, status, data_acolhimento, numero_lacre, observacoes, unidade_id, supinda_id, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_nome_6, certificado_nome_7, certificado_confirmado, contrato_gc(*)')
         .not('supinda_id', 'is', null)
         .in('status', ['ativo', 'pinda'])
         .order('data_acolhimento', { ascending: true }),
@@ -212,7 +214,7 @@ export default function GCPage() {
       // Recarregar pra pegar as rows criadas
       const { data: reloadData } = await supabase
         .from('contratos')
-        .select('id, codigo, pet_nome, pet_especie, pet_peso, pet_raca, pet_genero, tutor_nome, tutor_telefone, tipo_cremacao, status, data_acolhimento, numero_lacre, observacoes, unidade_id, supinda_id, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_nome_6, certificado_nome_7, certificado_confirmado, contrato_gc(*)')
+        .select('id, codigo, pet_nome, pet_especie, pet_peso, pet_raca, pet_genero, pet_cor, tutor_nome, tutor_telefone, tipo_cremacao, status, data_acolhimento, numero_lacre, observacoes, unidade_id, supinda_id, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_nome_6, certificado_nome_7, certificado_confirmado, contrato_gc(*)')
         .not('supinda_id', 'is', null)
         .in('status', ['ativo', 'pinda'])
         .order('data_acolhimento', { ascending: true })
@@ -283,6 +285,16 @@ export default function GCPage() {
     return getSupindasDia(dia).map(s => s.id)
   }
 
+  // Link de WhatsApp com mensagem padrão de "agendamento de despedida"
+  function linkWhatsAppAgendamento(c: ContratoGC): string {
+    return linkAgendamentoDespedida({
+      telefone: c.tutor_telefone,
+      tutorNome: c.tutor_nome,
+      petNome: c.pet_nome,
+      petGenero: c.pet_genero,
+    })
+  }
+
   // Filtrar por busca + visão ativa (unidade OU dia, nunca ambos)
   const filtered = contratos.filter(c => {
     if (visao === 'unidade' && activeUnit && c.unidade_id !== activeUnit) return false
@@ -311,14 +323,17 @@ export default function GCPage() {
     return (a.data_acolhimento || '').localeCompare(b.data_acolhimento || '')
   })
 
-  // Contagem por unidade (sem filtro de busca/aba, sempre total)
+  // Contagem por unidade — apenas pets já recebidos fisicamente na matriz.
+  // Pets ainda em encaminhamento planejado (etapa 'provisionado') ficam de fora.
   const countByUnit = new Map<string, { cremados: number; total: number }>()
   unidades.forEach(u => countByUnit.set(u.id, { cremados: 0, total: 0 }))
   contratos.forEach(c => {
     const entry = countByUnit.get(c.unidade_id)
     if (!entry) return
+    const etapa = c.gc?.etapa
+    if (!etapa || etapa === 'provisionado') return
     entry.total++
-    if (c.gc?.etapa === 'cremado' || c.gc?.etapa === 'disponivel') entry.cremados++
+    if (etapa === 'cremado' || etapa === 'disponivel') entry.cremados++
   })
 
   // Placar
@@ -613,10 +628,13 @@ export default function GCPage() {
               const sup = grupo.sup
               const cor = sup ? (UNIT_COLORS[sup.codigo_unidade] || '#6366f1') : '#64748b'
               const todosNoNicho = grupo.contratos.length > 0 && grupo.contratos.every(c => c.gc?.etapa === 'disponivel')
+              // "Em planejamento" só faz sentido pra supindas que ainda não saíram (status planejada)
+              const supindaPlanejada = sup?.status === 'planejada'
+              const todosProvisionados = supindaPlanejada && grupo.contratos.length > 0 && grupo.contratos.every(c => (c.gc?.etapa || 'provisionado') === 'provisionado')
               return (
-                <div key={key} className={`rounded-xl border overflow-hidden ${todosNoNicho ? 'border-emerald-500/50' : 'border-[var(--surface-200)]'}`}>
+                <div key={key} className={`rounded-xl border overflow-hidden ${todosNoNicho ? 'border-emerald-500/50' : todosProvisionados ? 'border-amber-500/40' : 'border-[var(--surface-200)]'}`}>
                   {/* Header do grupo */}
-                  <div className={`flex items-center gap-2 px-3 py-2 ${todosNoNicho ? 'bg-emerald-900/20' : 'bg-[var(--surface-50)]'}`}>
+                  <div className={`flex items-center gap-2 px-3 py-2 ${todosNoNicho ? 'bg-emerald-900/20' : todosProvisionados ? 'bg-amber-900/15' : 'bg-[var(--surface-50)]'}`}>
                     {sup && (
                       <span className="w-6 h-6 rounded-full flex items-center justify-center text-[8px] font-bold shrink-0" style={{ background: cor, color: sup.codigo_unidade === 'SJ' ? '#334155' : '#fff' }}>
                         {sup.codigo_unidade}
@@ -629,8 +647,26 @@ export default function GCPage() {
                         ✨ Todos no nicho — prontos para retorno!
                       </span>
                     )}
+                    {!todosNoNicho && todosProvisionados && (
+                      <span className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/90 text-slate-900 border border-amber-400">
+                        📅 Em planejamento
+                      </span>
+                    )}
                     <span className="text-[10px] text-[var(--surface-400)] ml-auto">{grupo.contratos.length} pet{grupo.contratos.length > 1 ? 's' : ''}</span>
                   </div>
+                  {!todosNoNicho && todosProvisionados && (
+                    <div className="px-3 py-2 bg-slate-900/60 border-t border-amber-500/30 text-[11px] space-y-0.5">
+                      <p className="font-bold text-amber-300 uppercase tracking-wider text-[10px]">
+                        📋 Aviso — Encaminhamento em planejamento
+                      </p>
+                      <p className="text-slate-200 leading-snug">
+                        Contato e agendamento antecipados estão liberados.
+                      </p>
+                      <p className="text-amber-200 leading-snug">
+                        ⚠ Pets contatados ou agendados ficam bloqueados neste encaminhamento e não podem ser removidos pela unidade.
+                      </p>
+                    </div>
+                  )}
                   {/* Grid de cards */}
                   <div className="grid grid-cols-3 lg:grid-cols-7 gap-1 md:gap-2 p-1 md:p-2">
                     {grupo.contratos.map(c => {
@@ -744,7 +780,22 @@ export default function GCPage() {
                             </div>
 
 
-                            {/* WhatsApp — escanteio inferior direito */}
+                            {/* WhatsApp — escanteio inferior ESQUERDO: mensagem padrão de agendamento */}
+                            {c.tutor_telefone && (
+                              <a
+                                href={linkWhatsAppAgendamento(c)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={e => e.stopPropagation()}
+                                className="absolute bottom-0 left-0 w-5 h-5 flex items-center justify-center transition-opacity opacity-100 md:opacity-60 md:hover:opacity-100"
+                                style={{ background: '#128C7E', borderTopRightRadius: '1rem', borderBottomLeftRadius: 'inherit' }}
+                                title="Enviar mensagem de agendamento da despedida"
+                              >
+                                <span className="text-[8px] font-bold text-white leading-none">✍</span>
+                              </a>
+                            )}
+
+                            {/* WhatsApp — escanteio inferior direito: chat direto */}
                             {c.tutor_telefone && (
                               <a
                                 href={`https://wa.me/${c.tutor_telefone.replace(/\D/g, '')}`}
@@ -753,7 +804,7 @@ export default function GCPage() {
                                 onClick={e => e.stopPropagation()}
                                 className="absolute bottom-0 right-0 w-5 h-5 flex items-center justify-center transition-opacity opacity-100 md:opacity-60 md:hover:opacity-100"
                                 style={{ background: '#25D366', borderTopLeftRadius: '1rem', borderBottomRightRadius: 'inherit' }}
-                                title="WhatsApp"
+                                title="Abrir chat no WhatsApp"
                               >
                                 <svg className="h-2.5 w-2.5 text-white" viewBox="0 0 24 24" fill="currentColor">
                                   <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
@@ -782,6 +833,7 @@ export default function GCPage() {
           petPeso={acaoModal.pet_peso}
           petRaca={acaoModal.pet_raca}
           petGenero={acaoModal.pet_genero}
+          petCor={acaoModal.pet_cor}
           numeroLacre={acaoModal.numero_lacre}
           tutorNome={acaoModal.tutor_nome}
           tutorTelefone={acaoModal.tutor_telefone}
