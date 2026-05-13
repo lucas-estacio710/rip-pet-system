@@ -63,8 +63,6 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
   const [petGenero, setPetGenero] = useState<string>('')
   // Indica se já existe linha em contrato_gc para este contrato (pra escolher UPDATE vs INSERT)
   const [temContratoGc, setTemContratoGc] = useState(false)
-  // Dados originais que o tutor inseriu na ficha (read-only, pra conferência)
-  const [fichaOrig, setFichaOrig] = useState<{ nome_pet: string | null; especie: string | null; raca: string | null; genero: string | null } | null>(null)
 
   const supabase = createClient()
 
@@ -118,17 +116,6 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
         }
       })
 
-    // Busca dados originais da ficha (read-only, pra conferência)
-    setFichaOrig(null)
-    supabase
-      .from('fichas')
-      .select('nome_pet, especie, raca, genero')
-      .eq('contrato_id', contrato.id)
-      .limit(1)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data) setFichaOrig(data as { nome_pet: string | null; especie: string | null; raca: string | null; genero: string | null })
-      })
   }, [isOpen, contrato, supabase])
 
   // Mover nome para cima
@@ -225,11 +212,11 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
       onClick={onClose}
     >
       <div
-        className="bg-slate-800 rounded-xl shadow-xl max-w-md w-full mx-4 p-6"
+        className="bg-slate-800 rounded-xl shadow-xl max-w-2xl w-full p-6"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -262,8 +249,8 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
                 className="w-full px-2 py-1.5 border border-slate-600 rounded text-sm focus:ring-1 focus:ring-purple-500 focus:border-purple-500 uppercase"
                 style={{ textTransform: 'uppercase' }}
               />
-              {fichaOrig?.nome_pet && (
-                <p className="text-[9px] text-amber-400/80 mt-0.5 italic">🐾 Ficha: {fichaOrig.nome_pet}</p>
+              {contrato.pet_nome && contrato.pet_nome.toUpperCase() !== petNome.toUpperCase() && (
+                <p className="text-[9px] text-amber-400/80 mt-0.5 italic">🐾 Contrato: {contrato.pet_nome}</p>
               )}
             </div>
             <div>
@@ -274,8 +261,8 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
                 especie={(petEspecie || null) as EspeciePet | null}
                 placeholder="Buscar raça…"
               />
-              {fichaOrig?.raca && (
-                <p className="text-[9px] text-amber-400/80 mt-0.5 italic">🐾 Ficha: {fichaOrig.raca}</p>
+              {contrato.pet_raca && contrato.pet_raca.toLowerCase() !== petRaca.toLowerCase() && (
+                <p className="text-[9px] text-amber-400/80 mt-0.5 italic">🐾 Contrato: {contrato.pet_raca}</p>
               )}
             </div>
           </div>
@@ -297,8 +284,8 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
                   </button>
                 ))}
               </div>
-              {fichaOrig?.especie && (
-                <p className="text-[9px] text-amber-400/80 mt-0.5 italic">🐾 Ficha: {fichaOrig.especie}</p>
+              {contrato.pet_especie && contrato.pet_especie !== petEspecie && (
+                <p className="text-[9px] text-amber-400/80 mt-0.5 italic">🐾 Contrato: {contrato.pet_especie}</p>
               )}
             </div>
             <div>
@@ -317,8 +304,8 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
                   </button>
                 ))}
               </div>
-              {fichaOrig?.genero && (
-                <p className="text-[9px] text-amber-400/80 mt-0.5 italic">🐾 Ficha: {fichaOrig.genero}</p>
+              {contrato.pet_genero && contrato.pet_genero !== petGenero && (
+                <p className="text-[9px] text-amber-400/80 mt-0.5 italic">🐾 Contrato: {contrato.pet_genero}</p>
               )}
             </div>
           </div>
@@ -328,7 +315,7 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">📜 Nomes no certificado</p>
 
         {/* Inputs (mostra só os slots visíveis; + adiciona próximo) */}
-        <div className="space-y-2 mb-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-3 gap-y-2 mb-3">
           {certificadoNomes.slice(0, slotsVisiveis).map((nome, index) => (
             <div key={index} className="flex items-center gap-1">
               <span className="text-xs text-slate-400 w-4">{index + 1}.</span>

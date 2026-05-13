@@ -167,6 +167,9 @@ export async function gerarCertificadoPDF(dados: DadosCertificado): Promise<Blob
   const p2 = 'A R.I.P. Pet é o cuidado que seu amigo precisa quando seu ciclo termina. Nosso trabalho é trazer conforto para os corações que recentemente perderam um membro importante da família. Oferecemos nossos serviços porque amamos os animais e acreditamos que eles fariam o mesmo se tivessem a chance.'
   const p3 = `Pindamonhangaba, ${dia} de ${mes} de ${ano}.`
 
+  // 2 linhas em branco antes do texto começar (respiro a partir do cabeçalho impresso)
+  yPt -= 2 * lineHeight
+
   desenharParagrafo(p1)
   desenharParagrafo(p2)
   desenharParagrafo(p3)

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, Fragment } from 'react'
-import { X, Loader2, Check, Phone, Calendar, Flame, Package, Award, ChevronDown, MessageSquare, FileDown } from 'lucide-react'
+import { X, Loader2, Check, Phone, Calendar, Flame, Package, Award, ChevronDown, MessageSquare, FileDown, Eye } from 'lucide-react'
 import ObservacoesCard from '@/components/contratos/ObservacoesCard'
 import CertificadoModal from '@/components/contratos/modals/CertificadoModal'
 import { createClient } from '@/lib/supabase/client'
@@ -19,7 +19,6 @@ type GCData = {
   acompanhamento_confirmado?: string | null
   contato_tutor_em?: string | null
   contato_tutor_obs?: string | null
-  forno?: number | null
   data_agendamento?: string | null
   data_cremacao?: string | null
   cremacao_por?: string | null
@@ -82,8 +81,10 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
   // Cópia local dos nomes (atualiza ao salvar via modal pra refletir na badge sem precisar recarregar)
   const [certNomes, setCertNomes] = useState<(string | null)[]>(certificadoNomesRaw || [])
   const [certConfirmado, setCertConfirmado] = useState<boolean>(!!certificadoConfirmado)
-  useEffect(() => { setCertNomes(certificadoNomesRaw || []) }, [certificadoNomesRaw])
-  useEffect(() => { setCertConfirmado(!!certificadoConfirmado) }, [certificadoConfirmado])
+  // NÃO ressincronizar com as props em updates. /gc/page.tsx regenera o array certificadoNomesRaw
+  // (nova ref) ao chamar setAcaoModal no callback de save da prévia, mas SEM incluir os nomes
+  // novos — o que zerava certNomes e bloqueava "Gerar Certificado". O onSuccess do CertificadoModal
+  // já chama setCertNomes/setCertConfirmado localmente; o useState acima cobre o mount.
   const certNomesPreenchidos = certNomes.filter(n => n && n.trim()).length
 
   // Dados editáveis do pet (espelham as props mas podem ser atualizados pelo CertificadoModal)
@@ -112,6 +113,10 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
       alert('Defina os nomes do certificado primeiro (botão 🏅 no topo).')
       return
     }
+    if (!certConfirmado) {
+      alert('Confirme a prévia do certificado antes de gerar o PDF.')
+      return
+    }
     try {
       const blob = await gerarCertificadoPDF({
         codigo: contratoCodigo || '',
@@ -137,9 +142,10 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
     }
   }
 
-  useEffect(() => {
-    if (gcAtual) setGc(gcAtual)
-  }, [gcAtual])
+  // NÃO ressincronizar `gc` a partir de `gcAtual` em updates de prop. O modal só monta uma vez
+  // por sessão de edição; ressincronizar atropelava edições não-salvas quando ações externas
+  // (ex: salvar CertificadoModal) atualizavam `acaoModal.gc` no /gc/page.tsx. O useState acima
+  // já inicializa com `gcAtual` no mount, que é o único momento que precisa.
 
   const etapa = gc.etapa
   const contato = gc.contato_status
@@ -156,6 +162,10 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
   const [obsAberto, setObsAberto] = useState(false)
   const [obsCount, setObsCount] = useState(0)
   const [obsTemImportante, setObsTemImportante] = useState(false)
+  // Confirmação de data/hora ao avançar etapas (Contato / Receber / Cremar / Finalizar).
+  // Quando aberto, troca o botão de ação por um mini-form com datetime-local pré-preenchido.
+  const [confirmando, setConfirmando] = useState<null | 'contato' | 'recebido' | 'cremado' | 'disponivel'>(null)
+  const [confirmData, setConfirmData] = useState<string>('')
 
   useEffect(() => {
     supabase.from('tarefas').select('id, importante, resolvido').eq('contrato_id', contratoId).then(({ data }) => {
@@ -176,6 +186,52 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
     setErro('')
   }
 
+  // YYYY-MM-DDTHH:mm no fuso local (formato esperado pelo input datetime-local)
+  function toLocalDatetimeInput(d: Date): string {
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+
+  function abrirConfirmacao(qual: 'contato' | 'recebido' | 'cremado' | 'disponivel') {
+    setConfirmando(qual)
+    // Cremação: sugere a data/hora do agendamento (cenário mais comum). Demais: now().
+    const sugestao = qual === 'cremado' && gc.data_agendamento
+      ? new Date(gc.data_agendamento)
+      : new Date()
+    setConfirmData(toLocalDatetimeInput(sugestao))
+  }
+
+  function confirmarTransicao() {
+    if (!confirmData) return
+    const iso = new Date(confirmData).toISOString()
+    if (confirmando === 'contato') mudar({ contato_status: 'contatado', contato_tutor_em: iso })
+    else if (confirmando === 'recebido') mudar({ etapa: 'recebido', data_recebimento: iso })
+    else if (confirmando === 'cremado') mudar({ etapa: 'cremado', data_cremacao: iso })
+    else if (confirmando === 'disponivel') mudar({ etapa: 'disponivel', data_disponivel: iso })
+    setConfirmando(null)
+  }
+
+  // Painel inline de confirmação: pergunta + datetime-local + Agora/Cancelar/Confirmar.
+  // Substitui o botão de ação enquanto a transição está sendo confirmada.
+  function renderConfirmacao(borderCls: string, btnCls: string, pergunta: string) {
+    return (
+      <div className={`rounded-xl border-2 ${borderCls} p-3 space-y-2`}>
+        <p className="text-xs font-semibold text-[var(--shell-text)]">{pergunta}</p>
+        <input
+          type="datetime-local"
+          value={confirmData}
+          onChange={e => setConfirmData(e.target.value)}
+          className="input w-full text-sm py-1.5"
+        />
+        <div className="flex gap-2">
+          <button onClick={() => setConfirmData(toLocalDatetimeInput(new Date()))} className="flex-1 py-1.5 rounded-lg text-[11px] font-medium text-[var(--surface-500)] border border-[var(--surface-200)] hover:bg-[var(--surface-50)] transition-colors" title="Preencher com agora">↻ Agora</button>
+          <button onClick={() => setConfirmando(null)} className="flex-1 py-1.5 rounded-lg text-[11px] font-medium text-[var(--surface-500)] border border-[var(--surface-200)] hover:bg-[var(--surface-50)] transition-colors">Cancelar</button>
+          <button onClick={confirmarTransicao} className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold text-white ${btnCls} transition-colors`}>Confirmar</button>
+        </div>
+      </div>
+    )
+  }
+
   async function salvarTudo() {
     setSalvando(true)
     setErro('')
@@ -187,7 +243,6 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
         lacre_conferido: gc.lacre_conferido ?? false,
         contato_tutor_em: gc.contato_tutor_em || null,
         contato_tutor_obs: gc.contato_tutor_obs || null,
-        forno: gc.forno || null,
         data_agendamento: gc.data_agendamento || null,
         acompanhamento_confirmado: gc.acompanhamento_confirmado || null,
         data_cremacao: gc.data_cremacao || null,
@@ -223,7 +278,7 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4" onClick={onClose}>
       <div
-        className="bg-[var(--surface-0)] rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-[var(--surface-200)]"
+        className="bg-[var(--surface-0)] rounded-2xl shadow-2xl max-w-3xl w-full overflow-hidden border border-[var(--surface-200)]"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -293,9 +348,9 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
             </button>
             <button
               onClick={gerarCertificado}
-              disabled={!gc.data_cremacao}
-              className={`relative p-1.5 rounded-lg transition-colors ${gc.data_cremacao ? 'text-[var(--surface-400)] hover:text-emerald-400 hover:bg-emerald-900/10' : 'text-[var(--surface-300)] opacity-40 cursor-not-allowed'}`}
-              title={gc.data_cremacao ? 'Baixar Certificado de Cremação (.pdf)' : 'Disponível após registrar a data de cremação'}
+              disabled={!gc.data_cremacao || !certConfirmado}
+              className={`relative p-1.5 rounded-lg transition-colors ${gc.data_cremacao && certConfirmado ? 'text-[var(--surface-400)] hover:text-emerald-400 hover:bg-emerald-900/10' : 'text-[var(--surface-300)] opacity-40 cursor-not-allowed'}`}
+              title={!gc.data_cremacao ? 'Disponível após registrar a data de cremação' : !certConfirmado ? 'Confirme a prévia do certificado primeiro' : 'Baixar Certificado de Cremação (.pdf)'}
             >
               <FileDown className="h-5 w-5" />
               {gc.certificado_pronto && gc.data_cremacao && (
@@ -316,8 +371,9 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
           </div>
         </div>
 
+        <div className="md:flex md:items-stretch">
         {/* === SEÇÃO 1: AGENDAMENTO (trilha + ações) — some após cremação === */}
-        {etapa !== 'cremado' && etapa !== 'disponivel' && <div className="px-5 py-4 space-y-3 border-b border-[var(--surface-200)]">
+        {etapa !== 'cremado' && etapa !== 'disponivel' && <div className="md:flex-1 md:min-w-0 px-5 py-4 space-y-3 border-b md:border-b-0 md:border-r border-[var(--surface-200)]">
           <div>
             <p className="text-[10px] font-bold text-[var(--surface-400)] uppercase tracking-wider mb-2 text-center">Agendamento</p>
             <div className="flex items-center justify-center">
@@ -350,14 +406,18 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
 
           {/* Ação: Contatar */}
           {podeContatar && (
-            <button onClick={() => mudar({ contato_status: 'contatado', contato_tutor_em: new Date().toISOString() })} disabled={salvando}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-amber-500/30 hover:bg-amber-900/10 transition-colors disabled:opacity-50">
-              <Phone className="h-5 w-5 text-amber-400" />
-              <div className="text-left">
-                <p className="text-sm font-semibold text-[var(--shell-text)]">Registrar Contato</p>
-                <p className="text-[10px] text-[var(--surface-400)]">Saudação já enviada para o tutor. Aguardar agendamento</p>
-              </div>
-            </button>
+            confirmando === 'contato'
+              ? renderConfirmacao('border-amber-500/30', 'bg-amber-600 hover:bg-amber-700', 'Quando o contato foi feito?')
+              : (
+                <button onClick={() => abrirConfirmacao('contato')} disabled={salvando}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-amber-500/30 hover:bg-amber-900/10 transition-colors disabled:opacity-50">
+                  <Phone className="h-5 w-5 text-amber-400" />
+                  <div className="text-left">
+                    <p className="text-sm font-semibold text-[var(--shell-text)]">Registrar Contato</p>
+                    <p className="text-[10px] text-[var(--surface-400)]">Saudação já enviada para o tutor. Aguardar agendamento</p>
+                  </div>
+                </button>
+              )
           )}
 
           {/* Ação: Agendar (colapsável) */}
@@ -373,24 +433,11 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
               </button>
               <div className={`transition-all duration-200 ease-out overflow-hidden ${agendarAberto ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
                 <div className="px-4 pb-3 pt-1 space-y-1.5">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-[9px] font-medium text-[var(--surface-500)] mb-0.5 block">Data e hora</label>
-                      <input type="datetime-local" value={gc.data_agendamento?.slice(0, 16) || ''}
-                        onChange={e => setGc({ ...gc, data_agendamento: e.target.value || null })}
-                        className="input text-xs w-full py-1" />
-                    </div>
-                    <div>
-                      <label className="text-[9px] font-medium text-[var(--surface-500)] mb-0.5 block">Forno</label>
-                      <div className="flex gap-1">
-                        {[1, 2, 3].map(f => (
-                          <button key={f} onClick={() => setGc({ ...gc, forno: f })}
-                            className={`flex-1 py-1 rounded text-xs font-bold border transition-colors ${gc.forno === f ? 'border-emerald-500 bg-emerald-900/20 text-emerald-400' : 'border-[var(--surface-200)] text-[var(--surface-400)]'}`}>
-                            F{f}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                  <div>
+                    <label className="text-[9px] font-medium text-[var(--surface-500)] mb-0.5 block">Data e hora</label>
+                    <input type="datetime-local" value={gc.data_agendamento?.slice(0, 16) || ''}
+                      onChange={e => setGc({ ...gc, data_agendamento: e.target.value || null })}
+                      className="input text-xs w-full py-1" />
                   </div>
                   <div>
                     <label className="text-[9px] font-medium text-[var(--surface-500)] mb-0.5 block">Acompanhamento</label>
@@ -427,7 +474,6 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
               <div className="flex items-center gap-2 text-xs text-emerald-400">
                 <Calendar className="h-4 w-4" />
                 <span>{new Date(gc.data_agendamento).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
-                {gc.forno && <span>· F{gc.forno}</span>}
                 {gc.acompanhamento_confirmado && <span>· {gc.acompanhamento_confirmado.replace(/_/g, ' ')}</span>}
               </div>
               <button onClick={() => setAgendarAberto(true)} className="text-[10px] text-blue-400 hover:text-blue-300 font-medium transition-colors">
@@ -443,24 +489,11 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
                   <p className="text-sm font-semibold text-[var(--shell-text)]">Reagendar</p>
                   <button onClick={() => setAgendarAberto(false)} className="text-[10px] text-[var(--surface-400)]">Fechar</button>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[9px] font-medium text-[var(--surface-500)] mb-0.5 block">Data e hora</label>
-                    <input type="datetime-local" value={gc.data_agendamento?.slice(0, 16) || ''}
-                      onChange={e => setGc({ ...gc, data_agendamento: e.target.value || null })}
-                      className="input text-xs w-full py-1" />
-                  </div>
-                  <div>
-                    <label className="text-[9px] font-medium text-[var(--surface-500)] mb-0.5 block">Forno</label>
-                    <div className="flex gap-1">
-                      {[1, 2, 3].map(f => (
-                        <button key={f} onClick={() => setGc({ ...gc, forno: f })}
-                          className={`flex-1 py-1 rounded text-xs font-bold border transition-colors ${gc.forno === f ? 'border-blue-500 bg-blue-900/20 text-blue-400' : 'border-[var(--surface-200)] text-[var(--surface-400)]'}`}>
-                          F{f}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                <div>
+                  <label className="text-[9px] font-medium text-[var(--surface-500)] mb-0.5 block">Data e hora</label>
+                  <input type="datetime-local" value={gc.data_agendamento?.slice(0, 16) || ''}
+                    onChange={e => setGc({ ...gc, data_agendamento: e.target.value || null })}
+                    className="input text-xs w-full py-1" />
                 </div>
                 <div>
                   <label className="text-[9px] font-medium text-[var(--surface-500)] mb-0.5 block">Acompanhamento</label>
@@ -488,7 +521,7 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
         </div>}
 
         {/* === SEÇÃO 2: CREMAÇÃO (trilha + ações) === */}
-        <div className="px-5 py-4 space-y-3">
+        <div className="md:flex-1 md:min-w-0 px-5 py-4 space-y-3">
           <div>
             <p className="text-[10px] font-bold text-[var(--surface-400)] uppercase tracking-wider mb-2 text-center">Cremação</p>
             <div className="flex items-center justify-center">
@@ -522,26 +555,34 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
             </p>
           )}
           {podeReceber && (
-            <button onClick={() => mudar({ etapa: 'recebido', data_recebimento: new Date().toISOString() })} disabled={salvando}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-purple-500/30 hover:bg-purple-900/10 transition-colors disabled:opacity-50">
-              <Check className="h-5 w-5 text-purple-400" />
-              <div className="text-left">
-                <p className="text-sm font-semibold text-[var(--shell-text)]">Confirmar Recebimento</p>
-                <p className="text-[10px] text-[var(--surface-400)]">Pet chegou em Pinda</p>
-              </div>
-            </button>
+            confirmando === 'recebido'
+              ? renderConfirmacao('border-purple-500/30', 'bg-purple-600 hover:bg-purple-700', 'Quando o pet chegou em Pinda?')
+              : (
+                <button onClick={() => abrirConfirmacao('recebido')} disabled={salvando}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-purple-500/30 hover:bg-purple-900/10 transition-colors disabled:opacity-50">
+                  <Check className="h-5 w-5 text-purple-400" />
+                  <div className="text-left">
+                    <p className="text-sm font-semibold text-[var(--shell-text)]">Confirmar Recebimento</p>
+                    <p className="text-[10px] text-[var(--surface-400)]">Pet chegou em Pinda</p>
+                  </div>
+                </button>
+              )
           )}
 
           {/* Ação: Cremar */}
           {podeCremar && (
-            <button onClick={() => mudar({ etapa: 'cremado', data_cremacao: new Date().toISOString() })} disabled={salvando}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-red-500/30 hover:bg-red-900/10 transition-colors disabled:opacity-50">
-              <Flame className="h-5 w-5 text-red-400" />
-              <div className="text-left">
-                <p className="text-sm font-semibold text-[var(--shell-text)]">Registrar Cremação</p>
-                <p className="text-[10px] text-[var(--surface-400)]">Cremação foi realizada</p>
-              </div>
-            </button>
+            confirmando === 'cremado'
+              ? renderConfirmacao('border-red-500/30', 'bg-red-600 hover:bg-red-700', 'Quando a cremação foi realizada?')
+              : (
+                <button onClick={() => abrirConfirmacao('cremado')} disabled={salvando}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-red-500/30 hover:bg-red-900/10 transition-colors disabled:opacity-50">
+                  <Flame className="h-5 w-5 text-red-400" />
+                  <div className="text-left">
+                    <p className="text-sm font-semibold text-[var(--shell-text)]">Registrar Cremação</p>
+                    <p className="text-[10px] text-[var(--surface-400)]">Cremação foi realizada</p>
+                  </div>
+                </button>
+              )
           )}
 
           {/* Info bloqueio */}
@@ -570,18 +611,38 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
                 </button>
               )}
               <button
+                onClick={() => setCertModalOpen(true)}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-colors ${certConfirmado ? 'border-emerald-500 bg-emerald-900/10' : 'border-amber-500/40 hover:bg-amber-900/10'}`}>
+                <Eye className={`h-5 w-5 ${certConfirmado ? 'text-emerald-400' : 'text-amber-400'}`} />
+                <span className={`text-sm font-semibold ${certConfirmado ? 'text-emerald-400' : 'text-[var(--shell-text)]'}`}>
+                  {certConfirmado ? 'Prévia ✓ (rever)' : 'Prévia do Certificado'}
+                </span>
+              </button>
+              <button
                 onClick={gerarCertificado}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-colors ${gc.certificado_pronto ? 'border-emerald-500 bg-emerald-900/10' : 'border-[var(--surface-200)] hover:bg-[var(--surface-50)]'}`}>
-                <Award className={`h-5 w-5 ${gc.certificado_pronto ? 'text-emerald-400' : 'text-[var(--surface-400)]'}`} />
-                <span className={`text-sm font-semibold ${gc.certificado_pronto ? 'text-emerald-400' : 'text-[var(--shell-text)]'}`}>
+                disabled={!certConfirmado}
+                title={!certConfirmado ? 'Confirme a prévia do certificado primeiro' : ''}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-colors ${
+                  !certConfirmado
+                    ? 'border-[var(--surface-200)] opacity-50 cursor-not-allowed'
+                    : gc.certificado_pronto
+                      ? 'border-emerald-500 bg-emerald-900/10'
+                      : 'border-[var(--surface-200)] hover:bg-[var(--surface-50)]'
+                }`}>
+                <Award className={`h-5 w-5 ${gc.certificado_pronto && certConfirmado ? 'text-emerald-400' : 'text-[var(--surface-400)]'}`} />
+                <span className={`text-sm font-semibold ${gc.certificado_pronto && certConfirmado ? 'text-emerald-400' : 'text-[var(--shell-text)]'}`}>
                   {gc.certificado_pronto ? 'Certificado ✓ (regerar)' : 'Gerar Certificado'}
                 </span>
               </button>
               {((isInd && gc.cinzas_prontas && gc.certificado_pronto) || (!isInd && gc.certificado_pronto)) && (
-                <button onClick={() => mudar({ etapa: 'disponivel', data_disponivel: new Date().toISOString() })}
-                  className="w-full py-2 rounded-lg text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors mt-1">
-                  Marcar como Finalizada
-                </button>
+                confirmando === 'disponivel'
+                  ? renderConfirmacao('border-emerald-500/30', 'bg-emerald-600 hover:bg-emerald-700', 'Quando ficou disponível para retorno?')
+                  : (
+                    <button onClick={() => abrirConfirmacao('disponivel')}
+                      className="w-full py-2 rounded-lg text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors mt-1">
+                      Marcar como Finalizada
+                    </button>
+                  )
               )}
             </div>
           )}
@@ -597,32 +658,36 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
             </div>
           )}
 
-          {/* Erro */}
-          {erro && (
-            <div className="px-3 py-2 rounded-lg bg-red-900/20 border border-red-500/30 text-red-400 text-xs">
-              {erro}
-            </div>
-          )}
-
-          {/* Botões Cancelar + Salvar */}
-          {dirty && (
-            <div className="flex gap-2">
-              <button
-                onClick={onClose}
-                className="flex-1 py-3 rounded-xl text-sm font-semibold text-[var(--surface-500)] border border-[var(--surface-200)] hover:bg-[var(--surface-50)] transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={salvarTudo}
-                disabled={salvando}
-                className="flex-1 py-3 rounded-xl text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {salvando ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvando...</> : 'Salvar Alterações'}
-              </button>
-            </div>
-          )}
         </div>
+        </div>
+
+        {/* Rodapé global: erro + Cancelar/Salvar (largura total, fora do md:flex) */}
+        {(erro || dirty) && (
+          <div className="px-5 py-4 border-t border-[var(--surface-200)] space-y-3">
+            {erro && (
+              <div className="px-3 py-2 rounded-lg bg-red-900/20 border border-red-500/30 text-red-400 text-xs">
+                {erro}
+              </div>
+            )}
+            {dirty && (
+              <div className="flex gap-2">
+                <button
+                  onClick={onClose}
+                  className="flex-1 py-3 rounded-xl text-sm font-semibold text-[var(--surface-500)] border border-[var(--surface-200)] hover:bg-[var(--surface-50)] transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={salvarTudo}
+                  disabled={salvando}
+                  className="flex-1 py-3 rounded-xl text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {salvando ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvando...</> : 'Salvar Alterações'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Sub-modal Observações */}
