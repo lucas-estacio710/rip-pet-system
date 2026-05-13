@@ -176,17 +176,18 @@ export default function FichasPage() {
     carregarFichas()
   }, [currentUnit?.id])
 
+  // Trigger de reload — incrementado pelo realtime; useEffect[filtro,reloadKey] reage com closure atual
+  const [reloadKey, setReloadKey] = useState(0)
+
   // Realtime — escuta novas fichas e atualizações
   useEffect(() => {
     const channel = supabase
       .channel('fichas-realtime')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'fichas' }, () => {
-        carregarFichas()
-        carregarContagens()
+        setReloadKey(k => k + 1)
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'fichas' }, () => {
-        carregarFichas()
-        carregarContagens()
+        setReloadKey(k => k + 1)
       })
       .subscribe()
 
@@ -196,7 +197,7 @@ export default function FichasPage() {
   useEffect(() => {
     carregarFichas()
     carregarContagens()
-  }, [filtro, buscaDebounced, periodo, periodoCustomDe, periodoCustomAte])
+  }, [filtro, buscaDebounced, periodo, periodoCustomDe, periodoCustomAte, reloadKey])
 
   async function carregarContagens() {
     if (!currentUnit) { setLoading(false); return }
@@ -882,7 +883,14 @@ export default function FichasPage() {
       {/* Modal de tratativa */}
       <TratativaModal
         isOpen={!!fichaModal}
-        onClose={(resultado?: 'processada' | 'contrato') => { setFichaModal(null); setModalSomenteLeitura(false); if (resultado === 'contrato') setFiltro('contrato_criado'); else if (resultado === 'processada') setFiltro('processadas'); carregarFichas(); carregarContagens() }}
+        onClose={(resultado?: 'processada' | 'contrato') => {
+          setFichaModal(null)
+          setModalSomenteLeitura(false)
+          if (resultado === 'contrato') setFiltro('contrato_criado')
+          else if (resultado === 'processada') setFiltro('processadas')
+          // Não chamar carregarFichas/carregarContagens aqui — useEffect dispara via [filtro]
+          // e evita race condition (request com filtro antigo sobrescrevia o novo)
+        }}
         ficha={fichaModal}
         onSuccess={handleSuccess}
         somenteLeitura={modalSomenteLeitura}

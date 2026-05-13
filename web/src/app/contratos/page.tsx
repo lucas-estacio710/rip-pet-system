@@ -1312,23 +1312,6 @@ function ContratosContent() {
       }
     }
 
-    // Badge GC pendências parciais (pinda + disponivel com algo faltando)
-    if (contrato.status === 'pinda' && contrato.contrato_gc) {
-      const gc = contrato.contrato_gc
-      if (!gc.cinzas_prontas || !gc.certificado_pronto) {
-        if (gc.etapa === 'disponivel' || gc.etapa === 'cremacao') {
-          const pendencias = []
-          if (!gc.cinzas_prontas) pendencias.push('⚱️')
-          if (!gc.certificado_pronto) pendencias.push('📜')
-          badges.push(
-            <span key="gc-partial" className="text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-amber-900/40 text-amber-400 border border-amber-500/30">
-              ⏳ {pendencias.join(' ')}
-            </span>
-          )
-        }
-      }
-    }
-
     if (badges.length === 0) return null
     return <div className="flex flex-wrap gap-1">{badges}</div>
   }

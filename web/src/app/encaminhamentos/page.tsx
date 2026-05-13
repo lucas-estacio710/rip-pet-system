@@ -304,11 +304,11 @@ export default function EncaminhamentosPage() {
     async function carregar() {
       const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
       const [{ data: crem }, { data: ativ }, { data: funcs }, { data: encs }, { data: vinc }] = await Promise.all([
-        filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_contrato', { ascending: true }),
-        filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_contrato', { ascending: true }),
+        filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_acolhimento', { ascending: true, nullsFirst: false }),
+        filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_acolhimento', { ascending: true, nullsFirst: false }),
         filterUnit(supabase.from('funcionarios').select('id, nome')).eq('ativo', true).order('nome'),
         supabase.from('supindas').select('id, numero, data, responsavel, quantidade_pets, peso_total, status, observacoes, unidades(codigo)').order('data'),
-        filterUnit(supabase.from('contratos').select(campos)).in('status', ['ativo', 'pinda', 'retorno']).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_contrato', { ascending: true }),
+        filterUnit(supabase.from('contratos').select(campos)).in('status', ['ativo', 'pinda', 'retorno']).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_acolhimento', { ascending: true, nullsFirst: false }),
       ])
       setCremados(((crem || []) as ContratoEnc[]).filter(c => {
       const gc = Array.isArray(c.contrato_gc) ? c.contrato_gc[0] : c.contrato_gc
@@ -437,6 +437,26 @@ export default function EncaminhamentosPage() {
       return
     }
 
+    // OPTIMISTIC: atualiza vinculados local antes do re-fetch (evita flicker "Nenhum pet vinculado")
+    setVinculados(prev => {
+      const next = [...prev]
+      for (const id of idsLevar) {
+        const c = ativos.find(a => a.id === id)
+        if (!c) continue
+        const idx = next.findIndex(v => v.id === id)
+        if (idx >= 0) next[idx] = { ...next[idx], supinda_id: enc.id }
+        else next.push({ ...c, supinda_id: enc.id })
+      }
+      for (const id of idsRetirar) {
+        const c = cremados.find(a => a.id === id)
+        if (!c) continue
+        const idx = next.findIndex(v => v.id === id)
+        if (idx >= 0) next[idx] = { ...next[idx], supinda_volta_id: enc.id }
+        else next.push({ ...c, supinda_volta_id: enc.id })
+      }
+      return next
+    })
+
     if (idsLevar.length > 0) {
       await supabase.from('contratos').update({ supinda_id: enc.id } as never).in('id', idsLevar)
     }
@@ -460,10 +480,10 @@ export default function EncaminhamentosPage() {
     // Recarregar
     const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
     const [{ data: crem }, { data: ativ }, { data: encs }, { data: vinc }] = await Promise.all([
-      filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_contrato', { ascending: true }),
-      filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_contrato', { ascending: true }),
+      filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_acolhimento', { ascending: true, nullsFirst: false }),
+      filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_acolhimento', { ascending: true, nullsFirst: false }),
       supabase.from('supindas').select('id, numero, data, responsavel, quantidade_pets, peso_total, status, observacoes, unidades(codigo)').order('data'),
-      filterUnit(supabase.from('contratos').select(campos)).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_contrato', { ascending: true }),
+      filterUnit(supabase.from('contratos').select(campos)).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_acolhimento', { ascending: true, nullsFirst: false }),
     ])
     setCremados(((crem || []) as ContratoEnc[]).filter(c => {
       const gc = Array.isArray(c.contrato_gc) ? c.contrato_gc[0] : c.contrato_gc
@@ -504,10 +524,10 @@ export default function EncaminhamentosPage() {
     setEncAbertos(prev => { const next = new Set(prev); next.delete(enc.id); return next })
     const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
     const [{ data: crem }, { data: ativ }, { data: encs }, { data: vinc }] = await Promise.all([
-      filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_contrato', { ascending: true }),
-      filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_contrato', { ascending: true }),
+      filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_acolhimento', { ascending: true, nullsFirst: false }),
+      filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_acolhimento', { ascending: true, nullsFirst: false }),
       supabase.from('supindas').select('id, numero, data, responsavel, quantidade_pets, peso_total, status, observacoes, unidades(codigo)').order('data'),
-      filterUnit(supabase.from('contratos').select(campos)).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_contrato', { ascending: true }),
+      filterUnit(supabase.from('contratos').select(campos)).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_acolhimento', { ascending: true, nullsFirst: false }),
     ])
     setCremados(((crem || []) as ContratoEnc[]).filter(c => {
       const gc = Array.isArray(c.contrato_gc) ? c.contrato_gc[0] : c.contrato_gc
@@ -588,10 +608,10 @@ export default function EncaminhamentosPage() {
     // Recarregar tudo
     const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
     const [{ data: crem }, { data: ativ }, { data: encs }, { data: vinc }] = await Promise.all([
-      filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_contrato', { ascending: true }),
-      filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_contrato', { ascending: true }),
+      filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_acolhimento', { ascending: true, nullsFirst: false }),
+      filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_acolhimento', { ascending: true, nullsFirst: false }),
       supabase.from('supindas').select('id, numero, data, responsavel, quantidade_pets, peso_total, status, observacoes, unidades(codigo)').order('data'),
-      filterUnit(supabase.from('contratos').select(campos)).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_contrato', { ascending: true }),
+      filterUnit(supabase.from('contratos').select(campos)).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_acolhimento', { ascending: true, nullsFirst: false }),
     ])
     setCremados(((crem || []) as ContratoEnc[]).filter(c => {
       const gc = Array.isArray(c.contrato_gc) ? c.contrato_gc[0] : c.contrato_gc
@@ -1180,9 +1200,9 @@ export default function EncaminhamentosPage() {
                           // Recarregar contratos
                           const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
                           const [{ data: crem }, { data: ativ }, { data: vinc2 }] = await Promise.all([
-                            filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_contrato', { ascending: true }),
-                            filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_contrato', { ascending: true }),
-                            filterUnit(supabase.from('contratos').select(campos)).in('status', ['ativo', 'pinda', 'retorno']).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_contrato', { ascending: true }),
+                            filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_acolhimento', { ascending: true, nullsFirst: false }),
+                            filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_acolhimento', { ascending: true, nullsFirst: false }),
+                            filterUnit(supabase.from('contratos').select(campos)).in('status', ['ativo', 'pinda', 'retorno']).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_acolhimento', { ascending: true, nullsFirst: false }),
                           ])
                           setCremados(((crem || []) as ContratoEnc[]).filter(c => {
       const gc = Array.isArray(c.contrato_gc) ? c.contrato_gc[0] : c.contrato_gc
@@ -1211,9 +1231,9 @@ export default function EncaminhamentosPage() {
                           // Recarregar contratos
                           const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
                           const [{ data: crem }, { data: ativ }, { data: vinc2 }] = await Promise.all([
-                            filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_contrato', { ascending: true }),
-                            filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_contrato', { ascending: true }),
-                            filterUnit(supabase.from('contratos').select(campos)).in('status', ['ativo', 'pinda', 'retorno']).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_contrato', { ascending: true }),
+                            filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_acolhimento', { ascending: true, nullsFirst: false }),
+                            filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_acolhimento', { ascending: true, nullsFirst: false }),
+                            filterUnit(supabase.from('contratos').select(campos)).in('status', ['ativo', 'pinda', 'retorno']).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_acolhimento', { ascending: true, nullsFirst: false }),
                           ])
                           setCremados(((crem || []) as ContratoEnc[]).filter(c => {
       const gc = Array.isArray(c.contrato_gc) ? c.contrato_gc[0] : c.contrato_gc
@@ -1312,9 +1332,9 @@ export default function EncaminhamentosPage() {
                                                   } as never).eq('id', enc.id)
                                                   const campos2 = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
                                                   const [{ data: crem }, { data: ativ }, { data: vinc4 }, { data: encs2 }] = await Promise.all([
-                                                    filterUnit(supabase.from('contratos').select(campos2)).eq('status', 'pinda').order('data_contrato', { ascending: true }),
-                                                    filterUnit(supabase.from('contratos').select(campos2)).eq('status', 'ativo').order('data_contrato', { ascending: true }),
-                                                    filterUnit(supabase.from('contratos').select(campos2)).in('status', ['ativo', 'pinda', 'retorno']).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_contrato', { ascending: true }),
+                                                    filterUnit(supabase.from('contratos').select(campos2)).eq('status', 'pinda').order('data_acolhimento', { ascending: true, nullsFirst: false }),
+                                                    filterUnit(supabase.from('contratos').select(campos2)).eq('status', 'ativo').order('data_acolhimento', { ascending: true, nullsFirst: false }),
+                                                    filterUnit(supabase.from('contratos').select(campos2)).in('status', ['ativo', 'pinda', 'retorno']).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_acolhimento', { ascending: true, nullsFirst: false }),
                                                     supabase.from('supindas').select('id, numero, data, responsavel, quantidade_pets, peso_total, status, observacoes, unidades(codigo)').order('data'),
                                                   ])
                                                   setCremados(((crem || []) as ContratoEnc[]).filter(c => {
@@ -1437,9 +1457,9 @@ export default function EncaminhamentosPage() {
                                                   await supabase.from('contratos').update({ supinda_volta_id: null } as never).eq('id', c.id)
                                                   const campos2 = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
                                                   const [{ data: crem }, { data: ativ }, { data: vinc4 }, { data: encs2 }] = await Promise.all([
-                                                    filterUnit(supabase.from('contratos').select(campos2)).eq('status', 'pinda').order('data_contrato', { ascending: true }),
-                                                    filterUnit(supabase.from('contratos').select(campos2)).eq('status', 'ativo').order('data_contrato', { ascending: true }),
-                                                    filterUnit(supabase.from('contratos').select(campos2)).in('status', ['ativo', 'pinda', 'retorno']).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_contrato', { ascending: true }),
+                                                    filterUnit(supabase.from('contratos').select(campos2)).eq('status', 'pinda').order('data_acolhimento', { ascending: true, nullsFirst: false }),
+                                                    filterUnit(supabase.from('contratos').select(campos2)).eq('status', 'ativo').order('data_acolhimento', { ascending: true, nullsFirst: false }),
+                                                    filterUnit(supabase.from('contratos').select(campos2)).in('status', ['ativo', 'pinda', 'retorno']).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_acolhimento', { ascending: true, nullsFirst: false }),
                                                     supabase.from('supindas').select('id, numero, data, responsavel, quantidade_pets, peso_total, status, observacoes, unidades(codigo)').order('data'),
                                                   ])
                                                   setCremados(((crem || []) as ContratoEnc[]).filter(c => {

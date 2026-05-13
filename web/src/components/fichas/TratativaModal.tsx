@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { User, PawPrint, Flame, Search, Check, Plus, Pencil, Loader2, Building2, UserCheck, MessageCircle } from 'lucide-react'
+import { User, PawPrint, Flame, Search, Check, Plus, Pencil, Loader2, Building2, UserCheck, MessageCircle, Phone, AlertTriangle } from 'lucide-react'
 import Modal from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
 import { createClient } from '@/lib/supabase/client'
@@ -207,6 +207,42 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
     return ddi + num
   }
 
+  function abrirWhatsApp(tel: string | null | undefined) {
+    if (!tel) return
+    const n = tel.replace(/\D/g, '')
+    if (!n) return
+    // BR sem DDI (10 ou 11 dígitos): adiciona 55
+    const numero = (n.length === 10 || n.length === 11) ? '55' + n : n
+    window.open(`https://wa.me/${numero}`, '_blank', 'noopener,noreferrer')
+  }
+
+  // Smart input pro tel2 — detecta DDI inicial colado do WhatsApp (+55, +1, +351, +54)
+  function aplicarTelefone2(raw: string) {
+    const d = raw.replace(/\D/g, '')
+    if (!d) { setTelefone2(''); return }
+    // Detectar DDI conhecido no início (só se o resto sobrar 10-11 dígitos pra BR ou 7+ pra estrangeiro)
+    const ddiCandidatos = ['55', '351', '54', '1']
+    for (const ddi of ddiCandidatos) {
+      if (d.startsWith(ddi)) {
+        const resto = d.slice(ddi.length)
+        // BR: 10 ou 11 dígitos após o 55
+        if (ddi === '55' && (resto.length === 10 || resto.length === 11)) {
+          setTelefone2DDI('55')
+          setTelefone2(resto.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15))
+          return
+        }
+        // Outros DDIs: aceita 7-11 dígitos no resto
+        if (ddi !== '55' && resto.length >= 7 && resto.length <= 11) {
+          setTelefone2DDI(ddi)
+          setTelefone2(resto.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15))
+          return
+        }
+      }
+    }
+    // Sem DDI detectado — aplicar máscara padrão limitada a 15 chars
+    setTelefone2(d.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15))
+  }
+
   function cancelEdit() {
     // Se cancelou a adição de um nome vazio no certificado, remover o item
     if (editingField?.startsWith('outros_tutores_') && editingValue === '') {
@@ -246,12 +282,14 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   const [indicEstabAberto, setIndicEstabAberto] = useState(false)
   const [indicEstabId, setIndicEstabId] = useState<string | null>(null)
   const [indicEstabNome, setIndicEstabNome] = useState('')
+  const indicEstabRef = useRef<HTMLDivElement>(null)
 
   // Form fields
   const tipoPlano = 'emergencial' as const
   const [funcionarioId, setFuncionarioId] = useState('')
   // Telefone — operador confirma ou adiciona secundário
   const [telefoneConfirmado, setTelefoneConfirmado] = useState(false)
+  const [telefone1Nome, setTelefone1Nome] = useState('')
   const [telefone2, setTelefone2] = useState('')
   const [telefone2DDI, setTelefone2DDI] = useState('55')
   const [telefone2DDICustom, setTelefone2DDICustom] = useState('')
@@ -302,8 +340,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
     if (!isOpen || !ficha) return
     async function loadData() {
       const [{ data: estabs }, { data: conts }, { data: funcs }] = await Promise.all([
-        supabase.from('estabelecimentos').select('id, nome, tipo').order('nome'),
-        supabase.from('contatos').select('id, nome, cargo, estabelecimento_id').order('nome'),
+        supabase.from('estabelecimentos').select('id, nome, tipo').eq('unidade_id', ficha!.unidade_id).order('nome'),
+        supabase.from('contatos').select('id, nome, cargo, estabelecimento_id').eq('ativo', true).eq('unidade_id', ficha!.unidade_id).order('nome'),
         supabase.from('funcionarios').select('id, nome').eq('ativo', true).eq('unidade_id', ficha!.unidade_id).order('nome'),
       ])
       if (estabs) setEstabelecimentos(estabs as Estabelecimento[])
@@ -451,9 +489,12 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
     setIndicacaoDeClinica(veioDeClinica)
     setTeveIndicacao(veioDeClinica) // se veio de clínica, já abre os campos
 
+    // Pré-carrega o texto do tutor mas NÃO marca o checkbox automaticamente —
+    // concierge decide se vai ativar e pode editar/buscar contato existente
     if (ficha.veterinario_especificar) {
       setIndicNomeQuemIndicou(ficha.veterinario_especificar)
-      setIndicNomeAtivo(true)
+      setIndicBusca(ficha.veterinario_especificar)
+      setIndicNome(ficha.veterinario_especificar)
     }
 
     // Se ficha já processada, carregar op_dados do operador
@@ -491,6 +532,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       if (op.indicNome) { setIndicNome(String(op.indicNome)); setIndicBusca(String(op.indicNome)) }
       if (op.indicCargo) setIndicCargo(String(op.indicCargo))
       if (op.telefoneConfirmado) setTelefoneConfirmado(true)
+      if (op.telefone1Nome) setTelefone1Nome(String(op.telefone1Nome))
       if (op.mostrarTelefone2) setMostrarTelefone2(true)
       if (op.telefone2DDI) setTelefone2DDI(String(op.telefone2DDI))
       if (op.telefone2DDICustom) setTelefone2DDICustom(String(op.telefone2DDICustom))
@@ -512,7 +554,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
     function handleClick(e: MouseEvent) {
       if (estabRef.current && !estabRef.current.contains(e.target as Node)) setEstabAberto(false)
       if (indicRef.current && !indicRef.current.contains(e.target as Node)) setIndicAberto(false)
-      setIndicEstabAberto(false)
+      if (indicEstabRef.current && !indicEstabRef.current.contains(e.target as Node)) setIndicEstabAberto(false)
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
@@ -525,11 +567,19 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
     ? estabelecimentos.filter(e => e.nome.toLowerCase().includes(estabBusca.toLowerCase())).slice(0, 15)
     : estabelecimentos.slice(0, 15)
 
-  // Contatos: filter by selected establishment, then by search text
+  // Contatos da indicação: filtra por nome se houver busca; quando há clínica selecionada, prioriza contatos dessa clínica + contatos sem estab cadastrado (legado).
   const contatosFiltrados = (() => {
+    const termo = indicBusca.trim().toLowerCase()
     let lista = contatos
-    if (estabId) lista = lista.filter(c => c.estabelecimento_id === estabId)
-    if (indicBusca.trim()) lista = lista.filter(c => c.nome.toLowerCase().includes(indicBusca.toLowerCase()))
+    // 1. Filtro por nome (sempre que houver texto)
+    if (termo) lista = lista.filter(c => c.nome.toLowerCase().includes(termo))
+    // 2. Quando há clínica selecionada: prioriza os dessa clínica + sem-estab no topo
+    if (indicEstabId) {
+      const desseEstab = lista.filter(c => c.estabelecimento_id === indicEstabId)
+      const semEstab = lista.filter(c => !c.estabelecimento_id)
+      const outros = lista.filter(c => c.estabelecimento_id && c.estabelecimento_id !== indicEstabId)
+      lista = [...desseEstab, ...semEstab, ...outros]
+    }
     return lista.slice(0, 10)
   })()
 
@@ -566,6 +616,44 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         if (errEdits) throw new Error(`Erro ao salvar edições: ${errEdits.message}`)
       }
 
+      // Resolver estabelecimento + contato da INDICAÇÃO — cria no banco se digitou novo
+      let resolvedIndicEstabId: string | null = indicEstabId
+      let resolvedIndicContatoId: string | null = indicId
+      if (teveIndicacao && temPadronizacaoClinicas) {
+        // Estabelecimento da indicação
+        if (!resolvedIndicEstabId && indicEstabNome.trim()) {
+          const { data: novoEstab, error: errEstab } = await supabase
+            .from('estabelecimentos')
+            .insert({ nome: indicEstabNome.trim(), tipo: 'clinica', unidade_id: ficha.unidade_id } as never)
+            .select('id').single() as { data: { id: string } | null; error: { message: string } | null }
+          if (errEstab) throw new Error(`Erro ao criar estabelecimento: ${errEstab.message}`)
+          if (novoEstab) {
+            resolvedIndicEstabId = novoEstab.id
+            setIndicEstabId(novoEstab.id)
+          }
+        }
+        // Contato indicador (busca existente primeiro, senão cria)
+        if (!resolvedIndicContatoId && indicNome.trim()) {
+          let q = supabase.from('contatos').select('id').ilike('nome', indicNome.trim()).limit(1)
+          if (resolvedIndicEstabId) q = q.eq('estabelecimento_id', resolvedIndicEstabId)
+          const { data: contatoExist } = await q.maybeSingle() as { data: { id: string } | null }
+          if (contatoExist) {
+            resolvedIndicContatoId = contatoExist.id
+            setIndicId(contatoExist.id)
+          } else {
+            const { data: novoContato, error: errContato } = await supabase
+              .from('contatos')
+              .insert({ nome: indicNome.trim(), cargo: indicCargo.trim() || null, estabelecimento_id: resolvedIndicEstabId, unidade_id: ficha.unidade_id } as never)
+              .select('id').single() as { data: { id: string } | null; error: { message: string } | null }
+            if (errContato) throw new Error(`Erro ao criar contato: ${errContato.message}`)
+            if (novoContato) {
+              resolvedIndicContatoId = novoContato.id
+              setIndicId(novoContato.id)
+            }
+          }
+        }
+      }
+
       // Montar op_dados com tudo que o operador preencheu
       const opDados = {
         codigo: codigo.trim(),
@@ -596,14 +684,15 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         indicNomeAtivo,
         indicHospClinica: indicHospClinica || null,
         indicHospAtivo,
-        indicEstabId,
+        indicEstabId: resolvedIndicEstabId,
         indicEstabNome: indicEstabNome || null,
         outroNormalizado: outroNormalizado || null,
-        indicId,
+        indicId: resolvedIndicContatoId,
         indicNome: indicNome || null,
         indicCargo: indicCargo || null,
         // Telefone
         telefoneConfirmado,
+        telefone1Nome: telefone1Nome.trim() || null,
         telefone2: getTelefone2Completo() || null,
         telefone2Nome: telefone2Nome.trim() || null,
         usarTelefone2ComoPrincipal,
@@ -650,13 +739,14 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
 
     try {
       // Step 1: Find or create tutor
-      // Swap tel1↔tel2 leva o nome junto. null = é o próprio tutor.
+      // Swap tel1↔tel2 leva o nome junto. tel1 (da ficha) é imutável; só apelido editável.
       const hasTel2 = !!getTelefone2Completo()
+      const tel1NomeVal = telefone1Nome.trim() || null
       const tel2NomeVal = telefone2Nome.trim() || null
       const telPrincipal = hasTel2 && usarTelefone2ComoPrincipal ? getTelefone2Completo() : f.telefone
       const telSecundario = hasTel2 ? (usarTelefone2ComoPrincipal ? f.telefone : getTelefone2Completo()) : null
-      const telPrincipalNome = hasTel2 && usarTelefone2ComoPrincipal ? tel2NomeVal : null
-      const telSecundarioNome = hasTel2 ? (usarTelefone2ComoPrincipal ? null : tel2NomeVal) : null
+      const telPrincipalNome = hasTel2 && usarTelefone2ComoPrincipal ? tel2NomeVal : tel1NomeVal
+      const telSecundarioNome = hasTel2 ? (usarTelefone2ComoPrincipal ? tel1NomeVal : tel2NomeVal) : null
 
       let tutorId = tutorExistente?.id || null
       if (!tutorId) {
@@ -669,6 +759,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
             telefone2: telSecundario,
             telefone_nome: telPrincipalNome,
             telefone2_nome: telSecundarioNome,
+            telefone_principal: 1,
             email: f.email || null,
             cep: f.cep, endereco: f.endereco, numero: f.numero, complemento: f.complemento || null,
             bairro: f.bairro, cidade: f.cidade, estado: f.estado, unidade_id: f.unidade_id,
@@ -759,6 +850,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         tutor_telefone2: telSecundario,
         tutor_telefone_nome: telPrincipalNome,
         tutor_telefone2_nome: telSecundarioNome,
+        tutor_telefone_principal: 1,
         tutor_email: f.email || null, tutor_cidade: f.cidade || null, tutor_bairro: f.bairro || null,
         tutor_endereco: f.endereco ? `${f.endereco}, ${f.numero}${f.complemento ? ` - ${f.complemento}` : ''}` : null,
         tutor_cep: f.cep || null,
@@ -892,7 +984,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   }
 
   // Validação do bloco de acolhimento
-  const telefoneOk = telefoneConfirmado || mostrarTelefone2
+  // Telefone OK = (confirmou número da ficha + apelido) OU (informou número alternativo + nome/relação)
+  const telefoneOk = (telefoneConfirmado && !!telefone1Nome.trim()) || (mostrarTelefone2 && !!telefone2.trim() && !!telefone2Nome.trim())
   const localOk = semLocal || !!localColeta
   const responsavelOk = semResponsavel || !!funcionarioId
   const dataHoraOk = semDataHora || !!dataHoraAcolhimento
@@ -1436,21 +1529,51 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                 </div>
               )}
 
-              {!telefoneConfirmado && !mostrarTelefone2 && (
-                <div className="p-2 rounded-lg border border-[var(--surface-200)] space-y-2">
-                  <p className="text-[10px] text-[var(--surface-500)]">Está conversando com este número?</p>
-                  <div className="px-2 py-1.5 rounded bg-[var(--surface-50)] text-sm text-mono text-[var(--surface-700)]">{formatarTel(ficha?.telefone)}</div>
+              {(!telefoneOk || mostrarTelefone2 || telefoneConfirmado) && (
+                <div className="p-2 rounded-lg border-2 border-amber-500/30 bg-amber-500/5 space-y-2">
+                  <div className="flex items-center gap-1">
+                    <Phone className="h-3 w-3 text-amber-500" />
+                    <p className="text-[10px] font-bold text-amber-500 uppercase tracking-wider">Contato para cremação</p>
+                  </div>
+                  <p className="text-[9px] text-amber-400 leading-snug">Matriz usará este número para chamar. Pode alterar depois no contrato.</p>
+                  <div className="flex gap-1.5 items-stretch">
+                    <div className="flex-1 px-2 py-1.5 rounded bg-[var(--surface-50)] text-sm text-mono text-[var(--surface-700)]">{formatarTel(ficha?.telefone)}</div>
+                    <button
+                      type="button"
+                      onClick={() => abrirWhatsApp(ficha?.telefone)}
+                      className="px-2 rounded text-[10px] font-semibold border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 transition-all flex items-center gap-1 whitespace-nowrap"
+                      title="Abrir conversa no WhatsApp"
+                    >
+                      <MessageCircle className="h-3 w-3" />
+                      Validar
+                    </button>
+                  </div>
                   {!mostrarTelefone2 ? (
-                    <div className="flex gap-2">
-                      <button type="button" onClick={() => setTelefoneConfirmado(true)}
-                        className="flex-1 py-1.5 rounded-lg text-[10px] font-semibold border border-emerald-500/30 text-emerald-400 hover:bg-emerald-900/10 transition-all">
-                        Sim, é este
-                      </button>
-                      <button type="button" onClick={() => { setMostrarTelefone2(true); setUsarTelefone2ComoPrincipal(true) }}
-                        className="flex-1 py-1.5 rounded-lg text-[10px] font-semibold border border-amber-500/30 text-amber-400 hover:bg-amber-900/10 transition-all">
-                        Não, é outro
-                      </button>
-                    </div>
+                    <>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setTelefoneConfirmado(true)}
+                          className={`flex-1 py-1.5 rounded-lg text-[10px] font-semibold border transition-all ${telefoneConfirmado ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400' : 'border-emerald-500/30 text-emerald-400 hover:bg-emerald-900/10'}`}>
+                          Sim, é este
+                        </button>
+                        <button type="button" onClick={() => { setMostrarTelefone2(true); setUsarTelefone2ComoPrincipal(true); setTelefoneConfirmado(false) }}
+                          className="flex-1 py-1.5 rounded-lg text-[10px] font-semibold border border-amber-500/30 text-amber-400 hover:bg-amber-900/10 transition-all">
+                          Não, é outro
+                        </button>
+                      </div>
+                      {telefoneConfirmado && (
+                        <div className="space-y-1">
+                          <label className="text-[10px] text-emerald-400 font-medium block">Como chamar? <span className="text-red-400">*</span></label>
+                          <input
+                            type="text"
+                            value={telefone1Nome}
+                            onChange={e => setTelefone1Nome(e.target.value)}
+                            placeholder="Ex: Ana"
+                            className="input text-sm w-full"
+                            maxLength={80}
+                          />
+                        </div>
+                      )}
+                    </>
                   ) : (
                     <div className="space-y-1.5">
                       <label className="text-[10px] text-amber-400 font-medium">Telefone do contato atual</label>
@@ -1462,16 +1585,20 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                           <option value="54">+54</option>
                           <option value="outro">Outro</option>
                         </select>
-                        <input type="text" inputMode="tel" value={telefone2} onChange={e => setTelefone2(e.target.value.replace(/\D/g, '').replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15))} placeholder="(00) 00000-0000" maxLength={15} className="input text-sm text-mono flex-1" />
+                        <input type="text" inputMode="tel" value={telefone2} onChange={e => aplicarTelefone2(e.target.value)} placeholder="(00) 00000-0000 — cole com +55, ele detecta" maxLength={20} className="input text-sm text-mono flex-1" />
                       </div>
+                      <label className="text-[10px] text-amber-400 font-medium block">Nome e relação <span className="text-red-400">*</span></label>
                       <input
                         type="text"
                         value={telefone2Nome}
                         onChange={e => setTelefone2Nome(e.target.value)}
-                        placeholder="Nome do contato (ex: Maria — irmã)"
+                        placeholder="Ex: Maria — irmã do tutor"
                         className="input text-sm w-full"
                         maxLength={80}
                       />
+                      <button type="button" onClick={() => { setMostrarTelefone2(false); setTelefone2(''); setTelefone2Nome(''); setUsarTelefone2ComoPrincipal(false) }} className="text-[9px] text-[var(--surface-500)] hover:text-[var(--surface-700)] underline">
+                        ← Voltar e usar o número da ficha
+                      </button>
                     </div>
                   )}
                 </div>
@@ -1496,6 +1623,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                       semLacre: lacre.trim() ? false : semLacre,
                       lacre: lacre.trim() || opAtual.lacre,
                       telefoneConfirmado: telefoneConfirmado || opAtual.telefoneConfirmado,
+                      telefone1Nome: telefone1Nome.trim() || opAtual.telefone1Nome || null,
                       mostrarTelefone2,
                       usarTelefone2ComoPrincipal,
                       telefone2: getTelefone2Completo() || opAtual.telefone2,
@@ -1669,13 +1797,31 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
             <h4 className="text-xs font-bold text-[var(--surface-600)] uppercase tracking-wider">Acolhimento</h4>
 
             {/* Telefone — quem é o contato ativo? */}
-            <div className="p-3 rounded-lg border border-[var(--surface-200)] space-y-2">
-              <label className="text-xs font-medium text-[var(--surface-600)]">Telefone da Ficha <span className="text-red-400">*</span></label>
-              <div className="px-3 py-2 rounded-lg bg-[var(--surface-50)] text-sm text-mono text-[var(--surface-700)]">
-                {formatarTel(getFichaValue('telefone'))}
+            <div className="p-3 rounded-lg border-2 border-amber-500/30 bg-amber-500/5 space-y-2">
+              <div className="flex items-center gap-1.5">
+                <Phone className="h-3.5 w-3.5 text-amber-500" />
+                <label className="text-xs font-bold text-amber-500 uppercase tracking-wider">Contato para Cremação <span className="text-red-400">*</span></label>
+              </div>
+              <p className="text-[10px] text-amber-400 leading-snug">
+                <AlertTriangle className="inline h-3 w-3 mr-0.5 align-text-bottom" />
+                Matriz usará este número para chamar no dia da cremação. Você pode alterar depois com contrato no fluxo.
+              </p>
+              <div className="flex gap-2 items-stretch">
+                <div className="flex-1 px-3 py-2 rounded-lg bg-[var(--surface-50)] text-sm text-mono text-[var(--surface-700)]">
+                  {formatarTel(getFichaValue('telefone'))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => abrirWhatsApp(getFichaValue('telefone'))}
+                  className="px-3 rounded-lg text-[11px] font-semibold border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 transition-all flex items-center gap-1.5 whitespace-nowrap"
+                  title="Abrir conversa no WhatsApp"
+                >
+                  <MessageCircle className="h-3.5 w-3.5" />
+                  Validar
+                </button>
               </div>
 
-              <p className="text-[10px] text-[var(--surface-500)]">Está conversando com este número?</p>
+              <p className="text-[11px] font-medium text-[var(--surface-600)]">Está falando com a pessoa dona deste número?</p>
 
               <div className="flex gap-2">
                 <button type="button" onClick={() => { setTelefoneConfirmado(true); setMostrarTelefone2(false); setTelefone2(''); setUsarTelefone2ComoPrincipal(false) }}
@@ -1696,9 +1842,24 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                 </button>
               </div>
 
+              {telefoneConfirmado && !mostrarTelefone2 && (
+                <div className="space-y-1 pt-1 mt-1 border-t border-emerald-500/20">
+                  <label className="text-[10px] text-emerald-400 font-medium block">Como devemos chamar este contato? <span className="text-red-400">*</span></label>
+                  <input
+                    type="text"
+                    value={telefone1Nome}
+                    onChange={e => setTelefone1Nome(e.target.value)}
+                    placeholder="Ex: Ana"
+                    className="input text-sm w-full"
+                    maxLength={80}
+                  />
+                  <p className="text-[9px] text-[var(--surface-400)] leading-snug">Apelido usado nas mensagens automáticas. Pode ser editado depois no contrato.</p>
+                </div>
+              )}
+
               {mostrarTelefone2 && (
-                <div className="space-y-1.5">
-                  <label className="text-[10px] text-amber-400 font-medium">Telefone do contato atual (quem está no WhatsApp)</label>
+                <div className="space-y-1.5 pt-1 mt-1 border-t border-amber-500/20">
+                  <label className="text-[10px] text-amber-400 font-medium">Telefone do contato atual (será usado pela Matriz e WhatsApp)</label>
                   <div className="flex gap-1.5">
                     {telefone2DDI === 'outro' ? (
                       <div className="flex gap-1 items-center">
@@ -1715,17 +1876,18 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                         <option value="outro">Outro</option>
                       </select>
                     )}
-                    <input type="text" inputMode="tel" value={telefone2} onChange={e => setTelefone2(e.target.value.replace(/\D/g, '').replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15))} placeholder="(00) 00000-0000" maxLength={15} className="input text-sm text-mono flex-1" />
+                    <input type="text" inputMode="tel" value={telefone2} onChange={e => aplicarTelefone2(e.target.value)} placeholder="(00) 00000-0000 — cole com +55, ele detecta" maxLength={20} className="input text-sm text-mono flex-1" />
                   </div>
+                  <label className="text-[10px] text-amber-400 font-medium block mt-1">Nome e relação com o titular <span className="text-red-400">*</span></label>
                   <input
                     type="text"
                     value={telefone2Nome}
                     onChange={e => setTelefone2Nome(e.target.value)}
-                    placeholder="Nome do contato (ex: Maria — irmã)"
+                    placeholder="Ex: Maria — irmã do tutor"
                     className="input text-sm w-full"
                     maxLength={80}
                   />
-                  <p className="text-[9px] text-[var(--surface-400)]">Este número será usado nos botões de WhatsApp. O telefone da ficha fica salvo como secundário.</p>
+                  <p className="text-[9px] text-[var(--surface-400)] leading-snug">Matriz e WhatsApp passam a usar este número. O telefone original fica salvo como secundário.</p>
                 </div>
               )}
             </div>
@@ -1934,50 +2096,6 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
 
             {teveIndicacao && (
               <div className="space-y-3">
-                {/* Nome de quem indicou */}
-                <div>
-                  <label className="flex items-center gap-2 cursor-pointer mb-1.5">
-                    <input type="checkbox" checked={indicNomeAtivo} onChange={e => setIndicNomeAtivo(e.target.checked)} className="h-3.5 w-3.5 rounded accent-purple-500" />
-                    <span className="text-xs font-medium text-[var(--surface-600)]">Nome de quem indicou</span>
-                  </label>
-                  {indicNomeAtivo && (
-                    temPadronizacaoClinicas ? (
-                      <div ref={indicRef} className="relative">
-                        <div className="relative">
-                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--surface-400)]" />
-                          <input type="text" value={indicBusca} onChange={e => { setIndicBusca(e.target.value); setIndicNome(e.target.value); setIndicNomeQuemIndicou(e.target.value); setIndicId(null); setIndicAberto(true) }} onFocus={() => setIndicAberto(true)} placeholder="ex: Dra. Maria ou Recep. João" className="input pl-9 text-sm" />
-                        </div>
-                        {indicAberto && (contatosFiltrados.length > 0 || indicBusca.trim()) && (
-                          <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-[var(--surface-0)] border border-[var(--surface-200)] rounded-lg shadow-lg">
-                            {contatosFiltrados.map(c => (
-                              <button key={c.id} type="button" onClick={() => { setIndicId(c.id); setIndicNome(c.nome); setIndicBusca(c.nome); setIndicNomeQuemIndicou(c.nome); setIndicCargo(c.cargo || ''); setIndicAberto(false) }}
-                                className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-50)] transition-colors flex items-center justify-between ${indicId === c.id ? 'bg-[var(--surface-50)] font-medium' : 'text-[var(--surface-600)]'}`}>
-                                <span>{c.nome}</span>
-                                {c.cargo && <span className="text-xs text-[var(--surface-400)]">{c.cargo}</span>}
-                              </button>
-                            ))}
-                            {indicBusca.trim() && !contatosFiltrados.some(c => c.nome.toLowerCase() === indicBusca.toLowerCase()) && (
-                              <button type="button" onClick={() => { setIndicId(null); setIndicNome(indicBusca.trim()); setIndicNomeQuemIndicou(indicBusca.trim()); setIndicAberto(false) }}
-                                className="w-full text-left px-3 py-2 text-sm text-amber-500 hover:bg-amber-900/10 flex items-center gap-2 border-t border-[var(--surface-100)]">
-                                <Plus className="h-3.5 w-3.5" />Criar &quot;{indicBusca.trim()}&quot;
-                              </button>
-                            )}
-                          </div>
-                        )}
-                        {indicId && <p className="mt-1 text-xs text-green-500 flex items-center gap-1"><Check className="h-3 w-3" />Selecionado</p>}
-                        {!indicId && indicNome.trim() && !indicAberto && (
-                          <>
-                            <p className="mt-1 text-xs text-amber-500">Novo contato será criado</p>
-                            <input type="text" value={indicCargo} onChange={e => setIndicCargo(e.target.value)} placeholder="Cargo (ex: Veterinária, Recepcionista)..." className="input mt-1 text-sm" />
-                          </>
-                        )}
-                      </div>
-                    ) : (
-                      <input type="text" value={indicNomeQuemIndicou} onChange={e => setIndicNomeQuemIndicou(e.target.value)} placeholder="ex: Dra. Maria ou Recep. João" className="input text-sm" />
-                    )
-                  )}
-                </div>
-
                 {/* Hospital / Clínica */}
                 <div>
                   <label className="flex items-center gap-2 cursor-pointer mb-1.5">
@@ -1986,7 +2104,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                   </label>
                   {indicHospAtivo && (
                     temPadronizacaoClinicas ? (
-                      <div className="relative">
+                      <div ref={indicEstabRef} className="relative">
                         <div className="relative">
                           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--surface-400)]" />
                           <input type="text" value={indicEstabBusca} onChange={e => { setIndicEstabBusca(e.target.value); setIndicEstabNome(e.target.value); setIndicEstabId(null); setIndicEstabAberto(true) }} onFocus={() => setIndicEstabAberto(true)} placeholder="Buscar clínica da indicação..." className="input pl-9 text-sm" />
@@ -2007,11 +2125,78 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                             )}
                           </div>
                         )}
-                        {indicEstabId && <p className="mt-1 text-xs text-green-500 flex items-center gap-1"><Check className="h-3 w-3" />Selecionado: {indicEstabNome}</p>}
+                        {indicEstabId && (
+                          <div className="mt-1 flex items-center justify-between gap-2">
+                            <p className="text-xs text-green-500 flex items-center gap-1"><Check className="h-3 w-3" />Selecionado: {indicEstabNome}</p>
+                            <button type="button" onClick={() => { setIndicEstabId(null); setIndicEstabBusca(''); setIndicEstabNome('') }} className="text-[10px] text-[var(--surface-500)] hover:text-amber-500 underline">
+                              trocar
+                            </button>
+                          </div>
+                        )}
                         {!indicEstabId && indicEstabNome.trim() && !indicEstabAberto && <p className="mt-1 text-xs text-amber-500">Novo estabelecimento será criado</p>}
                       </div>
                     ) : (
                       <input type="text" value={indicHospClinica} onChange={e => setIndicHospClinica(e.target.value)} placeholder="Nome do hospital ou clínica" className="input text-sm" />
+                    )
+                  )}
+                </div>
+
+                {/* Nome de quem indicou */}
+                <div>
+                  <label className="flex items-center gap-2 cursor-pointer mb-1.5">
+                    <input type="checkbox" checked={indicNomeAtivo} onChange={e => setIndicNomeAtivo(e.target.checked)} className="h-3.5 w-3.5 rounded accent-purple-500" />
+                    <span className="text-xs font-medium text-[var(--surface-600)]">Nome de quem indicou</span>
+                  </label>
+                  {indicNomeAtivo && (
+                    temPadronizacaoClinicas ? (
+                      <div ref={indicRef} className="relative">
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--surface-400)]" />
+                          <input type="text" value={indicBusca} onChange={e => { setIndicBusca(e.target.value); setIndicNome(e.target.value); setIndicNomeQuemIndicou(e.target.value); setIndicId(null); setIndicAberto(true) }} onFocus={() => setIndicAberto(true)} placeholder="ex: Dra. Maria ou Recep. João" className="input pl-9 text-sm" />
+                        </div>
+                        {indicAberto && (contatosFiltrados.length > 0 || indicBusca.trim()) && (
+                          <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-[var(--surface-0)] border border-[var(--surface-200)] rounded-lg shadow-lg">
+                            {contatosFiltrados.map(c => (
+                              <button key={c.id} type="button" onClick={() => {
+                                setIndicId(c.id); setIndicNome(c.nome); setIndicBusca(c.nome); setIndicNomeQuemIndicou(c.nome); setIndicCargo(c.cargo || ''); setIndicAberto(false)
+                                // Se o contato pertence a uma clínica e ainda não selecionei nenhuma, puxa automático
+                                if (c.estabelecimento_id && !indicEstabId) {
+                                  const estab = estabelecimentos.find(e => e.id === c.estabelecimento_id)
+                                  if (estab) { setIndicEstabId(estab.id); setIndicEstabNome(estab.nome); setIndicEstabBusca(estab.nome); setIndicHospAtivo(true) }
+                                }
+                              }}
+                                className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-50)] transition-colors flex items-center justify-between ${indicId === c.id ? 'bg-[var(--surface-50)] font-medium' : 'text-[var(--surface-600)]'}`}>
+                                <span>{c.nome}</span>
+                                {c.cargo && <span className="text-xs text-[var(--surface-400)]">{c.cargo}</span>}
+                              </button>
+                            ))}
+                            {indicBusca.trim() && !contatosFiltrados.some(c => c.nome.toLowerCase() === indicBusca.toLowerCase()) && (
+                              <button type="button" onClick={() => { setIndicId(null); setIndicNome(indicBusca.trim()); setIndicNomeQuemIndicou(indicBusca.trim()); setIndicAberto(false) }}
+                                className="w-full text-left px-3 py-2 text-sm text-amber-500 hover:bg-amber-900/10 flex items-center gap-2 border-t border-[var(--surface-100)]">
+                                <Plus className="h-3.5 w-3.5" />Criar &quot;{indicBusca.trim()}&quot;
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {indicId && <p className="mt-1 text-xs text-green-500 flex items-center gap-1"><Check className="h-3 w-3" />Selecionado</p>}
+                        {!indicId && indicNome.trim() && !indicAberto && (
+                          <>
+                            <p className="mt-1 text-xs text-amber-500">Novo contato será criado</p>
+                            <input type="text" list="indic-cargo-sugestoes" value={indicCargo} onChange={e => setIndicCargo(e.target.value)} placeholder="Cargo (ex: Veterinária, Recepcionista)..." className="input mt-1 text-sm" />
+                            <datalist id="indic-cargo-sugestoes">
+                              <option value="Veterinário(a)" />
+                              <option value="Recepcionista" />
+                              <option value="Auxiliar" />
+                              <option value="Atendente" />
+                              <option value="Gerente" />
+                              <option value="Sócio(a)" />
+                              <option value="Estagiário(a)" />
+                            </datalist>
+                          </>
+                        )}
+                      </div>
+                    ) : (
+                      <input type="text" value={indicNomeQuemIndicou} onChange={e => setIndicNomeQuemIndicou(e.target.value)} placeholder="ex: Dra. Maria ou Recep. João" className="input text-sm" />
                     )
                   )}
                 </div>
