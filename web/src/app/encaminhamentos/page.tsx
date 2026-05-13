@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState, useEffect, useCallback } from 'react'
-import { Route, ChevronLeft, ChevronRight, ChevronDown, CheckCircle2, Cross, Dog, Cat, Bug, Flame, Plus, X, Loader2, ListChecks, Snowflake, Award, Package, Pencil, Trash2, HelpCircle } from 'lucide-react'
+import { Route, ChevronLeft, ChevronRight, ChevronDown, CheckCircle2, Cross, Dog, Cat, Bug, Flame, Plus, X, Loader2, ListChecks, Snowflake, Award, ShoppingBag, Pencil, Trash2, HelpCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import { dataLocal } from '@/lib/date-local'
@@ -17,9 +17,22 @@ const UNIT_COLORS: Record<string, string> = {
 // ============================================
 const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
-const STATUS_FECHADOS = ['embarcada', 'finalizada'] as const
-const isEncFechado = (status?: string | null) => !!status && (STATUS_FECHADOS as readonly string[]).includes(status)
-const labelStatusFechado = (status?: string | null) => status === 'embarcada' ? 'embarcada' : 'finalizada'
+// Status do encaminhamento (migration 082):
+// planejada -> embarcada_ida -> ida_finalizada -> finalizada
+// IDA bloqueada (sem adicionar/remover pet pra levar): após embarcar.
+// VOLTA bloqueada (sem adicionar/remover pet pra retirar): só após Finalizar Volta.
+const STATUS_IDA_FECHADA = ['embarcada_ida', 'ida_finalizada', 'finalizada'] as const
+const STATUS_VOLTA_FECHADA = ['finalizada'] as const
+const isIdaFechada = (status?: string | null) => !!status && (STATUS_IDA_FECHADA as readonly string[]).includes(status)
+const isVoltaFechada = (status?: string | null) => !!status && (STATUS_VOLTA_FECHADA as readonly string[]).includes(status)
+// "Encaminhamento totalmente fechado" = volta finalizada (não aceita mais nada).
+const isEncFechado = (status?: string | null) => isVoltaFechada(status)
+const labelStatusFechado = (status?: string | null) => {
+  if (status === 'finalizada') return 'finalizada'
+  if (status === 'ida_finalizada') return 'com ida finalizada'
+  if (status === 'embarcada_ida' || status === 'embarcada') return 'embarcada'
+  return status || ''
+}
 
 function gerarDias(centro: Date, range: number): Date[] {
   const dias: Date[] = []
@@ -279,6 +292,8 @@ export default function EncaminhamentosPage() {
   const [encaminhamentos, setEncaminhamentos] = useState<{ id: string; numero: string; data: string; codigo_unidade: string; responsavel: string | null; quantidade_pets: number; peso_total: number; status: string; observacoes: string | null }[]>([])
   const [vinculados, setVinculados] = useState<ContratoEnc[]>([])
   const [encAbertos, setEncAbertos] = useState<Set<string>>(new Set())
+  // Seção "↑ Levou" (ida) — colapsa por padrão em ida_finalizada/finalizada; clique no header expande
+  const [idaExpandida, setIdaExpandida] = useState<Set<string>>(new Set())
 
   // Helper: aplica filtro de unidade condicionalmente (super_admin + viewAllUnits = sem filtro)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -400,12 +415,6 @@ export default function EncaminhamentosPage() {
 
   async function incluirEmExistente(enc: EncResumo, ids: Set<string>) {
     if (!currentUnit) return
-    // Bloquear vinculação em encaminhamento já fechado (embarcada/finalizada)
-    if (isEncFechado(enc.status)) {
-      alert(`Encaminhamento ${enc.numero} já está ${labelStatusFechado(enc.status)} — não é possível adicionar pets.`)
-      setSelecionados(new Set())
-      return
-    }
     // Bloquear vinculação em encaminhamento de outra unidade (FLS)
     if (enc.codigo_unidade !== currentUnit.codigo && !isSuperAdmin) {
       alert(`Você não pode vincular pets em um encaminhamento de outra unidade (${enc.codigo_unidade}).`)
@@ -415,6 +424,18 @@ export default function EncaminhamentosPage() {
     const idsArr = Array.from(ids)
     const idsLevar = idsArr.filter(id => ativos.some(c => c.id === id))
     const idsRetirar = idsArr.filter(id => cremados.some(c => c.id === id))
+
+    // Checagens por direção: ida fecha ao embarcar; volta só fecha ao Finalizar Volta
+    if (idsLevar.length > 0 && isIdaFechada(enc.status)) {
+      alert(`Encaminhamento ${enc.numero} já está ${labelStatusFechado(enc.status)} — não é possível adicionar pets para levar.`)
+      setSelecionados(new Set())
+      return
+    }
+    if (idsRetirar.length > 0 && isVoltaFechada(enc.status)) {
+      alert(`Encaminhamento ${enc.numero} já está finalizado — não é possível adicionar pets para retornar.`)
+      setSelecionados(new Set())
+      return
+    }
 
     if (idsLevar.length > 0) {
       await supabase.from('contratos').update({ supinda_id: enc.id } as never).in('id', idsLevar)
@@ -674,9 +695,11 @@ export default function EncaminhamentosPage() {
                 </button>
               )
             })()}
-            <span className="flex-1 text-left text-sm font-semibold text-[var(--shell-text)]">Ativos</span>
-            <span className="text-xs text-[var(--surface-400)] font-medium">({ativos.length})</span>
-            {ativos.length > 0 && <ChevronDown className={`h-4 w-4 text-[var(--surface-400)] transition-transform duration-200 ${menuAtivos ? 'rotate-180' : ''}`} />}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-[var(--shell-text)]">Ativos <span className="text-xs text-[var(--surface-400)] font-medium">({ativos.length})</span></p>
+              <p className="text-[10px] text-[var(--surface-400)] truncate">Pets que estão na unidade</p>
+            </div>
+            {ativos.length > 0 && <ChevronDown className={`h-4 w-4 text-[var(--surface-400)] transition-transform duration-200 shrink-0 ${menuAtivos ? 'rotate-180' : ''}`} />}
           </div>
           {ativos.length > 0 && (
             <div className={`transition-all duration-200 ease-out overflow-hidden ${menuAtivos ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}>
@@ -765,9 +788,11 @@ export default function EncaminhamentosPage() {
                 </button>
               )
             })()}
-            <span className="flex-1 text-left text-sm font-semibold text-[var(--shell-text)]">Cremação Concluída</span>
-            <span className="text-xs text-[var(--surface-400)] font-medium">({cremados.length})</span>
-            {cremados.length > 0 && <ChevronDown className={`h-4 w-4 text-[var(--surface-400)] transition-transform duration-200 ${menuCremacao ? 'rotate-180' : ''}`} />}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-[var(--shell-text)]">Cremação Concluída <span className="text-xs text-[var(--surface-400)] font-medium">({cremados.length})</span></p>
+              <p className="text-[10px] text-[var(--surface-400)] truncate">Cinzas e Certificados na Matriz que já podem ser retirados</p>
+            </div>
+            {cremados.length > 0 && <ChevronDown className={`h-4 w-4 text-[var(--surface-400)] transition-transform duration-200 shrink-0 ${menuCremacao ? 'rotate-180' : ''}`} />}
           </div>
           {cremados.length > 0 && (
             <div className={`transition-all duration-200 ease-out overflow-hidden ${menuCremacao ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}>
@@ -997,6 +1022,8 @@ export default function EncaminhamentosPage() {
           planejada: { label: 'Planejada', color: 'text-blue-400 bg-blue-900/30' },
           em_andamento: { label: 'Em andamento', color: 'text-amber-400 bg-amber-900/30' },
           embarcada: { label: 'Embarcada', color: 'text-emerald-400 bg-emerald-900/30' },
+          embarcada_ida: { label: 'Ida embarcada', color: 'text-emerald-400 bg-emerald-900/30' },
+          ida_finalizada: { label: 'Ida finalizada', color: 'text-purple-400 bg-purple-900/30' },
           finalizada: { label: 'Finalizada', color: 'text-[var(--surface-400)] bg-[var(--surface-100)]' },
         }
         const diaLabel = isMesmoDia(diaSelecionado, hoje)
@@ -1129,27 +1156,54 @@ export default function EncaminhamentosPage() {
                       <button
                         onClick={async e => {
                           e.stopPropagation()
-                          if (!confirm(`Embarcar ${enc.numero}?\n\nApós embarcar, não será possível adicionar ou remover pets deste encaminhamento.`)) return
-                          await supabase.from('supindas').update({ status: 'embarcada' } as never).eq('id', enc.id)
-                          setEncaminhamentos(prev => prev.map(x => x.id === enc.id ? { ...x, status: 'embarcada' } : x))
+                          if (!confirm(`Embarcar ${enc.numero}?\n\nApós embarcar, não será possível adicionar ou remover pets de ida. Pets de volta continuam editáveis até a viagem ser finalizada.`)) return
+                          await supabase.from('supindas').update({ status: 'embarcada_ida' } as never).eq('id', enc.id)
+                          setEncaminhamentos(prev => prev.map(x => x.id === enc.id ? { ...x, status: 'embarcada_ida' } : x))
                         }}
                         className="px-3 py-1.5 rounded-lg text-[10px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors shrink-0"
                       >
                         Embarcar
                       </button>
                     )}
-                    {enc.status === 'embarcada' && todosChecksOk && (enc.codigo_unidade === currentUnit?.codigo || isSuperAdmin) && (
+                    {enc.status === 'embarcada_ida' && idaChecksOk && (enc.codigo_unidade === currentUnit?.codigo || isSuperAdmin) && (
                       <button
                         onClick={async e => {
                           e.stopPropagation()
-                          if (!confirm(`Finalizar ${enc.numero}? Isso marca a viagem como concluída.`)) return
+                          if (!confirm(`Finalizar Ida do ${enc.numero}? Os pets de ida passam para status "Pinda". Pets de volta podem continuar sendo vinculados até Finalizar Volta.`)) return
                           const dataEnc = enc.data
                           const idsIda = encIda.map(c => c.id)
-                          const idsVolta = encVolta.map(c => c.id)
-                          await supabase.from('supindas').update({ status: 'finalizada' } as never).eq('id', enc.id)
+                          await supabase.from('supindas').update({ status: 'ida_finalizada' } as never).eq('id', enc.id)
                           if (idsIda.length > 0) {
                             await supabase.from('contratos').update({ data_leva_pinda: dataEnc, status: 'pinda' } as never).in('id', idsIda)
                           }
+                          setEncaminhamentos(prev => prev.map(x => x.id === enc.id ? { ...x, status: 'ida_finalizada' } : x))
+                          // Recarregar contratos
+                          const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
+                          const [{ data: crem }, { data: ativ }, { data: vinc2 }] = await Promise.all([
+                            filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_contrato', { ascending: true }),
+                            filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_contrato', { ascending: true }),
+                            filterUnit(supabase.from('contratos').select(campos)).in('status', ['ativo', 'pinda', 'retorno']).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_contrato', { ascending: true }),
+                          ])
+                          setCremados(((crem || []) as ContratoEnc[]).filter(c => {
+      const gc = Array.isArray(c.contrato_gc) ? c.contrato_gc[0] : c.contrato_gc
+      return gc?.etapa === 'disponivel'
+    }))
+                          setAtivos((ativ || []) as ContratoEnc[])
+                          setVinculados((vinc2 || []) as ContratoEnc[])
+                        }}
+                        className="px-3 py-1.5 rounded-lg text-[10px] font-semibold text-white bg-purple-600 hover:bg-purple-700 transition-colors shrink-0"
+                      >
+                        Finalizar Ida
+                      </button>
+                    )}
+                    {enc.status === 'ida_finalizada' && voltaChecksOk && (enc.codigo_unidade === currentUnit?.codigo || isSuperAdmin) && (
+                      <button
+                        onClick={async e => {
+                          e.stopPropagation()
+                          if (!confirm(`Finalizar Volta do ${enc.numero}? Isso marca a viagem como concluída e os pets de volta passam para "Retorno".`)) return
+                          const dataEnc = enc.data
+                          const idsVolta = encVolta.map(c => c.id)
+                          await supabase.from('supindas').update({ status: 'finalizada' } as never).eq('id', enc.id)
                           if (idsVolta.length > 0) {
                             await supabase.from('contratos').update({ data_retorno: dataEnc, status: 'retorno' } as never).in('id', idsVolta)
                           }
@@ -1170,7 +1224,7 @@ export default function EncaminhamentosPage() {
                         }}
                         className="px-3 py-1.5 rounded-lg text-[10px] font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors shrink-0"
                       >
-                        Finalizar
+                        Finalizar Volta
                       </button>
                     )}
                     <ChevronDown className={`h-4 w-4 text-[var(--surface-400)] transition-transform duration-200 shrink-0 ${aberto ? 'rotate-180' : ''}`} />
@@ -1186,13 +1240,30 @@ export default function EncaminhamentosPage() {
                         if (ida.length === 0 && volta.length === 0) return <p className="text-xs text-[var(--surface-400)]">Nenhum pet vinculado.</p>
                         return (
                           <>
-                            {ida.length > 0 && (
+                            {ida.length > 0 && (() => {
+                              const idaJaFoi = enc.status === 'ida_finalizada' || enc.status === 'finalizada'
+                              const idaAberta = !idaJaFoi || idaExpandida.has(enc.id)
+                              return (
                               <div>
                                 <div className="flex items-center justify-between gap-2 mb-1">
-                                  <h4 className="text-[10px] font-bold text-[var(--surface-500)] uppercase tracking-wider flex items-center gap-1">
-                                    <span className="text-amber-400">↑</span> Levar ({ida.length})
-                                  </h4>
-                                  {enc.status === 'embarcada' && ida.some(c => !c.acondicionado) && (() => {
+                                  <div className="flex flex-col min-w-0">
+                                    {idaJaFoi ? (
+                                      <button
+                                        onClick={() => setIdaExpandida(prev => { const next = new Set(prev); if (next.has(enc.id)) next.delete(enc.id); else next.add(enc.id); return next })}
+                                        className="text-[10px] font-bold text-[var(--surface-500)] uppercase tracking-wider flex items-center gap-1 hover:text-[var(--shell-text)] transition-colors w-fit"
+                                        title={idaAberta ? 'Recolher lista' : 'Ver pets levados'}
+                                      >
+                                        <span className="text-amber-400">↑</span> Levou ({ida.length})
+                                        <ChevronDown className={`h-3 w-3 transition-transform ${idaAberta ? 'rotate-180' : ''}`} />
+                                      </button>
+                                    ) : (
+                                      <h4 className="text-[10px] font-bold text-[var(--surface-500)] uppercase tracking-wider flex items-center gap-1">
+                                        <span className="text-amber-400">↑</span> Levar ({ida.length})
+                                      </h4>
+                                    )}
+                                    <p className="text-[9px] text-[var(--surface-400)] italic mt-0.5">Pets irão para o status &quot;Pinda&quot;</p>
+                                  </div>
+                                  {enc.status === 'embarcada_ida' && ida.some(c => !c.acondicionado) && (() => {
                                     const pendentes = ida.filter(c => !c.acondicionado)
                                     return (
                                       <button
@@ -1214,19 +1285,23 @@ export default function EncaminhamentosPage() {
                                     )
                                   })()}
                                 </div>
-                                <div className="divide-y divide-[var(--surface-200)]">
-                                  {ida.map(c => (
-                                      <div key={c.id} className={`px-2 py-2 ${c.acondicionado ? 'bg-cyan-900/10' : ''}`}>
-                                        <div className="flex items-center gap-2">
-                                          {c.numero_lacre && <span className="text-[8px] font-mono font-bold text-blue-300 bg-blue-900/30 px-1 py-0.5 rounded">{c.numero_lacre}</span>}
-                                          <span className={`text-[8px] px-1 py-0.5 rounded-full font-medium ${c.tipo_cremacao === 'coletiva' ? 'bg-purple-900/30 text-purple-400' : 'bg-emerald-900/30 text-emerald-400'}`}>
-                                            {c.tipo_cremacao === 'coletiva' ? 'COL' : 'IND'}
-                                          </span>
-                                          <span className="text-xs font-semibold text-[var(--shell-text)] truncate flex-1">{c.pet_nome}</span>
-                                          {enc.status === 'planejada' && (() => {
-                                            const gcData = Array.isArray(c.contrato_gc) ? c.contrato_gc[0] : c.contrato_gc
-                                            const podeRemover = !gcData?.contato_status
-                                            return podeRemover ? (
+                                {idaAberta && (
+                                <div className="grid grid-cols-3 md:grid-cols-9 gap-1.5">
+                                  {ida.map(c => {
+                                    const coletiva = c.tipo_cremacao === 'coletiva'
+                                    const gcData = Array.isArray(c.contrato_gc) ? c.contrato_gc[0] : c.contrato_gc
+                                    const podeRemover = enc.status === 'planejada' && !gcData?.contato_status
+                                    return (
+                                      <div key={c.id} className={`p-2 rounded-lg border transition-colors ${c.acondicionado ? 'border-cyan-500/40 bg-cyan-900/10' : 'border-[var(--surface-200)]'}`}>
+                                        <div className="flex items-center justify-between gap-1.5 mb-1">
+                                          <div className="flex items-center gap-1.5 min-w-0">
+                                            {c.numero_lacre && <span className="text-[9px] font-mono font-bold text-blue-300 bg-blue-900/30 px-1.5 py-0.5 rounded shrink-0">{c.numero_lacre}</span>}
+                                            <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${coletiva ? 'bg-purple-900/30 text-purple-400' : 'bg-emerald-900/30 text-emerald-400'}`}>
+                                              {coletiva ? 'COL' : 'IND'}
+                                            </span>
+                                          </div>
+                                          <div className="flex items-center gap-0.5 shrink-0">
+                                            {enc.status === 'planejada' && (podeRemover ? (
                                               <button
                                                 onClick={async () => {
                                                   if (!confirm(`Remover ${c.pet_nome} do encaminhamento?`)) return
@@ -1250,102 +1325,165 @@ export default function EncaminhamentosPage() {
                                                   setVinculados((vinc4 || []) as ContratoEnc[])
                                                   setEncaminhamentos((encs2 || []).map((e: Record<string, unknown>) => ({ id: e.id as string, numero: e.numero as string, data: e.data as string, responsavel: (e.responsavel as string) || null, quantidade_pets: (e.quantidade_pets as number) || 0, peso_total: (e.peso_total as number) || 0, status: e.status as string, observacoes: (e.observacoes as string) || null, codigo_unidade: ((e.unidades as Record<string, string>)?.codigo) || '??' })))
                                                 }}
-                                                className="p-1 rounded-lg text-[var(--surface-400)] hover:text-red-400 hover:bg-red-900/10 transition-colors shrink-0"
+                                                className="p-1 rounded text-[var(--surface-400)] hover:text-red-400 hover:bg-red-900/10 transition-colors"
                                                 title="Remover do encaminhamento"
                                               >
-                                                <X className="h-3.5 w-3.5" />
+                                                <X className="h-3 w-3" />
                                               </button>
                                             ) : (
-                                              <span className="text-[8px] text-amber-400 shrink-0" title="Matriz já contatou o tutor">🔒</span>
-                                            )
-                                          })()}
-                                          {enc.status === 'embarcada' && (
+                                              <span className="text-[8px] text-amber-400" title="Matriz já contatou o tutor">🔒</span>
+                                            ))}
+                                          </div>
+                                        </div>
+                                        <p className="text-xs font-semibold text-[var(--shell-text)] truncate">{c.pet_nome}</p>
+                                        <p className="text-[10px] text-[var(--surface-400)] truncate">{c.tutor_nome}</p>
+                                        <div className="flex items-center justify-between gap-1 mt-1 min-h-[1.25rem]">
+                                          {c.pet_peso ? (
+                                            <p className="text-[10px] text-[var(--surface-400)]">{c.pet_peso}kg</p>
+                                          ) : <span />}
+                                          {enc.status === 'embarcada_ida' && (
                                             <button
                                               onClick={e => { e.stopPropagation(); toggleCheck(c.id, 'acondicionado', c.acondicionado) }}
-                                              className={`p-2 rounded-lg transition-colors shrink-0 ${c.acondicionado ? 'text-cyan-400 bg-cyan-900/30' : 'text-[var(--surface-400)] hover:text-cyan-400 hover:bg-cyan-900/10'}`}
+                                              className={`p-1 rounded transition-colors shrink-0 ${c.acondicionado ? 'text-cyan-400 bg-cyan-900/30' : 'text-[var(--surface-400)] hover:text-cyan-400 hover:bg-cyan-900/10'}`}
                                               title={c.acondicionado ? 'Acondicionado' : 'Marcar acondicionado'}
                                             >
-                                              <Snowflake className="h-4 w-4" />
+                                              <Snowflake className="h-3.5 w-3.5" />
                                             </button>
                                           )}
                                         </div>
-                                        <div className="flex items-center gap-2 mt-0.5 text-[10px] text-[var(--surface-400)]">
-                                          <span className="truncate">{c.tutor_nome}</span>
-                                          {c.pet_peso && <span>· {c.pet_peso}kg</span>}
-                                        </div>
                                       </div>
-                                    ))}
+                                    )
+                                  })}
                                 </div>
+                                )}
                               </div>
-                            )}
+                              )
+                            })()}
                             {volta.length > 0 && (
                               <div>
-                                <h4 className="text-[10px] font-bold text-[var(--surface-500)] uppercase tracking-wider mb-1 flex items-center gap-1">
-                                  <span className="text-blue-400">↓</span> Retirar cinzas e/ou certificado ({volta.length})
-                                </h4>
-                                <div className="divide-y divide-[var(--surface-200)]">
+                                <div className="flex items-center justify-between gap-2 mb-1">
+                                  <div className="flex flex-col min-w-0">
+                                    <h4 className="text-[10px] font-bold text-[var(--surface-500)] uppercase tracking-wider flex items-center gap-1">
+                                      <span className="text-blue-400">↓</span> Retirar ({volta.length})
+                                    </h4>
+                                    <p className="text-[9px] text-[var(--surface-400)] italic mt-0.5">Cinzas e Certificados vão para status &quot;Retorno&quot;</p>
+                                  </div>
+                                  {enc.status === 'ida_finalizada' && (volta.some(c => c.tipo_cremacao !== 'coletiva' && !c.cinzas_recebidas) || volta.some(c => !c.certificado_recebido)) && (
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      {volta.some(c => c.tipo_cremacao !== 'coletiva' && !c.cinzas_recebidas) && (() => {
+                                        const pendentes = volta.filter(c => c.tipo_cremacao !== 'coletiva' && !c.cinzas_recebidas)
+                                        return (
+                                          <button
+                                            onClick={async () => {
+                                              if (!confirm(`Confirmar ${pendentes.length} cinza${pendentes.length > 1 ? 's' : ''} como recebida${pendentes.length > 1 ? 's' : ''}?`)) return
+                                              const ids = pendentes.map(c => c.id)
+                                              await supabase.from('contratos').update({ cinzas_recebidas: true } as never).in('id', ids)
+                                              const update = (list: ContratoEnc[]) => list.map(x => ids.includes(x.id) ? { ...x, cinzas_recebidas: true } : x)
+                                              setCremados(update)
+                                              setAtivos(update)
+                                              setVinculados(update)
+                                            }}
+                                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold text-emerald-400 bg-emerald-900/20 hover:bg-emerald-900/40 transition-colors"
+                                            title="Confirmar todas as cinzas pendentes como recebidas"
+                                          >
+                                            <ShoppingBag className="h-3 w-3" />
+                                            Confirmar todas as cinzas ({pendentes.length})
+                                          </button>
+                                        )
+                                      })()}
+                                      {volta.some(c => !c.certificado_recebido) && (() => {
+                                        const pendentes = volta.filter(c => !c.certificado_recebido)
+                                        return (
+                                          <button
+                                            onClick={async () => {
+                                              if (!confirm(`Confirmar ${pendentes.length} certificado${pendentes.length > 1 ? 's' : ''} como recebido${pendentes.length > 1 ? 's' : ''}?`)) return
+                                              const ids = pendentes.map(c => c.id)
+                                              await supabase.from('contratos').update({ certificado_recebido: true } as never).in('id', ids)
+                                              const update = (list: ContratoEnc[]) => list.map(x => ids.includes(x.id) ? { ...x, certificado_recebido: true } : x)
+                                              setCremados(update)
+                                              setAtivos(update)
+                                              setVinculados(update)
+                                            }}
+                                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold text-amber-400 bg-amber-900/20 hover:bg-amber-900/40 transition-colors"
+                                            title="Confirmar todos os certificados pendentes como recebidos"
+                                          >
+                                            <Award className="h-3 w-3" />
+                                            Confirmar todos os certificados ({pendentes.length})
+                                          </button>
+                                        )
+                                      })()}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="grid grid-cols-3 md:grid-cols-9 gap-1.5">
                                   {volta.map(c => {
                                     const dataCrem = getDataCremacao(c)
                                     const isInd = c.tipo_cremacao !== 'coletiva'
                                     const todosOk = isInd ? (c.cinzas_recebidas && c.certificado_recebido) : c.certificado_recebido
                                     return (
-                                      <div key={c.id} className={`px-2 py-2 ${todosOk ? 'bg-emerald-900/10' : ''}`}>
-                                        <div className="flex items-center gap-2">
-                                          {c.numero_lacre && <span className="text-[8px] font-mono font-bold text-blue-300 bg-blue-900/30 px-1 py-0.5 rounded">{c.numero_lacre}</span>}
-                                          <span className={`text-[8px] px-1 py-0.5 rounded-full font-medium ${!isInd ? 'bg-purple-900/30 text-purple-400' : 'bg-emerald-900/30 text-emerald-400'}`}>
-                                            {!isInd ? 'COL' : 'IND'}
-                                          </span>
-                                          <span className="text-xs font-semibold text-[var(--shell-text)] truncate flex-1">{c.pet_nome}</span>
-                                          {enc.status === 'planejada' && (
-                                            <button
-                                              onClick={async () => {
-                                                if (!confirm(`Remover ${c.pet_nome} do encaminhamento?`)) return
-                                                await supabase.from('contratos').update({ supinda_volta_id: null } as never).eq('id', c.id)
-                                                const campos2 = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
-                                                const [{ data: crem }, { data: ativ }, { data: vinc4 }, { data: encs2 }] = await Promise.all([
-                                                  filterUnit(supabase.from('contratos').select(campos2)).eq('status', 'pinda').order('data_contrato', { ascending: true }),
-                                                  filterUnit(supabase.from('contratos').select(campos2)).eq('status', 'ativo').order('data_contrato', { ascending: true }),
-                                                  filterUnit(supabase.from('contratos').select(campos2)).in('status', ['ativo', 'pinda', 'retorno']).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_contrato', { ascending: true }),
-                                                  supabase.from('supindas').select('id, numero, data, responsavel, quantidade_pets, peso_total, status, observacoes, unidades(codigo)').order('data'),
-                                                ])
-                                                setCremados(((crem || []) as ContratoEnc[]).filter(c => {
+                                      <div key={c.id} className={`p-2 rounded-lg border transition-colors ${todosOk ? 'border-emerald-500/40 bg-emerald-900/10' : 'border-[var(--surface-200)]'}`}>
+                                        <div className="flex items-center justify-between gap-1.5 mb-1">
+                                          <div className="flex items-center gap-1.5 min-w-0">
+                                            {c.numero_lacre && <span className="text-[9px] font-mono font-bold text-blue-300 bg-blue-900/30 px-1.5 py-0.5 rounded shrink-0">{c.numero_lacre}</span>}
+                                            <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${!isInd ? 'bg-purple-900/30 text-purple-400' : 'bg-emerald-900/30 text-emerald-400'}`}>
+                                              {!isInd ? 'COL' : 'IND'}
+                                            </span>
+                                          </div>
+                                          <div className="flex items-center gap-0.5 shrink-0">
+                                            {!isVoltaFechada(enc.status) && (
+                                              <button
+                                                onClick={async () => {
+                                                  if (!confirm(`Remover ${c.pet_nome} do encaminhamento?`)) return
+                                                  await supabase.from('contratos').update({ supinda_volta_id: null } as never).eq('id', c.id)
+                                                  const campos2 = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
+                                                  const [{ data: crem }, { data: ativ }, { data: vinc4 }, { data: encs2 }] = await Promise.all([
+                                                    filterUnit(supabase.from('contratos').select(campos2)).eq('status', 'pinda').order('data_contrato', { ascending: true }),
+                                                    filterUnit(supabase.from('contratos').select(campos2)).eq('status', 'ativo').order('data_contrato', { ascending: true }),
+                                                    filterUnit(supabase.from('contratos').select(campos2)).in('status', ['ativo', 'pinda', 'retorno']).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_contrato', { ascending: true }),
+                                                    supabase.from('supindas').select('id, numero, data, responsavel, quantidade_pets, peso_total, status, observacoes, unidades(codigo)').order('data'),
+                                                  ])
+                                                  setCremados(((crem || []) as ContratoEnc[]).filter(c => {
       const gc = Array.isArray(c.contrato_gc) ? c.contrato_gc[0] : c.contrato_gc
       return gc?.etapa === 'disponivel'
     }))
-                                                setAtivos((ativ || []) as ContratoEnc[])
-                                                setVinculados((vinc4 || []) as ContratoEnc[])
-                                                setEncaminhamentos((encs2 || []).map((e: Record<string, unknown>) => ({ id: e.id as string, numero: e.numero as string, data: e.data as string, responsavel: (e.responsavel as string) || null, quantidade_pets: (e.quantidade_pets as number) || 0, peso_total: (e.peso_total as number) || 0, status: e.status as string, observacoes: (e.observacoes as string) || null, codigo_unidade: ((e.unidades as Record<string, string>)?.codigo) || '??' })))
-                                              }}
-                                              className="p-1 rounded-lg text-[var(--surface-400)] hover:text-red-400 hover:bg-red-900/10 transition-colors shrink-0"
-                                              title="Remover do encaminhamento"
-                                            >
-                                              <X className="h-3.5 w-3.5" />
-                                            </button>
-                                          )}
-                                          {enc.status === 'embarcada' && (
-                                            <div className="flex items-center gap-1 shrink-0">
+                                                  setAtivos((ativ || []) as ContratoEnc[])
+                                                  setVinculados((vinc4 || []) as ContratoEnc[])
+                                                  setEncaminhamentos((encs2 || []).map((e: Record<string, unknown>) => ({ id: e.id as string, numero: e.numero as string, data: e.data as string, responsavel: (e.responsavel as string) || null, quantidade_pets: (e.quantidade_pets as number) || 0, peso_total: (e.peso_total as number) || 0, status: e.status as string, observacoes: (e.observacoes as string) || null, codigo_unidade: ((e.unidades as Record<string, string>)?.codigo) || '??' })))
+                                                }}
+                                                className="p-1 rounded text-[var(--surface-400)] hover:text-red-400 hover:bg-red-900/10 transition-colors"
+                                                title="Remover do encaminhamento"
+                                              >
+                                                <X className="h-3 w-3" />
+                                              </button>
+                                            )}
+                                          </div>
+                                        </div>
+                                        <p className="text-xs font-semibold text-[var(--shell-text)] truncate">{c.pet_nome}</p>
+                                        <p className="text-[10px] text-[var(--surface-400)] truncate">{c.tutor_nome}</p>
+                                        <div className="flex items-center justify-between gap-1 mt-1 min-h-[1.25rem]">
+                                          {dataCrem ? (
+                                            <p className="text-[10px] text-orange-400 flex items-center gap-0.5"><Flame className="h-2.5 w-2.5" />{formatDataCurta(dataCrem)}</p>
+                                          ) : <span />}
+                                          {enc.status === 'ida_finalizada' && (
+                                            <div className="flex items-center gap-0.5 shrink-0">
                                               {isInd && (
                                                 <button
                                                   onClick={e => { e.stopPropagation(); toggleCheck(c.id, 'cinzas_recebidas', c.cinzas_recebidas) }}
-                                                  className={`p-1.5 rounded-lg transition-colors ${c.cinzas_recebidas ? 'text-emerald-400 bg-emerald-900/30' : 'text-[var(--surface-400)] hover:text-emerald-400 hover:bg-emerald-900/10'}`}
+                                                  className={`p-1 rounded transition-colors ${c.cinzas_recebidas ? 'text-emerald-400 bg-emerald-900/30' : 'text-[var(--surface-400)] hover:text-emerald-400 hover:bg-emerald-900/10'}`}
                                                   title={c.cinzas_recebidas ? 'Cinzas retiradas' : 'Marcar cinzas'}
                                                 >
-                                                  <Package className="h-4 w-4" />
+                                                  <ShoppingBag className="h-3.5 w-3.5" />
                                                 </button>
                                               )}
                                               <button
                                                 onClick={e => { e.stopPropagation(); toggleCheck(c.id, 'certificado_recebido', c.certificado_recebido) }}
-                                                className={`p-1.5 rounded-lg transition-colors ${c.certificado_recebido ? 'text-amber-400 bg-amber-900/30' : 'text-[var(--surface-400)] hover:text-amber-400 hover:bg-amber-900/10'}`}
+                                                className={`p-1 rounded transition-colors ${c.certificado_recebido ? 'text-amber-400 bg-amber-900/30' : 'text-[var(--surface-400)] hover:text-amber-400 hover:bg-amber-900/10'}`}
                                                 title={c.certificado_recebido ? 'Certificado retirado' : 'Marcar certificado'}
                                               >
-                                                <Award className="h-4 w-4" />
+                                                <Award className="h-3.5 w-3.5" />
                                               </button>
                                             </div>
                                           )}
-                                        </div>
-                                        <div className="flex items-center gap-2 mt-0.5 text-[10px] text-[var(--surface-400)]">
-                                          <span className="truncate">{c.tutor_nome}</span>
-                                          {dataCrem && <span className="flex items-center gap-0.5 text-orange-400"><Flame className="h-2.5 w-2.5" />{formatDataCurta(dataCrem)}</span>}
                                         </div>
                                       </div>
                                     )

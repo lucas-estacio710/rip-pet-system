@@ -154,7 +154,9 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
   const isInd = tipoCremacao === 'individual'
 
   // Regras de bloqueio
-  const encFinalizado = supindaStatus === 'finalizada'
+  // "Ida finalizada" e "finalizada" liberam "Confirmar Recebimento":
+  // após a migration 082, o status do encaminhamento é quebrado em ida/volta.
+  const encFinalizado = supindaStatus === 'ida_finalizada' || supindaStatus === 'finalizada'
   const podeReceber = etapa === 'provisionado' && encFinalizado
   const [erro, setErro] = useState('')
   const [dirty, setDirty] = useState(false)
@@ -190,6 +192,26 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
   function toLocalDatetimeInput(d: Date): string {
     const pad = (n: number) => String(n).padStart(2, '0')
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+
+  // "DD/MM HH:mm" — formato compacto pra exibir abaixo dos passos da trilha
+  function fmtDataTrilha(iso: string | null | undefined): string {
+    if (!iso) return ''
+    const d = new Date(iso)
+    if (isNaN(d.getTime())) return ''
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+
+  // Mapa step.key → data registrada (para mostrar embaixo do label na trilha)
+  const dataPorStepContato: Record<string, string | null | undefined> = {
+    contatado: gc.contato_tutor_em,
+    agendado: gc.data_agendamento,
+  }
+  const dataPorStepEtapa: Record<string, string | null | undefined> = {
+    recebido: gc.data_recebimento,
+    cremado: gc.data_cremacao,
+    disponivel: gc.data_disponivel,
   }
 
   function abrirConfirmacao(qual: 'contato' | 'recebido' | 'cremado' | 'disponivel') {
@@ -394,6 +416,9 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
                         {ativo ? '✓' : i + 1}
                       </div>
                       <span className="text-[9px] font-medium" style={{ color: textColor }}>{step.label}</span>
+                      {step.key && dataPorStepContato[step.key] && (
+                        <span className="text-[8px] font-mono text-[var(--surface-400)] leading-tight">{fmtDataTrilha(dataPorStepContato[step.key])}</span>
+                      )}
                     </div>
                     {i < CONTATO_STEPS.length - 1 && (
                       <div className="flex-1 h-0.5 mx-1" style={{ background: i < contatoIdx ? CONTATO_STEPS[i + 1].color : 'var(--surface-200)' }} />
@@ -538,6 +563,9 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
                         {ativo ? '✓' : i + 1}
                       </div>
                       <span className="text-[9px] font-medium" style={{ color: ativo ? step.color : 'var(--surface-400)' }}>{step.label}</span>
+                      {dataPorStepEtapa[step.key] && (
+                        <span className="text-[8px] font-mono text-[var(--surface-400)] leading-tight">{fmtDataTrilha(dataPorStepEtapa[step.key])}</span>
+                      )}
                     </div>
                     {i < ETAPA_STEPS.length - 1 && (
                       <div className="flex-1 h-0.5 mx-1" style={{ background: i < etapaIdx ? ETAPA_STEPS[i + 1].color : 'var(--surface-200)' }} />
