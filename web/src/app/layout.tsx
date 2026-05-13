@@ -17,7 +17,7 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "R.I.P. Pet - CRM",
-  description: "Sistema de gestão R.I.P. Pet Santos",
+  description: "Sistema de gestão R.I.P. Pet",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,

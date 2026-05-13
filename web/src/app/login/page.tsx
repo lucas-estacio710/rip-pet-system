@@ -134,7 +134,7 @@ function LoginForm() {
       </form>
 
       <p className="text-center text-xs text-slate-500 mt-6">
-        R.I.P. Pet Santos - Sistema Interno
+        R.I.P. Pet - Sistema Interno
       </p>
     </div>
   )

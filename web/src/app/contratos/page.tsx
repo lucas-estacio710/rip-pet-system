@@ -3773,7 +3773,7 @@ ${petNome}`
 
             // Função para renderizar um card de contrato
             const renderContrato = (contrato: Contrato) => {
-              const dataBox = getDataBox(contrato.data_acolhimento || contrato.data_contrato)
+              const dataBox = getDataBox(contrato.data_acolhimento)
               const petIcon = getPetIcon(contrato.pet_especie, contrato.pet_peso)
               const statusColors = STATUS_COLORS[contrato.status]
 
@@ -3838,12 +3838,16 @@ ${petNome}`
                       </div>
                     )}
 
-                    {/* Data */}
-                    {dataBox && (
+                    {/* Data — quadradinho amarelo pulsante "Sem data acolh." quando ausente */}
+                    {dataBox ? (
                       <div className="flex-shrink-0 w-12 h-12 rounded-lg flex flex-col items-center justify-center" style={{ background: 'linear-gradient(135deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', color: '#334155' }}>
                         <span className="text-[10px] font-bold leading-none">{dataBox.linha1}</span>
                         <span className="text-[10px] leading-tight" style={{ color: '#94a3b8' }}>{dataBox.linha2}</span>
                         <span className="text-[9px] leading-none" style={{ color: '#64748b' }}>{dataBox.hora}</span>
+                      </div>
+                    ) : (
+                      <div className="flex-shrink-0 w-12 h-12 rounded-lg flex items-center justify-center text-center animate-pulse px-1" style={{ background: 'linear-gradient(135deg, #fbbf24 0%, #fde68a 50%, #fbbf24 100%)', color: '#78350f' }} title="Pet ainda não foi acolhido">
+                        <span className="text-[9px] font-bold leading-tight">Sem data acolh.</span>
                       </div>
                     )}
 
@@ -4102,12 +4106,16 @@ ${petNome}`
                           </div>
                         </div>
                       )}
-                      {/* Data box (ocupa 2 linhas, à esquerda) */}
-                      {dataBox && (
+                      {/* Data box (ocupa 2 linhas, à esquerda) — quadradinho amarelo pulsante "Sem data acolh." quando ausente */}
+                      {dataBox ? (
                         <div className="flex-shrink-0 w-11 rounded-md flex flex-col items-center justify-center p-0" style={{ background: 'linear-gradient(135deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', color: '#334155', gap: '1px' }}>
                           <span className="text-[11px] font-bold leading-none">{dataBox.linha1}</span>
                           <span className="text-[11px] leading-none" style={{ color: '#94a3b8' }}>{dataBox.linha2}</span>
                           <span className="text-[10px] leading-none" style={{ color: '#64748b' }}>{dataBox.hora}</span>
+                        </div>
+                      ) : (
+                        <div className="flex-shrink-0 w-11 rounded-md flex items-center justify-center text-center animate-pulse px-1 py-1" style={{ background: 'linear-gradient(135deg, #fbbf24 0%, #fde68a 50%, #fbbf24 100%)', color: '#78350f' }} title="Pet ainda não foi acolhido">
+                          <span className="text-[9px] font-bold leading-tight">Sem data acolh.</span>
                         </div>
                       )}
                       {/* Coluna: Lacre+Fonte+Local+IND / Tutor */}

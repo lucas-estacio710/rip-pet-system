@@ -48,6 +48,7 @@ type FormData = {
   raca: string
   cor: string
   peso: string
+  pesoUnidade: 'kg' | 'g'
   localizacao: string
   localizacaoOutra: string
   cremacao: 'individual' | 'coletiva' | ''
@@ -68,7 +69,7 @@ const INITIAL_FORM: FormData = {
   tipoDocumento: 'cpf',
   nomeCompleto: '', outrosTutores: [], cpf: '', codigoPais: '55', codigoPaisCustom: '', telefone: '', email: '',
   cep: '', estado: '', cidade: '', bairro: '', endereco: '', numero: '', complemento: '',
-  nomePet: '', idade: '', especie: '', genero: '', raca: '', cor: '', peso: '',
+  nomePet: '', idade: '', especie: '', genero: '', raca: '', cor: '', peso: '', pesoUnidade: 'kg',
   localizacao: '', localizacaoOutra: '', cremacao: '', pagamento: '', parcelas: '',
   velorio: '', acompanhamento: '',
   comoConheceu: [], veterinarioEspecificar: '', outroEspecificar: '', observacoes: '',
@@ -266,6 +267,7 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
       raca: pick(racas),
       cor: pick(cores),
       peso: String(Math.floor(Math.random() * 40) + 1),
+      pesoUnidade: 'kg',
       localizacao: pick(['Residência', 'Hospital/Clínica', 'Unidade Canal 6']),
       localizacaoOutra: '',
       cremacao,
@@ -444,7 +446,7 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
       genero: ({ macho: 'Macho', femea: 'Fêmea' } as Record<string, string>)[form.genero] || capitalize(form.genero),
       raca: form.raca || null,
       cor: form.cor,
-      peso: form.peso || null,
+      peso: form.peso ? (form.pesoUnidade === 'g' ? (parseInt(form.peso, 10) / 1000).toString() : form.peso) : null,
       localizacao: form.localizacao,
       localizacao_outra: form.localizacaoOutra || null,
       cremacao: capitalize(form.cremacao),
@@ -875,8 +877,19 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
               </div>
 
               <div>
-                <label className={labelClass}>Peso aproximado (kg) <span className="text-red-400">*</span></label>
-                <input className={inputClass('peso')} value={form.peso} onChange={e => updateField('peso', e.target.value.replace(/\D/g, '').slice(0, 3))} placeholder="Ex: 8" inputMode="numeric" />
+                <div className="flex items-baseline gap-2 mb-1.5">
+                  <label className="text-sm font-medium text-slate-600">Peso aproximado ({form.pesoUnidade}) <span className="text-red-400">*</span></label>
+                  <button type="button" onClick={() => { updateField('pesoUnidade', form.pesoUnidade === 'kg' ? 'g' : 'kg'); updateField('peso', '') }} className="text-xs text-blue-500 hover:text-blue-700 hover:underline">
+                    Usar {form.pesoUnidade === 'kg' ? 'gramas' : 'kg'}
+                  </button>
+                </div>
+                <input
+                  className={inputClass('peso')}
+                  value={form.peso}
+                  onChange={e => updateField('peso', e.target.value.replace(/\D/g, '').slice(0, form.pesoUnidade === 'g' ? 4 : 3))}
+                  placeholder={form.pesoUnidade === 'g' ? 'Ex: 500 (para pets menores de 1 kg)' : 'Ex: 8'}
+                  inputMode="numeric"
+                />
                 {errors.peso && <p className={errorClass}>{errors.peso}</p>}
               </div>
 
@@ -1030,7 +1043,7 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
                   <p className="text-sm"><span className="font-medium text-slate-600">Gênero:</span> <span className="text-slate-800 capitalize">{form.genero === 'macho' ? 'Macho' : 'Fêmea'}</span></p>
                   <p className="text-sm"><span className="font-medium text-slate-600">Raça:</span> <span className="text-slate-800">{form.raca}</span></p>
                   <p className="text-sm"><span className="font-medium text-slate-600">Cor:</span> <span className="text-slate-800">{form.cor}</span></p>
-                  <p className="text-sm"><span className="font-medium text-slate-600">Peso:</span> <span className="text-slate-800">{form.peso} kg</span></p>
+                  <p className="text-sm"><span className="font-medium text-slate-600">Peso:</span> <span className="text-slate-800">{form.peso} {form.pesoUnidade}</span></p>
                   <p className="text-sm"><span className="font-medium text-slate-600">Local:</span> <span className="text-slate-800">{form.localizacao}{form.localizacaoOutra ? ` (${form.localizacaoOutra})` : ''}</span></p>
                   <p className="text-sm"><span className="font-medium text-slate-600">Cremação:</span> <span className="text-slate-800 capitalize">{form.cremacao}</span></p>
                   <p className="text-sm"><span className="font-medium text-slate-600">Pagamento:</span> <span className="text-slate-800">{form.pagamento === 'pix' ? 'Pix' : form.pagamento === 'dinheiro' ? 'Dinheiro' : form.pagamento === 'debito' ? 'Cartão de Débito' : `Cartão de Crédito ${form.parcelas}`}</span></p>
@@ -1051,10 +1064,10 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
                     'Parente/Amigo', 'Passei pela Unidade',
                     'Instagram/Facebook', 'Outro',
                   ].map(opt => (
-                    <label key={opt} className="flex items-center gap-3 cursor-pointer">
+                    <label key={opt} onClick={() => toggleConheceu(opt)} className="flex items-center gap-3 cursor-pointer select-none py-1 -my-1">
                       <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
                         form.comoConheceu.includes(opt) ? 'bg-blue-600 border-blue-600' : 'border-slate-300'
-                      }`} onClick={() => toggleConheceu(opt)}>
+                      }`}>
                         {form.comoConheceu.includes(opt) && (
                           <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={4}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />

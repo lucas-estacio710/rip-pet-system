@@ -396,6 +396,8 @@ export default function ContratoDetalhe() {
   const [acolhEditing, setAcolhEditing] = useState(false)
   const [acolhDataInput, setAcolhDataInput] = useState('')
   const [acolhHoraInput, setAcolhHoraInput] = useState('')
+  const [acolhFuncIdInput, setAcolhFuncIdInput] = useState<string>('')
+  const [acolhFuncionariosLista, setAcolhFuncionariosLista] = useState<{ id: string; nome: string }[]>([])
   const [acolhSaving, setAcolhSaving] = useState(false)
 
   // Editor inline de valor_plano
@@ -506,6 +508,18 @@ export default function ContratoDetalhe() {
       setAcolhHoraInput(`${hh}:${min}`)
     }
 
+    // Pré-preenche funcionário atual e carrega lista (ativos da unidade do contrato)
+    setAcolhFuncIdInput(contrato.funcionario_id || '')
+    if (acolhFuncionariosLista.length === 0) {
+      const { data: funcs } = await supabase
+        .from('funcionarios')
+        .select('id, nome')
+        .eq('ativo', true)
+        .eq('unidade_id', contrato.unidade_id)
+        .order('nome')
+      if (funcs) setAcolhFuncionariosLista(funcs as { id: string; nome: string }[])
+    }
+
     // 1. Já tem no contrato? edita o existente
     if (contrato.data_acolhimento) {
       aplicarDate(new Date(contrato.data_acolhimento))
@@ -558,14 +572,19 @@ export default function ContratoDetalhe() {
       }
       const valorAnterior = contrato.data_acolhimento
       const valorNovo = dataHora.toISOString()
+      const funcAnterior = contrato.funcionario_id || null
+      const funcNovo = acolhFuncIdInput || null
+
+      const update: Record<string, unknown> = { data_acolhimento: valorNovo }
+      if (funcNovo !== funcAnterior) update.funcionario_id = funcNovo
 
       const { error } = await supabase
         .from('contratos')
-        .update({ data_acolhimento: valorNovo } as never)
+        .update(update as never)
         .eq('id', contrato.id)
       if (error) throw error
 
-      // Log auditoria
+      // Log auditoria — data
       const { data: { user } } = await supabase.auth.getUser()
       await supabase.from('historico_alteracoes').insert({
         entidade: 'contratos',
@@ -580,7 +599,31 @@ export default function ContratoDetalhe() {
         alterado_por_email: user?.email ?? null,
       } as never)
 
-      setContrato(prev => prev ? { ...prev, data_acolhimento: valorNovo } as typeof prev : prev)
+      // Log auditoria — funcionário (só se mudou)
+      if (funcNovo !== funcAnterior) {
+        const nomeAnterior = contrato.funcionario?.nome || null
+        const nomeNovo = acolhFuncionariosLista.find(f => f.id === funcNovo)?.nome || null
+        await supabase.from('historico_alteracoes').insert({
+          entidade: 'contratos',
+          entidade_id: contrato.id,
+          entidade_nome: contrato.codigo,
+          campo: 'funcionario_id',
+          campo_label: 'Responsável pelo Acolhimento',
+          valor_anterior: nomeAnterior,
+          valor_novo: nomeNovo,
+          tipo: 'edicao',
+          alterado_por: user?.id ?? null,
+          alterado_por_email: user?.email ?? null,
+        } as never)
+      }
+
+      const nomeNovo = acolhFuncionariosLista.find(f => f.id === funcNovo)?.nome || null
+      setContrato(prev => prev ? {
+        ...prev,
+        data_acolhimento: valorNovo,
+        funcionario_id: funcNovo,
+        funcionario: funcNovo ? { nome: nomeNovo || prev.funcionario?.nome || '' } : null,
+      } as typeof prev : prev)
       setAcolhEditing(false)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao salvar'
@@ -2291,6 +2334,18 @@ ${petNome}`
                   disabled={acolhSaving}
                   className="text-xs px-2 py-0.5 rounded border border-[var(--surface-300)] bg-[var(--surface-0)] text-[var(--surface-800)]"
                 />
+                <select
+                  value={acolhFuncIdInput}
+                  onChange={e => setAcolhFuncIdInput(e.target.value)}
+                  disabled={acolhSaving}
+                  className="text-xs px-2 py-0.5 rounded border border-[var(--surface-300)] bg-[var(--surface-0)] text-[var(--surface-800)] max-w-[12rem]"
+                  title="Responsável pelo acolhimento"
+                >
+                  <option value="">— sem responsável —</option>
+                  {acolhFuncionariosLista.map(f => (
+                    <option key={f.id} value={f.id}>{f.nome}</option>
+                  ))}
+                </select>
                 <button
                   onClick={salvarAcolhimento}
                   disabled={acolhSaving || !acolhDataInput || !acolhHoraInput}
