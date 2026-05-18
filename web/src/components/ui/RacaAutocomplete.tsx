@@ -12,9 +12,12 @@ type Props = {
   placeholder?: string
   className?: string
   inputClassName?: string
+  /** Texto base pra buscar o melhor match quando o campo estiver vazio (ex: pet_raca da ficha).
+   *  Ao focar com campo vazio, popula o input com a melhor sugestão automaticamente. */
+  sugestaoQuandoVazio?: string
 }
 
-export default function RacaAutocomplete({ value, onChange, especie, placeholder = 'Raça do pet', className = '', inputClassName = '' }: Props) {
+export default function RacaAutocomplete({ value, onChange, especie, placeholder = 'Raça do pet', className = '', inputClassName = '', sugestaoQuandoVazio }: Props) {
   const [open, setOpen] = useState(false)
   const [foco, setFoco] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -74,7 +77,14 @@ export default function RacaAutocomplete({ value, onChange, especie, placeholder
         type="text"
         value={value}
         onChange={e => { onChange(e.target.value); setOpen(true); setFoco(0) }}
-        onFocus={() => setOpen(true)}
+        onFocus={() => {
+          setOpen(true)
+          // Se vazio e há sugestão-base, popula com o melhor match do catálogo
+          if (!value.trim() && sugestaoQuandoVazio && sugestaoQuandoVazio.trim()) {
+            const best = buscarRacas(sugestaoQuandoVazio, especie ?? null, 1)[0]
+            if (best) onChange(best.nome)
+          }
+        }}
         onKeyDown={handleKey}
         placeholder={placeholder}
         className={inputClassName || 'w-full px-2 py-1.5 border border-slate-600 rounded text-sm focus:ring-1 focus:ring-purple-500 focus:border-purple-500'}

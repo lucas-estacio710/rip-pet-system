@@ -93,15 +93,18 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
     const preenchidos = nomes.filter(n => n.trim()).length
     setSlotsVisiveis(Math.max(1, Math.min(7, preenchidos)))
 
-    // Default inicial vindo de `contratos` — será sobrescrito se houver snapshot em contrato_gc
+    // Default inicial vindo de `contratos` — será sobrescrito se houver snapshot em contrato_gc.
+    // Raça começa SEMPRE em branco — operador clica no campo e o autocomplete sugere o melhor
+    // match do catálogo baseado no pet_raca enviado pelo tutor.
     setPetNome(contrato.pet_nome || '')
     setPetEspecie(contrato.pet_especie || '')
-    setPetRaca(contrato.pet_raca || '')
+    setPetRaca('')
     setPetGenero(contrato.pet_genero || '')
     setTemContratoGc(false)
     setDataAgendamento(null)
 
-    // Busca snapshot do GC (se existir) — fonte de verdade após migration 081
+    // Busca snapshot do GC (se existir) — fonte de verdade após migration 081.
+    // Pra raça: só carrega o snapshot se o certificado já foi confirmado antes.
     supabase
       .from('contrato_gc')
       .select('pet_nome, pet_especie, pet_raca, pet_genero, data_agendamento')
@@ -114,7 +117,8 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
           const gc = data as { pet_nome: string | null; pet_especie: string | null; pet_raca: string | null; pet_genero: string | null; data_agendamento: string | null }
           if (gc.pet_nome != null) setPetNome(gc.pet_nome)
           if (gc.pet_especie != null) setPetEspecie(gc.pet_especie)
-          if (gc.pet_raca != null) setPetRaca(gc.pet_raca)
+          // Raça do snapshot só carrega se já foi confirmado (operador já normalizou antes)
+          if (gc.pet_raca != null && contrato.certificado_confirmado === true) setPetRaca(gc.pet_raca)
           if (gc.pet_genero != null) setPetGenero(gc.pet_genero)
           if (gc.data_agendamento) setDataAgendamento(gc.data_agendamento)
         }
@@ -272,15 +276,18 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
             </div>
             <div>
               <label className="text-[10px] font-medium text-slate-400 mb-0.5 block">Raça</label>
+              {contrato.pet_raca && (
+                <p className="text-[10px] text-slate-500 mb-1 px-1.5 py-0.5 rounded bg-slate-800/60 border border-slate-700">
+                  Tutor enviou: <span className="text-slate-300 font-medium">{contrato.pet_raca}</span>
+                </p>
+              )}
               <RacaAutocomplete
                 value={petRaca}
                 onChange={setPetRaca}
                 especie={(petEspecie || null) as EspeciePet | null}
-                placeholder="Buscar raça…"
+                placeholder="Clique para sugerir do catálogo…"
+                sugestaoQuandoVazio={contrato.pet_raca || ''}
               />
-              {contrato.pet_raca && contrato.pet_raca.toLowerCase() !== petRaca.toLowerCase() && (
-                <p className="text-[9px] text-amber-400/80 mt-0.5 italic">🐾 Contrato: {contrato.pet_raca}</p>
-              )}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
