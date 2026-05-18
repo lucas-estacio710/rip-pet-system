@@ -102,7 +102,7 @@ export default function AgendaPage() {
   const { hasModule, currentUnit } = useUnit()
   const supabase = createClient()
 
-  const [view, setView] = useState<'mes' | 'semana' | 'dia'>('semana')
+  const [view, setView] = useState<'mes' | 'semana' | '3dias' | 'dia'>('semana')
   const [dataRef, setDataRef] = useState<Date>(() => { const d = new Date(); d.setHours(0,0,0,0); return d })
   const [eventos, setEventos] = useState<Evento[]>([])
   const [loading, setLoading] = useState(true)
@@ -125,6 +125,11 @@ export default function AgendaPage() {
     }
     if (view === 'semana') {
       return { ini: startOfWeek(dataRef), fim: endOfWeek(dataRef) }
+    }
+    if (view === '3dias') {
+      const ini = new Date(dataRef); ini.setHours(0,0,0,0)
+      const fim = addDays(ini, 2); fim.setHours(23,59,59,999)
+      return { ini, fim }
     }
     // dia
     const d = new Date(dataRef); d.setHours(0,0,0,0)
@@ -254,6 +259,7 @@ export default function AgendaPage() {
     if (direcao === 0) { setDataRef((() => { const d = new Date(); d.setHours(0,0,0,0); return d })()); return }
     if (view === 'mes') setDataRef(addMonths(dataRef, direcao))
     else if (view === 'semana') setDataRef(addDays(dataRef, direcao * 7))
+    else if (view === '3dias') setDataRef(addDays(dataRef, direcao * 3))
     else setDataRef(addDays(dataRef, direcao))
   }
 
@@ -262,6 +268,14 @@ export default function AgendaPage() {
     if (view === 'semana') {
       const ini = startOfWeek(dataRef)
       const fim = endOfWeek(dataRef)
+      if (ini.getMonth() === fim.getMonth()) {
+        return `${ini.getDate()}–${fim.getDate()} ${MESES[ini.getMonth()]} ${ini.getFullYear()}`
+      }
+      return `${ini.getDate()} ${MESES[ini.getMonth()]} – ${fim.getDate()} ${MESES[fim.getMonth()]} ${ini.getFullYear()}`
+    }
+    if (view === '3dias') {
+      const ini = new Date(dataRef)
+      const fim = addDays(ini, 2)
       if (ini.getMonth() === fim.getMonth()) {
         return `${ini.getDate()}–${fim.getDate()} ${MESES[ini.getMonth()]} ${ini.getFullYear()}`
       }
@@ -439,16 +453,26 @@ export default function AgendaPage() {
           <span className="ml-2 text-sm font-semibold text-[var(--shell-text)] capitalize">{titulo}</span>
         </div>
 
-        {/* Toggle de view */}
+        {/* Toggle de view — mobile: Mês / 3 dias / Dia · desktop: Mês / Semana / Dia */}
         <div className="inline-flex bg-[var(--surface-100)] rounded-lg p-0.5">
-          {(['mes','semana','dia'] as const).map(v => (
-            <button key={v} onClick={() => setView(v)}
-              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
-                view === v ? 'bg-[var(--surface-0)] text-[var(--shell-text)] shadow-sm' : 'text-[var(--surface-400)]'
-              }`}>
-              {v === 'mes' ? 'Mês' : v === 'semana' ? 'Semana' : 'Dia'}
-            </button>
-          ))}
+          <button onClick={() => setView('mes')}
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+              view === 'mes' ? 'bg-[var(--surface-0)] text-[var(--shell-text)] shadow-sm' : 'text-[var(--surface-400)]'
+            }`}>Mês</button>
+          {/* Semana só desktop */}
+          <button onClick={() => setView('semana')}
+            className={`hidden md:inline-flex px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+              view === 'semana' ? 'bg-[var(--surface-0)] text-[var(--shell-text)] shadow-sm' : 'text-[var(--surface-400)]'
+            }`}>Semana</button>
+          {/* 3 dias só mobile */}
+          <button onClick={() => setView('3dias')}
+            className={`md:hidden inline-flex px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+              view === '3dias' ? 'bg-[var(--surface-0)] text-[var(--shell-text)] shadow-sm' : 'text-[var(--surface-400)]'
+            }`}>3 dias</button>
+          <button onClick={() => setView('dia')}
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+              view === 'dia' ? 'bg-[var(--surface-0)] text-[var(--shell-text)] shadow-sm' : 'text-[var(--surface-400)]'
+            }`}>Dia</button>
         </div>
       </div>
 
@@ -467,7 +491,9 @@ export default function AgendaPage() {
       ) : view === 'mes' ? (
         <ViewMes dataRef={dataRef} eventosPorDia={eventosPorDia} onSelectEvento={setEventoSelId} onImprimirDia={imprimirAgendaDoDia} />
       ) : view === 'semana' ? (
-        <ViewSemana dataRef={dataRef} getEventosDia={getEventosDia} onSelectEvento={setEventoSelId} onImprimirDia={imprimirAgendaDoDia} />
+        <ViewSemana dataRef={dataRef} numDias={7} getEventosDia={getEventosDia} onSelectEvento={setEventoSelId} onImprimirDia={imprimirAgendaDoDia} />
+      ) : view === '3dias' ? (
+        <ViewSemana dataRef={dataRef} numDias={3} getEventosDia={getEventosDia} onSelectEvento={setEventoSelId} onImprimirDia={imprimirAgendaDoDia} />
       ) : (
         <ViewDia dataRef={dataRef} eventos={getEventosDia(dataRef)} onSelectEvento={setEventoSelId} onImprimirDia={imprimirAgendaDoDia} />
       )}
@@ -568,20 +594,22 @@ function ViewMes({ dataRef, eventosPorDia, onSelectEvento, onImprimirDia }: {
 // ============================================
 // View: Semana (header dias + grid horária)
 // ============================================
-function ViewSemana({ dataRef, getEventosDia, onSelectEvento, onImprimirDia }: {
+function ViewSemana({ dataRef, numDias, getEventosDia, onSelectEvento, onImprimirDia }: {
   dataRef: Date
+  numDias: number
   getEventosDia: (d: Date) => Evento[]
   onSelectEvento: (id: string) => void
   onImprimirDia: (dia: Date) => void
 }) {
   const hoje = new Date(); hoje.setHours(0,0,0,0)
-  const ini = startOfWeek(dataRef)
-  const dias = Array.from({ length: 7 }, (_, i) => addDays(ini, i))
+  // Semana (7d): começa no domingo da semana do dataRef. 3 dias: começa no próprio dataRef.
+  const ini = numDias === 7 ? startOfWeek(dataRef) : (() => { const d = new Date(dataRef); d.setHours(0,0,0,0); return d })()
+  const dias = Array.from({ length: numDias }, (_, i) => addDays(ini, i))
 
   return (
     <div className="rounded-lg overflow-hidden border border-[var(--surface-200)]">
       {/* Header dos dias */}
-      <div className="grid bg-[var(--surface-50)] border-b border-[var(--surface-200)]" style={{ gridTemplateColumns: '50px repeat(7, 1fr)' }}>
+      <div className="grid bg-[var(--surface-50)] border-b border-[var(--surface-200)]" style={{ gridTemplateColumns: `50px repeat(${numDias}, 1fr)` }}>
         <div className="border-r border-[var(--surface-200)]" />
         {dias.map((d, i) => {
           const ehHoje = isSameDay(d, hoje)
@@ -605,7 +633,7 @@ function ViewSemana({ dataRef, getEventosDia, onSelectEvento, onImprimirDia }: {
         })}
       </div>
       {/* Grid horária */}
-      <div className="relative grid bg-[var(--surface-0)]" style={{ gridTemplateColumns: '50px repeat(7, 1fr)' }}>
+      <div className="relative grid bg-[var(--surface-0)]" style={{ gridTemplateColumns: `50px repeat(${numDias}, 1fr)` }}>
         {/* Coluna de horas */}
         <div className="border-r border-[var(--surface-200)]">
           {HORAS.map(h => (
