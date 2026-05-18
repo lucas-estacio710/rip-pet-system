@@ -48,9 +48,9 @@ type AcompKey = 'presencial' | 'video_chamada' | 'video_gravado' | 'nao_deseja' 
 // Cores por acompanhamento
 // ============================================
 const ACOMP: Record<AcompKey, { bg: string; ring: string; text: string; label: string; emoji: string }> = {
-  presencial:    { bg: '#3b82f6', ring: '#1d4ed8', text: '#ffffff', label: 'Presencial',  emoji: '👥' },
+  presencial:    { bg: '#1e40af', ring: '#1e3a8a', text: '#ffffff', label: 'Presencial',  emoji: '👥' },
   video_chamada: { bg: '#16a34a', ring: '#15803d', text: '#ffffff', label: 'Chamada',     emoji: '📹' },
-  video_gravado: { bg: '#a855f7', ring: '#7c3aed', text: '#ffffff', label: 'Gravado',     emoji: '🎥' },
+  video_gravado: { bg: '#c084fc', ring: '#a855f7', text: '#ffffff', label: 'Gravado',     emoji: '🎥' },
   nao_deseja:    { bg: '#94a3b8', ring: '#64748b', text: '#ffffff', label: 'Não deseja',  emoji: '❌' },
   default:       { bg: '#f1f5f9', ring: '#cbd5e1', text: '#475569', label: 'A definir',   emoji: '❓' },
 }
@@ -303,9 +303,9 @@ export default function AgendaPage() {
 
     // Agrupar por tipo de acompanhamento na ordem fixa
     const BUCKETS: Array<{ keys: AcompKey[]; label: string; bg: string }> = [
-      { keys: ['presencial'],                label: 'Presenciais',         bg: '#3b82f6' },
+      { keys: ['presencial'],                label: 'Presenciais',         bg: '#1e40af' },
       { keys: ['video_chamada'],             label: 'Chamadas',            bg: '#16a34a' },
-      { keys: ['video_gravado'],             label: 'Gravados',            bg: '#a855f7' },
+      { keys: ['video_gravado'],             label: 'Gravados',            bg: '#c084fc' },
       { keys: ['nao_deseja', 'default'],     label: 'Sem acomp. / A definir', bg: '#94a3b8' },
     ]
 
