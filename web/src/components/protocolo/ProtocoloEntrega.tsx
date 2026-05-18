@@ -7,8 +7,8 @@ import { ProtocoloData, formatarValor } from './protocolo-utils'
 const styles = {
   container: {
     fontFamily: 'Arial, Helvetica, sans-serif',
-    fontSize: '13px',
-    lineHeight: '1.3',
+    fontSize: '12px',
+    lineHeight: '1.2',
     color: '#1a1a1a',
     border: '2px solid #333',
     borderRadius: '4px',
@@ -22,29 +22,29 @@ const styles = {
   header: {
     background: '#e0f2fe',
     color: '#1e3a5f',
-    padding: '5px 10px',
+    padding: '3px 8px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: '8px',
+    gap: '6px',
     fontWeight: 'bold' as const,
-    fontSize: '13px',
+    fontSize: '12px',
     letterSpacing: '1px',
   },
   headerLogo: {
-    height: '22px',
+    height: '18px',
     width: 'auto',
     flexShrink: 0,
   },
   section: {
-    padding: '5px 10px',
+    padding: '3px 8px',
     borderBottom: '1px solid #ccc',
   },
   row: {
     display: 'flex',
     justifyContent: 'space-between' as const,
     alignItems: 'baseline' as const,
-    marginBottom: '4px',
+    marginBottom: '2px',
   },
   label: {
     fontWeight: 'bold' as const,
@@ -57,52 +57,55 @@ const styles = {
   table: {
     width: '100%',
     borderCollapse: 'collapse' as const,
-    fontSize: '12px',
+    fontSize: '11px',
+    tableLayout: 'fixed' as const,
   },
   th: {
     background: '#f0f0f0',
     border: '1px solid #ccc',
-    padding: '3px 5px',
+    padding: '2px 4px',
     fontWeight: 'bold' as const,
     textAlign: 'left' as const,
-    fontSize: '11px',
+    fontSize: '10px',
     textTransform: 'uppercase' as const,
     color: '#555',
   },
   thRight: {
     background: '#f0f0f0',
     border: '1px solid #ccc',
-    padding: '3px 5px',
+    padding: '2px 4px',
     fontWeight: 'bold' as const,
     textAlign: 'right' as const,
-    fontSize: '11px',
+    fontSize: '10px',
     textTransform: 'uppercase' as const,
     color: '#555',
   },
   thCenter: {
     background: '#f0f0f0',
     border: '1px solid #ccc',
-    padding: '3px 5px',
+    padding: '2px 4px',
     fontWeight: 'bold' as const,
     textAlign: 'center' as const,
-    fontSize: '11px',
+    fontSize: '10px',
     textTransform: 'uppercase' as const,
     color: '#555',
   },
   td: {
     border: '1px solid #ddd',
-    padding: '2px 5px',
+    padding: '1px 4px',
     verticalAlign: 'middle' as const,
+    overflow: 'hidden' as const,
+    textOverflow: 'ellipsis' as const,
   },
   tdRight: {
     border: '1px solid #ddd',
-    padding: '2px 5px',
+    padding: '1px 4px',
     textAlign: 'right' as const,
     verticalAlign: 'middle' as const,
   },
   tdCenter: {
     border: '1px solid #ddd',
-    padding: '2px 5px',
+    padding: '1px 4px',
     textAlign: 'center' as const,
     verticalAlign: 'middle' as const,
   },
@@ -115,16 +118,16 @@ const styles = {
     fontWeight: 'bold' as const,
   },
   totais: {
-    padding: '4px 10px',
+    padding: '3px 8px',
     borderBottom: '1px solid #ccc',
     display: 'flex',
     justifyContent: 'space-between' as const,
     alignItems: 'baseline' as const,
     fontWeight: 'bold' as const,
-    fontSize: '13px',
+    fontSize: '12px',
   },
   pagamento: {
-    padding: '4px 10px',
+    padding: '3px 8px',
     borderBottom: '1px solid #ccc',
     fontSize: '10px',
   },
@@ -153,7 +156,7 @@ const styles = {
     color: '#111',
   },
   entregue: {
-    padding: '4px 10px',
+    padding: '3px 8px',
     borderBottom: '1px solid #ccc',
   },
   checkRow: {
@@ -178,19 +181,19 @@ const styles = {
     flexShrink: 0,
   },
   assinatura: {
-    padding: '6px 10px 8px',
+    padding: '4px 8px 6px',
   },
   textoConfirmacao: {
     fontSize: '8px',
     color: '#666',
     fontStyle: 'italic' as const,
-    marginBottom: '12px',
+    marginBottom: '6px',
     lineHeight: '1.2',
   },
   linhaAssinatura: {
     borderTop: '1px solid #333',
-    marginTop: '30px',
-    paddingTop: '3px',
+    marginTop: '20px',
+    paddingTop: '2px',
     textAlign: 'center' as const,
     fontSize: '9px',
     color: '#555',
@@ -202,7 +205,7 @@ const styles = {
     marginTop: '4px',
   },
   emptyRow: {
-    height: '14px',
+    height: '11px',
     border: '1px solid #ddd',
     background: 'repeating-linear-gradient(135deg, transparent, transparent 3px, #d4d4d4 3px, #d4d4d4 4px)',
   },
@@ -310,9 +313,9 @@ export default function ProtocoloEntrega({ data, blank }: { data?: ProtocoloData
         <table style={styles.table}>
           <thead>
             <tr>
-              <th style={{ ...styles.thCenter, width: '40px' }}>Sit.</th>
+              <th style={{ ...styles.thCenter, width: '32px' }}>Sit.</th>
               <th style={styles.thCenter}>Produto</th>
-              <th style={{ ...styles.thRight, width: '70px' }}>Valor</th>
+              <th style={{ ...styles.thRight, width: '56px' }}>Valor</th>
             </tr>
           </thead>
           <tbody>
@@ -481,9 +484,9 @@ function ProtocoloEmBranco() {
         <table style={styles.table}>
           <thead>
             <tr>
-              <th style={{ ...styles.thCenter, width: '40px' }}>Sit.</th>
+              <th style={{ ...styles.thCenter, width: '32px' }}>Sit.</th>
               <th style={styles.thCenter}>Produto</th>
-              <th style={{ ...styles.thRight, width: '70px' }}>Valor</th>
+              <th style={{ ...styles.thRight, width: '56px' }}>Valor</th>
             </tr>
           </thead>
           <tbody>
