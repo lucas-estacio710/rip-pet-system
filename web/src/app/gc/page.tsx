@@ -28,6 +28,10 @@ type ContratoGC = {
   pet_cor: string | null
   tutor_nome: string | null
   tutor_telefone: string | null
+  tutor_telefone2: string | null
+  tutor_telefone_nome: string | null
+  tutor_telefone2_nome: string | null
+  tutor_telefone_principal: number | null
   pet_raca: string | null
   tipo_cremacao: string
   status: string
@@ -169,7 +173,7 @@ export default function GCPage() {
     const [contratosRes, unidadesRes, supindasRes] = await Promise.all([
       supabase
         .from('contratos')
-        .select('id, codigo, pet_nome, pet_especie, pet_peso, pet_raca, pet_genero, pet_cor, tutor_nome, tutor_telefone, tipo_cremacao, status, data_acolhimento, numero_lacre, observacoes, unidade_id, supinda_id, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_nome_6, certificado_nome_7, certificado_confirmado, contrato_gc(*)')
+        .select('id, codigo, pet_nome, pet_especie, pet_peso, pet_raca, pet_genero, pet_cor, tutor_nome, tutor_telefone, tutor_telefone2, tutor_telefone_nome, tutor_telefone2_nome, tutor_telefone_principal, tipo_cremacao, status, data_acolhimento, numero_lacre, observacoes, unidade_id, supinda_id, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_nome_6, certificado_nome_7, certificado_confirmado, contrato_gc(*)')
         .not('supinda_id', 'is', null)
         .in('status', ['ativo', 'pinda'])
         .order('data_acolhimento', { ascending: true }),
@@ -214,7 +218,7 @@ export default function GCPage() {
       // Recarregar pra pegar as rows criadas
       const { data: reloadData } = await supabase
         .from('contratos')
-        .select('id, codigo, pet_nome, pet_especie, pet_peso, pet_raca, pet_genero, pet_cor, tutor_nome, tutor_telefone, tipo_cremacao, status, data_acolhimento, numero_lacre, observacoes, unidade_id, supinda_id, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_nome_6, certificado_nome_7, certificado_confirmado, contrato_gc(*)')
+        .select('id, codigo, pet_nome, pet_especie, pet_peso, pet_raca, pet_genero, pet_cor, tutor_nome, tutor_telefone, tutor_telefone2, tutor_telefone_nome, tutor_telefone2_nome, tutor_telefone_principal, tipo_cremacao, status, data_acolhimento, numero_lacre, observacoes, unidade_id, supinda_id, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_nome_6, certificado_nome_7, certificado_confirmado, contrato_gc(*)')
         .not('supinda_id', 'is', null)
         .in('status', ['ativo', 'pinda'])
         .order('data_acolhimento', { ascending: true })
@@ -262,12 +266,14 @@ export default function GCPage() {
     mobileDias.push(d)
   }
 
-  // Scroll mobile
+  // Scroll mobile: centraliza "Hoje" na viewport (array -14..+13 → index 14 = hoje)
   useEffect(() => {
     if (mobileScrollRef.current && !mobileScrolledRef.current) {
       const container = mobileScrollRef.current
       const itemWidth = container.scrollWidth / mobileDias.length
-      const pos = itemWidth * 13 - 8
+      const todayIndex = 14
+      // Centraliza item Hoje no meio da viewport visível
+      const pos = Math.max(0, (todayIndex * itemWidth) - (container.clientWidth / 2) + (itemWidth / 2))
       container.scrollLeft = pos
       mobileInitialScroll.current = pos
       mobileScrolledRef.current = true
@@ -289,6 +295,10 @@ export default function GCPage() {
   function linkWhatsAppAgendamento(c: ContratoGC): string {
     return linkAgendamentoDespedida({
       telefone: c.tutor_telefone,
+      telefoneApelido: c.tutor_telefone_nome,
+      telefone2: c.tutor_telefone2,
+      telefone2Apelido: c.tutor_telefone2_nome,
+      telefonePrincipal: c.tutor_telefone_principal,
       tutorNome: c.tutor_nome,
       petNome: c.pet_nome,
       petGenero: c.pet_genero,
@@ -323,23 +333,28 @@ export default function GCPage() {
     return (a.data_acolhimento || '').localeCompare(b.data_acolhimento || '')
   })
 
-  // Contagem por unidade — apenas pets já recebidos fisicamente na matriz.
-  // Pets ainda em encaminhamento planejado (etapa 'provisionado') ficam de fora.
+  // Contagem por unidade — X/Y onde:
+  //   Y (total) = todos os pets daquela unidade em status 'pinda'
+  //   X (cremados) = pets já cremados (etapa 'cremado' ou 'disponivel')
   const countByUnit = new Map<string, { cremados: number; total: number }>()
   unidades.forEach(u => countByUnit.set(u.id, { cremados: 0, total: 0 }))
   contratos.forEach(c => {
+    if (c.status !== 'pinda') return
     const entry = countByUnit.get(c.unidade_id)
     if (!entry) return
-    const etapa = c.gc?.etapa
-    if (!etapa || etapa === 'provisionado') return
     entry.total++
+    const etapa = c.gc?.etapa
     if (etapa === 'cremado' || etapa === 'disponivel') entry.cremados++
   })
 
-  // Placar
-  const petsNaMatriz = contratos.filter(c => c.status === 'pinda' && c.gc?.etapa === 'recebido')
-  const paraCremar = petsNaMatriz.length
-  const agendados = petsNaMatriz.filter(c => c.gc?.contato_status === 'agendado').length
+  // Placar — "para cremar" = todos os pinda que ainda não foram cremados (provisionado + recebido)
+  const petsParaCremar = contratos.filter(c => {
+    if (c.status !== 'pinda') return false
+    const etapa = c.gc?.etapa || 'provisionado'
+    return etapa !== 'cremado' && etapa !== 'disponivel'
+  })
+  const paraCremar = petsParaCremar.length
+  const agendados = petsParaCremar.filter(c => c.gc?.contato_status === 'agendado').length
   const pctAgendados = paraCremar > 0 ? Math.round((agendados / paraCremar) * 100) : 0
 
   return (
@@ -611,15 +626,24 @@ export default function GCPage() {
           </div>
         )
 
-        // Ordena os grupos por data da supinda asc (mais antigo → mais novo).
-        // Grupos sem supinda ('sem' / null) vão pro fim.
+        // Ordena os grupos em cascata:
+        //   1º — bucket: em andamento/finalizada < em planejamento < sem supinda
+        //   2º — dentro do bucket: data DESC (mais recente primeiro)
+        const bucket = (g: { sup: typeof supindas[0] | null }) => {
+          if (!g.sup) return 3
+          if (g.sup.status === 'planejada') return 2
+          return 1
+        }
         const gruposOrdenados = Array.from(grupos.entries()).sort(([, a], [, b]) => {
+          const ba = bucket(a)
+          const bb = bucket(b)
+          if (ba !== bb) return ba - bb
           const da = a.sup?.data || ''
           const db = b.sup?.data || ''
           if (!da && !db) return 0
           if (!da) return 1
           if (!db) return -1
-          return da.localeCompare(db)
+          return db.localeCompare(da)
         })
 
         return (
@@ -837,6 +861,10 @@ export default function GCPage() {
           numeroLacre={acaoModal.numero_lacre}
           tutorNome={acaoModal.tutor_nome}
           tutorTelefone={acaoModal.tutor_telefone}
+          tutorTelefone2={acaoModal.tutor_telefone2}
+          tutorTelefoneNome={acaoModal.tutor_telefone_nome}
+          tutorTelefone2Nome={acaoModal.tutor_telefone2_nome}
+          tutorTelefonePrincipal={acaoModal.tutor_telefone_principal}
           contratoCodigo={acaoModal.codigo}
           certificadoNomesRaw={[acaoModal.certificado_nome_1, acaoModal.certificado_nome_2, acaoModal.certificado_nome_3, acaoModal.certificado_nome_4, acaoModal.certificado_nome_5, acaoModal.certificado_nome_6, acaoModal.certificado_nome_7]}
           certificadoConfirmado={!!acaoModal.certificado_confirmado}

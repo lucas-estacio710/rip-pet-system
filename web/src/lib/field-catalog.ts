@@ -61,6 +61,7 @@ export const TELAS: ItemDef[] = [
   { key: 'tela_entregas', label: 'Encaminhamentos', desc: 'Envio e retorno de pets pra Matriz' },
   { key: 'tela_estoque', label: 'Estoque', desc: 'Controle de estoque' },
   { key: 'tela_gc', label: 'GC', desc: 'Gerenciamento de Cremações (Matriz)' },
+  { key: 'tela_agenda', label: 'Agenda', desc: 'Calendário de agendamentos de cremações com tutores' },
   { key: 'tela_tutores', label: 'Tutores', desc: 'Cadastro de tutores' },
   { key: 'tela_ads_shield', label: 'RIP Shield', desc: 'Detecção de fraude em cliques Google Ads' },
   { key: 'tela_dashboard', label: 'Dashboard (Admin)', desc: 'Painel interno do super_admin — uso/adoção dos usuários' },

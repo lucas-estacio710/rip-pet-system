@@ -42,6 +42,10 @@ type Props = {
   numeroLacre?: string | null
   tutorNome?: string | null
   tutorTelefone?: string | null
+  tutorTelefone2?: string | null
+  tutorTelefoneNome?: string | null
+  tutorTelefone2Nome?: string | null
+  tutorTelefonePrincipal?: number | null
   /** Os 7 slots brutos do certificado (null para vazios). */
   certificadoNomesRaw?: (string | null)[]
   certificadoConfirmado?: boolean
@@ -71,7 +75,7 @@ const CONTATO_STEPS = [
   { key: 'agendado', label: 'Agendado', color: '#1a73e8' },
 ]
 
-export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoCremacao, petEspecie, petPeso, petRaca, petGenero, petCor, numeroLacre, tutorNome, tutorTelefone, certificadoNomesRaw, certificadoConfirmado, onCertificadoSaved, supindaStatus, gcAtual, onClose, onSaved }: Props) {
+export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoCremacao, petEspecie, petPeso, petRaca, petGenero, petCor, numeroLacre, tutorNome, tutorTelefone, tutorTelefone2, tutorTelefoneNome, tutorTelefone2Nome, tutorTelefonePrincipal, certificadoNomesRaw, certificadoConfirmado, onCertificadoSaved, supindaStatus, gcAtual, onClose, onSaved }: Props) {
   const supabase = createClient()
   const [salvando, setSalvando] = useState(false)
   const [gc, setGc] = useState<GCData>(
@@ -320,7 +324,7 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
                   <p className="text-xs text-[var(--surface-500)] truncate flex-1">{tutorNome}</p>
                   {tutorTelefone && (
                     <div className="hidden md:flex items-center gap-1 shrink-0">
-                      <a href={linkAgendamentoDespedida({ telefone: tutorTelefone, tutorNome, petNome: dadosPet.pet_nome, petGenero: dadosPet.pet_genero })} target="_blank" rel="noopener noreferrer"
+                      <a href={linkAgendamentoDespedida({ telefone: tutorTelefone, telefoneApelido: tutorTelefoneNome, telefone2: tutorTelefone2, telefone2Apelido: tutorTelefone2Nome, telefonePrincipal: tutorTelefonePrincipal, tutorNome, petNome: dadosPet.pet_nome, petGenero: dadosPet.pet_genero })} target="_blank" rel="noopener noreferrer"
                         className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[10px] font-semibold text-white hover:opacity-90 transition-opacity" style={{ background: '#25D366' }}
                         title="Enviar mensagem de agendamento da despedida">
                         <Phone className="h-3 w-3" />
@@ -336,7 +340,7 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
                 </div>
                 {tutorTelefone && (
                   <div className="md:hidden flex items-center gap-1 mt-1">
-                    <a href={linkAgendamentoDespedida({ telefone: tutorTelefone, tutorNome, petNome: dadosPet.pet_nome, petGenero: dadosPet.pet_genero })} target="_blank" rel="noopener noreferrer"
+                    <a href={linkAgendamentoDespedida({ telefone: tutorTelefone, telefoneApelido: tutorTelefoneNome, telefone2: tutorTelefone2, telefone2Apelido: tutorTelefone2Nome, telefonePrincipal: tutorTelefonePrincipal, tutorNome, petNome: dadosPet.pet_nome, petGenero: dadosPet.pet_genero })} target="_blank" rel="noopener noreferrer"
                       className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[10px] font-semibold text-white hover:opacity-90 transition-opacity" style={{ background: '#25D366' }}>
                       <Phone className="h-3 w-3" />
                       Chamar no WhatsApp

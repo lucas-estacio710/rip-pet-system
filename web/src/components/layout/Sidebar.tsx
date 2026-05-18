@@ -18,7 +18,8 @@ import {
   Settings,
   LogOut,
   Crown,
-  Shield
+  Shield,
+  Calendar
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
@@ -41,6 +42,7 @@ const navItems: NavItem[] = [
   { href: '/encaminhamentos', label: 'Encaminhamentos', icon: Route, countKey: null, module: 'tela_entregas', iconColor: '#bef264' },
   { href: '/estoque', label: 'Estoque', icon: ShelvingUnit, countKey: null, module: 'tela_estoque', iconColor: '#a0522d' },
   { href: '/gc', label: 'GC', icon: Church, countKey: null, module: 'tela_gc', iconColor: '#60a5fa' },
+  { href: '/agenda', label: 'Agenda', icon: Calendar, countKey: null, module: 'tela_agenda', iconColor: '#f97316' },
   { href: '/tutores', label: 'Tutores', icon: Users, countKey: null, module: 'tela_tutores', iconColor: '#c4b5fd' },
   { href: '/ads-shield', label: 'RIP Shield', icon: Shield, countKey: null, module: 'tela_ads_shield', iconColor: '#ef4444' },
   { href: '/dashboard-pipeline', label: 'Dashboards', icon: BarChart3, countKey: null, module: 'tela_dashboards', iconColor: '#10b981' },
