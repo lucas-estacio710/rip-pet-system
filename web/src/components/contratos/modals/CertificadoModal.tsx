@@ -63,6 +63,8 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
   const [petGenero, setPetGenero] = useState<string>('')
   // Indica se já existe linha em contrato_gc para este contrato (pra escolher UPDATE vs INSERT)
   const [temContratoGc, setTemContratoGc] = useState(false)
+  // Data de agendamento da cremação (read-only) — vem do contrato_gc, exibida pra Matriz
+  const [dataAgendamento, setDataAgendamento] = useState<string | null>(null)
 
   const supabase = createClient()
 
@@ -97,22 +99,24 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
     setPetRaca(contrato.pet_raca || '')
     setPetGenero(contrato.pet_genero || '')
     setTemContratoGc(false)
+    setDataAgendamento(null)
 
     // Busca snapshot do GC (se existir) — fonte de verdade após migration 081
     supabase
       .from('contrato_gc')
-      .select('pet_nome, pet_especie, pet_raca, pet_genero')
+      .select('pet_nome, pet_especie, pet_raca, pet_genero, data_agendamento')
       .eq('contrato_id', contrato.id)
       .limit(1)
       .maybeSingle()
       .then(({ data }) => {
         if (data) {
           setTemContratoGc(true)
-          const gc = data as { pet_nome: string | null; pet_especie: string | null; pet_raca: string | null; pet_genero: string | null }
+          const gc = data as { pet_nome: string | null; pet_especie: string | null; pet_raca: string | null; pet_genero: string | null; data_agendamento: string | null }
           if (gc.pet_nome != null) setPetNome(gc.pet_nome)
           if (gc.pet_especie != null) setPetEspecie(gc.pet_especie)
           if (gc.pet_raca != null) setPetRaca(gc.pet_raca)
           if (gc.pet_genero != null) setPetGenero(gc.pet_genero)
+          if (gc.data_agendamento) setDataAgendamento(gc.data_agendamento)
         }
       })
 
@@ -234,6 +238,19 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
 
         {/* Código do contrato */}
         <p className="text-[10px] text-slate-500 mb-3 font-mono">{contrato.codigo}</p>
+
+        {/* Data de agendamento da cremação (read-only — Matriz vê a data que irá pro certificado) */}
+        {dataAgendamento && (
+          <div className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg bg-blue-900/30 border border-blue-500/30">
+            <span className="text-base">📅</span>
+            <div className="flex-1">
+              <p className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">Data da Cremação</p>
+              <p className="text-sm font-semibold text-blue-200">
+                {new Date(dataAgendamento).toLocaleString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Dados do pet (editáveis — vão para o certificado e atualizam o contrato) */}
         <div className="bg-slate-700/30 rounded-lg p-3 mb-3 space-y-2">
