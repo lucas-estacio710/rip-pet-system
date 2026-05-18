@@ -103,6 +103,9 @@ export const CAMPOS_BOTOES: ChildItemDef[] = [
   { key: 'btn_fluxo_retorno', tela: 'tela_contrato', label: 'Fluxo Retorno', desc: '3-way: Pipeline ↔ Contrato. Complexidade + Protocolo', modo: 'toggle' },
   { key: 'btn_compartilhar', tela: 'tela_contrato', label: 'Compartilhar', desc: 'Botão 🔄 compartilhar remoção/entrega com outra unidade', modo: 'toggle' },
   { key: 'valor_plano', tela: 'tela_contrato', label: 'Valor do Plano', desc: 'Edição inline (lápis) do valor_plano no card Financeiro' },
+  { key: 'pagamento_completo', tela: 'tela_contrato', label: 'Pagamento Completo', desc: 'Detalhes avançados no modal de pagamento: bandeira do cartão + nº de identificação da transação (maquininha). Oculto = modo Pagamento Simples (só método e valor).', modo: 'toggle' },
+  { key: 'btn_emitir_nfse', tela: 'tela_contrato', label: 'Emitir NF', desc: 'Botão de emissão de NFS-e (GISS) no card Financeiro' },
+  { key: 'btn_mega_pagamento', tela: 'tela_contrato', label: 'Novo Pagamento / Pagamento de Saldo', desc: 'Botões de lançamento de pagamento (novo ou quitar saldo) no card Financeiro' },
 
   // --- FICHAS ---
   { key: 'btn_pdf_ficha', tela: 'tela_fichas', label: 'Gerar PDF', desc: 'Botão azul de gerar PDF do contrato no card da ficha', modo: 'toggle' },

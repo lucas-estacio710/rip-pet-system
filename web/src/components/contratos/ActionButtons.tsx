@@ -25,18 +25,18 @@ type Props = {
 // Visibility table: which buttons appear in which status
 const VISIBILITY: Record<string, string[]> = {
   preventivo: ['ativar'],
-  ativo: ['petGrato', 'chegamos'],
+  ativo: ['chegamos', 'petGrato'],
   pinda: ['petGrato'],
-  retorno: ['petGrato', 'chegaram', 'entrega'],
-  pendente: ['entrega'],
+  retorno: ['petGrato', 'chegaram', 'finalizadora', 'entrega'],
+  pendente: ['finalizadora', 'entrega'],
   finalizado: ['finalizadora'],
 }
 
-const BUTTON_CONFIG: Record<string, { emoji: string; bg: string; hover: string; title: string; useStarIcon?: boolean }> = {
-  petGrato: { emoji: '', bg: 'bg-black text-amber-400', hover: 'hover:bg-slate-700', title: 'Pet Grato - Mensagem de despedida', useStarIcon: true },
-  chegamos: { emoji: '📥', bg: 'bg-green-600 text-white', hover: 'hover:bg-green-700', title: 'Chegamos - pet chegou na unidade' },
-  chegaram: { emoji: '📦', bg: 'bg-cyan-600 text-white', hover: 'hover:bg-cyan-700', title: 'Chegaram - cinzas chegaram' },
-  finalizadora: { emoji: '⭐', bg: 'bg-emerald-600 text-white', hover: 'hover:bg-emerald-700', title: 'Finalizadora - mensagem de agradecimento' },
+const BUTTON_CONFIG: Record<string, { emoji: string; emojiSecondary?: string; bg: string; hover: string; title: string; useStarIcon?: boolean; isText?: boolean }> = {
+  petGrato: { emoji: 'PG', emojiSecondary: '⭐', isText: true, bg: 'bg-black text-amber-400', hover: 'hover:bg-slate-700', title: 'Pet Grato - Mensagem de despedida' },
+  chegamos: { emoji: 'CHE', emojiSecondary: '📅', isText: true, bg: 'bg-green-600 text-white', hover: 'hover:bg-green-700', title: 'Chegamos - pet chegou na unidade + agendamento' },
+  chegaram: { emoji: 'AGE', emojiSecondary: '🛍️', isText: true, bg: 'bg-cyan-600 text-white', hover: 'hover:bg-cyan-700', title: 'Chegaram - cinzas chegaram + agendamento' },
+  finalizadora: { emoji: 'FIN', emojiSecondary: '🙏', isText: true, bg: 'bg-emerald-600 text-white', hover: 'hover:bg-emerald-700', title: 'Finalizadora - mensagem de agradecimento' },
   ativar: { emoji: '✝️', bg: 'bg-red-900 text-white', hover: 'hover:bg-red-800', title: 'Ativar contrato preventivo' },
   entrega: { emoji: '📬', bg: 'bg-emerald-600 text-white', hover: 'hover:bg-emerald-700', title: 'Marcar entregue e finalizar' },
 }
@@ -90,10 +90,18 @@ export default function ActionButtons({ contrato, handlers, layout, stopPropagat
             className={`flex items-center justify-center ${size} ${config.bg} rounded-full ${config.hover} transition-colors`}
             title={config.title}
           >
-            {config.useStarIcon
-              ? <Star className={`${iconSize} fill-amber-400`} />
-              : <span className={emojiSize}>{config.emoji}</span>
-            }
+            {config.useStarIcon ? (
+              <Star className={`${iconSize} fill-amber-400`} />
+            ) : config.emojiSecondary ? (
+              <div className="flex flex-col items-center justify-center leading-none gap-0">
+                <span className={`${layout === 'detail' ? 'text-[8px]' : 'text-[10px]'} ${config.isText ? 'font-black tracking-tight' : ''}`}>{config.emoji}</span>
+                <span className={layout === 'detail' ? 'text-[9px]' : 'text-[11px]'}>{config.emojiSecondary}</span>
+              </div>
+            ) : config.isText ? (
+              <span className={`${layout === 'detail' ? 'text-xs' : 'text-sm'} font-black tracking-tight`}>{config.emoji}</span>
+            ) : (
+              <span className={emojiSize}>{config.emoji}</span>
+            )}
           </button>
         )
       })}

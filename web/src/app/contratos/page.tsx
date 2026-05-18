@@ -318,6 +318,11 @@ function ContratosContent() {
   // Mobile: card expandido para ações
   const [expandedMobileId, setExpandedMobileId] = useState<string | null>(null)
 
+  // Edição inline de Lacre no pipeline (apenas inserir quando vazio, não editar)
+  const [lacreEditandoId, setLacreEditandoId] = useState<string | null>(null)
+  const [lacreInputValue, setLacreInputValue] = useState('')
+  const [salvandoLacreInline, setSalvandoLacreInline] = useState(false)
+
   // Modal Pet Grato
   const [petGratoModal, setPetGratoModal] = useState(false)
   const [petGratoContrato, setPetGratoContrato] = useState<Contrato | null>(null)
@@ -540,7 +545,25 @@ function ContratosContent() {
   const [salvandoCompartilhar, setSalvandoCompartilhar] = useState(false)
 
   // Seleção batch para protocolo de entrega
-  const [selectedContratos, setSelectedContratos] = useState<Set<string>>(new Set())
+  // Lazy init via sessionStorage — não perde seleção ao navegar pra contrato e voltar
+  const [selectedContratos, setSelectedContratos] = useState<Set<string>>(() => {
+    if (typeof window === 'undefined') return new Set()
+    try {
+      const saved = sessionStorage.getItem('pipeline:selectedContratos')
+      return saved ? new Set<string>(JSON.parse(saved)) : new Set()
+    } catch { return new Set() }
+  })
+  // Seleção paralela para registrar entrega em lote (status retorno/pendente)
+  const [selectedEntregas, setSelectedEntregas] = useState<Set<string>>(() => {
+    if (typeof window === 'undefined') return new Set()
+    try {
+      const saved = sessionStorage.getItem('pipeline:selectedEntregas')
+      return saved ? new Set<string>(JSON.parse(saved)) : new Set()
+    } catch { return new Set() }
+  })
+  const [entregaBatchLoading, setEntregaBatchLoading] = useState(false)
+  const [entregaBatchModal, setEntregaBatchModal] = useState(false)
+  const [entregaBatchForm, setEntregaBatchForm] = useState({ dataHoje: true, data_entrega: '' })
   const [protocoloBatchLoading, setProtocoloBatchLoading] = useState(false)
 
   // Modal Protocolo de Entrega
@@ -559,6 +582,133 @@ function ContratosContent() {
 
   const POR_PAGINA = 30
   const supabase = createClient()
+
+  // Salva número do lacre inline (apenas inserção; não permite edição daqui)
+  async function salvarLacreInline() {
+    if (!lacreEditandoId || !lacreInputValue.trim() || salvandoLacreInline) return
+    const id = lacreEditandoId
+    const valor = lacreInputValue.trim()
+    setSalvandoLacreInline(true)
+    try {
+      const { error } = await supabase
+        .from('contratos')
+        .update({ numero_lacre: valor } as never)
+        .eq('id', id)
+      if (error) throw error
+      setContratos(prev => prev.map(c => c.id === id ? { ...c, numero_lacre: valor } : c))
+      setLacreEditandoId(null)
+      setLacreInputValue('')
+    } catch (err) {
+      console.error('Erro ao salvar lacre:', err)
+      alert('Erro ao salvar lacre')
+    } finally {
+      setSalvandoLacreInline(false)
+    }
+  }
+
+  function cancelarLacreInline() {
+    setLacreEditandoId(null)
+    setLacreInputValue('')
+  }
+
+  // Renderiza a célula do lacre no pipeline (3 estados: editando, com lacre, sem lacre)
+  function renderLacreCell(contrato: Contrato, layout: 'desktop' | 'mobile') {
+    if (lacreEditandoId === contrato.id) {
+      const inputClass = layout === 'desktop'
+        ? "w-24 px-2 py-0.5 bg-blue-600 text-white font-bold rounded text-sm border border-blue-400 outline-none text-center"
+        : "w-20 px-1.5 py-0 h-6 bg-blue-600 text-white font-bold rounded text-xs border border-blue-400 outline-none text-center"
+      return (
+        <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="text"
+            value={lacreInputValue}
+            onChange={(e) => setLacreInputValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') salvarLacreInline()
+              if (e.key === 'Escape') cancelarLacreInline()
+            }}
+            placeholder="Nº lacre"
+            className={inputClass}
+            autoFocus
+            disabled={salvandoLacreInline}
+          />
+          <button
+            onClick={salvarLacreInline}
+            disabled={salvandoLacreInline || !lacreInputValue.trim()}
+            className="p-0.5 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+            title="Salvar"
+          >
+            <Check className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={cancelarLacreInline}
+            disabled={salvandoLacreInline}
+            className="p-0.5 bg-red-600 text-white rounded hover:bg-red-700"
+            title="Cancelar"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )
+    }
+
+    if (contrato.numero_lacre) {
+      // Tem lacre — badge azul (não permite edição inline, só leitura/navegação)
+      const badgeClass = layout === 'desktop'
+        ? "text-white font-bold bg-blue-700 px-1 py-0 rounded text-base"
+        : "text-white font-bold bg-blue-700 px-1.5 rounded text-sm h-6 flex items-center flex-shrink-0"
+      return (
+        <Link href={`/contratos/${contrato.id}`} className="hover:opacity-80 flex-shrink-0">
+          <span className={badgeClass}>
+            {String(contrato.numero_lacre).replace(/\.0$/, '')}
+          </span>
+        </Link>
+      )
+    }
+
+    // Sem lacre — botão amber pulsante "+ Lacre" (mesma vibe do "Sem data acolh.")
+    const btnClass = layout === 'desktop'
+      ? "px-2 py-0.5 bg-amber-600/80 text-white font-semibold rounded text-xs shadow-sm hover:bg-amber-500 transition-colors animate-pulse flex-shrink-0"
+      : "px-1.5 h-6 bg-amber-600/80 text-white font-semibold rounded text-[11px] shadow-sm hover:bg-amber-500 transition-colors animate-pulse flex items-center flex-shrink-0"
+    return (
+      <button
+        onClick={(e) => {
+          e.stopPropagation()
+          setLacreInputValue('')
+          setLacreEditandoId(contrato.id)
+        }}
+        className={btnClass}
+        title="Inserir nº do lacre"
+      >
+        + Lacre
+      </button>
+    )
+  }
+
+  // Botão de protocolo de entrega no pipeline (substitui o chip antigo do InteractiveTags).
+  // Aparece SÓ na etapa entrega (status retorno/pendente). Sem checagem de FLS.
+  function renderProtocoloButton(contrato: Contrato) {
+    if (contrato.status !== 'retorno' && contrato.status !== 'pendente') return null
+    const temProtocolo = !!contrato.protocolo_data
+    const style: React.CSSProperties = temProtocolo
+      ? { background: '#dcfce7', color: '#16a34a', borderColor: '#16a34a' }
+      : { background: 'rgba(254,243,199,0.6)', color: '#f59e0b', borderColor: '#d97706' }
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          abrirProtocoloModal(contrato)
+        }}
+        className={`w-5 h-5 rounded flex items-center justify-center text-[11px] leading-none cursor-pointer hover:opacity-80 transition-opacity ${temProtocolo ? '' : 'animate-pulse'}`}
+        style={{ ...style, borderWidth: 1, borderStyle: 'solid' }}
+        title={temProtocolo ? 'Protocolo pronto — clique para rever' : 'Protocolo pendente — clique para preparar'}
+      >
+        📋
+      </button>
+    )
+  }
 
   // Ajusta estoque DA UNIDADE (produtos_estoque). Quantidade positiva = creditar,
   // negativa = debitar. Vai a negativo silenciosamente. estoque_infinito tratado server-side.
@@ -592,6 +742,19 @@ function ContratosContent() {
     if (!valor) return 'R$ 0,00'
     return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   }
+
+  // Persistir seleção de checkboxes em sessionStorage — sobrevive navegação no mesmo tab
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('pipeline:selectedContratos', JSON.stringify(Array.from(selectedContratos)))
+    } catch {}
+  }, [selectedContratos])
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('pipeline:selectedEntregas', JSON.stringify(Array.from(selectedEntregas)))
+    } catch {}
+  }, [selectedEntregas])
 
   // Atualizar URL quando estado muda (sem recarregar página)
   useEffect(() => {
@@ -1234,6 +1397,37 @@ function ContratosContent() {
     return nome.split(/\s+/).map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(' ')
   }
 
+  // Versão compacta dos badges GC (estilo da tela /gc mobile) — 2 quadradinhos com ícones
+  function renderGCStatusCompacto(contrato: Contrato): React.ReactNode {
+    if (contrato.status !== 'pinda' || !contrato.contrato_gc) return null
+    const gc = contrato.contrato_gc
+    const etapa = gc.etapa || 'provisionado'
+    const contatoSt = gc.contato_status || null
+    const etapaColors: Record<string, string> = { provisionado: '#64748b', recebido: '#3b82f6', cremado: '#eab308', disponivel: '#22c55e' }
+    const etapaColor = etapaColors[etapa] || '#64748b'
+    const etapaLabels: Record<string, string> = { provisionado: 'Provisionado', recebido: 'Recebido', cremado: 'Cremado', disponivel: 'Finalizado' }
+    const contatoLabels: Record<string, string> = { contatado: 'Contatado', agendado: 'Agendado' }
+    const contatoLabel = contatoSt ? (contatoLabels[contatoSt] || contatoSt) : 'A Chamar'
+    const mostrarContato = etapa !== 'cremado' && etapa !== 'disponivel'
+    return (
+      <div className="flex-shrink-0 flex rounded overflow-hidden" title={`GC: ${mostrarContato ? `${contatoLabel} · ` : ''}${etapaLabels[etapa] || etapa}`}>
+        {mostrarContato && (
+          <span className="w-5 h-5 flex items-center justify-center" style={{ background: !contatoSt ? '#94a3b8' : '#a7f3d0' }}>
+            {!contatoSt && <Clock className="w-3 h-3" style={{ color: '#a7f3d0' }} />}
+            {contatoSt === 'contatado' && <Check className="w-3 h-3" style={{ color: '#8696a0' }} />}
+            {contatoSt === 'agendado' && <CheckCheck className="w-3 h-3" style={{ color: '#1a73e8' }} />}
+          </span>
+        )}
+        <span className={`w-5 h-5 flex items-center justify-center ${etapa === 'provisionado' ? 'animate-pulse' : ''}`} style={{ background: etapaColor }}>
+          {etapa === 'provisionado' && <CalendarClock className="w-3 h-3 text-white/80" />}
+          {etapa === 'recebido' && <SearchCheck className="w-3 h-3 text-white/80" />}
+          {etapa === 'cremado' && <Flame className="w-3 h-3 text-white/80" />}
+          {etapa === 'disponivel' && <CheckCircle2 className="w-3 h-3 text-white/80" />}
+        </span>
+      </div>
+    )
+  }
+
   // Badges de status GC (espelho das regras de /gc) — ao lado do tutor quando pet em pinda
   function renderGCStatusBadges(contrato: Contrato): React.ReactNode {
     if (contrato.status !== 'pinda' || !contrato.contrato_gc) return null
@@ -1396,7 +1590,7 @@ function ContratosContent() {
     return data
   }
 
-  function presetDatasChegamos(tipo: 'este-sab' | 'este-dom' | 'prox-sab' | 'prox-dom') {
+  function presetDatasChegamos(tipo: 'este-sab' | 'este-dom' | 'prox-sab' | 'prox-dom' | 'este-fds' | 'prox-fds') {
     const hoje = new Date()
     let enc: Date
     let encTexto: string
@@ -1419,12 +1613,18 @@ function ContratosContent() {
       } else {
         encTexto = `neste domingo (${enc.getDate()}/${mesesCurtos[enc.getMonth()]})`
       }
+    } else if (tipo === 'este-fds') {
+      enc = getDiaPreset('sab', false)
+      encTexto = 'neste fim de semana'
+    } else if (tipo === 'prox-fds') {
+      enc = getDiaPreset('sab', true)
+      encTexto = 'no próximo fim de semana'
     } else if (tipo === 'prox-sab') {
       enc = getDiaPreset('sab', true)
-      encTexto = `próximo sábado (${enc.getDate()}/${mesesCurtos[enc.getMonth()]})`
+      encTexto = `no próximo sábado (${enc.getDate()}/${mesesCurtos[enc.getMonth()]})`
     } else {
       enc = getDiaPreset('dom', true)
-      encTexto = `próximo domingo (${enc.getDate()}/${mesesCurtos[enc.getMonth()]})`
+      encTexto = `no próximo domingo (${enc.getDate()}/${mesesCurtos[enc.getMonth()]})`
     }
 
     // Cremação: terça e quarta após o encaminhamento
@@ -1512,7 +1712,7 @@ Vamos cuidar ${deleDela} com todo carinho, respeito e muito amor!
     }
 
     if (dataEncaminhamento && dataCremacao) {
-      msg += `O encaminhamento será feito no ${dataEncaminhamento}, e a cremação ocorrerá entre ${dataCremacao}.
+      msg += `O encaminhamento para nosso crematório será feito ${dataEncaminhamento}, e a cremação ocorrerá entre ${dataCremacao}.
 
 `
     }
@@ -2518,6 +2718,77 @@ ${petNome}`
     setEntregaContrato(contrato)
     setEntregaForm({ dataHoje: true, data_entrega: '' })
     setEntregaModal(true)
+  }
+
+  // Toggle de seleção pra registrar entrega em lote (retorno/pendente)
+  function toggleSelectEntrega(id: string, e: React.MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    setSelectedEntregas(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  // Abre o modal de confirmação de entrega em lote
+  function abrirEntregaBatchModal() {
+    if (selectedEntregas.size === 0) return
+    setEntregaBatchForm({ dataHoje: true, data_entrega: '' })
+    setEntregaBatchModal(true)
+  }
+
+  // Registrar entrega de vários contratos de uma vez
+  async function confirmarEntregaBatch() {
+    if (selectedEntregas.size === 0) return
+    const dataEntrega = entregaBatchForm.dataHoje ? hojeLocal() : entregaBatchForm.data_entrega
+    if (!dataEntrega) {
+      alert('Selecione a data de entrega')
+      return
+    }
+
+    const ids = Array.from(selectedEntregas)
+    const contSelecionados = contratos.filter(c => ids.includes(c.id))
+
+    setEntregaBatchLoading(true)
+    try {
+      const { error } = await supabase
+        .from('contratos')
+        .update({ status: 'finalizado', data_entrega: dataEntrega } as never)
+        .in('id', ids)
+      if (error) throw error
+
+      // Atualiza lista local + contadores
+      const countByStatus: Record<string, number> = {}
+      contSelecionados.forEach(c => { countByStatus[c.status] = (countByStatus[c.status] || 0) + 1 })
+
+      if (statusFiltro && statusFiltro !== 'finalizado') {
+        setContratos(prev => prev.filter(c => !ids.includes(c.id)))
+        setTotal(prev => Math.max(0, prev - ids.length))
+      } else {
+        setContratos(prev => prev.map(c =>
+          ids.includes(c.id) ? { ...c, status: 'finalizado', data_entrega: dataEntrega } : c
+        ))
+      }
+
+      setStatusCounts(prev => {
+        const next = { ...prev }
+        Object.entries(countByStatus).forEach(([s, n]) => {
+          next[s] = Math.max(0, (next[s] || 0) - n)
+        })
+        next.finalizado = (next.finalizado || 0) + ids.length
+        return next
+      })
+
+      setSelectedEntregas(new Set())
+      setEntregaBatchModal(false)
+    } catch (err) {
+      console.error('Erro ao registrar entrega em lote:', err)
+      alert('Erro ao registrar entrega em lote.')
+    } finally {
+      setEntregaBatchLoading(false)
+    }
   }
 
   // Marcar Entregue - salva e muda status para finalizado
@@ -3801,22 +4072,25 @@ ${petNome}`
                 <div className="p-1.5 relative z-[1]">
                   {/* === DESKTOP LAYOUT === */}
                   <div className="hidden md:flex items-center gap-2">
-                    {/* Checkbox de seleção para protocolo batch (retorno/pendente) */}
+                    {/* Coluna de ações: [Protocolo] em cima + [Checkbox seleção] embaixo (retorno/pendente) */}
                     {(statusFiltro === 'retorno' || statusFiltro === 'pendente') && (
-                      <div
-                        className="flex-shrink-0"
-                        onClick={(e) => toggleSelectContrato(contrato.id, e)}
-                      >
-                        <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors cursor-pointer ${
-                          selectedContratos.has(contrato.id)
-                            ? 'bg-cyan-600 border-cyan-600 text-white'
-                            : 'border-slate-500 hover:border-cyan-500'
-                        }`}>
-                          {selectedContratos.has(contrato.id) && (
-                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                            </svg>
-                          )}
+                      <div className="flex-shrink-0 flex flex-col items-center gap-1">
+                        {renderProtocoloButton(contrato)}
+                        {/* Wrapper com hit-area expandida + hover sutil pra evitar clique acidental no card */}
+                        <div
+                          onClick={(e) => toggleSelectContrato(contrato.id, e)}
+                          className="p-2 -m-2 cursor-pointer rounded-md hover:bg-cyan-500/15 transition-colors"
+                          title="Selecionar para impressão em lote"
+                        >
+                          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                            selectedContratos.has(contrato.id)
+                              ? 'bg-cyan-600 border-cyan-600 text-white'
+                              : 'border-slate-500'
+                          }`}>
+                            {selectedContratos.has(contrato.id) && (
+                              <Printer className="w-3 h-3" />
+                            )}
+                          </div>
                         </div>
                       </div>
                     )}
@@ -3896,7 +4170,6 @@ ${petNome}`
                         pelinho: () => abrirPelinhoModal(contrato),
                         urna: () => abrirUrnaModal(contrato),
                         certificado: () => abrirCertificadoModal(contrato),
-                        protocolo: () => abrirProtocoloModal(contrato),
                         rescaldo: () => abrirRescaldoModal(contrato),
                       }}
                       layout="pipeline-desktop-green"
@@ -3905,10 +4178,8 @@ ${petNome}`
                     {/* Info principal */}
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <Link href={`/contratos/${contrato.id}`} className="flex items-center gap-1 hover:opacity-80">
-                          {contrato.numero_lacre && (
-                            <span className="text-white font-bold bg-blue-700 px-1 py-0 rounded text-base">{String(contrato.numero_lacre).replace(/\.0$/, '')}</span>
-                          )}
+                        {renderLacreCell(contrato, 'desktop')}
+                        <Link href={`/contratos/${contrato.id}`} className="hover:opacity-80">
                           <span className="text-base font-bold" style={{ background: 'linear-gradient(90deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', color: contrato.pet_genero === 'macho' ? '#1d4ed8' : '#db2777', padding: '1px 6px', borderRadius: '4px' }}>
                             {contrato.pet_nome}
                             {contrato.pet_genero && <span style={{ marginLeft: '3px', fontSize: '0.8rem' }}>{contrato.pet_genero === 'macho' ? '♂' : '♀'}</span>}
@@ -3949,7 +4220,6 @@ ${petNome}`
                         certificado: () => abrirCertificadoModal(contrato),
                         foto: () => abrirFotoModal(contrato),
                         pagamento: () => abrirMegaPagamentoModal(contrato),
-                        protocolo: () => abrirProtocoloModal(contrato),
                         rescaldo: () => abrirRescaldoModal(contrato),
                       }}
                       layout="pipeline-desktop-pending"
@@ -4005,18 +4275,8 @@ ${petNome}`
                               <span className="text-base">✝️</span>
                             </button>
                           )}
-                          {/* Botão Marcar Entregue - para retorno e pendente */}
-                          {(contrato.status === 'retorno' || contrato.status === 'pendente') && (
-                            <button
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); abrirEntregaModal(contrato) }}
-                              className="flex items-center justify-center w-9 h-9 bg-emerald-600 text-white rounded-full hover:bg-emerald-700 transition-colors"
-                              title="Marcar entregue e finalizar"
-                            >
-                              <span className="text-base">📬</span>
-                            </button>
-                          )}
                           {/* Botão Bypass - finalizar pulando etapas (FLS: btn_bypass) */}
-                          {['ativo', 'pinda', 'retorno', 'pendente'].includes(contrato.status) && isVisible(T, 'btn_bypass') && (
+                          {['ativo', 'pinda'].includes(contrato.status) && isVisible(T, 'btn_bypass') && (
                             <button
                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setBypassContrato(contrato); setBypassDataCremacao(''); setBypassDataEntrega('') }}
                               className="flex items-center justify-center w-9 h-9 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors text-xs font-black"
@@ -4041,10 +4301,40 @@ ${petNome}`
                               <span className="text-base">⏳</span>
                             </button>
                           )}
+                          {/* Botão Marcar Entregue + checkbox de seleção em lote (retorno/pendente) */}
+                          {(contrato.status === 'retorno' || contrato.status === 'pendente') && (
+                            <>
+                              <button
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); abrirEntregaModal(contrato) }}
+                                className="flex items-center justify-center w-9 h-9 bg-emerald-600 text-white rounded-full hover:bg-emerald-700 transition-colors"
+                                title="Marcar entregue e finalizar"
+                              >
+                                <span className="text-base">📬</span>
+                              </button>
+                              {/* Hit-area expandida pra reduzir clique acidental no card */}
+                              <div
+                                onClick={(e) => toggleSelectEntrega(contrato.id, e)}
+                                className="p-2 -m-2 cursor-pointer rounded-md hover:bg-emerald-500/15 transition-colors"
+                                title="Selecionar para registrar entrega em lote"
+                              >
+                                <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                                  selectedEntregas.has(contrato.id)
+                                    ? 'bg-emerald-600 border-emerald-600 text-white'
+                                    : 'border-emerald-500/60'
+                                }`}>
+                                  {selectedEntregas.has(contrato.id) && (
+                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                    </svg>
+                                  )}
+                                </div>
+                              </div>
+                            </>
+                          )}
                         </div>
                         )}
-                        {/* Indicador de complexidade - só Retorno (FLS: btn_fluxo_retorno) */}
-                        {contrato.status === 'retorno' && isVisible(T, 'btn_fluxo_retorno') && (() => {
+                        {/* Indicador de complexidade desativado por enquanto — lógica preservada em getComplexidadeMontagem() */}
+                        {false && contrato.status === 'retorno' && isVisible(T, 'btn_fluxo_retorno') && (() => {
                           const nivel = getComplexidadeMontagem(contrato)
                           const cores = {
                             1: 'bg-emerald-500 text-white',
@@ -4070,22 +4360,25 @@ ${petNome}`
                   <div className="md:hidden space-y-1">
                     {/* Bloco topo: [Checkbox?] [Data] [Lacre/Tutor] ... [PetNome/Raça] [PetEmoji] */}
                     <div className="flex items-stretch gap-1.5">
-                      {/* Checkbox seleção (retorno/pendente) */}
+                      {/* Coluna de ações: [Protocolo] em cima + [Checkbox seleção] embaixo (retorno/pendente) */}
                       {(statusFiltro === 'retorno' || statusFiltro === 'pendente') && (
-                        <div
-                          className="flex-shrink-0 flex items-center"
-                          onClick={(e) => toggleSelectContrato(contrato.id, e)}
-                        >
-                          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors cursor-pointer ${
-                            selectedContratos.has(contrato.id)
-                              ? 'bg-cyan-600 border-cyan-600 text-white'
-                              : 'border-slate-500 hover:border-cyan-500'
-                          }`}>
-                            {selectedContratos.has(contrato.id) && (
-                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                              </svg>
-                            )}
+                        <div className="flex-shrink-0 flex flex-col items-center justify-center gap-1">
+                          {renderProtocoloButton(contrato)}
+                          {/* Hit-area expandida pra reduzir clique acidental no card */}
+                          <div
+                            onClick={(e) => toggleSelectContrato(contrato.id, e)}
+                            className="p-2 -m-2 cursor-pointer rounded-md hover:bg-cyan-500/15 transition-colors"
+                            title="Selecionar para impressão em lote"
+                          >
+                            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                              selectedContratos.has(contrato.id)
+                                ? 'bg-cyan-600 border-cyan-600 text-white'
+                                : 'border-slate-500'
+                            }`}>
+                              {selectedContratos.has(contrato.id) && (
+                                <Printer className="w-3 h-3" />
+                              )}
+                            </div>
                           </div>
                         </div>
                       )}
@@ -4105,11 +4398,7 @@ ${petNome}`
                       <div className="min-w-0 flex flex-col justify-center gap-1 flex-1">
                         {/* Linha 1: Lacre + Fonte + Local + IND/COL */}
                         <div className="h-6 flex items-center gap-1">
-                          {contrato.numero_lacre ? (
-                            <span className="text-white font-bold bg-blue-700 px-1.5 rounded text-sm h-6 flex items-center flex-shrink-0">{String(contrato.numero_lacre).replace(/\.0$/, '')}</span>
-                          ) : (
-                            <span className="text-xs text-slate-500 h-6 flex items-center flex-shrink-0">-</span>
-                          )}
+                          {renderLacreCell(contrato, 'mobile')}
                           {/* Fonte (compacto h-6) */}
                           {contrato.fonte_conhecimento?.nome && (
                             <div
@@ -4179,7 +4468,6 @@ ${petNome}`
                               )
                             })()}
                           </span>
-                          {renderGCStatusBadges(contrato)}
                         </div>
                       </div>
                       {/* Coluna: Pet nome + Raça/Cor */}
@@ -4211,7 +4499,6 @@ ${petNome}`
                         pelinho: () => abrirPelinhoModal(contrato),
                         urna: () => abrirUrnaModal(contrato),
                         certificado: () => abrirCertificadoModal(contrato),
-                        protocolo: () => abrirProtocoloModal(contrato),
                         rescaldo: () => abrirRescaldoModal(contrato),
                       }}
                       layout="pipeline-mobile-green"
@@ -4227,14 +4514,13 @@ ${petNome}`
                           certificado: () => abrirCertificadoModal(contrato),
                           foto: () => abrirFotoModal(contrato),
                           pagamento: () => abrirMegaPagamentoModal(contrato),
-                          protocolo: () => abrirProtocoloModal(contrato),
                           rescaldo: () => abrirRescaldoModal(contrato),
                         }}
                         layout="pipeline-mobile-pending"
                       />
                       <div className="flex-1" />
-                      {/* Status Badge compacto */}
-                      {contrato.status === 'retorno' && (() => {
+                      {/* Status Badge compacto (mobile) — desativado por enquanto */}
+                      {false && contrato.status === 'retorno' && (() => {
                         const nivel = getComplexidadeMontagem(contrato)
                         const cores = {
                           1: 'bg-emerald-500 text-white',
@@ -4249,6 +4535,69 @@ ${petNome}`
                           </div>
                         )
                       })()}
+                      {/* Status GC compacto (estilo /gc mobile) — só em pinda, à esquerda do WhatsApp */}
+                      {renderGCStatusCompacto(contrato)}
+                      {/* WhatsApp sempre visível (não precisa expandir) */}
+                      {(contrato.tutor?.telefone || contrato.tutor_telefone) && (
+                        <a
+                          href={`https://wa.me/${(contrato.tutor?.telefone || contrato.tutor_telefone || '').replace(/\D/g, '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-shrink-0 flex items-center justify-center w-8 h-8 bg-[#25D366] text-white rounded-full hover:bg-[#128C7E] transition-colors"
+                          title={formatarTelefone(contrato.tutor?.telefone || contrato.tutor_telefone)}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                          </svg>
+                        </a>
+                      )}
+                      {/* Pendente + Entregar+checkbox sempre visíveis (fora da bandeja) — retorno/pendente */}
+                      {isVisible(T, 'btn_alteracao_fase') && (<>
+                        {contrato.status === 'retorno' && (
+                          <button
+                            onClick={async (e) => {
+                              e.preventDefault(); e.stopPropagation()
+                              if (!confirm(`Marcar ${contrato.pet_nome} como pendente?`)) return
+                              const supabaseLocal = createClient()
+                              await supabaseLocal.from('contratos').update({ status: 'pendente' } as never).eq('id', contrato.id)
+                              carregarContratos()
+                            }}
+                            className="flex-shrink-0 flex items-center justify-center w-8 h-8 bg-purple-600 text-white rounded-full hover:bg-purple-700 transition-colors"
+                            title="Marcar como pendente"
+                          >
+                            <span className="text-sm">⏳</span>
+                          </button>
+                        )}
+                        {(contrato.status === 'retorno' || contrato.status === 'pendente') && (
+                          <>
+                            <button
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); abrirEntregaModal(contrato) }}
+                              className="flex-shrink-0 flex items-center justify-center w-8 h-8 bg-emerald-600 text-white rounded-full hover:bg-emerald-700 transition-colors"
+                              title="Marcar entregue"
+                            >
+                              <span className="text-sm">📬</span>
+                            </button>
+                            <div
+                              onClick={(e) => toggleSelectEntrega(contrato.id, e)}
+                              className="p-2 -m-2 cursor-pointer rounded-md hover:bg-emerald-500/15 transition-colors flex-shrink-0"
+                              title="Selecionar para registrar entrega em lote"
+                            >
+                              <div className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${
+                                selectedEntregas.has(contrato.id)
+                                  ? 'bg-emerald-600 border-emerald-600 text-white'
+                                  : 'border-emerald-500/60'
+                              }`}>
+                                {selectedEntregas.has(contrato.id) && (
+                                  <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                  </svg>
+                                )}
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </>)}
                       {/* Seta expandir ações */}
                       <button
                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); setExpandedMobileId(prev => prev === contrato.id ? null : contrato.id) }}
@@ -4262,21 +4611,6 @@ ${petNome}`
                     {/* Bloco 4: Ações expandíveis */}
                     {expandedMobileId === contrato.id && (
                       <div className="flex items-center gap-2 pt-0.5">
-                        {/* WhatsApp */}
-                        {(contrato.tutor?.telefone || contrato.tutor_telefone) && (
-                          <a
-                            href={`https://wa.me/${(contrato.tutor?.telefone || contrato.tutor_telefone || '').replace(/\D/g, '')}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center justify-center w-8 h-8 bg-[#25D366] text-white rounded-full hover:bg-[#128C7E] transition-colors"
-                            title={formatarTelefone(contrato.tutor?.telefone || contrato.tutor_telefone)}
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
-                              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-                            </svg>
-                          </a>
-                        )}
                         {/* Mensagens Personalizadas (FLS: btn_mensagens) */}
                         {isVisible(T, 'btn_mensagens') && (
                           <ActionButtons
@@ -4302,38 +4636,14 @@ ${petNome}`
                               <span className="text-sm">✝️</span>
                             </button>
                           )}
-                          {(contrato.status === 'retorno' || contrato.status === 'pendente') && (
-                            <button
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); abrirEntregaModal(contrato) }}
-                              className="flex items-center justify-center w-8 h-8 bg-emerald-600 text-white rounded-full hover:bg-emerald-700 transition-colors"
-                              title="Marcar entregue"
-                            >
-                              <span className="text-sm">📬</span>
-                            </button>
-                          )}
                           {/* Botão Bypass mobile (FLS: btn_bypass) */}
-                          {['ativo', 'pinda', 'retorno', 'pendente'].includes(contrato.status) && isVisible(T, 'btn_bypass') && (
+                          {['ativo', 'pinda'].includes(contrato.status) && isVisible(T, 'btn_bypass') && (
                             <button
                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setBypassContrato(contrato); setBypassDataCremacao(''); setBypassDataEntrega('') }}
                               className="flex items-center justify-center w-8 h-8 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors text-xs font-black"
                               title="Bypass — finalizar pulando etapas"
                             >
                               B
-                            </button>
-                          )}
-                          {contrato.status === 'retorno' && (
-                            <button
-                              onClick={async (e) => {
-                                e.preventDefault(); e.stopPropagation()
-                                if (!confirm(`Marcar ${contrato.pet_nome} como pendente?`)) return
-                                const supabaseLocal = createClient()
-                                await supabaseLocal.from('contratos').update({ status: 'pendente' } as never).eq('id', contrato.id)
-                                carregarContratos()
-                              }}
-                              className="flex items-center justify-center w-8 h-8 bg-purple-600 text-white rounded-full hover:bg-purple-700 transition-colors"
-                              title="Marcar como pendente"
-                            >
-                              <span className="text-sm">⏳</span>
                             </button>
                           )}
                         </>)}
@@ -4412,7 +4722,7 @@ ${petNome}`
       {protocoloModal && protocoloContrato && (() => {
         if (protocoloLoading) {
           return (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]" onClick={() => { setProtocoloModal(false); setProtocoloContrato(null); setProtocoloEditData(null); unhighlightContrato(); }}>
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
               <div className="bg-white rounded-xl p-8 text-center shadow-2xl border border-gray-200" onClick={e => e.stopPropagation()}>
                 <span className="animate-spin text-2xl">⏳</span>
                 <p className="mt-2 text-sm text-gray-500">Carregando protocolo...</p>
@@ -4451,7 +4761,7 @@ ${petNome}`
         }
 
         return (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-2" onClick={() => { setProtocoloModal(false); setProtocoloContrato(null); setProtocoloEditData(null); unhighlightContrato(); }}>
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-2">
             <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[95vh] overflow-auto border border-gray-200" onClick={e => e.stopPropagation()}>
               {/* Header */}
               <div className="flex items-center justify-between p-3 border-b border-gray-200 sticky top-0 bg-white z-10">
@@ -4524,13 +4834,6 @@ ${petNome}`
                   >
                     {protocoloLoading ? '⏳' : '🔄'} Regenerar
                   </button>
-                  <button
-                    onClick={() => printProtocolos([dadosImpressao])}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors text-sm"
-                  >
-                    <Printer className="h-4 w-4" />
-                    Imprimir
-                  </button>
                   <button onClick={() => { setProtocoloModal(false); setProtocoloContrato(null); setProtocoloEditData(null); unhighlightContrato(); }} className="text-gray-400 hover:text-gray-600">
                     <X className="h-5 w-5" />
                   </button>
@@ -4546,7 +4849,7 @@ ${petNome}`
                       <tr className="bg-gray-100 text-xs text-gray-500 uppercase">
                         <th className="p-1.5 text-center w-14 border border-gray-200">Sit.</th>
                         <th className="p-1.5 text-left border border-gray-200">Nome (no protocolo)</th>
-                        <th className="p-1.5 text-right w-24 border border-gray-200">Valor</th>
+                        <th className="p-1.5 text-right w-32 border border-gray-200">Valor</th>
                         <th className="p-1.5 w-8 border border-gray-200"></th>
                       </tr>
                     </thead>
@@ -4556,7 +4859,7 @@ ${petNome}`
                           <td className="p-1 text-center border border-gray-200">
                             <button
                               onClick={() => {
-                                const next = prod.pago === 'ok' ? 'pend' : prod.pago === 'pend' ? '' : 'ok'
+                                const next = prod.pago === 'pend' ? 'ok' : prod.pago === 'ok' ? '' : 'pend'
                                 editProd(idx, { pago: next })
                               }}
                               className={`px-1.5 py-0.5 rounded text-xs font-bold min-w-[38px] ${
@@ -4579,21 +4882,56 @@ ${petNome}`
                             />
                           </td>
                           <td className="p-1 border border-gray-200">
-                            <input
-                              type="text"
-                              value={prod.valorDisplay !== undefined ? prod.valorDisplay : (prod.valor || '')}
-                              onChange={e => {
-                                const raw = e.target.value
-                                const num = parseFloat(raw.replace(',', '.'))
-                                if (!isNaN(num) && /^[\d.,]+$/.test(raw.trim())) {
-                                  editProd(idx, { valor: num, valorDisplay: undefined })
-                                } else {
-                                  editProd(idx, { valor: 0, valorDisplay: raw })
-                                }
-                              }}
-                              className="w-full bg-transparent border-0 p-0.5 text-sm text-gray-900 text-right focus:outline-none focus:bg-blue-50 rounded"
-                              placeholder="0"
-                            />
+                            {(() => {
+                              const modo = prod.valorDisplay === 'Incluso' ? 'incluso'
+                                : prod.valorDisplay === 'Cortesia' ? 'cortesia'
+                                : 'valor'
+                              const cycleModo = () => {
+                                const next = modo === 'valor' ? 'incluso' : modo === 'incluso' ? 'cortesia' : 'valor'
+                                if (next === 'incluso') editProd(idx, { valor: 0, valorDisplay: 'Incluso' })
+                                else if (next === 'cortesia') editProd(idx, { valor: 0, valorDisplay: 'Cortesia' })
+                                else editProd(idx, { valor: 0, valorDisplay: undefined })
+                              }
+                              const btnStyle = modo === 'incluso'
+                                ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                                : modo === 'cortesia'
+                                ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                              const btnLabel = modo === 'incluso' ? 'INC' : modo === 'cortesia' ? 'CRT' : 'R$'
+                              return (
+                                <div className="flex items-center gap-1">
+                                  {modo === 'valor' ? (
+                                    <input
+                                      type="text"
+                                      value={prod.valorDisplay !== undefined ? prod.valorDisplay : (prod.valor || '')}
+                                      onChange={e => {
+                                        const raw = e.target.value
+                                        const num = parseFloat(raw.replace(',', '.'))
+                                        if (!isNaN(num) && /^[\d.,]+$/.test(raw.trim())) {
+                                          editProd(idx, { valor: num, valorDisplay: undefined })
+                                        } else {
+                                          editProd(idx, { valor: 0, valorDisplay: raw })
+                                        }
+                                      }}
+                                      className="flex-1 min-w-0 bg-transparent border-0 p-0.5 text-sm text-gray-900 text-right focus:outline-none focus:bg-blue-50 rounded"
+                                      placeholder="0"
+                                    />
+                                  ) : (
+                                    <span className={`flex-1 text-right text-sm font-semibold ${modo === 'incluso' ? 'text-blue-600' : 'text-emerald-600'}`}>
+                                      {prod.valorDisplay}
+                                    </span>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={cycleModo}
+                                    title="Alternar: R$ / Incluso / Cortesia"
+                                    className={`flex-shrink-0 px-1.5 py-0.5 text-[10px] font-bold rounded transition-colors ${btnStyle}`}
+                                  >
+                                    {btnLabel}
+                                  </button>
+                                </div>
+                              )
+                            })()}
                           </td>
                           <td className="p-1 border border-gray-200 text-center">
                             <button
@@ -4629,7 +4967,7 @@ ${petNome}`
                   return (
                     <div className={`flex items-center justify-between text-sm rounded-lg p-2 gap-2 border ${batendo ? 'bg-gray-100 border-transparent' : 'bg-red-50 border-red-300'}`}>
                       <div className="flex flex-col">
-                        <span className="text-gray-500 text-xs">Total</span>
+                        <span className="text-gray-500 text-xs">Total Contratado</span>
                         <input
                           type="number"
                           step="0.01"
@@ -4637,9 +4975,10 @@ ${petNome}`
                           onChange={e => setProtocoloEditData({ ...pe, totalAPagar: parseFloat(e.target.value) || 0 })}
                           className="w-24 bg-white border border-gray-300 rounded px-1.5 py-0.5 text-sm font-bold text-gray-900 text-right focus:outline-none focus:border-blue-400"
                         />
+                        <span className="text-[9px] text-gray-400 mt-0.5" title="Valor do plano + acessórios, descontados os abatimentos do contrato">Plano + Acess.</span>
                       </div>
                       <div className="flex flex-col">
-                        <span className="text-gray-500 text-xs">Pago</span>
+                        <span className="text-gray-500 text-xs">Registro de Pagamento</span>
                         <input
                           type="number"
                           step="0.01"
@@ -4647,9 +4986,10 @@ ${petNome}`
                           onChange={e => setProtocoloEditData({ ...pe, totalPago: parseFloat(e.target.value) || 0 })}
                           className="w-24 bg-white border border-gray-300 rounded px-1.5 py-0.5 text-sm font-bold text-green-600 text-right focus:outline-none focus:border-blue-400"
                         />
+                        <span className="text-[9px] text-gray-400 mt-0.5" title="Soma dos pagamentos já lançados no contrato">Σ pagamentos</span>
                       </div>
                       <div className="flex flex-col">
-                        <span className="text-gray-500 text-xs">Saldo</span>
+                        <span className="text-gray-500 text-xs">Saldo no Contrato</span>
                         <input
                           type="number"
                           step="0.01"
@@ -4657,7 +4997,20 @@ ${petNome}`
                           onChange={e => setProtocoloEditData({ ...pe, saldo: parseFloat(e.target.value) || 0 })}
                           className={`w-24 bg-white border border-gray-300 rounded px-1.5 py-0.5 text-sm font-bold text-right focus:outline-none focus:border-blue-400 ${pe.saldo > 0 ? 'text-red-500' : 'text-green-600'}`}
                         />
+                        <span className="text-[9px] text-gray-400 mt-0.5" title="O que falta receber (Total − Pago)">Total − Pago</span>
                       </div>
+                      {(() => {
+                        const saldoProtocolo = Math.max(0, somaItens - pe.totalPago)
+                        return (
+                          <div className="flex flex-col">
+                            <span className="text-gray-500 text-xs">Saldo Protocolo</span>
+                            <div className={`w-24 bg-amber-50 border border-amber-300 rounded px-1.5 py-0.5 text-sm font-bold text-right ${saldoProtocolo > 0 ? 'text-red-500' : 'text-green-600'}`}>
+                              {saldoProtocolo.toFixed(2)}
+                            </div>
+                            <span className="text-[9px] text-gray-400 mt-0.5" title="Saldo recalculado com os valores do protocolo (Soma itens − Pago) — é esse valor que sai impresso no protocolo">Σ itens − Pago</span>
+                          </div>
+                        )
+                      })()}
                       <div className="flex flex-col items-center justify-center" title={batendo ? 'Pago + Saldo = Soma Itens ✓' : `Soma itens: ${somaItens.toFixed(2)} | P+S: ${(pe.totalPago + pe.saldo).toFixed(2)}`}>
                         <span className="text-[10px] text-gray-400">P+S=Σ</span>
                         <span className={`text-sm ${batendo ? 'text-green-500' : 'text-red-500 animate-pulse'}`}>{batendo ? '✓' : '✗'}</span>
@@ -4684,7 +5037,8 @@ ${petNome}`
                         <input
                           type="number"
                           step="0.01"
-                          value={pe.opcoesPagamento.pix}
+                          value={pe.opcoesPagamento.pix || ''}
+                          placeholder="R$ 0,00"
                           onChange={e => setProtocoloEditData({ ...pe, opcoesPagamento: { ...pe.opcoesPagamento, pix: parseFloat(e.target.value) || 0 } })}
                           className="w-full bg-white border border-gray-300 rounded px-1 py-0.5 text-sm font-bold text-gray-900 text-center focus:outline-none focus:border-blue-400"
                         />
@@ -4694,7 +5048,8 @@ ${petNome}`
                         <input
                           type="number"
                           step="0.01"
-                          value={pe.opcoesPagamento.parcelado6}
+                          value={pe.opcoesPagamento.parcelado6 || ''}
+                          placeholder="R$ 0,00"
                           onChange={e => setProtocoloEditData({ ...pe, opcoesPagamento: { ...pe.opcoesPagamento, parcelado6: parseFloat(e.target.value) || 0 } })}
                           className="w-full bg-white border border-gray-300 rounded px-1 py-0.5 text-sm font-bold text-gray-900 text-center focus:outline-none focus:border-blue-400"
                         />
@@ -4704,7 +5059,8 @@ ${petNome}`
                         <input
                           type="number"
                           step="0.01"
-                          value={pe.opcoesPagamento.parcelado12}
+                          value={pe.opcoesPagamento.parcelado12 || ''}
+                          placeholder="R$ 0,00"
                           onChange={e => setProtocoloEditData({ ...pe, opcoesPagamento: { ...pe.opcoesPagamento, parcelado12: parseFloat(e.target.value) || 0 } })}
                           className="w-full bg-white border border-gray-300 rounded px-1 py-0.5 text-sm font-bold text-gray-900 text-center focus:outline-none focus:border-blue-400"
                         />
@@ -4749,6 +5105,30 @@ ${petNome}`
           </button>
           <button
             onClick={() => setSelectedContratos(new Set())}
+            className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
+            title="Limpar seleção"
+          >
+            <XCircle className="h-5 w-5" />
+          </button>
+        </div>
+      )}
+
+      {/* Barra flutuante de registro de entrega em lote (retorno/pendente) */}
+      {selectedEntregas.size > 0 && (
+        <div className={`fixed ${selectedContratos.size > 0 ? 'bottom-20' : 'bottom-4'} left-1/2 -translate-x-1/2 z-50 bg-emerald-900 text-white rounded-2xl shadow-2xl px-3 md:px-5 py-2 md:py-3 flex items-center gap-2 md:gap-4 max-w-[calc(100vw-2rem)]`}>
+          <span className="text-sm font-medium">
+            {selectedEntregas.size} para entrega
+          </span>
+          <button
+            onClick={abrirEntregaBatchModal}
+            disabled={entregaBatchLoading}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors text-sm font-medium"
+          >
+            <span className="text-base">📬</span>
+            Registrar Entrega
+          </button>
+          <button
+            onClick={() => setSelectedEntregas(new Set())}
             className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
             title="Limpar seleção"
           >
@@ -6012,6 +6392,114 @@ ${petNome}`
             }))
           }}
         />
+      )}
+
+      {/* Modal Marcar Entregue em Lote */}
+      {entregaBatchModal && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-2"
+          onClick={() => !entregaBatchLoading && setEntregaBatchModal(false)}
+        >
+          <div
+            className="bg-slate-800 rounded-2xl w-full max-w-sm shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header com toggle de data */}
+            <div className="flex items-center justify-between p-3 border-b bg-gradient-to-r from-emerald-600 to-green-600 rounded-t-2xl">
+              <div className="flex items-center gap-2 text-white">
+                <span className="text-lg">📬</span>
+                <h3 className="font-semibold">Marcar Entregue em Lote</h3>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 bg-white/10 rounded px-1">
+                  <button
+                    type="button"
+                    onClick={() => setEntregaBatchForm({ dataHoje: true, data_entrega: '' })}
+                    className={`px-2 py-0.5 rounded text-xs transition-colors ${
+                      entregaBatchForm.dataHoje
+                        ? 'bg-slate-700 text-green-400 font-medium'
+                        : 'text-white/70 hover:text-white'
+                    }`}
+                  >
+                    Hoje
+                  </button>
+                  {!entregaBatchForm.dataHoje ? (
+                    <input
+                      type="date"
+                      value={entregaBatchForm.data_entrega}
+                      onChange={(e) => setEntregaBatchForm({ ...entregaBatchForm, data_entrega: e.target.value })}
+                      className="px-1 py-0.5 rounded text-xs text-slate-300 w-28 bg-slate-700 cursor-pointer"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setEntregaBatchForm({ dataHoje: false, data_entrega: hojeLocal() })}
+                      className="px-2 py-0.5 rounded text-xs text-white/70 hover:text-white transition-colors"
+                    >
+                      Outra
+                    </button>
+                  )}
+                </div>
+                <button
+                  onClick={() => !entregaBatchLoading && setEntregaBatchModal(false)}
+                  className="text-white/80 hover:text-white ml-1"
+                  disabled={entregaBatchLoading}
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Corpo */}
+            <div className="p-4 space-y-3">
+              <div className="text-center">
+                <p className="text-2xl font-bold text-slate-200">{selectedEntregas.size}</p>
+                <p className="text-sm text-slate-400">
+                  contrato{selectedEntregas.size > 1 ? 's' : ''} selecionado{selectedEntregas.size > 1 ? 's' : ''}
+                </p>
+                <div className="mt-2 inline-flex items-center gap-1.5">
+                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-slate-700 text-slate-300">
+                    Retorno / Pendente
+                  </span>
+                  <span className="text-slate-400 text-xs">→</span>
+                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-slate-700 text-slate-300">
+                    ✅ Finalizado
+                  </span>
+                </div>
+              </div>
+
+              {/* Lista compacta dos pets selecionados */}
+              <div className="max-h-32 overflow-y-auto rounded-lg bg-slate-900/50 border border-slate-700 px-3 py-2 text-xs text-slate-300 space-y-0.5">
+                {contratos
+                  .filter(c => selectedEntregas.has(c.id))
+                  .map(c => (
+                    <div key={c.id} className="flex items-center justify-between gap-2">
+                      <span className="truncate"><strong className="text-slate-200">{c.pet_nome}</strong> · {c.tutor?.nome || c.tutor_nome}</span>
+                      <span className="text-slate-500 text-[10px] flex-shrink-0">{c.codigo}</span>
+                    </div>
+                  ))}
+              </div>
+
+              {/* Botões */}
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => setEntregaBatchModal(false)}
+                  disabled={entregaBatchLoading}
+                  className="flex-1 py-2.5 px-4 border border-slate-600 rounded-lg text-slate-300 hover:bg-slate-700 text-sm disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={confirmarEntregaBatch}
+                  disabled={entregaBatchLoading || (!entregaBatchForm.dataHoje && !entregaBatchForm.data_entrega)}
+                  className="flex-1 py-2.5 px-4 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 text-sm font-medium"
+                >
+                  {entregaBatchLoading ? 'Salvando...' : `Confirmar (${selectedEntregas.size})`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Modal Supinda - Seleção/Criação */}

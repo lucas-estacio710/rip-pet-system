@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { X, Plus, Trash2 } from 'lucide-react'
+import { X, Plus, Trash2, ArrowDown, ArrowRight } from 'lucide-react'
 
 type ContratoMinimal = {
   id: string
@@ -91,11 +91,15 @@ function getNomeDiaSemana(date: Date): string {
   return nomes[date.getDay()]
 }
 
+type PresetTipo = 'este-sab' | 'este-dom' | 'prox-sab' | 'prox-dom' | 'este-fds' | 'prox-fds'
+
 function presetDatasChegamos(
-  tipo: 'este-sab' | 'este-dom' | 'prox-sab' | 'prox-dom'
+  tipo: PresetTipo
 ): { dataEncaminhamento: string; dataCremacao: string } {
   const isProximo = tipo.startsWith('prox')
-  const diaSemana = tipo.endsWith('sab') ? 'sab' : 'dom'
+  const isFds = tipo.endsWith('fds')
+  // Pra FDS usa sábado como base de cálculo das datas
+  const diaSemana: 'sab' | 'dom' = isFds || tipo.endsWith('sab') ? 'sab' : 'dom'
 
   const encaminhamentoDate = getDiaPreset(diaSemana, isProximo)
 
@@ -104,17 +108,20 @@ function presetDatasChegamos(
   const diffDias = Math.round((encaminhamentoDate.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24))
 
   let prefixoEnc: string
-  if (diffDias === 0) {
+  if (isFds) {
+    prefixoEnc = isProximo ? 'no próximo fim de semana' : 'neste fim de semana'
+  } else if (diffDias === 0) {
     prefixoEnc = 'hoje'
   } else if (diffDias === 1) {
     prefixoEnc = 'amanhã'
   } else if (isProximo) {
-    prefixoEnc = diaSemana === 'sab' ? 'próximo sábado' : 'próximo domingo'
+    prefixoEnc = diaSemana === 'sab' ? 'no próximo sábado' : 'no próximo domingo'
   } else {
     prefixoEnc = diaSemana === 'sab' ? 'neste sábado' : 'neste domingo'
   }
 
-  const dataEncaminhamento = `${prefixoEnc} (${formatDataCurta(encaminhamentoDate)})`
+  // FDS: sem data parentética (operador escolheu não especificar)
+  const dataEncaminhamento = isFds ? prefixoEnc : `${prefixoEnc} (${formatDataCurta(encaminhamentoDate)})`
 
   // Cremação: terça e quarta após o encaminhamento
   // sábado: +3 = terça, +4 = quarta
@@ -240,7 +247,7 @@ export default function ChegamosModal({ isOpen, onClose, contrato }: Props) {
     }
 
     if (dataEncaminhamento && dataCremacao) {
-      msg += `\n\nO encaminhamento será feito no ${dataEncaminhamento}, e a cremação ocorrerá entre ${dataCremacao}.`
+      msg += `\n\nO encaminhamento para nosso crematório será feito ${dataEncaminhamento}, e a cremação ocorrerá entre ${dataCremacao}.`
     }
 
     const contatoTexto = contatoMatriz === 'proxima'
@@ -318,7 +325,7 @@ export default function ChegamosModal({ isOpen, onClose, contrato }: Props) {
 
   // ─── Preset buttons ────────────────────────────────────
 
-  function applyPreset(tipo: 'este-sab' | 'este-dom' | 'prox-sab' | 'prox-dom') {
+  function applyPreset(tipo: PresetTipo) {
     const preset = presetDatasChegamos(tipo)
     setForm(f => ({
       ...f,
@@ -328,7 +335,7 @@ export default function ChegamosModal({ isOpen, onClose, contrato }: Props) {
   }
 
   // Determine which preset is active based on current form values
-  function isPresetActive(tipo: 'este-sab' | 'este-dom' | 'prox-sab' | 'prox-dom'): boolean {
+  function isPresetActive(tipo: PresetTipo): boolean {
     const preset = presetDatasChegamos(tipo)
     return form.dataEncaminhamento === preset.dataEncaminhamento && form.dataCremacao === preset.dataCremacao
   }
@@ -514,27 +521,39 @@ export default function ChegamosModal({ isOpen, onClose, contrato }: Props) {
           <div>
             <label className="text-xs text-slate-400 mb-1.5 block">Datas</label>
 
-            {/* Preset buttons */}
-            <div className="flex gap-1.5 mb-2 flex-wrap">
+            {/* Preset buttons — verde = este, amarelo = próximo (uma linha, ícone + texto curto) */}
+            <div className="flex gap-1 mb-2 flex-wrap">
               {([
-                ['este-sab', 'Este Sab'],
-                ['este-dom', 'Este Dom'],
-                ['prox-sab', 'Prox Sab'],
-                ['prox-dom', 'Prox Dom'],
-              ] as const).map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => applyPreset(key)}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                    isPresetActive(key)
-                      ? 'bg-green-600/30 text-green-300 border-green-500/50'
-                      : 'bg-slate-700 text-slate-400 border-slate-600 hover:bg-slate-600 hover:text-slate-300'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
+                ['este-sab', 'Sab', 'este'],
+                ['este-dom', 'Dom', 'este'],
+                ['este-fds', 'FDS', 'este'],
+                ['prox-sab', 'Sab', 'prox'],
+                ['prox-dom', 'Dom', 'prox'],
+                ['prox-fds', 'FDS', 'prox'],
+              ] as const).map(([key, label, familia]) => {
+                const ativo = isPresetActive(key)
+                const isEste = familia === 'este'
+                const Icon = isEste ? ArrowDown : ArrowRight
+                const cor = isEste
+                  ? (ativo
+                    ? 'bg-green-600/40 text-green-200 border-green-500/70'
+                    : 'bg-green-600/10 text-green-400 border-green-500/30 hover:bg-green-600/20')
+                  : (ativo
+                    ? 'bg-amber-600/40 text-amber-200 border-amber-500/70'
+                    : 'bg-amber-600/10 text-amber-400 border-amber-500/30 hover:bg-amber-600/20')
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => applyPreset(key)}
+                    className={`inline-flex items-center gap-0.5 px-2 py-1.5 rounded-lg text-xs font-medium border transition-colors ${cor}`}
+                    title={isEste ? `Este ${label}` : `Próximo ${label}`}
+                  >
+                    <Icon className="h-3 w-3 flex-shrink-0" />
+                    {label}
+                  </button>
+                )
+              })}
             </div>
 
             {/* Manual text inputs */}

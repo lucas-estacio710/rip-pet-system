@@ -7,6 +7,7 @@ import CertificadoModal from '@/components/contratos/modals/CertificadoModal'
 import { createClient } from '@/lib/supabase/client'
 import { gerarCertificadoPDF, certificadoFilename } from '@/lib/certificado-pdf'
 import { linkAgendamentoDespedida, linkChatDireto } from '@/lib/whatsapp-msg'
+import { isoParaInputLocal, inputLocalParaIso } from '@/lib/date-local'
 
 type GCData = {
   id?: string
@@ -188,12 +189,6 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
     setErro('')
   }
 
-  // YYYY-MM-DDTHH:mm no fuso local (formato esperado pelo input datetime-local)
-  function toLocalDatetimeInput(d: Date): string {
-    const pad = (n: number) => String(n).padStart(2, '0')
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-  }
-
   // "DD/MM HH:mm" — formato compacto pra exibir abaixo dos passos da trilha
   function fmtDataTrilha(iso: string | null | undefined): string {
     if (!iso) return ''
@@ -220,7 +215,7 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
     const sugestao = qual === 'cremado' && gc.data_agendamento
       ? new Date(gc.data_agendamento)
       : new Date()
-    setConfirmData(toLocalDatetimeInput(sugestao))
+    setConfirmData(isoParaInputLocal(sugestao.toISOString()))
   }
 
   function confirmarTransicao() {
@@ -246,7 +241,7 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
           className="input w-full text-sm py-1.5"
         />
         <div className="flex gap-2">
-          <button onClick={() => setConfirmData(toLocalDatetimeInput(new Date()))} className="flex-1 py-1.5 rounded-lg text-[11px] font-medium text-[var(--surface-500)] border border-[var(--surface-200)] hover:bg-[var(--surface-50)] transition-colors" title="Preencher com agora">↻ Agora</button>
+          <button onClick={() => setConfirmData(isoParaInputLocal(new Date().toISOString()))} className="flex-1 py-1.5 rounded-lg text-[11px] font-medium text-[var(--surface-500)] border border-[var(--surface-200)] hover:bg-[var(--surface-50)] transition-colors" title="Preencher com agora">↻ Agora</button>
           <button onClick={() => setConfirmando(null)} className="flex-1 py-1.5 rounded-lg text-[11px] font-medium text-[var(--surface-500)] border border-[var(--surface-200)] hover:bg-[var(--surface-50)] transition-colors">Cancelar</button>
           <button onClick={confirmarTransicao} className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold text-white ${btnCls} transition-colors`}>Confirmar</button>
         </div>
@@ -460,8 +455,8 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
                 <div className="px-4 pb-3 pt-1 space-y-1.5">
                   <div>
                     <label className="text-[9px] font-medium text-[var(--surface-500)] mb-0.5 block">Data e hora</label>
-                    <input type="datetime-local" value={gc.data_agendamento?.slice(0, 16) || ''}
-                      onChange={e => setGc({ ...gc, data_agendamento: e.target.value || null })}
+                    <input type="datetime-local" value={isoParaInputLocal(gc.data_agendamento)}
+                      onChange={e => setGc({ ...gc, data_agendamento: inputLocalParaIso(e.target.value) })}
                       className="input text-xs w-full py-1" />
                   </div>
                   <div>
@@ -516,8 +511,8 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
                 </div>
                 <div>
                   <label className="text-[9px] font-medium text-[var(--surface-500)] mb-0.5 block">Data e hora</label>
-                  <input type="datetime-local" value={gc.data_agendamento?.slice(0, 16) || ''}
-                    onChange={e => setGc({ ...gc, data_agendamento: e.target.value || null })}
+                  <input type="datetime-local" value={isoParaInputLocal(gc.data_agendamento)}
+                    onChange={e => setGc({ ...gc, data_agendamento: inputLocalParaIso(e.target.value) })}
                     className="input text-xs w-full py-1" />
                 </div>
                 <div>

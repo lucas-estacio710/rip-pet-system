@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
+import { isoParaInputLocal, inputLocalParaIso } from '@/lib/date-local'
 
 // ============================================
 // Types
@@ -371,8 +372,8 @@ export default function GCTracking({ contratoId, tipoCremacao, observacoesContra
                 <input
                   type="datetime-local"
                   step="1800"
-                  value={gc.data_agendamento ? gc.data_agendamento.slice(0, 16) : ''}
-                  onChange={e => updateGC({ data_agendamento: e.target.value ? new Date(e.target.value).toISOString() : null })}
+                  value={isoParaInputLocal(gc.data_agendamento)}
+                  onChange={e => updateGC({ data_agendamento: inputLocalParaIso(e.target.value) })}
                   className="text-xs px-2 py-1.5 rounded-lg bg-slate-700 border border-slate-600 text-slate-200 outline-none"
                 />
               </>

@@ -184,14 +184,14 @@ export function montarProtocoloData(
 
   const tipoCremacao = (contrato.tipo_cremacao || 'individual') as 'individual' | 'coletiva'
 
-  // Filtrar e mapear produtos — todos iniciam como 'ok' (editável no modal)
+  // Filtrar e mapear produtos — todos iniciam como 'pend' (operador marca Ok no modal)
   const produtosProtocolo = contratoProdutos
     .filter(cp => cp.produto && !isProtocoloExcluido(cp.produto.nome))
     .map(cp => ({
       nome: cp.produto!.nome,
       nomeRetorno: cp.produto!.nome_retorno || getNomeRetorno(cp.produto!.nome),
       valor: cp.valor || cp.produto!.preco || 0,
-      pago: 'ok' as const,
+      pago: 'pend' as const,
       tipo: (cp.produto!.tipo || 'acessorio') as 'urna' | 'acessorio',
     }))
 
@@ -211,7 +211,7 @@ export function montarProtocoloData(
       nome: `Cremação ${tipoCremacao === 'individual' ? 'Individual' : 'Coletiva'}`,
       nomeRetorno: `Crem. ${tipoCremacao === 'individual' ? 'Individual' : 'Coletiva'}`,
       valor: aPagarPlano,
-      pago: 'ok' as const,
+      pago: 'pend' as const,
       tipo: 'cremacao' as const,
     },
     ...produtosProtocolo,

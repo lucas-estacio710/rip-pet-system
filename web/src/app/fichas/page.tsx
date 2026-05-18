@@ -757,7 +757,6 @@ export default function FichasPage() {
                         if (op.semResponsavel) p.push('Resp.')
                         if (op.semDataHora) p.push('D/H')
                         if (op.semLacre) p.push('Lacre')
-                        if (!op.telefoneConfirmado && !op.mostrarTelefone2 && !op.telefone2) p.push('Tel.')
                         if (p.length > 0) tags.push(<span key="pend" className="font-semibold text-amber-400 bg-amber-900/20 px-1 py-0.5 rounded">Sem: {p.join(', ')}</span>)
                         return tags.length > 0 ? <>{tags}</> : null
                       })()}
@@ -906,6 +905,10 @@ export default function FichasPage() {
           carregarContagens()
           // Reabrir com pequeno delay pra garantir que o state atualizou
           setTimeout(() => setFichaModal({ ...fichaReprocessar, processada: false } as Ficha), 300)
+        }}
+        onAtualizar={() => {
+          carregarFichas()
+          carregarContagens()
         }}
       />
     </div>

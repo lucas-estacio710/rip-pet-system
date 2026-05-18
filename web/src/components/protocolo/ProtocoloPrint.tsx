@@ -4,25 +4,18 @@ import ProtocoloEntrega from './ProtocoloEntrega'
 import { ProtocoloData } from './protocolo-utils'
 
 /**
- * Imprime protocolos via iframe invisível.
- * Agrupa em chunks de 4 e renderiza em grid 2x2 por página com altura fixa.
+ * Monta o HTML completo de uma leva de protocolos em chunks de 4 (grid 2x2 por página A4).
  */
-export function printProtocolos(protocolos: ProtocoloData[]) {
-  if (protocolos.length === 0) return
-
-  // Agrupar em chunks de 4
+function buildProtocolosHtml(protocolos: ProtocoloData[]): string {
   const chunks: ProtocoloData[][] = []
   for (let i = 0; i < protocolos.length; i += 4) {
     chunks.push(protocolos.slice(i, i + 4))
   }
-
-  // Preencher último chunk com protocolos em branco até completar 4
   const lastChunk = chunks[chunks.length - 1]
   while (lastChunk && lastChunk.length < 4) {
     lastChunk.push(null as unknown as ProtocoloData)
   }
 
-  // Renderizar cada chunk como uma página 2x2
   const pagesHtml = chunks.map((chunk) => {
     const cards = chunk.map((data, idx) => {
       const isBlank = data === null
@@ -34,14 +27,10 @@ export function printProtocolos(protocolos: ProtocoloData[]) {
       return `<div class="protocolo-cell" key="${idx}">${html}</div>`
     }).join('')
 
-    return `
-      <div class="protocolo-page">
-        ${cards}
-      </div>
-    `
+    return `<div class="protocolo-page">${cards}</div>`
   }).join('')
 
-  const fullHtml = `
+  return `
     <!DOCTYPE html>
     <html>
     <head>
@@ -86,8 +75,40 @@ export function printProtocolos(protocolos: ProtocoloData[]) {
     </body>
     </html>
   `
+}
 
-  // Criar iframe invisível
+/**
+ * Imprime protocolos.
+ * - Desktop: iframe invisível + iframe.contentWindow.print() (sem flash visual)
+ * - Mobile: window.open() + window.print() (Chrome Android ignora print() do iframe e
+ *   acaba imprimindo a página pai, então precisa de janela própria)
+ */
+export function printProtocolos(protocolos: ProtocoloData[]) {
+  if (protocolos.length === 0) return
+
+  const fullHtml = buildProtocolosHtml(protocolos)
+  const isMobile = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+
+  if (isMobile) {
+    // Mobile: nova janela/aba — única forma confiável de imprimir só o protocolo
+    const win = window.open('', '_blank')
+    if (!win) {
+      alert('Permita popups deste site para imprimir os protocolos.')
+      return
+    }
+    win.document.open()
+    win.document.write(fullHtml)
+    win.document.close()
+    // Aguarda renderização e dispara print; alguns navegadores precisam de focus
+    setTimeout(() => {
+      win.focus()
+      win.print()
+      // Não fecha automaticamente — usuário pode fechar manualmente depois de imprimir/salvar
+    }, 400)
+    return
+  }
+
+  // Desktop: iframe invisível (comportamento original — sem flash de janela)
   const iframe = document.createElement('iframe')
   iframe.style.position = 'fixed'
   iframe.style.top = '-10000px'
@@ -106,10 +127,8 @@ export function printProtocolos(protocolos: ProtocoloData[]) {
   iframeDoc.write(fullHtml)
   iframeDoc.close()
 
-  // Aguardar renderização e imprimir
   setTimeout(() => {
     iframe.contentWindow?.print()
-    // Remover iframe após impressão
     setTimeout(() => {
       document.body.removeChild(iframe)
     }, 1000)

@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import FichaRemocao from '@/components/fichas/FichaRemocao'
 import { captureElementAsBlob, fichaFilename } from '@/lib/ficha-generator'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, User, Phone, Mail, MapPin, DollarSign, FileText, X, Search, Plus, Pencil, Trash2, Check, Copy, Package, AlertTriangle, Star, Download, Share2, Receipt, RefreshCw, Award } from 'lucide-react'
+import { ArrowLeft, User, Phone, Mail, MapPin, DollarSign, FileText, X, Search, Plus, Pencil, Trash2, Check, Copy, Package, AlertTriangle, Star, Download, Share2, Receipt, RefreshCw, Award, Clock, CheckCheck, CalendarClock, SearchCheck, Flame, CheckCircle2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { copyToClipboard } from '@/lib/clipboard'
 import Link from 'next/link'
@@ -253,6 +253,8 @@ type Contrato = {
   acompanhamento_presencial: boolean | null
   // Pagamento (parcelas no 1º pagamento)
   parcelas: number | null
+  // GC tracking (embed)
+  contrato_gc?: { etapa: string; cinzas_prontas: boolean; certificado_pronto: boolean; contato_status: string | null } | null
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; strip: string }> = {
@@ -376,12 +378,18 @@ export default function ContratoDetalhe() {
     familia: 'F' as 'F' | 'S', // F = com familia, S = sozinho
   })
 
-  // Telefone 2 - adicionar e trocar
+  // Telefone 2 - adicionar / editar / remover
   const [telefone2Modal, setTelefone2Modal] = useState(false)
+  const [telefone2EmEdicao, setTelefone2EmEdicao] = useState(false) // true = editando tel2 existente
   const [novoTelefone2, setNovoTelefone2] = useState('')
   const [novoTelefone2Nome, setNovoTelefone2Nome] = useState('')
   const [novoTelefone2DDI, setNovoTelefone2DDI] = useState('55')
   const [salvandoTelefone, setSalvandoTelefone] = useState(false)
+  // Edit-inline apelidos (telefone_nome / telefone2_nome)
+  const [tel1NomeEditing, setTel1NomeEditing] = useState(false)
+  const [tel1NomeInput, setTel1NomeInput] = useState('')
+  const [tel2NomeEditing, setTel2NomeEditing] = useState(false)
+  const [tel2NomeInput, setTel2NomeInput] = useState('')
 
   function maskPhone(v: string) {
     const d = v.replace(/\D/g, '').slice(0, 11)
@@ -458,6 +466,7 @@ export default function ContratoDetalhe() {
   const { hasModule, currentUnit } = useUnit()
   const { canEdit, isVisible } = useFieldPermission()
   const T = 'tela_contrato' // tela FLS (detalhe do contrato)
+  const pagamentoCompleto = isVisible(T, 'pagamento_completo')
 
   // Função para obter URL da imagem local
   function getImagemUrl(codigo: string): string {
@@ -1295,8 +1304,8 @@ export default function ContratoDetalhe() {
       return
     }
 
-    // Validar ID transação obrigatório para cartão
-    if (megaPagamentoForm.metodo === 'cartao') {
+    // Validar ID transação obrigatório para cartão (só em modo Pagamento Completo)
+    if (megaPagamentoForm.metodo === 'cartao' && pagamentoCompleto) {
       if (!megaPagamentoForm.bandeira || !megaPagamentoForm.parcelas) {
         alert('Selecione a bandeira e a quantidade de parcelas')
         return
@@ -1368,17 +1377,14 @@ export default function ContratoDetalhe() {
       }
 
       // Saldo pendente de acessórios (descontando o que já foi pago)
+      // Permitimos `sobra > saldoAcessoriosPendente` — usuário pode adicionar produtos
+      // ou aplicar desconto negativo depois pra fechar a conta.
       const totalDescAcess = (contrato?.desconto_acessorios || 0) + (contrato?.desconto_acessorios_ajuste || 0)
       const pagoAcessorios = pagamentos.filter(p => p.tipo === 'catalogo').reduce((s, p) => s + (p.valor || 0), 0)
       const saldoAcessoriosPendente = (contrato?.valor_acessorios || 0) - totalDescAcess - pagoAcessorios
 
-      if (sobra > saldoAcessoriosPendente + 0.01) {
-        alert(`A sobra (${sobra.toFixed(2)}) é maior que o saldo pendente de acessórios (${saldoAcessoriosPendente.toFixed(2)}).`)
-        setSalvando(false)
-        return
-      }
-
       // Desconto automático a aplicar no ajuste pra fechar a conta dos acessórios
+      // (só aplica se positivo; negativo = sobra excedeu saldo, usuário ajusta manualmente)
       ajusteAcessorioAdicional = saldoAcessoriosPendente - sobra
 
       valorPlano = planoPuro
@@ -1410,7 +1416,7 @@ export default function ContratoDetalhe() {
     const pagamentosParaCriar = []
 
     // Bandeira do cartão (se for cartão)
-    const bandeira = megaPagamentoForm.metodo === 'cartao' ? megaPagamentoForm.bandeira : null
+    const bandeira = (megaPagamentoForm.metodo === 'cartao' && megaPagamentoForm.bandeira) ? megaPagamentoForm.bandeira : null
 
     // Pagamento de Plano (desconto agora vive no contrato — não no pagamento)
     if (valorPlano > 0) {
@@ -1469,6 +1475,14 @@ export default function ContratoDetalhe() {
       const novoAj = (contrato?.desconto_acessorios_ajuste || 0) + ajusteAcessorioAdicional
       await supabase.from('contratos').update({ desconto_acessorios_ajuste: novoAj } as never).eq('id', params.id)
       setContrato(prev => prev ? { ...prev, desconto_acessorios_ajuste: novoAj } as typeof prev : prev)
+    }
+
+    // Modo "Plano fechado": sobrescreve contratos.valor_plano com o plano pelado.
+    // Sem isso, "a pagar plano" fica errado (contrato guardava o valor com produtos embutidos).
+    if (megaPagamentoForm.planoFechado && !megaPagamentoEditando) {
+      const planoPuro = parseFloat(megaPagamentoForm.pfPlanoPuro || '0') || 0
+      await supabase.from('contratos').update({ valor_plano: planoPuro } as never).eq('id', params.id)
+      setContrato(prev => prev ? { ...prev, valor_plano: planoPuro } as typeof prev : prev)
     }
 
     // Modo edição - atualiza o pagamento existente
@@ -1683,7 +1697,7 @@ export default function ContratoDetalhe() {
     const contratoId = params.id as string
     const { data, error } = await supabase
       .from('contratos')
-      .select('*, tutor:tutores(*), supinda:supindas!fk_contrato_supinda(numero, data), funcionario:funcionarios(nome), estabelecimento_coleta:estabelecimentos!contratos_estabelecimento_id_fkey(nome), unidade_remocao:unidades!contratos_unidade_remocao_id_fkey(id, codigo, nome), unidade_entrega:unidades!contratos_unidade_entrega_id_fkey(id, codigo, nome)')
+      .select('*, tutor:tutores(*), supinda:supindas!fk_contrato_supinda(numero, data), funcionario:funcionarios(nome), estabelecimento_coleta:estabelecimentos!contratos_estabelecimento_id_fkey(nome), unidade_remocao:unidades!contratos_unidade_remocao_id_fkey(id, codigo, nome), unidade_entrega:unidades!contratos_unidade_entrega_id_fkey(id, codigo, nome), contrato_gc(etapa, cinzas_prontas, certificado_pronto, contato_status)')
       .eq('id', contratoId)
       .single()
 
@@ -1938,7 +1952,92 @@ ${petNome}`
     setPetGratoModal(false)
   }
 
-  // Telefone 2 - salvar novo telefone secundário
+  // Abre modal tel2 em modo edição (pré-preenche com valores atuais)
+  function abrirEdicaoTel2() {
+    if (!contrato) return
+    const tel2 = contrato.tutor?.telefone2 || contrato.tutor_telefone2 || ''
+    const nome = contrato.tutor?.telefone2_nome || contrato.tutor_telefone2_nome || ''
+    // Tenta detectar DDI (55, 1, 351, 54, 598, 595) no início. Default 55.
+    let ddi = '55'
+    let numLocal = tel2
+    for (const cand of ['598', '595', '351', '55', '54', '1']) {
+      if (tel2.startsWith(cand)) { ddi = cand; numLocal = tel2.slice(cand.length); break }
+    }
+    setNovoTelefone2DDI(ddi)
+    setNovoTelefone2(maskPhone(numLocal))
+    setNovoTelefone2Nome(nome)
+    setTelefone2EmEdicao(true)
+    setTelefone2Modal(true)
+  }
+
+  // Remover telefone 2 (zerar em tutor + contrato; se era principal, volta pra tel1)
+  async function removerTelefone2() {
+    if (!contrato) return
+    if (!confirm('Remover o telefone 2 do tutor?')) return
+    setSalvandoTelefone(true)
+    try {
+      const novoPrincipal = contrato.tutor_telefone_principal === 2 ? 1 : (contrato.tutor_telefone_principal || 1)
+      if (contrato.tutor_id) {
+        await supabase.from('tutores').update({ telefone2: null, telefone2_nome: null, telefone_principal: novoPrincipal } as never).eq('id', contrato.tutor_id)
+      }
+      await supabase.from('contratos').update({ tutor_telefone2: null, tutor_telefone2_nome: null, tutor_telefone_principal: novoPrincipal } as never).eq('id', contrato.id)
+      window.location.reload()
+    } catch (err) {
+      console.error('Erro ao remover telefone 2:', err)
+      alert('Erro ao remover telefone 2')
+      setSalvandoTelefone(false)
+    }
+  }
+
+  // Edit-inline apelido do tel1 (telefone_nome do tutor + contrato)
+  async function salvarTel1Nome() {
+    if (!contrato) return
+    setSalvandoTelefone(true)
+    try {
+      const novo = tel1NomeInput.trim() || null
+      if (contrato.tutor_id) {
+        await supabase.from('tutores').update({ telefone_nome: novo } as never).eq('id', contrato.tutor_id)
+      }
+      await supabase.from('contratos').update({ tutor_telefone_nome: novo } as never).eq('id', contrato.id)
+      setContrato(prev => prev ? {
+        ...prev,
+        tutor_telefone_nome: novo,
+        tutor: prev.tutor ? { ...prev.tutor, telefone_nome: novo } : prev.tutor,
+      } as typeof prev : prev)
+      setTel1NomeEditing(false)
+    } catch (err) {
+      console.error('Erro ao salvar apelido tel1:', err)
+      alert('Erro ao salvar apelido')
+    } finally {
+      setSalvandoTelefone(false)
+    }
+  }
+
+  // Edit-inline apelido do tel2
+  async function salvarTel2Nome() {
+    if (!contrato) return
+    setSalvandoTelefone(true)
+    try {
+      const novo = tel2NomeInput.trim() || null
+      if (contrato.tutor_id) {
+        await supabase.from('tutores').update({ telefone2_nome: novo } as never).eq('id', contrato.tutor_id)
+      }
+      await supabase.from('contratos').update({ tutor_telefone2_nome: novo } as never).eq('id', contrato.id)
+      setContrato(prev => prev ? {
+        ...prev,
+        tutor_telefone2_nome: novo,
+        tutor: prev.tutor ? { ...prev.tutor, telefone2_nome: novo } : prev.tutor,
+      } as typeof prev : prev)
+      setTel2NomeEditing(false)
+    } catch (err) {
+      console.error('Erro ao salvar apelido tel2:', err)
+      alert('Erro ao salvar apelido')
+    } finally {
+      setSalvandoTelefone(false)
+    }
+  }
+
+  // Telefone 2 - salvar novo telefone secundário (ou editar existente)
   async function salvarTelefone2() {
     if (!contrato || !novoTelefone2.trim()) return
     setSalvandoTelefone(true)
@@ -2134,6 +2233,39 @@ ${petNome}`
     URL.revokeObjectURL(url)
   }
 
+  // Badges de status GC (mesma lógica de /contratos pipeline) — só em status pinda
+  function renderGCStatusBadges(): React.ReactNode {
+    if (!contrato || contrato.status !== 'pinda' || !contrato.contrato_gc) return null
+    const gc = contrato.contrato_gc
+    const etapa = gc.etapa || 'provisionado'
+    const etapaLabels: Record<string, string> = { provisionado: 'Provisionado', recebido: 'Recebido', cremado: 'Cremado', disponivel: 'Finalizado' }
+    const etapaColors: Record<string, string> = { provisionado: '#64748b', recebido: '#3b82f6', cremado: '#eab308', disponivel: '#22c55e' }
+    const contatoSt = gc.contato_status || null
+    const contatoLabels: Record<string, string> = { contatado: 'Contatado', agendado: 'Agendado' }
+    const contatoLabel = contatoSt ? (contatoLabels[contatoSt] || contatoSt) : null
+    const mostrarContato = etapa !== 'cremado' && etapa !== 'disponivel'
+    return (
+      <span className="inline-flex items-center gap-1">
+        <span className="text-[9px] font-semibold text-[var(--surface-500)]">GC:</span>
+        {mostrarContato && (
+          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full inline-flex items-center gap-0.5" style={{ background: !contatoSt ? '#94a3b8' : '#a7f3d0', color: !contatoSt ? '#a7f3d0' : contatoSt === 'agendado' ? '#1a73e8' : '#065f46' }}>
+            {!contatoSt && <Clock className="w-2.5 h-2.5" style={{ color: '#a7f3d0' }} />}
+            {contatoSt === 'contatado' && <Check className="w-2.5 h-2.5" style={{ color: '#8696a0' }} />}
+            {contatoSt === 'agendado' && <CheckCheck className="w-2.5 h-2.5" style={{ color: '#1a73e8' }} />}
+            {contatoLabel || 'A Chamar'}
+          </span>
+        )}
+        <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full inline-flex items-center gap-0.5 text-white ${etapa === 'provisionado' ? 'animate-pulse' : ''}`} style={{ background: etapaColors[etapa] || '#64748b' }}>
+          {etapa === 'provisionado' && <CalendarClock className="w-2.5 h-2.5" />}
+          {etapa === 'recebido' && <SearchCheck className="w-2.5 h-2.5" />}
+          {etapa === 'cremado' && <Flame className="w-2.5 h-2.5" />}
+          {etapa === 'disponivel' && <CheckCircle2 className="w-2.5 h-2.5" />}
+          {etapaLabels[etapa] || etapa}
+        </span>
+      </span>
+    )
+  }
+
   return (
     <div className="max-w-4xl mx-auto pb-8">
       {/* Header com botão voltar */}
@@ -2256,6 +2388,9 @@ ${petNome}`
                 ↑ Sem encaminhamento
               </span>
             )}
+
+            {/* GC Status badges (só em pinda) */}
+            {renderGCStatusBadges()}
 
             {/* Complexidade (retorno only) */}
             {complexidadeConfig && (
@@ -2660,9 +2795,30 @@ ${petNome}`
                           </div>
                           <div className="flex flex-col">
                             <span className={`font-medium ${tutor.telefonePrincipal === 1 ? 'text-green-400' : 'text-slate-400'}`}>{formatarTelefone(tutor.telefone)}</span>
-                            <span className="text-[10px] text-slate-500">
-                              {tutor.telefoneNome && <span className="text-slate-300 font-medium">{tutor.telefoneNome} · </span>}
-                              Ficha
+                            <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                              {tel1NomeEditing ? (
+                                <>
+                                  <input
+                                    type="text"
+                                    value={tel1NomeInput}
+                                    onChange={e => setTel1NomeInput(e.target.value)}
+                                    onClick={e => e.preventDefault()}
+                                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); salvarTel1Nome() }; if (e.key === 'Escape') { e.preventDefault(); setTel1NomeEditing(false) } }}
+                                    placeholder="Apelido"
+                                    maxLength={80}
+                                    autoFocus
+                                    className="bg-slate-800 border border-slate-600 rounded px-1 py-0 text-[10px] text-slate-200 w-28"
+                                  />
+                                  <button onClick={(e) => { e.preventDefault(); salvarTel1Nome() }} disabled={salvandoTelefone} title="Salvar" className="text-green-400 hover:text-green-300"><Check className="h-3 w-3" /></button>
+                                  <button onClick={(e) => { e.preventDefault(); setTel1NomeEditing(false) }} title="Cancelar" className="text-slate-400 hover:text-slate-200"><X className="h-3 w-3" /></button>
+                                </>
+                              ) : (
+                                <>
+                                  {tutor.telefoneNome && <span className="text-slate-300 font-medium">{tutor.telefoneNome} · </span>}
+                                  Ficha
+                                  <button onClick={(e) => { e.preventDefault(); setTel1NomeInput(tutor.telefoneNome || ''); setTel1NomeEditing(true) }} title="Editar apelido" className="ml-1 text-slate-400 hover:text-blue-400"><Pencil className="h-2.5 w-2.5" /></button>
+                                </>
+                              )}
                             </span>
                           </div>
                         </a>
@@ -2696,10 +2852,34 @@ ${petNome}`
                             <Phone className="h-4 w-4 text-white" />
                           </div>
                           <div className="flex flex-col">
-                            <span className={`font-medium ${tutor.telefonePrincipal === 2 ? 'text-green-400' : 'text-slate-400'}`}>{formatarTelefone(tutor.telefone2)}</span>
-                            <span className="text-[10px] text-slate-500">
-                              {tutor.telefone2Nome && <span className="text-slate-300 font-medium">{tutor.telefone2Nome} · </span>}
-                              Processado
+                            <span className="flex items-center gap-1">
+                              <span className={`font-medium ${tutor.telefonePrincipal === 2 ? 'text-green-400' : 'text-slate-400'}`}>{formatarTelefone(tutor.telefone2)}</span>
+                              <button onClick={(e) => { e.preventDefault(); abrirEdicaoTel2() }} title="Editar número" className="text-slate-400 hover:text-blue-400"><Pencil className="h-2.5 w-2.5" /></button>
+                            </span>
+                            <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                              {tel2NomeEditing ? (
+                                <>
+                                  <input
+                                    type="text"
+                                    value={tel2NomeInput}
+                                    onChange={e => setTel2NomeInput(e.target.value)}
+                                    onClick={e => e.preventDefault()}
+                                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); salvarTel2Nome() }; if (e.key === 'Escape') { e.preventDefault(); setTel2NomeEditing(false) } }}
+                                    placeholder="Apelido"
+                                    maxLength={80}
+                                    autoFocus
+                                    className="bg-slate-800 border border-slate-600 rounded px-1 py-0 text-[10px] text-slate-200 w-28"
+                                  />
+                                  <button onClick={(e) => { e.preventDefault(); salvarTel2Nome() }} disabled={salvandoTelefone} title="Salvar" className="text-green-400 hover:text-green-300"><Check className="h-3 w-3" /></button>
+                                  <button onClick={(e) => { e.preventDefault(); setTel2NomeEditing(false) }} title="Cancelar" className="text-slate-400 hover:text-slate-200"><X className="h-3 w-3" /></button>
+                                </>
+                              ) : (
+                                <>
+                                  {tutor.telefone2Nome && <span className="text-slate-300 font-medium">{tutor.telefone2Nome} · </span>}
+                                  Processado
+                                  <button onClick={(e) => { e.preventDefault(); setTel2NomeInput(tutor.telefone2Nome || ''); setTel2NomeEditing(true) }} title="Editar apelido" className="ml-1 text-slate-400 hover:text-blue-400"><Pencil className="h-2.5 w-2.5" /></button>
+                                </>
+                              )}
                             </span>
                           </div>
                         </a>
@@ -2714,6 +2894,14 @@ ${petNome}`
                           title={tutor.telefonePrincipal === 2 ? 'Este é o mais ativo' : 'Tornar este o mais ativo'}
                         >
                           {tutor.telefonePrincipal === 2 ? 'Mais ativo' : 'Tornar ativo'}
+                        </button>
+                        <button
+                          onClick={removerTelefone2}
+                          disabled={salvandoTelefone}
+                          title="Remover telefone 2"
+                          className="text-slate-400 hover:text-red-400 shrink-0"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       </div>
                     ) : (
@@ -2795,15 +2983,15 @@ ${petNome}`
 
         {/* Card Financeiro + Pagamentos - Ocupa 2 colunas (FLS: obj_financeiro) */}
         {isVisible(T, 'obj_financeiro') && <div className="bg-slate-800 rounded-xl shadow-md p-5 border border-slate-700 md:col-span-2">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+            <div className="flex items-center gap-2 flex-shrink-0">
               <div className="w-8 h-8 rounded-lg bg-emerald-900/40 flex items-center justify-center">
                 <DollarSign className="h-4 w-4 text-emerald-400" />
               </div>
               <h2 className="font-semibold text-slate-200">Financeiro</h2>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               {/* Botão/Status NFS-e */}
               {contrato.nfse_numero ? (
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-green-900/40 text-green-400 rounded-lg text-sm">
@@ -2831,17 +3019,7 @@ ${petNome}`
                 </button>
               ) : null}
 
-              {/* Botão Adicionar Pagamento (FLS: btn_mega_pagamento) */}
-              {isVisible(T, 'btn_mega_pagamento') && (
-                <button
-                  onClick={() => abrirMegaPagamento(0, 0)}
-                  disabled={!canEdit(T, 'btn_mega_pagamento')}
-                  className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
-                >
-                  <Plus className="h-4 w-4" />
-                  Pagamento
-                </button>
-              )}
+              {/* Botões Novo Pagamento + Pgto. do Saldo movidos pro rodapé do card */}
             </div>
           </div>
 
@@ -2869,7 +3047,7 @@ ${petNome}`
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                 {/* Valores Brutos */}
                 <div className="bg-slate-700/50 rounded-lg p-3">
-                  <p className="text-xs text-slate-400 uppercase mb-2">Valores</p>
+                  <p className="text-xs text-slate-400 uppercase mb-2">Valores Brutos</p>
                   <div className="space-y-1">
                     <div className="flex justify-between items-center">
                       <span className="text-xs text-slate-400">Plano:</span>
@@ -2999,7 +3177,7 @@ ${petNome}`
 
                 {/* A Pagar (líquido) */}
                 <div className="bg-emerald-900/30 rounded-lg p-3">
-                  <p className="text-xs text-emerald-400 uppercase mb-2">A Pagar</p>
+                  <p className="text-xs text-emerald-400 uppercase mb-2">Total com desc.</p>
                   <div className="space-y-1">
                     <div className="flex justify-between">
                       <span className="text-xs text-emerald-500">Plano:</span>
@@ -3123,35 +3301,74 @@ ${petNome}`
               const saldoPlano = aPagarPlano - recebidoPlano
               const saldoAcessorio = aPagarAcessorios - recebidoAcessorio
 
+              const corSaldo = (v: number) => v > 0.01 ? 'text-red-400' : v < -0.01 ? 'text-blue-400' : 'text-green-400'
               return (
                 <div className={`${pagamentos.length > 0 ? 'mt-4 pt-3 border-t border-slate-600' : ''}`}>
-                  <div className="grid grid-cols-2 gap-4 mb-2">
+                  <div className="grid grid-cols-2 gap-4 mb-3">
+                    {/* Recebido */}
                     <div className="flex flex-col">
-                      <span className="text-xs text-slate-400">Recebido</span>
-                      <span className="text-lg font-bold text-green-400">
-                        {formatarMoeda(valorRecebido)}
-                      </span>
-                    </div>
-                    <div className="flex flex-col items-end">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-slate-400">Saldo</span>
-                        {saldo > 0.01 && (
-                          <button
-                            onClick={() => abrirMegaPagamento(saldoPlano, saldoAcessorio)}
-                            className="hover:scale-110 transition-all"
-                            title="Quitar saldo"
-                          >
-                            <span className="text-lg opacity-60 hover:opacity-100">💲</span>
-                          </button>
-                        )}
+                      <span className="text-xs text-slate-400 uppercase mb-1">Recebido</span>
+                      <div className="space-y-0.5 text-xs">
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Plano</span>
+                          <span className="font-mono text-green-400">{formatarMoeda(recebidoPlano)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Acessórios</span>
+                          <span className="font-mono text-green-400">{formatarMoeda(recebidoAcessorio)}</span>
+                        </div>
                       </div>
-                      <span className={`text-xl font-bold ${
-                        saldo > 0.01 ? 'text-red-400' : saldo < -0.01 ? 'text-blue-400' : 'text-green-400'
-                      }`}>
+                      <span className="text-lg font-bold text-green-400 mt-1">{formatarMoeda(valorRecebido)}</span>
+                    </div>
+                    {/* Saldo */}
+                    <div className="flex flex-col">
+                      <span className="text-xs text-slate-400 uppercase mb-1 text-right">Saldo</span>
+                      <div className="space-y-0.5 text-xs">
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Plano</span>
+                          <span className={`font-mono ${corSaldo(saldoPlano)}`}>{formatarMoeda(saldoPlano)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Acessórios</span>
+                          <span className={`font-mono ${corSaldo(saldoAcessorio)}`}>{formatarMoeda(saldoAcessorio)}</span>
+                        </div>
+                      </div>
+                      <span className={`text-xl font-bold mt-1 text-right ${corSaldo(saldo)}`}>
                         {Math.abs(saldo) < 0.01 ? '✓ Quitado' : formatarMoeda(saldo)}
                       </span>
+                      {saldo < -0.01 && (
+                        <span className="text-[10px] text-blue-400 italic text-right">Pagamento excede saldo — ajuste produtos ou desconto</span>
+                      )}
                     </div>
                   </div>
+
+                  {/* Botões Novo Pagamento + Pgto. do Saldo (largura cheia, mesmo tamanho) */}
+                  {isVisible(T, 'btn_mega_pagamento') && (
+                    <div className="flex gap-2 mt-3 pt-3 border-t border-slate-600">
+                      <button
+                        onClick={() => abrirMegaPagamento(0, 0)}
+                        disabled={!canEdit(T, 'btn_mega_pagamento')}
+                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Novo Pagamento
+                      </button>
+                      {saldo > 0.01 && (
+                        <button
+                          onClick={() => abrirMegaPagamento(saldoPlano, saldoAcessorio)}
+                          disabled={!canEdit(T, 'btn_mega_pagamento')}
+                          title="Quitar saldo pendente"
+                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+                        >
+                          <DollarSign className="h-4 w-4" />
+                          <span className="flex flex-col leading-tight text-left">
+                            <span>Pgto. do Saldo</span>
+                            <span className="text-[10px] font-normal opacity-90">({formatarMoeda(saldo)})</span>
+                          </span>
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             })()}
@@ -4323,7 +4540,7 @@ ${petNome}`
               )}
 
               {/* Método */}
-              {megaPagamentoForm.metodo !== 'cartao' ? (
+              {(megaPagamentoForm.metodo !== 'cartao' || !pagamentoCompleto) ? (
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-medium text-slate-400">Método</span>
                   <div className="flex-1 flex gap-1">
@@ -4334,7 +4551,7 @@ ${petNome}`
                         onClick={() => setMegaPagamentoForm({
                           ...megaPagamentoForm,
                           metodo,
-                          bandeira: metodo === 'cartao' ? 'master' : megaPagamentoForm.bandeira,
+                          bandeira: metodo === 'cartao' && pagamentoCompleto ? 'master' : '',
                           parcelas: '',
                           idTransacao: ''
                         })}
@@ -4344,7 +4561,7 @@ ${petNome}`
                             : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
                         }`}
                       >
-                        <span className="inline-flex items-center gap-0.5"><PaymentIcon metodo={metodo} size="sm" />{metodo === 'pix' ? 'Pix' : metodo === 'cartao' ? 'Cartão' : 'Din'}</span>
+                        <span className="inline-flex items-center gap-0.5"><PaymentIcon metodo={metodo} size="sm" />{metodo === 'pix' ? 'Pix' : metodo === 'cartao' ? 'Cartão' : 'Dinheiro'}</span>
                       </button>
                     ))}
                   </div>
@@ -4404,8 +4621,8 @@ ${petNome}`
                       )
                     })}
                   </div>
-                  {/* ID Transação */}
-                  {megaPagamentoForm.parcelas && (
+                  {/* ID Transação (só modo Pagamento Completo) */}
+                  {megaPagamentoForm.parcelas && pagamentoCompleto && (
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-orange-400 shrink-0">ID Trans.*</span>
                       <input
@@ -4662,11 +4879,11 @@ ${petNome}`
         </div>
       )}
 
-      {/* Modal Adicionar Telefone 2 */}
+      {/* Modal Adicionar / Editar Telefone 2 */}
       {telefone2Modal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setTelefone2Modal(false)}>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => { setTelefone2Modal(false); setTelefone2EmEdicao(false) }}>
           <div className="bg-slate-800 rounded-xl shadow-xl max-w-sm w-full mx-4 p-6" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-slate-200 mb-4">📱 Adicionar Telefone 2</h3>
+            <h3 className="text-lg font-semibold text-slate-200 mb-4">📱 {telefone2EmEdicao ? 'Editar' : 'Adicionar'} Telefone 2</h3>
 
             <div className="space-y-3">
               <div>
@@ -4708,7 +4925,7 @@ ${petNome}`
 
             <div className="flex gap-2 mt-4">
               <button
-                onClick={() => setTelefone2Modal(false)}
+                onClick={() => { setTelefone2Modal(false); setTelefone2EmEdicao(false) }}
                 className="flex-1 py-2 px-4 border border-slate-600 rounded-lg text-slate-300 hover:bg-slate-700 transition-colors"
               >
                 Cancelar

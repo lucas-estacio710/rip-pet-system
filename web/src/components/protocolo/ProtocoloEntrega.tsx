@@ -43,6 +43,7 @@ const styles = {
   row: {
     display: 'flex',
     justifyContent: 'space-between' as const,
+    alignItems: 'baseline' as const,
     marginBottom: '4px',
   },
   label: {
@@ -118,6 +119,7 @@ const styles = {
     borderBottom: '1px solid #ccc',
     display: 'flex',
     justifyContent: 'space-between' as const,
+    alignItems: 'baseline' as const,
     fontWeight: 'bold' as const,
     fontSize: '13px',
   },
@@ -224,7 +226,11 @@ export default function ProtocoloEntrega({ data, blank }: { data?: ProtocoloData
     data.tutorEstado,
   ].filter(Boolean).join('/')
 
-  const temSaldo = data.saldo > 0
+  // Saldo Protocolo = soma dos itens do protocolo - pagamentos registrados.
+  // É esse o saldo que aparece impresso (não o data.saldo do contrato, que é snapshot).
+  const somaItensProtocolo = data.produtos.reduce((acc, p) => acc + (p.valor || 0), 0)
+  const saldoProtocolo = Math.max(0, somaItensProtocolo - data.totalPago)
+  const temSaldo = saldoProtocolo > 0
 
   return (
     <div style={styles.container}>
@@ -321,7 +327,11 @@ export default function ProtocoloEntrega({ data, blank }: { data?: ProtocoloData
                 })()}
               </td>
               <td style={styles.tdCenter}>
-                Crem. {data.tipoCremacao === 'individual' ? 'Individual' : 'Coletiva'}
+                {(() => {
+                  const crem = data.produtos.find(p => p.tipo === 'cremacao')
+                  const fallback = `Crem. ${data.tipoCremacao === 'individual' ? 'Individual' : 'Coletiva'}`
+                  return crem?.nomeRetorno?.trim() || fallback
+                })()}
               </td>
               <td style={styles.tdRight}>
                 {(() => {
@@ -367,12 +377,12 @@ export default function ProtocoloEntrega({ data, blank }: { data?: ProtocoloData
       <div style={styles.totais}>
         <div>Total: {formatarValor(data.totalAPagar)}</div>
         <div style={{ color: temSaldo ? '#dc2626' : '#16a34a' }}>
-          Saldo: {temSaldo ? formatarValor(data.saldo) : 'Pago'}
+          Saldo: {temSaldo ? formatarValor(saldoProtocolo) : 'Pago'}
         </div>
       </div>
 
-      {/* Opções de pagamento (só se tem saldo e mostrarPagamento !== false) */}
-      {temSaldo && data.mostrarPagamento !== false && (
+      {/* Opções de pagamento — operador controla via checkbox no modal (mostrarPagamento) */}
+      {data.mostrarPagamento !== false && (
         <div style={styles.pagamento}>
           <div style={styles.pagamentoGrid}>
             <div style={styles.pagamentoItem}>

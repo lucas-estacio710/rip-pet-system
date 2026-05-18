@@ -32,7 +32,8 @@ function isNoClick(tag: ComputedTag, status: string) {
 export default function InteractiveTags({ contrato, handlers, layout, stopPropagation = true }: Props) {
   const { isVisible } = useFieldPermission()
   const showFarois = isVisible('tela_pipeline', 'btn_farois')
-  const allTags = showFarois ? computeAllTags(contrato) : []
+  // Protocolo saiu daqui — agora é botão dedicado no espaço do checkbox de seleção
+  const allTags = showFarois ? computeAllTags(contrato).filter(t => t.id !== 'protocolo') : []
 
   const handleClick = (handler: (() => void) | undefined, e: React.MouseEvent) => {
     if (!handler) return
@@ -45,7 +46,8 @@ export default function InteractiveTags({ contrato, handlers, layout, stopPropag
 
   // Desktop left-side tags (completed/rejected/in_progress) - fixed-size box, tags centered
   if (layout === 'pipeline-desktop-green') {
-    const LEFT_STATES = new Set(['completed', 'rejected', 'in_progress'])
+    // in_progress agora vai pra direita junto com pending (precisa de ação)
+    const LEFT_STATES = new Set(['completed', 'rejected'])
     const greenTags = allTags.filter(t => LEFT_STATES.has(t.state))
 
     return (
@@ -75,7 +77,8 @@ export default function InteractiveTags({ contrato, handlers, layout, stopPropag
 
   // Desktop pending tags (non-green) - inline
   if (layout === 'pipeline-desktop-pending') {
-    const LEFT_STATES = new Set(['completed', 'rejected', 'in_progress'])
+    // in_progress agora vai pra direita junto com pending (precisa de ação)
+    const LEFT_STATES = new Set(['completed', 'rejected'])
     const pendingTags = allTags.filter(t => !LEFT_STATES.has(t.state))
     if (pendingTags.length === 0) return null
 
@@ -106,7 +109,7 @@ export default function InteractiveTags({ contrato, handlers, layout, stopPropag
     return (
       <div className="flex flex-wrap gap-1.5">
         {allTags.map(tag => {
-          const isGreen = tag.state === 'completed' || tag.state === 'rejected' || tag.state === 'in_progress'
+          const isGreen = tag.state === 'completed' || tag.state === 'rejected'
           const s = getStyle(tag)
           const noClick = isNoClick(tag, contrato.status)
           const handler = noClick ? undefined : handlers[tag.id]
@@ -129,7 +132,8 @@ export default function InteractiveTags({ contrato, handlers, layout, stopPropag
 
   // Mobile split: green/in_progress | separator | pending
   if (layout === 'pipeline-mobile-split') {
-    const LEFT_STATES = new Set(['completed', 'rejected', 'in_progress'])
+    // in_progress agora vai pra direita junto com pending (precisa de ação)
+    const LEFT_STATES = new Set(['completed', 'rejected'])
     const leftTags = allTags.filter(t => LEFT_STATES.has(t.state))
     const rightTags = allTags.filter(t => !LEFT_STATES.has(t.state))
 
@@ -173,7 +177,8 @@ export default function InteractiveTags({ contrato, handlers, layout, stopPropag
 
   // Mobile: only green/completed tags (centered row, large)
   if (layout === 'pipeline-mobile-green') {
-    const LEFT_STATES = new Set(['completed', 'rejected', 'in_progress'])
+    // in_progress agora vai pra direita junto com pending (precisa de ação)
+    const LEFT_STATES = new Set(['completed', 'rejected'])
     const greenTags = allTags.filter(t => LEFT_STATES.has(t.state))
     if (greenTags.length === 0) return null
 
@@ -202,7 +207,8 @@ export default function InteractiveTags({ contrato, handlers, layout, stopPropag
 
   // Mobile: only pending tags (inline, +30% size)
   if (layout === 'pipeline-mobile-pending') {
-    const LEFT_STATES = new Set(['completed', 'rejected', 'in_progress'])
+    // in_progress agora vai pra direita junto com pending (precisa de ação)
+    const LEFT_STATES = new Set(['completed', 'rejected'])
     const pendingTags = allTags.filter(t => !LEFT_STATES.has(t.state))
     if (pendingTags.length === 0) return null
 
