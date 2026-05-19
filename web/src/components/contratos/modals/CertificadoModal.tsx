@@ -148,6 +148,11 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
 
   // Salvar no Supabase
   async function salvarCertificado() {
+    // Defesa: raça é obrigatória pra geração do certificado
+    if (!petRaca.trim()) {
+      alert('Preencha a raça antes de confirmar. Clique no campo "Raça" para ver as sugestões do catálogo.')
+      return
+    }
     setSalvando(true)
 
     try {
@@ -401,8 +406,9 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
           </button>
           <button
             onClick={salvarCertificado}
-            disabled={salvando}
-            className="flex-1 py-2 px-4 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
+            disabled={salvando || !petRaca.trim()}
+            title={!petRaca.trim() ? 'Preencha a raça antes de confirmar — clique no campo Raça para ver sugestões' : 'Confirmar e salvar'}
+            className="flex-1 py-2 px-4 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {salvando ? 'Salvando...' : '✅ Confirmar'}
           </button>
