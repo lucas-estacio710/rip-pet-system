@@ -1,14 +1,13 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import {
-  Church, Search, X, ChevronRight, ChevronLeft, Dog, Cat, Bug, MapPin,
+  Church, Search, X, Dog, Cat, Bug, MapPin,
   User, Clock, Weight, Lock, Phone, Check, CheckCheck, Flame, CalendarClock, SearchCheck, CheckCircle2,
   Calendar, ArrowDownAZ, Tag
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
-import { dataLocal } from '@/lib/date-local'
 import { linkAgendamentoDespedida } from '@/lib/whatsapp-msg'
 import { Skeleton } from '@/components/ui/Skeleton'
 import EmptyState from '@/components/ui/EmptyState'
@@ -120,18 +119,6 @@ function corPeso(peso: number | null): string {
   return '#ef4444'                   // vermelho — pesado
 }
 
-const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
-
-function formatDia(d: Date): string {
-  const dia = d.getDate().toString().padStart(2, '0')
-  const mes = d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')
-  return `${dia}/${mes}`
-}
-
-function isMesmoDia(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
-}
-
 function tempoRelativo(dataStr: string | null): string {
   if (!dataStr) return ''
   const diffMs = Date.now() - new Date(dataStr).getTime()
@@ -155,16 +142,8 @@ export default function GCPage() {
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
   const [ordenacao, setOrdenacao] = useState<'data' | 'nome' | 'lacre'>('data')
+  const [ocultarCremados, setOcultarCremados] = useState(false)
   const [acaoModal, setAcaoModal] = useState<ContratoGC | null>(null)
-
-  // Calendário-line
-  const hoje = new Date()
-  hoje.setHours(0, 0, 0, 0)
-  const [diaSelecionado, setDiaSelecionado] = useState<Date | null>(null)
-  const [desktopOffset, setDesktopOffset] = useState(0)
-  const mobileScrollRef = useRef<HTMLDivElement>(null)
-  const mobileScrolledRef = useRef(false)
-  const mobileInitialScroll = useRef(0)
 
   const carregarDados = useCallback(async () => {
     setLoading(true)
@@ -249,47 +228,7 @@ export default function GCPage() {
     return () => { supabase.removeChannel(channel) }
   }, [carregarDados])
 
-  const [visao, setVisao] = useState<'unidade' | 'dia'>('unidade')
   const [activeUnit, setActiveUnit] = useState<string | null>(null)
-
-  // Calendário: dias visíveis
-  const desktopVisivel: Date[] = []
-  for (let i = -2; i <= 7; i++) {
-    const d = new Date(hoje)
-    d.setDate(d.getDate() + desktopOffset + i)
-    desktopVisivel.push(d)
-  }
-  const mobileDias: Date[] = []
-  for (let i = -14; i <= 13; i++) {
-    const d = new Date(hoje)
-    d.setDate(d.getDate() + i)
-    mobileDias.push(d)
-  }
-
-  // Scroll mobile: centraliza "Hoje" na viewport (array -14..+13 → index 14 = hoje)
-  useEffect(() => {
-    if (mobileScrollRef.current && !mobileScrolledRef.current) {
-      const container = mobileScrollRef.current
-      const itemWidth = container.scrollWidth / mobileDias.length
-      const todayIndex = 14
-      // Centraliza item Hoje no meio da viewport visível
-      const pos = Math.max(0, (todayIndex * itemWidth) - (container.clientWidth / 2) + (itemWidth / 2))
-      container.scrollLeft = pos
-      mobileInitialScroll.current = pos
-      mobileScrolledRef.current = true
-    }
-  }, [mobileDias.length])
-
-  // Supindas por dia (pra calendário-line)
-  function getSupindasDia(dia: Date) {
-    const dStr = dataLocal(dia)
-    return supindas.filter(s => s.data === dStr)
-  }
-
-  // IDs de supindas num dia selecionado
-  function getSupindaIdsDia(dia: Date): string[] {
-    return getSupindasDia(dia).map(s => s.id)
-  }
 
   // Link de WhatsApp com mensagem padrão de "agendamento de despedida"
   function linkWhatsAppAgendamento(c: ContratoGC): string {
@@ -305,12 +244,12 @@ export default function GCPage() {
     })
   }
 
-  // Filtrar por busca + visão ativa (unidade OU dia, nunca ambos)
+  // Filtrar por busca + unidade ativa + toggle "não-cremados"
   const filtered = contratos.filter(c => {
-    if (visao === 'unidade' && activeUnit && c.unidade_id !== activeUnit) return false
-    if (visao === 'dia' && diaSelecionado) {
-      const supIdsDia = getSupindaIdsDia(diaSelecionado)
-      if (!c.supinda_id || !supIdsDia.includes(c.supinda_id)) return false
+    if (activeUnit && c.unidade_id !== activeUnit) return false
+    if (ocultarCremados) {
+      const etapa = c.gc?.etapa || 'provisionado'
+      if (etapa === 'cremado' || etapa === 'disponivel') return false
     }
     if (!busca.trim()) return true
     const t = busca.toLowerCase()
@@ -402,119 +341,7 @@ export default function GCPage() {
         </div>
       </div>
 
-      {/* Toggle Visão — mobile: horizontal full width, desktop: vertical à esquerda */}
-      <div className="md:hidden flex items-center bg-[var(--surface-100)] rounded-lg p-0.5 mb-4">
-        <button
-          onClick={() => { setVisao('unidade'); setDiaSelecionado(null) }}
-          className={`flex-1 px-3 py-2 rounded-md text-xs font-semibold transition-colors ${visao === 'unidade' ? 'bg-[var(--surface-0)] text-[var(--shell-text)] shadow-sm' : 'text-[var(--surface-400)]'}`}
-        >
-          Unidade
-        </button>
-        <button
-          onClick={() => { setVisao('dia'); setActiveUnit(null) }}
-          className={`flex-1 px-3 py-2 rounded-md text-xs font-semibold transition-colors ${visao === 'dia' ? 'bg-[var(--surface-0)] text-[var(--shell-text)] shadow-sm' : 'text-[var(--surface-400)]'}`}
-        >
-          Dia
-        </button>
-      </div>
-
-      <div className="flex items-start gap-3 mb-4">
-        <div className="hidden md:flex flex-col items-center bg-[var(--surface-100)] rounded-lg p-0.5 shrink-0">
-          <button
-            onClick={() => { setVisao('unidade'); setDiaSelecionado(null) }}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors w-full ${visao === 'unidade' ? 'bg-[var(--surface-0)] text-[var(--shell-text)] shadow-sm' : 'text-[var(--surface-400)]'}`}
-          >
-            Unidade
-          </button>
-          <button
-            onClick={() => { setVisao('dia'); setActiveUnit(null) }}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors w-full ${visao === 'dia' ? 'bg-[var(--surface-0)] text-[var(--shell-text)] shadow-sm' : 'text-[var(--surface-400)]'}`}
-          >
-            Dia
-          </button>
-        </div>
-        <div className="flex-1 min-w-0">
-
-      {visao === 'dia' && <>
-      {/* Calendário-line DESKTOP */}
-      <div className="hidden md:block relative mb-4">
-        {desktopOffset !== 0 && (
-          <button onClick={() => { setDesktopOffset(0); setDiaSelecionado(null) }} className="absolute -top-5 left-0 text-xs text-blue-400 hover:text-blue-300 transition-colors font-medium">Ver Hoje</button>
-        )}
-        {diaSelecionado && (
-          <button onClick={() => setDiaSelecionado(null)} className="absolute -top-5 right-0 text-xs text-[var(--surface-400)] hover:text-[var(--shell-text)] transition-colors font-medium">Limpar filtro</button>
-        )}
-        <div className="flex items-center gap-1">
-          <button onClick={() => setDesktopOffset(prev => prev - 2)} className="p-1 rounded-lg text-[var(--surface-400)] hover:text-[var(--shell-text)] hover:bg-[var(--surface-100)] transition-colors shrink-0">
-            <ChevronLeft className="h-5 w-5" />
-          </button>
-          <div className="flex-1 flex gap-1 overflow-visible pt-2">
-            {desktopVisivel.map((dia, i) => {
-              const ehHoje = isMesmoDia(dia, hoje)
-              const selecionado = diaSelecionado ? isMesmoDia(dia, diaSelecionado) : false
-              const fds = dia.getDay() === 0 || dia.getDay() === 6
-              const supsDia = getSupindasDia(dia)
-              return (
-                <button key={i} onClick={() => setDiaSelecionado(selecionado ? null : dia)}
-                  className={`relative flex-1 min-w-0 pt-3.5 pb-1 px-0 rounded-lg border-2 transition-all duration-200 flex flex-col items-center gap-0.5
-                    ${selecionado ? 'border-orange-500 bg-orange-500/15 text-orange-400'
-                      : fds ? 'border-[var(--surface-200)] bg-[var(--surface-100)] text-[var(--surface-400)] hover:border-[var(--surface-300)]'
-                        : 'border-[var(--surface-200)] bg-transparent text-[var(--surface-500)] hover:border-[var(--surface-300)] hover:bg-[var(--surface-50)]'}`}
-                >
-                  {ehHoje && <span className="absolute -top-[7px] left-1/2 -translate-x-1/2 z-10 px-2 text-[9px] font-bold uppercase tracking-wider text-orange-400 bg-[var(--shell-bg)]">Hoje</span>}
-                  <span className={`text-[11px] font-semibold uppercase ${selecionado ? 'text-orange-400' : ''}`}>{DIAS_SEMANA[dia.getDay()]}</span>
-                  <span className={`text-[11px] ${selecionado ? 'text-orange-300' : ''}`}>{formatDia(dia)}</span>
-                  <span className="flex items-center justify-center gap-0.5 mt-0.5 h-4">
-                    {supsDia.map((s, j) => (
-                      <span key={j} className="w-4 h-4 rounded-full shrink-0" style={{ background: UNIT_COLORS[s.codigo_unidade] || '#6366f1' }} title={s.numero} />
-                    ))}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-          <button onClick={() => setDesktopOffset(prev => prev + 2)} className="p-1 rounded-lg text-[var(--surface-400)] hover:text-[var(--shell-text)] hover:bg-[var(--surface-100)] transition-colors shrink-0">
-            <ChevronRight className="h-5 w-5" />
-          </button>
-        </div>
-      </div>
-
-      {/* Calendário-line MOBILE */}
-      <div className="md:hidden relative mb-4">
-        {diaSelecionado && (
-          <button onClick={() => setDiaSelecionado(null)} className="absolute -top-5 right-0 text-xs text-[var(--surface-400)] hover:text-[var(--shell-text)] transition-colors font-medium">Limpar filtro</button>
-        )}
-        <div ref={mobileScrollRef} className="flex gap-2 overflow-x-auto overflow-y-visible scrollbar-hide snap-x snap-mandatory px-1 -mx-1 pt-2" style={{ scrollBehavior: 'smooth', WebkitOverflowScrolling: 'touch' }}>
-          {mobileDias.map((dia, i) => {
-            const ehHoje = isMesmoDia(dia, hoje)
-            const selecionado = diaSelecionado ? isMesmoDia(dia, diaSelecionado) : false
-            const fds = dia.getDay() === 0 || dia.getDay() === 6
-            const supsDia = getSupindasDia(dia)
-            return (
-              <button key={i} onClick={() => setDiaSelecionado(selecionado ? null : dia)}
-                className={`relative snap-start shrink-0 pt-3.5 pb-1 px-0 rounded-lg border-2 transition-all duration-200 flex flex-col items-center gap-0.5
-                  ${selecionado ? 'border-orange-500 bg-orange-500/15 text-orange-400'
-                    : fds ? 'border-[var(--surface-200)] bg-[var(--surface-100)] text-[var(--surface-400)]'
-                      : 'border-[var(--surface-200)] bg-transparent text-[var(--surface-500)]'}`}
-                style={{ width: 'calc((100% - 2rem) / 5)' }}
-              >
-                {ehHoje && <span className="absolute -top-[7px] left-1/2 -translate-x-1/2 z-10 px-2 text-[9px] font-bold uppercase tracking-wider text-orange-400 bg-[var(--shell-bg)]">Hoje</span>}
-                <span className={`text-[11px] font-semibold uppercase ${selecionado ? 'text-orange-400' : ''}`}>{DIAS_SEMANA[dia.getDay()]}</span>
-                <span className={`text-[11px] ${selecionado ? 'text-orange-300' : ''}`}>{formatDia(dia)}</span>
-                <span className="flex items-center justify-center gap-0.5 mt-0.5 h-4">
-                  {supsDia.map((s, j) => (
-                    <span key={j} className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: UNIT_COLORS[s.codigo_unidade] || '#6366f1' }} title={s.numero} />
-                  ))}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-      </div>
-      </>}
-
-      {/* Abas tipo Chrome */}
-      {visao === 'unidade' && <>
+      {/* Abas tipo Chrome — uma por unidade */}
       <div className="flex items-end gap-1 mb-4 overflow-x-auto pb-0.5">
         {unidades.map(unit => {
           const isActive = activeUnit === unit.id
@@ -552,10 +379,6 @@ export default function GCPage() {
       </div>
 
       <div className="border-b border-[var(--surface-200)] -mt-4 mb-4" />
-      </>}
-
-        </div>
-      </div>
 
       {/* Busca + Ordenação */}
       <div className="mb-4 flex items-center gap-2 flex-wrap">
@@ -595,6 +418,15 @@ export default function GCPage() {
             )
           })}
         </div>
+        <label className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--surface-500)] cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={ocultarCremados}
+            onChange={e => setOcultarCremados(e.target.checked)}
+            className="h-3.5 w-3.5 cursor-pointer"
+          />
+          Mostrar somente não cremados
+        </label>
       </div>
 
       {/* Lista agrupada por encaminhamento */}
@@ -694,8 +526,6 @@ export default function GCPage() {
                   {/* Grid de cards */}
                   <div className="grid grid-cols-3 lg:grid-cols-7 gap-1 md:gap-2 p-1 md:p-2">
                     {grupo.contratos.map(c => {
-                      const unit = unidades.find(u => u.id === c.unidade_id)
-                      const unitColor = UNIT_COLORS[unit?.codigo || ''] || '#6366f1'
                       const etapa = c.gc?.etapa || 'provisionado'
                       const etapaColor = ETAPA_COLORS[etapa] || '#64748b'
                       const contatoSt = c.gc?.contato_status || null
@@ -750,14 +580,9 @@ export default function GCPage() {
 
                             {/* DESKTOP: completo */}
                             <div className="hidden md:block">
-                              {/* L1: Nome do pet + unidade */}
+                              {/* L1: Nome do pet */}
                               <div className="flex items-center justify-end gap-1.5 mb-0.5">
                                 <span className="font-semibold text-xs text-[var(--shell-text)] truncate text-right flex-1" style={{ maxWidth: c.numero_lacre ? 'calc(100% - 3.5rem)' : '100%' }}>{c.pet_nome}</span>
-                                {visao !== 'unidade' && unit && (
-                                  <span className="w-4 h-4 rounded-full flex items-center justify-center text-[7px] font-bold shrink-0" style={{ background: unitColor, color: unit.codigo === 'SJ' ? '#334155' : '#fff' }}>
-                                    {unit.codigo}
-                                  </span>
-                                )}
                               </div>
 
                               {/* L2: Tutor */}
