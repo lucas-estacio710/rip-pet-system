@@ -285,7 +285,7 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
                 value={petRaca}
                 onChange={setPetRaca}
                 especie={(petEspecie || null) as EspeciePet | null}
-                placeholder="Clique para sugerir do catálogo…"
+                placeholder="Inserir raça (Sugestões disponíveis)"
                 sugestaoQuandoVazio={contrato.pet_raca || ''}
               />
             </div>
