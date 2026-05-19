@@ -250,11 +250,11 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
 
         {/* Data de agendamento da cremação (read-only — Matriz vê a data que irá pro certificado) */}
         {dataAgendamento && (
-          <div className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg bg-blue-900/30 border border-blue-500/30">
+          <div className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg bg-blue-500/15 border border-blue-500/40">
             <span className="text-base">📅</span>
             <div className="flex-1">
-              <p className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">Data da Cremação</p>
-              <p className="text-sm font-semibold text-blue-200">
+              <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Data da Cremação</p>
+              <p className="text-sm font-semibold text-blue-800">
                 {new Date(dataAgendamento).toLocaleString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
               </p>
             </div>
