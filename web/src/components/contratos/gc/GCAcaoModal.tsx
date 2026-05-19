@@ -75,6 +75,24 @@ const CONTATO_STEPS = [
   { key: 'agendado', label: 'Agendado', color: '#1a73e8' },
 ]
 
+// Alerta de digitação no agendamento — Matriz pede para alertar se a data
+// estiver fora de ±7 dias relativos a hoje. Retorna null se OK.
+function alertaAgendamento(iso?: string | null): { dias: number; texto: string } | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return null
+  const hoje = new Date()
+  const a = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const h = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate()).getTime()
+  const dias = Math.round((a - h) / 86400000)
+  if (Math.abs(dias) <= 7) return null
+  const abs = Math.abs(dias)
+  const texto = dias < 0
+    ? `${abs} dia${abs > 1 ? 's' : ''} no passado`
+    : `${abs} dia${abs > 1 ? 's' : ''} no futuro`
+  return { dias, texto }
+}
+
 export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoCremacao, petEspecie, petPeso, petRaca, petGenero, petCor, numeroLacre, tutorNome, tutorTelefone, tutorTelefone2, tutorTelefoneNome, tutorTelefone2Nome, tutorTelefonePrincipal, certificadoNomesRaw, certificadoConfirmado, onCertificadoSaved, supindaStatus, gcAtual, onClose, onSaved }: Props) {
   const supabase = createClient()
   const [salvando, setSalvando] = useState(false)
@@ -462,6 +480,15 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
                     <input type="datetime-local" value={isoParaInputLocal(gc.data_agendamento)}
                       onChange={e => setGc({ ...gc, data_agendamento: inputLocalParaIso(e.target.value) })}
                       className="input text-xs w-full py-1" />
+                    {(() => {
+                      const al = alertaAgendamento(gc.data_agendamento)
+                      if (!al) return null
+                      return (
+                        <div className="mt-1 px-2 py-1 rounded-md bg-amber-900/30 border border-amber-500/40 text-[10px] text-amber-300 leading-snug">
+                          ⚠ Data {al.texto} de hoje — confira se está correto antes de confirmar.
+                        </div>
+                      )
+                    })()}
                   </div>
                   <div>
                     <label className="text-[9px] font-medium text-[var(--surface-500)] mb-0.5 block">Acompanhamento</label>
@@ -482,6 +509,8 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
                   <button onClick={() => {
                     if (!gc.data_agendamento) { setErro('Preencha data e hora'); return }
                     if (!gc.acompanhamento_confirmado) { setErro('Selecione acompanhamento'); return }
+                    const al = alertaAgendamento(gc.data_agendamento)
+                    if (al && !window.confirm(`A data do agendamento está ${al.texto} de hoje. Deseja confirmar mesmo assim?`)) return
                     mudar({ contato_status: 'agendado' }); setAgendarAberto(false)
                   }}
                     className="w-full py-1.5 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors">
@@ -518,6 +547,15 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
                   <input type="datetime-local" value={isoParaInputLocal(gc.data_agendamento)}
                     onChange={e => setGc({ ...gc, data_agendamento: inputLocalParaIso(e.target.value) })}
                     className="input text-xs w-full py-1" />
+                  {(() => {
+                    const al = alertaAgendamento(gc.data_agendamento)
+                    if (!al) return null
+                    return (
+                      <div className="mt-1 px-2 py-1 rounded-md bg-amber-900/30 border border-amber-500/40 text-[10px] text-amber-300 leading-snug">
+                        ⚠ Data {al.texto} de hoje — confira se está correto antes de confirmar.
+                      </div>
+                    )
+                  })()}
                 </div>
                 <div>
                   <label className="text-[9px] font-medium text-[var(--surface-500)] mb-0.5 block">Acompanhamento</label>
@@ -535,7 +573,11 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
                     ))}
                   </div>
                 </div>
-                <button onClick={() => { mudar({}); setAgendarAberto(false) }}
+                <button onClick={() => {
+                  const al = alertaAgendamento(gc.data_agendamento)
+                  if (al && !window.confirm(`A data do agendamento está ${al.texto} de hoje. Deseja confirmar mesmo assim?`)) return
+                  mudar({}); setAgendarAberto(false)
+                }}
                   className="w-full py-1.5 rounded-lg text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors">
                   Confirmar Alteração
                 </button>
