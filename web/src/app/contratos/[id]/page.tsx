@@ -303,8 +303,6 @@ export default function ContratoDetalhe() {
   const router = useRouter()
   const [contrato, setContrato] = useState<Contrato | null>(null)
   const [loading, setLoading] = useState(true)
-  // Prompt "Adicionar nova ou Trocar?" quando user adiciona urna mas já existe outra no contrato
-  const [trocaUrnaPrompt, setTrocaUrnaPrompt] = useState<{ urnaAnterior: ContratoProduto } | null>(null)
   const [salvando, setSalvando] = useState(false)
   const [contratoProdutos, setContratoProdutos] = useState<ContratoProduto[]>([])
   const [carregandoProdutos, setCarregandoProdutos] = useState(true)
@@ -314,7 +312,7 @@ export default function ContratoDetalhe() {
   const [filtroProdutoTipo, setFiltroProdutoTipo] = useState<string>('')
   const [filtroProdutoCategoria, setFiltroProdutoCategoria] = useState<string>('')
   const [editandoProduto, setEditandoProduto] = useState<string | null>(null)
-  const [editForm, setEditForm] = useState({ quantidade: 1, valor: 0, desconto: '' as number | '' })
+  const [editForm, setEditForm] = useState({ valor: '' as number | '', desconto: '' as number | '' })
   // Modal de confirmação ao adicionar produto
   const [produtoParaAdicionar, setProdutoParaAdicionar] = useState<Produto | null>(null)
   const [addProdutoForm, setAddProdutoForm] = useState({
@@ -1026,10 +1024,11 @@ export default function ContratoDetalhe() {
 
     const { data: pelinhos } = await supabase
       .from('contrato_produtos')
-      .select('rescaldo_feito, produto:produtos(rescaldo_tipo)')
+      .select('rescaldo_feito, produto:produtos(codigo)')
       .eq('contrato_id', params.id)
 
-    const items = (pelinhos || []).filter((cp: { produto: { rescaldo_tipo: string | null } | null }) => cp.produto?.rescaldo_tipo === 'pelinho')
+    // Pelinho é identificado pelo produto código 0004 (mesma fonte do PelinhoModal)
+    const items = (pelinhos || []).filter((cp: { produto: { codigo: string | null } | null }) => cp.produto?.codigo === '0004')
     const qtd = items.length
     const todoFeitos = qtd > 0 && items.every((cp: { rescaldo_feito: boolean }) => cp.rescaldo_feito)
 
@@ -1053,33 +1052,10 @@ export default function ContratoDetalhe() {
     setMostrarOpcoesProduto(false)
   }
 
-  async function confirmarAdicionarProduto(opts: { trocarUrna?: ContratoProduto; forcarAdicionarNova?: boolean } = {}) {
+  async function confirmarAdicionarProduto() {
     if (!params.id || !produtoParaAdicionar || !contrato) return
 
-    // Se for urna E já existe urna no contrato E não veio decisão explícita,
-    // pergunta se é pra adicionar nova ou trocar a existente.
-    const decisaoTomada = opts.trocarUrna !== undefined || opts.forcarAdicionarNova === true
-    if (!decisaoTomada && produtoParaAdicionar.tipo === 'urna') {
-      const urnaAnterior = contratoProdutos.find(cp => cp.produto?.tipo === 'urna')
-      if (urnaAnterior) {
-        setTrocaUrnaPrompt({ urnaAnterior })
-        return
-      }
-    }
-
     setSalvando(true)
-
-    // Se trocar: deletar urna anterior e creditar estoque ANTES de inserir a nova
-    if (opts.trocarUrna) {
-      await supabase.from('contrato_produtos').delete().eq('id', opts.trocarUrna.id)
-      if (opts.trocarUrna.produto?.id) {
-        await ajustarEstoque(
-          opts.trocarUrna.produto.id,
-          +(opts.trocarUrna.quantidade || 1),
-          opts.trocarUrna.produto.estoque_infinito,
-        )
-      }
-    }
 
     const precoOriginal = produtoParaAdicionar.preco || 0
     const precoBase = typeof addProdutoForm.precoCustom === 'number' ? addProdutoForm.precoCustom : precoOriginal
@@ -1110,12 +1086,17 @@ export default function ContratoDetalhe() {
         produtoParaAdicionar.estoque_infinito,
       )
 
+      // Se adicionou pelinho (0004) pelo card, reconcilia os campos pelinho_* do contrato
+      if (produtoParaAdicionar.codigo === '0004') await sincronizarPelinho()
+
       // Trigger SQL atualizou valor_acessorios e desconto_acessorios → só sincroniza local
       await carregarProdutosContrato()
       await recarregarValoresContrato()
       setProdutoParaAdicionar(null)
       setAddProdutoModal(false)
-      setTrocaUrnaPrompt(null)
+    } else {
+      console.error('Erro ao adicionar produto ao contrato:', error)
+      alert('Erro ao adicionar produto. Tente novamente.')
     }
     setSalvando(false)
   }
@@ -1123,8 +1104,7 @@ export default function ContratoDetalhe() {
   function iniciarEdicao(cp: ContratoProduto) {
     setEditandoProduto(cp.id)
     setEditForm({
-      quantidade: cp.quantidade,
-      valor: cp.valor || 0,
+      valor: cp.valor && cp.valor > 0 ? cp.valor : '',
       desconto: cp.desconto && cp.desconto > 0 ? cp.desconto : ''
     })
   }
@@ -1133,30 +1113,16 @@ export default function ContratoDetalhe() {
     if (!contrato) return
     setSalvando(true)
 
-    // Ajustar estoque pela DIFERENÇA de quantidade (delta)
-    const cpAtual = contratoProdutos.find(cp => cp.id === cpId)
-    const qtdAnterior = cpAtual?.quantidade || 1
-    const qtdNova = editForm.quantidade
-    const delta = qtdNova - qtdAnterior  // +N = aumentou (debitar mais), -N = diminuiu (creditar)
-
+    // Quantidade não é editável (1 linha = 1 produto físico) — só valor e desconto.
     const { error } = await supabase
       .from('contrato_produtos')
       .update({
-        quantidade: editForm.quantidade,
-        valor: editForm.valor,
+        valor: editForm.valor === '' ? 0 : editForm.valor,
         desconto: editForm.desconto === '' ? 0 : editForm.desconto,
       } as never)
       .eq('id', cpId)
 
     if (!error) {
-      // Sincronizar estoque com a nova quantidade (debita ou credita o delta)
-      if (delta !== 0 && cpAtual?.produto?.id) {
-        await ajustarEstoque(
-          cpAtual.produto.id,
-          -delta,                              // delta positivo = debitar mais
-          cpAtual.produto.estoque_infinito,
-        )
-      }
       // Trigger SQL atualizou valor_acessorios e desconto_acessorios → só sincroniza local
       await carregarProdutosContrato()
       await recarregarValoresContrato()
@@ -1187,8 +1153,8 @@ export default function ContratoDetalhe() {
         )
       }
 
-      // Sincronizar pelinho se removeu um
-      if (produtoRemovido?.produto?.rescaldo_tipo === 'pelinho') {
+      // Sincronizar pelinho se removeu um (produto 0004)
+      if (produtoRemovido?.produto?.codigo === '0004') {
         await sincronizarPelinho()
       }
 
@@ -1649,9 +1615,10 @@ export default function ContratoDetalhe() {
     setGerandoPdf(false)
   }
 
-  // Filtrar produtos pela busca, tipo, categoria (exclui pelinho 0004 - gerenciado pelo PelinhoModal)
+  // Filtrar produtos pela busca, tipo, categoria
+  // Pelinho (0004) também pode ser inserido pelo card; o PelinhoModal continua sendo
+  // a via automatizada — ambos compartilham as linhas em contrato_produtos.
   const produtosDisponiveis = todosProdutos.filter(p => {
-    if (p.codigo === '0004') return false
     // Filtro por tipo
     if (filtroProdutoTipo && p.tipo !== filtroProdutoTipo) return false
     // Filtro por categoria
@@ -3474,25 +3441,16 @@ ${petNome}`
                           <p className="font-medium text-slate-200 text-sm line-clamp-2">{cp.produto.nome}</p>
                         </div>
                       </div>
-                      <div className="grid grid-cols-3 gap-3">
-                        <div>
-                          <label className="text-xs text-slate-400 block mb-1">Qtd</label>
-                          <input
-                            type="number"
-                            min="1"
-                            value={editForm.quantidade}
-                            onChange={(e) => setEditForm({ ...editForm, quantidade: parseInt(e.target.value) || 1 })}
-                            className="w-full px-2 py-1 border rounded text-sm"
-                          />
-                        </div>
+                      <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="text-xs text-slate-400 block mb-1">Valor R$</label>
                           <input
                             type="number"
                             min="0"
                             step="0.01"
+                            placeholder="0,00"
                             value={editForm.valor}
-                            onChange={(e) => setEditForm({ ...editForm, valor: parseFloat(e.target.value) || 0 })}
+                            onChange={(e) => setEditForm({ ...editForm, valor: e.target.value === '' ? '' : parseFloat(e.target.value) || 0 })}
                             className="w-full px-2 py-1 border rounded text-sm"
                           />
                         </div>
@@ -3502,7 +3460,7 @@ ${petNome}`
                             type="number"
                             min="0"
                             step="0.01"
-                            placeholder="0"
+                            placeholder="0,00"
                             value={editForm.desconto}
                             onChange={(e) => setEditForm({ ...editForm, desconto: e.target.value === '' ? '' : parseFloat(e.target.value) })}
                             className="w-full px-2 py-1 border rounded text-sm"
@@ -3597,15 +3555,13 @@ ${petNome}`
                         >
                           <Pencil className="h-4 w-4" />
                         </button>
-                        {cp.produto?.codigo !== '0004' && (
-                          <button
-                            onClick={() => removerProduto(cp.id)}
-                            className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-900/30 rounded transition-colors"
-                            title="Remover"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        )}
+                        <button
+                          onClick={() => removerProduto(cp.id)}
+                          className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-900/30 rounded transition-colors"
+                          title="Remover"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </div>
                     </div>
                   )}
@@ -3635,46 +3591,6 @@ ${petNome}`
 
 
       {/* Modal Adicionar Produto */}
-      {/* Prompt: Adicionar nova urna OU Trocar pela existente? */}
-      {trocaUrnaPrompt && contrato && produtoParaAdicionar && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4" onClick={() => setTrocaUrnaPrompt(null)}>
-          <div className="bg-slate-800 rounded-xl shadow-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-slate-200 mb-2">⚱️ Já existe uma urna no contrato</h3>
-            <p className="text-sm text-slate-400 mb-4">
-              Atual: <span className="text-slate-200 font-medium">{trocaUrnaPrompt.urnaAnterior.produto?.nome || 'urna'}</span>
-              <br />
-              Nova: <span className="text-slate-200 font-medium">{produtoParaAdicionar.nome}</span>
-            </p>
-            <div className="flex flex-col gap-2">
-              <button
-                onClick={() => confirmarAdicionarProduto({ trocarUrna: trocaUrnaPrompt.urnaAnterior })}
-                disabled={salvando}
-                className="w-full py-2 px-3 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold disabled:opacity-50"
-              >
-                {salvando ? 'Trocando…' : 'Trocar pela existente (devolve a anterior pro estoque)'}
-              </button>
-              <button
-                onClick={() => {
-                  setTrocaUrnaPrompt(null)
-                  confirmarAdicionarProduto({ forcarAdicionarNova: true })
-                }}
-                disabled={salvando}
-                className="w-full py-2 px-3 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold disabled:opacity-50"
-              >
-                Adicionar como NOVA urna (manter a existente)
-              </button>
-              <button
-                onClick={() => setTrocaUrnaPrompt(null)}
-                disabled={salvando}
-                className="w-full py-2 px-3 rounded-lg text-slate-400 hover:text-slate-200 text-sm disabled:opacity-50"
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {addProdutoModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setAddProdutoModal(false)}>
           <div className="bg-slate-800 rounded-2xl w-full max-w-5xl max-h-[90vh] shadow-xl flex flex-col" onClick={e => e.stopPropagation()}>
