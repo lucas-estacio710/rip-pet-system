@@ -356,7 +356,8 @@ export default function FichasPage() {
     msg += `*Localização:* ${localNormalizado}\n`
 
     msg += `\n*- DADOS DA CREMAÇÃO:*\n`
-    msg += `*Cremação Escolhida:* ${cremacao} | *Valor:* ${valor || '-'}\n`
+    // Valor só é definido no processamento — em ficha recebida (sem valor) some da msg
+    msg += `*Cremação Escolhida:* ${cremacao}${valor ? ` | *Valor:* ${valor}` : ''}\n`
     msg += `*Forma de Pagamento:* ${pagamento}${ficha.parcelas ? ` ${ficha.parcelas}` : ''}\n`
     msg += `*Velório:* ${velorio}\n`
     msg += `*Acompanhamento da Cremação:* ${acompanhamento}\n`
@@ -810,6 +811,21 @@ export default function FichasPage() {
                           title="Cancelar ficha"
                         >
                           <X className="h-3.5 w-3.5" />
+                        </button>
+                        <button onClick={async (e) => {
+                            e.stopPropagation()
+                            const btn = e.currentTarget
+                            const msg = montarMsgWhatsApp(ficha)
+                            await navigator.clipboard.writeText(msg)
+                            btn.classList.add('text-emerald-400')
+                            setTimeout(() => btn.classList.remove('text-emerald-400'), 1500)
+                          }}
+                          className="flex items-center justify-center w-8 h-8 rounded-full border border-[var(--surface-200)] text-[var(--surface-400)] hover:text-blue-400 hover:border-blue-500/30 transition-colors" title="Copiar informações">
+                          <Copy className="h-3.5 w-3.5" />
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); abrirWhatsAppComMsg(ficha) }}
+                          className="flex items-center justify-center w-8 h-8 rounded-full hover:opacity-80 transition-opacity" title="WhatsApp">
+                          <img src="/wts-icon.png" alt="WhatsApp" className="w-8 h-8 object-contain" />
                         </button>
                         <button
                           onClick={() => { setModalSomenteLeitura(true); setFichaModal(ficha) }}
