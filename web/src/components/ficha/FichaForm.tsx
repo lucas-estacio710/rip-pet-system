@@ -143,6 +143,7 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [buscandoCep, setBuscandoCep] = useState(false)
+  const [recontratacao, setRecontratacao] = useState(false)
   const [autosaveMsg, setAutosaveMsg] = useState('')
   const autosaveTimer = useRef<NodeJS.Timeout | null>(null)
   const easterEggSeq = useRef<string[]>([])
@@ -159,6 +160,44 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
 
   // Load draft + URL params on mount
   useEffect(() => {
+    // 0. Modo recontratação: link com ?rt=<token>. Ignora rascunho local
+    //    (pode ser de outra pessoa no mesmo device) e pré-preenche o tutor
+    //    a partir do token, deixando os campos editáveis. Foco no pet novo.
+    const rt = searchParams.get('rt')
+    if (rt) {
+      setRecontratacao(true)
+      fetch(`/api/recontratacao/resolve?token=${encodeURIComponent(rt)}`)
+        .then(r => (r.ok ? r.json() : null))
+        .then(data => {
+          const t = data?.tutor
+          if (!t) return
+          const docDigits = String(t.cpf || '').replace(/\D/g, '')
+          const isCnpj = docDigits.length > 11
+          // Telefone pode vir com o 55 (país) — o form trata país à parte, então normaliza pra DDD+número
+          let telDigits = String(t.telefone || '').replace(/\D/g, '')
+          if (telDigits.length > 11 && telDigits.startsWith('55')) telDigits = telDigits.slice(2)
+          setForm(prev => ({
+            ...prev,
+            tipoDocumento: isCnpj ? 'cnpj' : 'cpf',
+            nomeCompleto: t.nome || '',
+            cpf: docDigits ? (isCnpj ? maskCNPJ(docDigits) : maskCPF(docDigits)) : '',
+            telefone: telDigits ? maskPhone(telDigits) : '',
+            email: t.email || '',
+            cep: t.cep ? maskCEP(String(t.cep)) : '',
+            estado: t.estado || '',
+            cidade: t.cidade || '',
+            bairro: t.bairro || '',
+            endereco: t.endereco || '',
+            numero: t.numero || '',
+            complemento: t.complemento || '',
+            // Retutor já é cliente — "como nos conheceu" é redundante e fora de tom no luto
+            comoConheceu: ['Já utilizei a R.I.P. Pet'],
+          }))
+        })
+        .catch(() => { /* ignore — tutor preenche manualmente */ })
+      return
+    }
+
     // 1. Load draft from localStorage
     try {
       const saved = localStorage.getItem(STORAGE_KEY)
@@ -651,6 +690,11 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
           {/* ========== STEP 1: TUTOR ========== */}
           {step === 1 && (
             <>
+              {recontratacao && (
+                <div className="mb-4 rounded-lg bg-blue-50 border border-blue-200 p-3 text-sm text-blue-800">
+                  <p className="text-blue-700/90">Para agilizar, já preenchemos os dados do seu cadastro. Confira se estão corretos — você pode ajustar o que precisar — e siga com as informações do pet.</p>
+                </div>
+              )}
               <h2 className="text-lg font-bold text-slate-800 pb-3 border-b-2 border-slate-100">Dados do Tutor</h2>
 
               <div>
@@ -1052,7 +1096,8 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
                 </div>
               </div>
 
-              {/* Como conheceu */}
+              {/* Como conheceu — oculto no modo recontratação (retutor já é cliente) */}
+              {!recontratacao && (
               <div>
                 <label className={labelClass}>
                   Como nos conheceu? <span className="text-red-400">*</span>
@@ -1095,6 +1140,7 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
                   </div>
                 )}
               </div>
+              )}
 
               {/* Observações */}
               <div>

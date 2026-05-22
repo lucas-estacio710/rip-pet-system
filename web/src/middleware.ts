@@ -42,9 +42,11 @@ export async function middleware(request: NextRequest) {
   const isPublicAuthPage = pathname === '/esqueci-senha' || pathname === '/redefinir-senha'
   const isInstalarPage = pathname === '/instalar'
   const isWebhook = pathname.startsWith('/api/push/webhook')
+  // APIs de recontratação fazem a própria auth (gerar via Bearer, resolve via token assinado)
+  const isRecontratacaoApi = pathname.startsWith('/api/recontratacao')
 
   // Se não autenticado e NÃO está em página pública → redireciona para login
-  if (!user && !isLoginPage && !isAuthCallback && !isFicha && !isPublicAuthPage && !isInstalarPage && !isWebhook) {
+  if (!user && !isLoginPage && !isAuthCallback && !isFicha && !isPublicAuthPage && !isInstalarPage && !isWebhook && !isRecontratacaoApi) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)

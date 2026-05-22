@@ -6,6 +6,7 @@ import { ArrowLeft, User, Phone, Mail, MapPin, FileText, Calendar } from 'lucide
 import { createClient } from '@/lib/supabase/client'
 import { computeAllTags, ContratoTagData } from '@/lib/contrato-tags'
 import ContratoTags from '@/components/contratos/ContratoTags'
+import RecontratacaoButton from '@/components/contratos/RecontratacaoButton'
 import Link from 'next/link'
 
 type Tutor = {
@@ -201,6 +202,10 @@ export default function TutorDetalhe() {
                   {tutor.email}
                 </a>
               )}
+            </div>
+
+            <div className="mt-4">
+              <RecontratacaoButton tutorId={tutor.id} tela="tela_tutores" telefone={tutor.telefone} />
             </div>
           </div>
 

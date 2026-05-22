@@ -26,6 +26,7 @@ import ChegaramModal from '@/components/contratos/modals/ChegaramModal'
 import { gerarContratoPDF, contratoFilename } from '@/lib/contrato-pdf'
 import ObservacoesCard from '@/components/contratos/ObservacoesCard'
 import HistoricoCard from '@/components/contratos/HistoricoCard'
+import RecontratacaoButton from '@/components/contratos/RecontratacaoButton'
 import { ordenarCategoriasUrnas } from '@/lib/categorias'
 import { hojeLocal } from '@/lib/date-local'
 import ProdutosFilterBar from '@/components/ui/ProdutosFilterBar'
@@ -2715,6 +2716,16 @@ ${petNome}`
               <Link href={`/tutores/${contrato.tutor.id}`} className="text-xs text-purple-400 hover:underline ml-2">
                 Ver cadastro
               </Link>
+            )}
+            {contrato.tutor_id && (
+              <div className="ml-auto">
+                <RecontratacaoButton
+                  tutorId={contrato.tutor_id}
+                  tela="tela_contrato"
+                  telefone={contrato.tutor?.telefone || contrato.tutor_telefone}
+                  className="flex items-center gap-1.5 text-xs py-1 px-2.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 disabled:opacity-50"
+                />
+              </div>
             )}
           </div>
 

@@ -62,6 +62,7 @@ export const TELAS: ItemDef[] = [
   { key: 'tela_estoque', label: 'Estoque', desc: 'Controle de estoque' },
   { key: 'tela_gc', label: 'GC', desc: 'Gerenciamento de Cremações (Matriz)' },
   { key: 'tela_agenda', label: 'Agenda', desc: 'Calendário de agendamentos de cremações com tutores' },
+  { key: 'tela_clinicas', label: 'Clínicas', desc: 'Estabelecimentos parceiros: pets removidos, indicações e contatos' },
   { key: 'tela_tutores', label: 'Tutores', desc: 'Cadastro de tutores' },
   { key: 'tela_ads_shield', label: 'RIP Shield', desc: 'Detecção de fraude em cliques Google Ads' },
   { key: 'tela_dashboard', label: 'Dashboard (Admin)', desc: 'Painel interno do super_admin — uso/adoção dos usuários' },
@@ -107,6 +108,10 @@ export const CAMPOS_BOTOES: ChildItemDef[] = [
   { key: 'pagamento_completo', tela: 'tela_contrato', label: 'Pagamento Completo', desc: 'Detalhes avançados no modal de pagamento: bandeira do cartão + nº de identificação da transação (maquininha). Oculto = modo Pagamento Simples (só método e valor).', modo: 'toggle' },
   { key: 'btn_emitir_nfse', tela: 'tela_contrato', label: 'Emitir NF', desc: 'Botão de emissão de NFS-e (GISS) no card Financeiro' },
   { key: 'btn_mega_pagamento', tela: 'tela_contrato', label: 'Novo Pagamento / Pagamento de Saldo', desc: 'Botões de lançamento de pagamento (novo ou quitar saldo) no card Financeiro' },
+  { key: 'btn_recontratacao', tela: 'tela_contrato', label: 'Enviar Nova Contratação', desc: 'Gera link pré-preenchido pro tutor recontratar (novo pet). Premium — vendável por unidade.', modo: 'toggle' },
+
+  // --- TUTORES ---
+  { key: 'btn_recontratacao', tela: 'tela_tutores', label: 'Enviar Nova Contratação', desc: 'Gera link pré-preenchido pro tutor recontratar (novo pet). Premium — vendável por unidade.', modo: 'toggle' },
 
   // --- FICHAS ---
   { key: 'btn_pdf_ficha', tela: 'tela_fichas', label: 'Gerar PDF', desc: 'Botão azul de gerar PDF do contrato no card da ficha', modo: 'toggle' },

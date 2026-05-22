@@ -366,11 +366,15 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         setTutorChecked(true)
         return
       }
-      // Use ilike with % to match both formatted (123.456.789-00) and clean (12345678900)
+      // A base grava o CPF/CNPJ formatado (123.456.789-00). Buscar só pelos dígitos
+      // limpos nunca casava — reconstrói o formato pontuado e busca pelos dois.
+      const formatado = cpfLimpo.length === 11
+        ? `${cpfLimpo.slice(0, 3)}.${cpfLimpo.slice(3, 6)}.${cpfLimpo.slice(6, 9)}-${cpfLimpo.slice(9)}`
+        : `${cpfLimpo.slice(0, 2)}.${cpfLimpo.slice(2, 5)}.${cpfLimpo.slice(5, 8)}/${cpfLimpo.slice(8, 12)}-${cpfLimpo.slice(12)}`
       const { data } = await supabase
         .from('tutores')
         .select('id, nome')
-        .ilike('cpf', `%${cpfLimpo}%`)
+        .or(`cpf.eq.${formatado},cpf.eq.${cpfLimpo}`)
         .limit(1)
         .maybeSingle()
       setTutorExistente(data)
