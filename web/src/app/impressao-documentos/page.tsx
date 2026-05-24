@@ -5,6 +5,10 @@ import { useSearchParams } from 'next/navigation'
 import { Printer, Search, X, FileText, ClipboardList, Receipt, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
+import { gerarImpressaoUnificada, ImpressaoBlocos, ImpressaoProgress } from '@/lib/impressao-unificada'
+import { montarProtocoloData, normalizarProtocoloData } from '@/components/protocolo/protocolo-utils'
+import type { DadosContrato } from '@/lib/contrato-pdf'
+import type { FichaContratoData } from '@/components/fichas/FichaRemocao'
 
 // ============================================
 // Tipos
@@ -18,6 +22,7 @@ type ContratoLite = {
   status: Status
   numero_lacre: string | null
   tutor_nome: string | null
+  protocolo_data: unknown | null  // null = ainda não salvo (padrão usado em /contratos/[id])
 }
 
 type SelDocs = { contrato: boolean; ficha: boolean; protocolo: boolean }
@@ -52,6 +57,10 @@ const STATUS_COR: Record<Status, string> = {
 }
 
 const STATUS_ORDEM: Status[] = ['ativo', 'pinda', 'retorno', 'pendente', 'preventivo', 'finalizado']
+
+function labelFase(f: ImpressaoProgress['fase']): string {
+  return ({ contratos: 'Contratos', fichas: 'Fichas', protocolos: 'Protocolos', concatenando: 'Montando PDF' } as const)[f]
+}
 
 // ============================================
 // Helper: agrupa seleções em páginas A4
@@ -102,6 +111,10 @@ function Conteudo() {
   const [selecoes, setSelecoes] = useState<Map<string, SelDocs>>(new Map())
   // Pré-seleção da URL (rodamos só uma vez quando o contrato vem do DocMenu)
   const [preSelAplicada, setPreSelAplicada] = useState(false)
+  // Geração do PDF
+  const [gerando, setGerando] = useState(false)
+  const [progresso, setProgresso] = useState<ImpressaoProgress | null>(null)
+  const [erroGerar, setErroGerar] = useState('')
 
   // Carregar contratos da unidade ativa (com filtros + busca)
   const carregar = useCallback(async () => {
@@ -109,7 +122,7 @@ function Conteudo() {
     setLoading(true)
     let q = supabase
       .from('contratos')
-      .select('id, codigo, pet_nome, status, numero_lacre, tutor_nome')
+      .select('id, codigo, pet_nome, status, numero_lacre, tutor_nome, protocolo_data')
       .eq('unidade_id', currentUnit.id)
       .order('data_acolhimento', { ascending: false, nullsFirst: false })
       .limit(100)
@@ -163,6 +176,63 @@ function Conteudo() {
 
   function limparSelecao() { setSelecoes(new Map()) }
 
+  async function gerarPDF() {
+    if (selecoes.size === 0 || gerando) return
+    setGerando(true); setErroGerar(''); setProgresso(null)
+    try {
+      // 1. Fetch full dos contratos selecionados (tutor, produtos, pagamentos, estabelecimento)
+      const ids = Array.from(selecoes.keys())
+      const { data: full, error } = await supabase
+        .from('contratos')
+        .select('*, tutor:tutores(*), funcionario:funcionarios(nome), estabelecimento_coleta:estabelecimentos!contratos_estabelecimento_id_fkey(nome), contrato_produtos(*, produto:produtos(*)), pagamentos(*)')
+        .in('id', ids)
+      if (error || !full) throw new Error(error?.message || 'Erro ao carregar contratos')
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const byId = new Map<string, any>(full.map((c: any) => [c.id, c]))
+
+      const nomeUnidade = currentUnit ? `${currentUnit.cidade} - ${currentUnit.estado}` : 'Santos - SP'
+      const blocos: ImpressaoBlocos = { contratos: [], fichas: [], protocolos: [] }
+
+      selecoes.forEach((sel, id) => {
+        const c = byId.get(id)
+        if (!c) return
+
+        if (sel.contrato) {
+          blocos.contratos.push({ dados: mapToContratoDados(c), nomeUnidade })
+        }
+        if (sel.ficha) {
+          blocos.fichas.push(mapToFichaData(c))
+        }
+        if (sel.protocolo) {
+          blocos.protocolos.push(c.protocolo_data
+            ? normalizarProtocoloData(c.protocolo_data)
+            : montarProtocoloDoZero(c))
+        }
+      })
+
+      // 2. Gerar PDF unificado
+      const blob = await gerarImpressaoUnificada(blocos, p => setProgresso(p))
+
+      // 3. Download
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const ts = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')
+      a.download = `impressao-${ts}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      setTimeout(() => URL.revokeObjectURL(url), 1500)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Erro ao gerar PDF'
+      setErroGerar(msg)
+    } finally {
+      setGerando(false)
+      setProgresso(null)
+    }
+  }
+
   // Páginas computadas em tempo real
   const paginas = useMemo(() => computarPaginas(selecoes, contratos), [selecoes, contratos])
   const totalSel = useMemo(() => {
@@ -193,16 +263,27 @@ function Conteudo() {
             )}
           </div>
           <button
-            disabled
-            title="Geração do PDF — em breve (Fase 2)"
+            onClick={gerarPDF}
+            disabled={selecoes.size === 0 || gerando || paginas.length === 0}
+            title={selecoes.size === 0 ? 'Selecione documentos pra imprimir' : 'Gera um PDF único concatenando contratos, fichas e protocolos'}
             className="btn-primary text-sm py-2 px-4 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             style={{ background: 'var(--brand-600)' }}
           >
-            <Printer className="h-4 w-4" />
-            Gerar PDF Único
+            {gerando
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : <Printer className="h-4 w-4" />}
+            {gerando
+              ? (progresso ? `${labelFase(progresso.fase)} ${progresso.atual}/${progresso.total}…` : 'Preparando…')
+              : 'Gerar PDF Único'}
           </button>
         </div>
       </div>
+
+      {erroGerar && (
+        <div className="mb-4 rounded-lg bg-red-600 text-white px-4 py-2 text-sm font-medium">
+          ⚠️ {erroGerar}
+        </div>
+      )}
 
       {/* Grid 2 colunas (mobile: stack) */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-6">
@@ -301,7 +382,14 @@ function Conteudo() {
                     <div className="flex items-center gap-1 shrink-0">
                       <DocCheckbox doc="contrato" Icon={FileText} sel={sel.contrato} onClick={() => toggleDoc(c.id, 'contrato')} label="Contrato" />
                       <DocCheckbox doc="ficha" Icon={ClipboardList} sel={sel.ficha} onClick={() => toggleDoc(c.id, 'ficha')} label="Ficha" />
-                      <DocCheckbox doc="protocolo" Icon={Receipt} sel={sel.protocolo} onClick={() => toggleDoc(c.id, 'protocolo')} label="Protocolo" />
+                      <DocCheckbox
+                        doc="protocolo"
+                        Icon={Receipt}
+                        sel={sel.protocolo}
+                        onClick={() => toggleDoc(c.id, 'protocolo')}
+                        label="Protocolo"
+                        salvo={!!c.protocolo_data}
+                      />
                     </div>
                   </div>
                 </div>
@@ -345,25 +433,34 @@ function Conteudo() {
 // ============================================
 // Subcomponente: checkbox-botão por documento
 // ============================================
-function DocCheckbox({ doc, Icon, sel, onClick, label }: {
+function DocCheckbox({ doc, Icon, sel, onClick, label, salvo }: {
   doc: keyof typeof COR_DOC
   Icon: React.ComponentType<{ className?: string }>
   sel: boolean
   onClick: () => void
   label: string
+  /** Indica que o documento já foi salvo no banco (ex: protocolo_data existe) — mostra um pontinho verde. */
+  salvo?: boolean
 }) {
   const cor = COR_DOC[doc]
+  const titulo = `${label} — ${sel ? 'marcado' : 'marcar'}${salvo ? ' · já salvo' : ''}`
   return (
     <button
       type="button"
       onClick={onClick}
-      title={`${label} — ${sel ? 'marcado' : 'marcar'}`}
-      className={`flex items-center gap-1 px-2 py-1 rounded-md border text-[10px] font-semibold transition-colors ${
+      title={titulo}
+      className={`relative flex items-center gap-1 px-2 py-1 rounded-md border text-[10px] font-semibold transition-colors ${
         sel ? `${cor.bg} ${cor.border} ${cor.texto}` : 'bg-transparent text-[var(--surface-400)] border-[var(--surface-200)] hover:border-[var(--surface-300)]'
       }`}
     >
       <Icon className="h-3 w-3" />
       <span className="hidden sm:inline">{label}</span>
+      {salvo && (
+        <span
+          className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-[var(--surface-0)]"
+          aria-label="Salvo"
+        />
+      )}
     </button>
   )
 }
@@ -413,6 +510,88 @@ function PaginaPreview({ numero, pagina }: { numero: number; pagina: Pagina }) {
     </div>
   )
 }
+
+// ============================================
+// Mapeamentos: contrato cru (Supabase) → blocos de impressão
+// (Espelha o mesmo mapping usado em /contratos/[id] na geração individual.)
+// ============================================
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+function mapToContratoDados(c: any): DadosContrato {
+  const tutor = c.tutor
+  return {
+    codigo: c.codigo,
+    lacre: c.numero_lacre,
+    tutorNome: tutor?.nome || c.tutor_nome,
+    tutorTelefone: tutor?.telefone || c.tutor_telefone || '',
+    tutorCpf: tutor?.cpf || c.tutor_cpf || '',
+    tutorEmail: tutor?.email || c.tutor_email,
+    tutorEndereco: tutor
+      ? `${tutor.endereco || ''}${tutor.numero ? ', ' + tutor.numero : ''}${tutor.complemento ? ' - ' + tutor.complemento : ''}`
+      : c.tutor_endereco,
+    tutorEstado: tutor?.estado,
+    tutorCidade: tutor?.cidade || c.tutor_cidade,
+    tutorBairro: tutor?.bairro || c.tutor_bairro,
+    tutorCep: tutor?.cep || c.tutor_cep,
+    petNome: c.pet_nome,
+    petEspecie: c.pet_especie,
+    petRaca: c.pet_raca,
+    petIdade: c.pet_idade_anos,
+    petCor: c.pet_cor,
+    petGenero: c.pet_genero,
+    petPeso: c.pet_peso,
+    localColeta: c.local_coleta,
+    tipoCremacao: c.tipo_cremacao,
+    valorPlano: c.valor_plano,
+    metodoPagamento: c.pagamentos?.[0]?.metodo || null,
+    parcelas: c.pagamentos?.[0]?.parcelas || null,
+    velorioDeseja: c.velorio_deseja ?? null,
+    acompanhamentoOnline: c.acompanhamento_online ?? false,
+    acompanhamentoPresencial: c.acompanhamento_presencial ?? false,
+  } as DadosContrato
+}
+
+function mapToFichaData(c: any): FichaContratoData {
+  return {
+    id: c.id,
+    codigo: c.codigo,
+    numero_lacre: c.numero_lacre,
+    tipo_cremacao: c.tipo_cremacao,
+    data_acolhimento: c.data_acolhimento,
+    pet_nome: c.pet_nome,
+    pet_especie: c.pet_especie,
+    pet_raca: c.pet_raca,
+    pet_cor: c.pet_cor,
+    pet_idade_anos: c.pet_idade_anos,
+    pet_peso: c.pet_peso,
+    pet_genero: c.pet_genero,
+    certificado_nome_1: c.certificado_nome_1,
+    certificado_nome_2: c.certificado_nome_2,
+    certificado_nome_3: c.certificado_nome_3,
+    certificado_nome_4: c.certificado_nome_4,
+    certificado_nome_5: c.certificado_nome_5,
+    certificado_nome_6: c.certificado_nome_6,
+    certificado_nome_7: c.certificado_nome_7,
+    local_coleta: c.local_coleta,
+    clinica_veterinaria: c.estabelecimento_coleta?.nome || c.clinica_coleta || null,
+    colaborador_responsavel: c.funcionario?.nome || null,
+    observacoes: c.observacoes,
+    tutor_nome: c.tutor_nome,
+    tutor: c.tutor ? { nome: c.tutor.nome, bairro: c.tutor.bairro, cidade: c.tutor.cidade } : null,
+  }
+}
+
+function montarProtocoloDoZero(c: any) {
+  const produtos: any[] = c.contrato_produtos || []
+  const pagamentos: any[] = c.pagamentos || []
+  const totalProdutos = produtos.reduce((s, cp) => s + ((cp.valor || 0) - (cp.desconto || 0)) * (cp.quantidade || 1), 0)
+  const valorPlanoLiquido = (c.valor_plano || 0) - (c.desconto_plano_unificado || c.desconto_plano || 0)
+  const totalAPagar = valorPlanoLiquido + totalProdutos
+  const totalPago = pagamentos.reduce((s, p) => s + (p.valor || 0), 0)
+  const saldo = totalAPagar - totalPago
+  return montarProtocoloData(c, produtos, { totalAPagar, totalPago, saldo, aPagarPlano: valorPlanoLiquido })
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 // Slot dentro da folha A4 (com info do contrato ou vazio cinza)
 function SlotMini({ c, cor, className }: { c: ContratoLite | null; cor: typeof COR_DOC.contrato; className?: string }) {

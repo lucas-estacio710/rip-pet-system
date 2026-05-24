@@ -6,7 +6,7 @@ import { ProtocoloData } from './protocolo-utils'
 /**
  * Monta o HTML completo de uma leva de protocolos em chunks de 4 (grid 2x2 por página A4).
  */
-function buildProtocolosHtml(protocolos: ProtocoloData[]): string {
+export function buildProtocolosHtml(protocolos: ProtocoloData[]): string {
   const chunks: ProtocoloData[][] = []
   for (let i = 0; i < protocolos.length; i += 4) {
     chunks.push(protocolos.slice(i, i + 4))
