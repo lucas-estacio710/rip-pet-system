@@ -109,6 +109,7 @@ export const CAMPOS_BOTOES: ChildItemDef[] = [
   { key: 'btn_emitir_nfse', tela: 'tela_contrato', label: 'Emitir NF', desc: 'Botão de emissão de NFS-e (GISS) no card Financeiro' },
   { key: 'btn_mega_pagamento', tela: 'tela_contrato', label: 'Novo Pagamento / Pagamento de Saldo', desc: 'Botões de lançamento de pagamento (novo ou quitar saldo) no card Financeiro' },
   { key: 'btn_recontratacao', tela: 'tela_contrato', label: 'Enviar Nova Contratação', desc: 'Gera link pré-preenchido pro tutor recontratar (novo pet). Premium — vendável por unidade.', modo: 'toggle' },
+  { key: 'btn_alterar_dados_enviados', tela: 'tela_contrato', label: 'Alterar Dados Enviados (crítico)', desc: 'Botão crítico no Hero — abre modal de edição de dados que o tutor enviou (tutor/pet/serviço). Registra em histórico. Gate em código: só gerente/super_admin.', modo: 'toggle' },
 
   // --- TUTORES ---
   { key: 'btn_recontratacao', tela: 'tela_tutores', label: 'Enviar Nova Contratação', desc: 'Gera link pré-preenchido pro tutor recontratar (novo pet). Premium — vendável por unidade.', modo: 'toggle' },
