@@ -2,8 +2,18 @@
 
 import { forwardRef } from 'react'
 
+/**
+ * Ficha de Remoção — usa o template `/images/ficha-remocao-template.png` (398x512)
+ * como fundo e posiciona os textos por X/Y absoluto em cima.
+ *
+ * Para preencher 100%, o chamador deve resolver antes de passar:
+ *   - clinica_veterinaria: contratos.clinica_coleta OU estabelecimentos.nome via estabelecimento_id
+ *   - colaborador_responsavel: funcionarios.nome via contratos.funcionario_id
+ *   - certificado_nome_1..7: já existem no contrato
+ */
 export type FichaContratoData = {
-  codigo: string
+  id?: string                          // UUID — usado no canto sup. direito como "Código interno de autenticação"
+  codigo: string                       // mantido por compat (não usado no novo layout)
   numero_lacre?: string | null
   tipo_cremacao: 'individual' | 'coletiva'
   data_acolhimento?: string | null
@@ -14,266 +24,146 @@ export type FichaContratoData = {
   pet_idade_anos?: number | null
   pet_peso?: number | null
   pet_genero?: string | null
+  certificado_nome_1?: string | null
+  certificado_nome_2?: string | null
+  certificado_nome_3?: string | null
+  certificado_nome_4?: string | null
+  certificado_nome_5?: string | null
+  certificado_nome_6?: string | null
+  certificado_nome_7?: string | null
+  local_coleta?: string | null
+  clinica_veterinaria?: string | null
+  colaborador_responsavel?: string | null
+  observacoes?: string | null
+  // Compat com chamadores legados — não usado neste layout
   tutor_nome?: string | null
   tutor_bairro?: string | null
   tutor_cidade?: string | null
-  local_coleta?: string | null
-  observacoes?: string | null
-  tutor?: {
-    nome?: string | null
-    bairro?: string | null
-    cidade?: string | null
-  } | null
+  tutor?: { nome?: string | null; bairro?: string | null; cidade?: string | null } | null
 }
 
-function formatarDataFicha(data: string | null | undefined): string {
-  if (!data) return '__/__/____'
-  const d = new Date(data)
-  return d.toLocaleDateString('pt-BR')
+const TEMPLATE_W = 398
+const TEMPLATE_H = 512
+const TEMPLATE_URL = '/images/ficha-remocao-template.png'
+
+function parteData(d?: string | null) {
+  if (!d) return { dd: '', mm: '', yyyy: '', hh: '', min: '' }
+  const dt = new Date(d)
+  return {
+    dd: String(dt.getDate()).padStart(2, '0'),
+    mm: String(dt.getMonth() + 1).padStart(2, '0'),
+    yyyy: String(dt.getFullYear()),
+    hh: String(dt.getHours()).padStart(2, '0'),
+    min: String(dt.getMinutes()).padStart(2, '0'),
+  }
 }
 
-function formatarHoraFicha(data: string | null | undefined): string {
-  if (!data) return '__:__'
-  const d = new Date(data)
-  return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-}
-
-// Cores em hex para compatibilidade com html2canvas (Tailwind v4 usa lab/oklch que html2canvas nao suporta)
-const C = {
-  white: '#ffffff',
-  black: '#000000',
-  gray50: '#f9fafb',
-  gray100: '#f3f4f6',
-  gray300: '#d1d5db',
-  gray400: '#9ca3af',
-  gray600: '#4b5563',
-  gray700: '#374151',
-  gray800: '#1f2937',
-  yellow50: '#fefce8',
-  purple200: '#e9d5ff',
-  purple300: '#d8b4fe',
-  purple400: '#c084fc',
-  purple600: '#9333ea',
-  purple800: '#6b21a8',
-  purple900: '#581c87',
-  purpleBg: '#faf5ff',
-  blue200: '#bfdbfe',
-  blue300: '#93c5fd',
-  blue800: '#1e40af',
-  blueBg: '#eff6ff',
+// Estilo base de cada campo (texto inserido sobre o template).
+// IMPORTANTE: sem `overflow: hidden` — combinado com lineHeight baixo, estava cortando
+// descenders (g, p, q, y) na metade horizontal. Width controla onde o texto pára.
+const BASE_FIELD: React.CSSProperties = {
+  position: 'absolute',
+  fontFamily: 'Arial, sans-serif',
+  fontSize: 11,
+  color: '#1d4ed8',   // azul royal (Tailwind blue-700) — destaca dados preenchidos sobre o template P&B
+  lineHeight: 1.4,
+  whiteSpace: 'nowrap',
 }
 
 const FichaRemocao = forwardRef<HTMLDivElement, { contrato: FichaContratoData }>(
   function FichaRemocao({ contrato }, ref) {
-    const isColetiva = contrato.tipo_cremacao === 'coletiva'
-    const isIndividual = contrato.tipo_cremacao === 'individual'
+    const isCol = contrato.tipo_cremacao === 'coletiva'
+    const isInd = contrato.tipo_cremacao === 'individual'
+    const d = parteData(contrato.data_acolhimento)
+    const nomes = [
+      contrato.certificado_nome_1, contrato.certificado_nome_2, contrato.certificado_nome_3,
+      contrato.certificado_nome_4, contrato.certificado_nome_5, contrato.certificado_nome_6,
+      contrato.certificado_nome_7,
+    ]
 
     return (
       <div
         ref={ref}
         style={{
-          fontFamily: 'Arial, sans-serif',
-          width: 480,
-          background: C.white,
-          border: `2px solid ${C.gray800}`,
-          borderRadius: 8,
-          overflow: 'hidden',
-          color: C.black,
-          fontSize: 14,
-          lineHeight: 1.4,
+          position: 'relative',
+          width: TEMPLATE_W,
+          height: TEMPLATE_H,
+          background: '#fff',
         }}
       >
-        {/* Cabecalho */}
-        <div style={{ background: `linear-gradient(to right, ${C.purple600}, ${C.purple800})`, color: C.white, padding: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 48, height: 48, background: C.white, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <span style={{ fontSize: 24 }}>&#x1F43E;</span>
-              </div>
-              <div>
-                <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: 1 }}>R.I.P. PET</div>
-                <div style={{ color: C.purple200, fontSize: 12 }}>Crematorio de Animais</div>
-              </div>
-            </div>
-            <div style={{ textAlign: 'right', fontSize: 14 }}>
-              <div style={{ fontWeight: 700 }}>&#x1F4DE; (13) 99602-0550</div>
-              <div style={{ color: C.purple200 }}>24h</div>
-            </div>
-          </div>
+        {/* Template como fundo */}
+        <img
+          src={TEMPLATE_URL}
+          alt="Template"
+          width={TEMPLATE_W}
+          height={TEMPLATE_H}
+          style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', userSelect: 'none', pointerEvents: 'none' }}
+        />
+
+        {/* Código interno de autenticação — UUID do contrato (cara de código de banco) */}
+        <div style={{ ...BASE_FIELD, top: 23, right: 22, textAlign: 'right', fontWeight: 600, fontSize: 9, fontFamily: 'monospace' }}>
+          {contrato.id || contrato.codigo}
         </div>
 
-        {/* Titulo */}
-        <div style={{ background: C.gray100, padding: '8px 0', textAlign: 'center', borderBottom: `2px solid ${C.gray800}` }}>
-          <div style={{ fontSize: 18, fontWeight: 700, color: C.gray800, letterSpacing: 4 }}>FICHA DE REMOCAO</div>
+        {/* N° do Lacre */}
+        <div style={{ ...BASE_FIELD, top: 71, left: 227, width: 100, fontWeight: 700, fontSize: 14 }}>
+          {contrato.numero_lacre || ''}
         </div>
 
-        {/* Conteudo */}
-        <div style={{ padding: 16 }}>
-          {/* Lacre e Codigo */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontWeight: 700, color: C.gray700 }}>N Lacre:</span>
-              <span style={{ flex: 1, borderBottom: `1px solid ${C.gray400}`, padding: '4px 8px', background: C.yellow50, fontFamily: 'monospace' }}>
-                {contrato.numero_lacre || '_____________'}
-              </span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontWeight: 700, color: C.gray700 }}>Codigo:</span>
-              <span style={{ flex: 1, borderBottom: `1px solid ${C.gray400}`, padding: '4px 8px', background: C.gray50, fontFamily: 'monospace' }}>
-                {contrato.codigo}
-              </span>
-            </div>
-          </div>
-
-          {/* Tipo de Cremacao */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '8px 12px', border: `1px solid ${C.gray300}`, borderRadius: 8, background: C.gray50, marginBottom: 12 }}>
-            <span style={{ fontWeight: 700, color: C.gray700 }}>Cremacao:</span>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{
-                width: 20, height: 20, borderRadius: '50%', border: `2px solid ${isColetiva ? C.purple600 : C.gray400}`,
-                background: isColetiva ? C.purple600 : 'transparent',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                {isColetiva && <span style={{ color: C.white, fontSize: 12 }}>&#x2713;</span>}
-              </span>
-              <span style={{ fontWeight: isColetiva ? 700 : 400 }}>Coletiva</span>
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{
-                width: 20, height: 20, borderRadius: '50%', border: `2px solid ${isIndividual ? C.purple600 : C.gray400}`,
-                background: isIndividual ? C.purple600 : 'transparent',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                {isIndividual && <span style={{ color: C.white, fontSize: 12 }}>&#x2713;</span>}
-              </span>
-              <span style={{ fontWeight: isIndividual ? 700 : 400 }}>Individual</span>
-            </label>
-          </div>
-
-          {/* Data e Hora */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontWeight: 700, color: C.gray700 }}>&#x1F4C5; Data:</span>
-              <span style={{ flex: 1, borderBottom: `1px solid ${C.gray400}`, padding: '4px 8px', background: C.gray50 }}>
-                {formatarDataFicha(contrato.data_acolhimento)}
-              </span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontWeight: 700, color: C.gray700 }}>&#x1F550; Hora:</span>
-              <span style={{ flex: 1, borderBottom: `1px solid ${C.gray400}`, padding: '4px 8px', background: C.gray50 }}>
-                {formatarHoraFicha(contrato.data_acolhimento)}
-              </span>
-            </div>
-          </div>
-
-          {/* Divisoria */}
-          <div style={{ borderTop: `2px dashed ${C.gray300}`, margin: '8px 0' }} />
-
-          {/* Dados do Animal */}
-          <div style={{ background: C.purpleBg, borderRadius: 8, padding: 12, border: `1px solid ${C.purple200}`, marginBottom: 12 }}>
-            <div style={{ fontWeight: 700, color: C.purple800, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-              &#x1F43E; DADOS DO ANIMAL
-            </div>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <span style={{ fontWeight: 700, color: C.gray700, width: 96 }}>Nome:</span>
-                <span style={{ flex: 1, borderBottom: `1px solid ${C.purple300}`, padding: '4px 8px', background: C.white, fontWeight: 600, color: C.purple900 }}>
-                  {contrato.pet_nome}
-                </span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontWeight: 700, color: C.gray700, fontSize: 12 }}>Especie:</span>
-                  <span style={{ flex: 1, borderBottom: `1px solid ${C.purple300}`, padding: '0 4px', background: C.white, fontSize: 12 }}>
-                    {contrato.pet_especie || '___'}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontWeight: 700, color: C.gray700, fontSize: 12 }}>Raca:</span>
-                  <span style={{ flex: 1, borderBottom: `1px solid ${C.purple300}`, padding: '0 4px', background: C.white, fontSize: 12 }}>
-                    {contrato.pet_raca || '___'}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontWeight: 700, color: C.gray700, fontSize: 12 }}>Cor:</span>
-                  <span style={{ flex: 1, borderBottom: `1px solid ${C.purple300}`, padding: '0 4px', background: C.white, fontSize: 12 }}>
-                    {contrato.pet_cor || '___'}
-                  </span>
-                </div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontWeight: 700, color: C.gray700, fontSize: 12 }}>Idade:</span>
-                  <span style={{ flex: 1, borderBottom: `1px solid ${C.purple300}`, padding: '0 4px', background: C.white, fontSize: 12 }}>
-                    {contrato.pet_idade_anos ? `${contrato.pet_idade_anos} anos` : '___'}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontWeight: 700, color: C.gray700, fontSize: 12 }}>Peso:</span>
-                  <span style={{ flex: 1, borderBottom: `1px solid ${C.purple300}`, padding: '0 4px', background: C.white, fontSize: 12 }}>
-                    {contrato.pet_peso ? `${contrato.pet_peso} kg` : '___'}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontWeight: 700, color: C.gray700, fontSize: 12 }}>Sexo:</span>
-                  <span style={{ flex: 1, borderBottom: `1px solid ${C.purple300}`, padding: '0 4px', background: C.white, fontSize: 12 }}>
-                    {contrato.pet_genero === 'macho' ? 'M' : contrato.pet_genero === 'femea' ? 'F' : '___'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Dados do Tutor */}
-          <div style={{ background: C.blueBg, borderRadius: 8, padding: 12, border: `1px solid ${C.blue200}`, marginBottom: 12 }}>
-            <div style={{ fontWeight: 700, color: C.blue800, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-              &#x1F464; DADOS DO TUTOR
-            </div>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <span style={{ fontWeight: 700, color: C.gray700, width: 64 }}>Nome:</span>
-                <span style={{ flex: 1, borderBottom: `1px solid ${C.blue300}`, padding: '4px 8px', background: C.white }}>
-                  {contrato.tutor?.nome || contrato.tutor_nome}
-                </span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontWeight: 700, color: C.gray700, fontSize: 12 }}>Bairro:</span>
-                  <span style={{ flex: 1, borderBottom: `1px solid ${C.blue300}`, padding: '0 4px', background: C.white, fontSize: 12 }}>
-                    {contrato.tutor?.bairro || contrato.tutor_bairro || '___'}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontWeight: 700, color: C.gray700, fontSize: 12 }}>Cidade:</span>
-                  <span style={{ flex: 1, borderBottom: `1px solid ${C.blue300}`, padding: '0 4px', background: C.white, fontSize: 12 }}>
-                    {contrato.tutor?.cidade || contrato.tutor_cidade || '___'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Local de Coleta */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-            <span style={{ fontWeight: 700, color: C.gray700 }}>&#x1F4CD; Local da Coleta:</span>
-            <span style={{ flex: 1, borderBottom: `1px solid ${C.gray400}`, padding: '4px 8px', background: C.gray50 }}>
-              {contrato.local_coleta || '___________________________'}
-            </span>
-          </div>
-
-          {/* Observacoes */}
-          <div>
-            <span style={{ fontWeight: 700, color: C.gray700, display: 'block', marginBottom: 4 }}>&#x1F4DD; Observacoes:</span>
-            <div style={{ border: `1px solid ${C.gray300}`, borderRadius: 8, padding: 8, background: C.gray50, minHeight: 60, fontSize: 12 }}>
-              {contrato.observacoes || 'Sem observacoes'}
-            </div>
-          </div>
+        {/* Tipo de Cremação — X dentro do parêntese */}
+        <div style={{ ...BASE_FIELD, top: 97, left: 182, fontWeight: 700, fontSize: 12 }}>
+          {isCol ? 'X' : ''}
+        </div>
+        <div style={{ ...BASE_FIELD, top: 97, left: 268, fontWeight: 700, fontSize: 12 }}>
+          {isInd ? 'X' : ''}
         </div>
 
-        {/* Rodape */}
-        <div style={{ background: C.gray100, padding: 12, textAlign: 'center', fontSize: 12, color: C.gray600, borderTop: `1px solid ${C.gray300}` }}>
-          <div>Av. Coronel Joaquim Montenegro, 334 - Ponta da Praia, Santos/SP</div>
-          <div style={{ fontWeight: 600, color: C.purple400 }}>www.rippet.com.br</div>
+        {/* Data/hora de Acolhimento */}
+        <div style={{ ...BASE_FIELD, top: 117, left: 183, width: 22, textAlign: 'center' }}>{d.dd}</div>
+        <div style={{ ...BASE_FIELD, top: 117, left: 222, width: 22, textAlign: 'center' }}>{d.mm}</div>
+        <div style={{ ...BASE_FIELD, top: 117, left: 259, width: 38, textAlign: 'center' }}>{d.yyyy}</div>
+        <div style={{ ...BASE_FIELD, top: 117, left: 315, width: 22, textAlign: 'center' }}>{d.hh}</div>
+        <div style={{ ...BASE_FIELD, top: 117, left: 345, width: 22, textAlign: 'center' }}>{d.min}</div>
+
+        {/* Nome do Animal */}
+        <div style={{ ...BASE_FIELD, top: 152, left: 118, width: 257 }}>{contrato.pet_nome}</div>
+
+        {/* Espécie / Raça / Cor */}
+        <div style={{ ...BASE_FIELD, top: 171, left: 70, width: 55 }}>{contrato.pet_especie || ''}</div>
+        <div style={{ ...BASE_FIELD, top: 171, left: 146, width: 90 }}>{contrato.pet_raca || ''}</div>
+        <div style={{ ...BASE_FIELD, top: 173, left: 290, width: 90, fontSize: 9 }}>{contrato.pet_cor || ''}</div>
+
+        {/* Idade (10px à esquerda de Peso) / Peso / Sexo */}
+        <div style={{ ...BASE_FIELD, top: 193, left: 139, width: 50 }}>
+          {contrato.pet_idade_anos ? `${contrato.pet_idade_anos} anos` : ''}
+        </div>
+        <div style={{ ...BASE_FIELD, top: 190, left: 199, width: 80 }}>
+          {contrato.pet_peso ? `${contrato.pet_peso} kg` : ''}
+        </div>
+        <div style={{ ...BASE_FIELD, top: 189, left: 315, width: 70 }}>
+          {contrato.pet_genero === 'macho' ? 'Macho' : contrato.pet_genero === 'femea' ? 'Fêmea' : ''}
+        </div>
+
+        {/* Tutor(es) — 7 nomes. Step 20px (18 + 2px de compensação acumulada por linha) */}
+        {nomes.map((n, i) => (
+          <div key={i} style={{ ...BASE_FIELD, top: 215 + i * 20, left: 74, width: 306 }}>
+            {n || ''}
+          </div>
+        ))}
+
+        {/* Clínica Veterinária */}
+        <div style={{ ...BASE_FIELD, top: 364, left: 128, width: 247 }}>
+          {contrato.clinica_veterinaria || contrato.local_coleta || ''}
+        </div>
+
+        {/* Colaborador resp. acolhimento — vem de contratos.funcionario.nome */}
+        <div style={{ ...BASE_FIELD, top: 391, left: 203, width: 177 }}>
+          {contrato.colaborador_responsavel || ''}
+        </div>
+
+        {/* Observações especiais (pode ocupar mais de 1 linha) */}
+        <div style={{ ...BASE_FIELD, top: 457, left: 20, width: 360, whiteSpace: 'normal', fontSize: 9 }}>
+          {contrato.observacoes || ''}
         </div>
       </div>
     )

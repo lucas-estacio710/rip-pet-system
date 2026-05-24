@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useRef } from 'react'
 import FichaRemocao from '@/components/fichas/FichaRemocao'
-import { captureElementAsBlob, fichaFilename } from '@/lib/ficha-generator'
+import { captureElementAsBlob, fichaFilename, gerarFichaPDFA4Duplicada, fichaFilenamePDF } from '@/lib/ficha-generator'
+import EditarFichaModal from '@/components/contratos/modals/EditarFichaModal'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, User, Phone, Mail, MapPin, DollarSign, FileText, X, Search, Plus, Pencil, Trash2, Check, Copy, Package, AlertTriangle, Star, Download, Share2, Receipt, RefreshCw, Award, Clock, CheckCheck, CalendarClock, SearchCheck, Flame, CheckCircle2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -23,10 +24,13 @@ import AtivarModal from '@/components/contratos/modals/AtivarModal'
 import FinalizadoraModal from '@/components/contratos/modals/FinalizadoraModal'
 import ChegamosModal from '@/components/contratos/modals/ChegamosModal'
 import ChegaramModal from '@/components/contratos/modals/ChegaramModal'
-import { gerarContratoPDF, contratoFilename } from '@/lib/contrato-pdf'
 import ObservacoesCard from '@/components/contratos/ObservacoesCard'
+import DocMenu from '@/components/contratos/DocMenu'
+import EditarContratoModal from '@/components/contratos/modals/EditarContratoModal'
+import { baixarContratoPDF } from '@/lib/contrato-pdf-download'
 import HistoricoCard from '@/components/contratos/HistoricoCard'
 import RecontratacaoButton from '@/components/contratos/RecontratacaoButton'
+import AlterarDadosEnviadosModal from '@/components/contratos/modals/AlterarDadosEnviadosModal'
 import { ordenarCategoriasUrnas } from '@/lib/categorias'
 import { hojeLocal } from '@/lib/date-local'
 import ProdutosFilterBar from '@/components/ui/ProdutosFilterBar'
@@ -326,7 +330,6 @@ export default function ContratoDetalhe() {
   const [mostrarOpcoesProduto, setMostrarOpcoesProduto] = useState(false)
   // NFS-e
   const [emitindoNf, setEmitindoNf] = useState(false)
-  const [gerandoPdf, setGerandoPdf] = useState(false)
   const [nfMensagem, setNfMensagem] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null)
   // Pagamentos
   const [pagamentos, setPagamentos] = useState<Pagamento[]>([])
@@ -433,6 +436,67 @@ export default function ContratoDetalhe() {
   // Modal Ficha de Remoção
   const [fichaModal, setFichaModal] = useState(false)
   const fichaRef = useRef<HTMLDivElement>(null)
+  // DocMenu — modal de edição + loading da geração de PDF do contrato
+  const [editarContratoOpen, setEditarContratoOpen] = useState(false)
+  const [gerandoContratoDoc, setGerandoContratoDoc] = useState(false)
+  // DocMenu Ficha — modal de edicao + impressao PDF off-screen
+  const [editarFichaOpen, setEditarFichaOpen] = useState(false)
+  const [imprimindoFicha, setImprimindoFicha] = useState(false)
+  const fichaImprimirRef = useRef<HTMLDivElement>(null)
+  // Modal crítico: gerente edita dados que vieram da ficha (com auditoria)
+  const [alterarDadosOpen, setAlterarDadosOpen] = useState(false)
+
+  async function gerarContratoDoc() {
+    if (!contrato) return
+    setGerandoContratoDoc(true)
+    try {
+      await baixarContratoPDF(supabase, contrato.id)
+    } catch (err) {
+      console.error('Erro ao gerar PDF do contrato:', err)
+      alert('Erro ao gerar PDF do contrato. Tente novamente.')
+    } finally {
+      setGerandoContratoDoc(false)
+    }
+  }
+
+  /** Dispara render off-screen + captura + gera PDF A4 com 2 cópias da ficha */
+  function imprimirFichaDoc() {
+    if (!contrato) return
+    setImprimindoFicha(true)
+  }
+
+  // Quando imprimindoFicha vira true, espera o render off-screen e gera PDF
+  useEffect(() => {
+    if (!imprimindoFicha || !contrato) return
+    const c = contrato
+    const t = setTimeout(async () => {
+      if (!fichaImprimirRef.current) { setImprimindoFicha(false); return }
+      try {
+        await gerarFichaPDFA4Duplicada(fichaImprimirRef.current, fichaFilenamePDF(c.codigo, c.pet_nome))
+      } catch (err) {
+        console.error('Erro ao gerar PDF da ficha:', err)
+        alert('Erro ao gerar PDF da ficha.')
+      } finally {
+        setImprimindoFicha(false)
+      }
+    }, 300)
+    return () => clearTimeout(t)
+  }, [imprimindoFicha, contrato])
+
+  /** Abre o modal de Protocolo de Entrega — reusa o protocolo_data salvo ou monta a partir dos produtos/pagamentos. */
+  function abrirProtocoloDoc() {
+    if (!contrato) return
+    if (contrato.protocolo_data) {
+      setProtocoloEdit(normalizarProtocoloData(contrato.protocolo_data))
+      return
+    }
+    const cpProdutos = contratoProdutos.map(cp => ({
+      valor: cp.valor,
+      produto: cp.produto ? { nome: cp.produto.nome, tipo: cp.produto.tipo, preco: cp.produto.preco } : null,
+    }))
+    const financeiro = calcFinanceiroProtocolo(contrato, pagamentos)
+    setProtocoloEdit(montarProtocoloData(contrato, cpProdutos, financeiro))
+  }
   const [gerandoFicha, setGerandoFicha] = useState(false)
 
   // Modal Protocolo de Entrega (editável)
@@ -462,7 +526,8 @@ export default function ContratoDetalhe() {
   const [todasUnidades, setTodasUnidades] = useState<{ id: string; codigo: string; nome: string }[]>([])
 
   const supabase = createClient()
-  const { hasModule, currentUnit } = useUnit()
+  const { hasModule, currentUnit, currentRole, isSuperAdmin } = useUnit()
+  const podeAlterarDados = isSuperAdmin || currentRole === 'gerente'
   const { canEdit, isVisible } = useFieldPermission()
   const T = 'tela_contrato' // tela FLS (detalhe do contrato)
   const pagamentoCompleto = isVisible(T, 'pagamento_completo')
@@ -1553,69 +1618,6 @@ export default function ContratoDetalhe() {
     setEmitindoNf(false)
   }
 
-  // Gerar Contrato PDF
-  async function gerarPdf() {
-    if (!contrato) return
-    setGerandoPdf(true)
-    try {
-      // Buscar nome da unidade
-      let nomeUnidade = 'Santos - SP'
-      const unidadeId = (contrato as unknown as { unidade_id?: string }).unidade_id
-      if (unidadeId) {
-        const { data: unidadeData } = await supabase
-          .from('unidades')
-          .select('nome, cidade, estado')
-          .eq('id', unidadeId)
-          .single() as { data: { nome: string; cidade: string; estado: string } | null }
-        if (unidadeData) {
-          nomeUnidade = `${unidadeData.cidade} - ${unidadeData.estado}`
-        }
-      }
-
-      const tutor = contrato.tutor
-      const blob = await gerarContratoPDF({
-        codigo: contrato.codigo,
-        lacre: contrato.numero_lacre,
-        tutorNome: tutor?.nome || contrato.tutor_nome,
-        tutorTelefone: tutor?.telefone || contrato.tutor_telefone || '',
-        tutorCpf: tutor?.cpf || contrato.tutor_cpf || '',
-        tutorEmail: tutor?.email || contrato.tutor_email,
-        tutorEndereco: tutor ? `${tutor.endereco || ''}${tutor.numero ? ', ' + tutor.numero : ''}${tutor.complemento ? ' - ' + tutor.complemento : ''}` : contrato.tutor_endereco,
-        tutorEstado: tutor?.estado || contrato.tutor_estado,
-        tutorCidade: tutor?.cidade || contrato.tutor_cidade,
-        tutorBairro: tutor?.bairro || contrato.tutor_bairro,
-        tutorCep: tutor?.cep || contrato.tutor_cep,
-        petNome: contrato.pet_nome,
-        petEspecie: contrato.pet_especie,
-        petRaca: contrato.pet_raca,
-        petIdade: contrato.pet_idade_anos,
-        petCor: contrato.pet_cor,
-        petGenero: contrato.pet_genero,
-        petPeso: contrato.pet_peso,
-        localColeta: contrato.local_coleta,
-        tipoCremacao: contrato.tipo_cremacao as 'individual' | 'coletiva',
-        valorPlano: contrato.valor_plano,
-        metodoPagamento: pagamentos[0]?.metodo || null,
-        parcelas: pagamentos[0]?.parcelas || null,
-        velorioDeseja: contrato.velorio_deseja ?? null,
-        acompanhamentoOnline: contrato.acompanhamento_online ?? false,
-        acompanhamentoPresencial: contrato.acompanhamento_presencial ?? false,
-      }, nomeUnidade)
-
-      // Download
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = contratoFilename(contrato.codigo, contrato.pet_nome)
-      a.click()
-      URL.revokeObjectURL(url)
-    } catch (err) {
-      console.error('Erro ao gerar PDF:', err)
-      alert('Erro ao gerar contrato PDF')
-    }
-    setGerandoPdf(false)
-  }
-
   // Filtrar produtos pela busca, tipo, categoria
   // Pelinho (0004) também pode ser inserido pelo card; o PelinhoModal continua sendo
   // a via automatizada — ambos compartilham as linhas em contrato_produtos.
@@ -2668,36 +2670,34 @@ ${petNome}`
               </span>
             )}
 
-            {/* Botão Protocolo de Entrega (FLS: btn_fluxo_retorno) */}
-            {(contrato.status === 'retorno' || contrato.status === 'pendente' || contrato.status === 'finalizado') && isVisible(T, 'btn_fluxo_retorno') && (
-              <button
-                onClick={() => {
-                  if (contrato.protocolo_data) {
-                    setProtocoloEdit(normalizarProtocoloData(contrato.protocolo_data))
-                    return
-                  }
-                  const cpProdutos = contratoProdutos.map(cp => ({
-                    valor: cp.valor,
-                    produto: cp.produto ? {
-                      nome: cp.produto.nome,
-                      tipo: cp.produto.tipo,
-                      preco: cp.produto.preco,
-                    } : null,
-                  }))
-                  const financeiro = calcFinanceiroProtocolo(contrato, pagamentos)
-                  setProtocoloEdit(montarProtocoloData(contrato, cpProdutos, financeiro))
-                }}
-                className={`flex items-center justify-center w-7 h-7 text-white rounded-full transition-colors ${
-                  contrato.protocolo_data
-                    ? 'bg-green-600 hover:bg-green-700'
-                    : 'bg-cyan-600 hover:bg-cyan-700'
-                }`}
-                title={contrato.protocolo_data ? 'Protocolo: Salvo (clique para editar)' : 'Protocolo de Entrega'}
-              >
-                <Receipt className="h-4 w-4" />
-              </button>
-            )}
+          </div>
 
+          {/* Ação crítica acima do DocMenu — só gerente/super_admin */}
+          {podeAlterarDados && (
+            <div className="flex justify-end mt-3">
+              <button
+                type="button"
+                onClick={() => setAlterarDadosOpen(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border-2 border-red-500/60 bg-red-900/20 text-red-300 text-[11px] font-semibold hover:bg-red-900/40 transition-colors"
+                title="Alterar dados que o tutor enviou (uso restrito — registrado em histórico)"
+              >
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Alterar Dados Enviados
+              </button>
+            </div>
+          )}
+
+          {/* DocMenu — canto inferior direito do Hero. Visível em todos os status. */}
+          <div className="flex justify-end mt-3">
+            <DocMenu
+              contratoId={contrato.id}
+              onEditarContrato={() => setEditarContratoOpen(true)}
+              onImprimirContrato={() => gerarContratoDoc()}
+              onEditarFicha={() => setEditarFichaOpen(true)}
+              onImprimirFicha={() => imprimirFichaDoc()}
+              onProtocolo={() => abrirProtocoloDoc()}
+              loading={gerandoContratoDoc || imprimindoFicha}
+            />
           </div>
         </div>
       </div>
@@ -5246,7 +5246,19 @@ ${petNome}`
 
             {/* Ficha para Captura */}
             <div className="p-4">
-              <FichaRemocao ref={fichaRef} contrato={contrato as import('@/components/fichas/FichaRemocao').FichaContratoData} />
+              <FichaRemocao
+                ref={fichaRef}
+                contrato={{
+                  ...contrato,
+                  // Resolvendo campos derivados para o novo layout da ficha.
+                  // Clínica: prioridade estabelecimento padronizado (FK) > texto livre do tutor (geralmente "lixo").
+                  colaborador_responsavel: contrato.funcionario?.nome || null,
+                  clinica_veterinaria:
+                    (contrato as unknown as { estabelecimento?: { nome?: string | null } | null }).estabelecimento?.nome
+                    || contrato.clinica_coleta
+                    || null,
+                } as unknown as import('@/components/fichas/FichaRemocao').FichaContratoData}
+              />
             </div>
           </div>
         </div>
@@ -5425,6 +5437,50 @@ ${petNome}`
               setContrato(prev => prev ? { ...prev, ...rest } : prev)
             }}
           />
+
+          {/* Modal: Editar Contrato (via DocMenu no Hero Card) */}
+          <EditarContratoModal
+            isOpen={editarContratoOpen}
+            contratoId={contrato.id}
+            onClose={() => setEditarContratoOpen(false)}
+            onSaved={() => carregarContrato()}
+          />
+
+          {/* Modal: Editar Ficha (via DocMenu no Hero Card) */}
+          <EditarFichaModal
+            isOpen={editarFichaOpen}
+            contratoId={contrato.id}
+            unidadeId={contrato.unidade_id || null}
+            onClose={() => setEditarFichaOpen(false)}
+            onSaved={() => carregarContrato()}
+          />
+
+          {/* Off-screen: FichaRemocao para captura silenciosa (Imprimir Ficha via DocMenu) */}
+          {imprimindoFicha && (
+            <div style={{ position: 'fixed', left: -10000, top: 0, opacity: 0, pointerEvents: 'none' }}>
+              <FichaRemocao
+                ref={fichaImprimirRef}
+                contrato={{
+                  ...contrato,
+                  colaborador_responsavel: contrato.funcionario?.nome || null,
+                  clinica_veterinaria:
+                    (contrato as unknown as { estabelecimento?: { nome?: string | null } | null }).estabelecimento?.nome
+                    || contrato.clinica_coleta
+                    || null,
+                } as unknown as import('@/components/fichas/FichaRemocao').FichaContratoData}
+              />
+            </div>
+          )}
+
+          {/* Modal crítico: Alterar Dados Enviados (gerente/super_admin) */}
+          {podeAlterarDados && (
+            <AlterarDadosEnviadosModal
+              isOpen={alterarDadosOpen}
+              onClose={() => setAlterarDadosOpen(false)}
+              contrato={contrato as never}
+              onSaved={async () => { await carregarContrato() }}
+            />
+          )}
         </>
       )}
     </div>

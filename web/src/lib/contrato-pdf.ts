@@ -40,8 +40,19 @@ export type DadosContrato = {
   velorioDeseja: boolean | null
   acompanhamentoOnline: boolean
   acompanhamentoPresencial: boolean
+  /** @deprecated — preferir os campos abaixo (descontoPlanoUnificado/descontoAcessorios/descontoAcessoriosAjuste). Mantido por compat. */
   temDesconto?: boolean
   dataAcolhimento?: string | null
+  /** Texto livre que substitui a descrição padrão de IND/COL no PDF (mantém o label). */
+  descricaoContrato?: string | null
+  /** Acessórios (calculado pelo trigger 074 — SUM dos contrato_produtos). */
+  valorAcessorios?: number | null
+  /** Desconto manual do plano (unificado, mig 078). */
+  descontoPlanoUnificado?: number | null
+  /** Desconto dos acessórios (calculado pelo trigger 074). */
+  descontoAcessorios?: number | null
+  /** Ajuste manual sobre o desconto de acessórios. */
+  descontoAcessoriosAjuste?: number | null
 }
 
 const UNIDADES: Record<string, DadosUnidade> = {
@@ -295,38 +306,40 @@ export async function gerarContratoPDF(dados: DadosContrato, nomeUnidade: string
   txtFit(dados.localColeta || '', 64, 76.7, 131, 8)  // max até h195
 
   // ── PLANO DE CREMAÇÃO (box grande ~100mm) ──
-  const planoY = 98.4
+  const planoY = 96.8
 
-  // Tipo de cremação + descrição
+  // Tipo de cremação + descrição (texto livre sobrescreve o padrão; label fica fixo pelo tipo)
   const isInd = dados.tipoCremacao === 'individual'
   const planoLabel = isInd ? 'Cremação Individual: ' : 'Cremação Coletiva: '
-  const planoDesc = isInd
+  const planoDescPadrao = isInd
     ? 'O pet indicado é cremado individualmente no equipamento e as cinzas são entregues em uma urna escolhida previamente.'
     : 'O pet indicado é cremado em conjunto com outros dois pets de mesma modalidade coletiva e as cinzas são espalhadas no jardim do crematório.'
+  const planoDesc = (dados.descricaoContrato && dados.descricaoContrato.trim()) || planoDescPadrao
 
-  // Label bold
-  txt(planoLabel, 14.3, planoY, 9, true)
-  const labelW = fontBold.widthOfTextAtSize(planoLabel, 9) / mmToPt
+  // Label bold (2mm pra esquerda + fonte menor pra caber descrições longas em 3+ linhas)
+  txt(planoLabel, 12.5, planoY, 8, true)
+  const labelW = fontBold.widthOfTextAtSize(planoLabel, 8) / mmToPt
 
-  // Descrição: primeira linha quebra em h130, demais em h195
-  const descMaxW1 = (130 - 13 - labelW) * mmToPt // primeira linha (ao lado do label)
-  const descMaxW2 = (195 - 13) * mmToPt // linhas seguintes (largura total)
+  // Descrição: TODAS as linhas usam o mesmo limite horizontal (h130) pra não invadir
+  // a coluna direita (Valor/Forma de Pagamento alinhados em h193 e barra vertical em h131.5).
+  const descMaxW1 = (130 - 12.5 - labelW) * mmToPt // primeira linha (ao lado do label)
+  const descMaxW2 = (130 - 12.5) * mmToPt          // linhas seguintes (mesmo limite, full width sem labelW)
   const descWords = planoDesc.split(' ')
-  let descLine = '', descX = 14.3 + labelW, descY = planoY, isFirstLine = true
+  let descLine = '', descX = 12.5 + labelW, descY = planoY, isFirstLine = true
   for (const w of descWords) {
     const test = descLine ? `${descLine} ${w}` : w
     const maxW = isFirstLine ? descMaxW1 : descMaxW2
-    if (font.widthOfTextAtSize(test, 8) > maxW && descLine) {
-      txt(descLine, descX, descY, 8)
+    if (font.widthOfTextAtSize(test, 7) > maxW && descLine) {
+      txt(descLine, descX, descY, 7)
       descLine = w
-      descY += 4
-      descX = 14.3
+      descY += 3.5
+      descX = 12.5
       isFirstLine = false
     } else {
       descLine = test
     }
   }
-  if (descLine) txt(descLine, descX, descY, 8)
+  if (descLine) txt(descLine, descX, descY, 7)
 
   // Barra vertical separadora
   page.drawLine({
@@ -338,9 +351,17 @@ export async function gerarContratoPDF(dados: DadosContrato, nomeUnidade: string
 
   // Valor — alinhar à direita em h195
   // "Valor c/ desc." só faz sentido quando o resultado final é > 0;
-  // se o líquido é zerado (com ou sem desconto), volta pro label simples "Valor:"
-  const valorLabel = dados.temDesconto && dados.valorPlano && dados.valorPlano > 0 ? 'Valor c/ desc.:' : 'Valor:'
-  const valorTexto = `${valorLabel} ${fmt$(dados.valorPlano)}`
+  // Total contratado = valor_plano + valor_acessorios - (desc_plano_unif + desc_acessorios + desc_acess_ajuste).
+  // Os campos novos (mig 078 + trigger 074) caem em 0 quando não passados → fallback igual ao valor_plano puro (comportamento legado preservado).
+  const dPlano = dados.descontoPlanoUnificado ?? 0
+  const dAcess = dados.descontoAcessorios ?? 0
+  const dAjuste = dados.descontoAcessoriosAjuste ?? 0
+  const totalDesc = dPlano + dAcess + dAjuste
+  const acess = dados.valorAcessorios ?? 0
+  const valorTotalContratado = (dados.valorPlano ?? 0) + acess - totalDesc
+  const houveDesconto = totalDesc > 0 || dados.temDesconto === true
+  const valorLabel = houveDesconto && valorTotalContratado > 0 ? 'Valor c/ desc.:' : 'Valor:'
+  const valorTexto = `${valorLabel} ${fmt$(valorTotalContratado)}`
   const valorW = fontBold.widthOfTextAtSize(valorTexto, 9) / mmToPt
   txt(valorTexto, 193.4 - valorW, 102.6, 9, true)
 

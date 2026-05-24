@@ -26,6 +26,12 @@ import ChegamosModal from '@/components/contratos/modals/ChegamosModal'
 import ChegaramModal from '@/components/contratos/modals/ChegaramModal'
 import { ordenarCategoriasUrnas } from '@/lib/categorias'
 import { hojeLocal, dataLocal } from '@/lib/date-local'
+import DocMenu from '@/components/contratos/DocMenu'
+import FichaRemocao, { type FichaContratoData } from '@/components/fichas/FichaRemocao'
+import { gerarFichaPDFA4Duplicada, fichaFilenamePDF } from '@/lib/ficha-generator'
+import { baixarContratoPDF } from '@/lib/contrato-pdf-download'
+import EditarContratoModal from '@/components/contratos/modals/EditarContratoModal'
+import EditarFichaModal from '@/components/contratos/modals/EditarFichaModal'
 
 function PixIcon({ className = "h-5 w-5" }: { className?: string }) {
   return (
@@ -573,6 +579,14 @@ function ContratosContent() {
   const [protocoloLoading, setProtocoloLoading] = useState(false)
   const [salvandoProtocolo, setSalvandoProtocolo] = useState(false)
 
+  // DocMenu — geração de docs a partir do card
+  const [gerandoContratoId, setGerandoContratoId] = useState<string | null>(null)
+  const [fichaParaCapturar, setFichaParaCapturar] = useState<Contrato | null>(null)
+  const fichaCaptureRef = useRef<HTMLDivElement>(null)
+  const [editarContratoId, setEditarContratoId] = useState<string | null>(null)
+  const [editarFichaId, setEditarFichaId] = useState<string | null>(null)
+  const [editarFichaUnidade, setEditarFichaUnidade] = useState<string | null>(null)
+
   // Modal Rescaldos
   const [rescaldoModal, setRescaldoModal] = useState(false)
   const [rescaldoContrato, setRescaldoContrato] = useState<Contrato | null>(null)
@@ -681,31 +695,6 @@ function ContratosContent() {
         title="Inserir nº do lacre"
       >
         + Lacre
-      </button>
-    )
-  }
-
-  // Botão de protocolo de entrega no pipeline (substitui o chip antigo do InteractiveTags).
-  // Aparece SÓ na etapa entrega (status retorno/pendente). Sem checagem de FLS.
-  function renderProtocoloButton(contrato: Contrato) {
-    if (contrato.status !== 'retorno' && contrato.status !== 'pendente') return null
-    const temProtocolo = !!contrato.protocolo_data
-    const style: React.CSSProperties = temProtocolo
-      ? { background: '#dcfce7', color: '#16a34a', borderColor: '#16a34a' }
-      : { background: 'rgba(254,243,199,0.6)', color: '#f59e0b', borderColor: '#d97706' }
-    return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.preventDefault()
-          e.stopPropagation()
-          abrirProtocoloModal(contrato)
-        }}
-        className={`w-5 h-5 rounded flex items-center justify-center text-[11px] leading-none cursor-pointer hover:opacity-80 transition-opacity ${temProtocolo ? '' : 'animate-pulse'}`}
-        style={{ ...style, borderWidth: 1, borderStyle: 'solid' }}
-        title={temProtocolo ? 'Protocolo pronto — clique para rever' : 'Protocolo pendente — clique para preparar'}
-      >
-        📋
       </button>
     )
   }
@@ -1169,6 +1158,67 @@ function ContratosContent() {
       }
       return next
     })
+  }
+
+  // ============================================
+  // DocMenu — geração de docs do pipeline
+  // ============================================
+  async function gerarContratoCardPdf(contrato: Contrato) {
+    setGerandoContratoId(contrato.id)
+    try {
+      await baixarContratoPDF(supabase, contrato.id)
+    } catch (err) {
+      console.error('Erro ao gerar PDF do contrato:', err)
+      alert('Erro ao gerar PDF do contrato. Tente novamente.')
+    } finally {
+      setGerandoContratoId(null)
+    }
+  }
+
+  async function gerarFichaCard(contrato: Contrato) {
+    // Busca funcionario.nome + estabelecimento.nome + clinica_coleta pra preencher
+    // colaborador_responsavel e clinica_veterinaria no novo layout da ficha.
+    const { data: extra } = await supabase
+      .from('contratos')
+      .select('clinica_coleta, funcionario:funcionario_id(nome), estabelecimento:estabelecimento_id(nome)')
+      .eq('id', contrato.id)
+      .single()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ex: any = extra
+    setFichaParaCapturar({
+      ...contrato,
+      colaborador_responsavel: ex?.funcionario?.nome || null,
+      // Clínica: prioridade estabelecimento padronizado (FK) > texto livre do tutor (geralmente "lixo").
+      clinica_veterinaria: ex?.estabelecimento?.nome || ex?.clinica_coleta || null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any)
+  }
+
+  // Renderiza a FichaRemocao off-screen e gera PDF A4 com 2 cópias quando fichaParaCapturar muda
+  useEffect(() => {
+    if (!fichaParaCapturar) return
+    const c = fichaParaCapturar
+    // 300ms pra garantir que o template.png do background já carregou no <img>
+    const t = setTimeout(async () => {
+      if (!fichaCaptureRef.current) {
+        setFichaParaCapturar(null)
+        return
+      }
+      try {
+        await gerarFichaPDFA4Duplicada(fichaCaptureRef.current, fichaFilenamePDF(c.codigo, c.pet_nome))
+      } catch (err) {
+        console.error('Erro ao gerar PDF da ficha:', err)
+        alert('Erro ao gerar PDF da ficha.')
+      } finally {
+        setFichaParaCapturar(null)
+      }
+    }, 300)
+    return () => clearTimeout(t)
+  }, [fichaParaCapturar])
+
+  function editarFichaCard(contrato: Contrato) {
+    setEditarFichaUnidade(contrato.unidade_id || null)
+    setEditarFichaId(contrato.id)
   }
 
   // Abrir modal de protocolo de entrega
@@ -4072,26 +4122,18 @@ ${petNome}`
                 <div className="p-1.5 relative z-[1]">
                   {/* === DESKTOP LAYOUT === */}
                   <div className="hidden md:flex items-center gap-2">
-                    {/* Coluna de ações: [Protocolo] em cima + [Checkbox seleção] embaixo (retorno/pendente) */}
-                    {(statusFiltro === 'retorno' || statusFiltro === 'pendente') && (
+                    {/* Coluna de ações: [DocMenu] sempre (exceto preventivo) + [Checkbox] em retorno/pendente */}
+                    {contrato.status !== 'preventivo' && (
                       <div className="flex-shrink-0 flex flex-col items-center gap-1">
-                        {renderProtocoloButton(contrato)}
-                        {/* Wrapper com hit-area expandida + hover sutil pra evitar clique acidental no card */}
-                        <div
-                          onClick={(e) => toggleSelectContrato(contrato.id, e)}
-                          className="p-2 -m-2 cursor-pointer rounded-md hover:bg-cyan-500/15 transition-colors"
-                          title="Selecionar para impressão em lote"
-                        >
-                          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-                            selectedContratos.has(contrato.id)
-                              ? 'bg-cyan-600 border-cyan-600 text-white'
-                              : 'border-slate-500'
-                          }`}>
-                            {selectedContratos.has(contrato.id) && (
-                              <Printer className="w-3 h-3" />
-                            )}
-                          </div>
-                        </div>
+                        <DocMenu
+                          contratoId={contrato.id}
+                          onEditarContrato={() => setEditarContratoId(contrato.id)}
+                          onImprimirContrato={() => gerarContratoCardPdf(contrato)}
+                          onEditarFicha={() => editarFichaCard(contrato)}
+                          onImprimirFicha={() => gerarFichaCard(contrato)}
+                          onProtocolo={() => abrirProtocoloModal(contrato)}
+                          loading={gerandoContratoId === contrato.id || fichaParaCapturar?.id === contrato.id}
+                        />
                       </div>
                     )}
 
@@ -4360,26 +4402,18 @@ ${petNome}`
                   <div className="md:hidden space-y-1">
                     {/* Bloco topo: [Checkbox?] [Data] [Lacre/Tutor] ... [PetNome/Raça] [PetEmoji] */}
                     <div className="flex items-stretch gap-1.5">
-                      {/* Coluna de ações: [Protocolo] em cima + [Checkbox seleção] embaixo (retorno/pendente) */}
-                      {(statusFiltro === 'retorno' || statusFiltro === 'pendente') && (
+                      {/* Coluna de ações: [DocMenu] sempre (exceto preventivo) + [Checkbox] em retorno/pendente */}
+                      {contrato.status !== 'preventivo' && (
                         <div className="flex-shrink-0 flex flex-col items-center justify-center gap-1">
-                          {renderProtocoloButton(contrato)}
-                          {/* Hit-area expandida pra reduzir clique acidental no card */}
-                          <div
-                            onClick={(e) => toggleSelectContrato(contrato.id, e)}
-                            className="p-2 -m-2 cursor-pointer rounded-md hover:bg-cyan-500/15 transition-colors"
-                            title="Selecionar para impressão em lote"
-                          >
-                            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-                              selectedContratos.has(contrato.id)
-                                ? 'bg-cyan-600 border-cyan-600 text-white'
-                                : 'border-slate-500'
-                            }`}>
-                              {selectedContratos.has(contrato.id) && (
-                                <Printer className="w-3 h-3" />
-                              )}
-                            </div>
-                          </div>
+                          <DocMenu
+                            contratoId={contrato.id}
+                            onEditarContrato={() => setEditarContratoId(contrato.id)}
+                            onImprimirContrato={() => gerarContratoCardPdf(contrato)}
+                            onEditarFicha={() => editarFichaCard(contrato)}
+                            onImprimirFicha={() => gerarFichaCard(contrato)}
+                            onProtocolo={() => abrirProtocoloModal(contrato)}
+                            loading={gerandoContratoId === contrato.id || fichaParaCapturar?.id === contrato.id}
+                          />
                         </div>
                       )}
                       {/* Data box (ocupa 2 linhas, à esquerda) — quadradinho amarelo pulsante "Sem data acolh." quando ausente */}
@@ -6866,6 +6900,30 @@ ${petNome}`
         </div>
         )
       })()}
+
+      {/* Off-screen: FichaRemocao para captura via DocMenu (PNG download) */}
+      {fichaParaCapturar && (
+        <div style={{ position: 'fixed', left: -10000, top: 0, opacity: 0, pointerEvents: 'none' }}>
+          <FichaRemocao ref={fichaCaptureRef} contrato={fichaParaCapturar as unknown as FichaContratoData} />
+        </div>
+      )}
+
+      {/* Modal: Editar Contrato (via DocMenu) */}
+      <EditarContratoModal
+        isOpen={editarContratoId !== null}
+        contratoId={editarContratoId}
+        onClose={() => setEditarContratoId(null)}
+        onSaved={() => { carregarContratos() }}
+      />
+
+      {/* Modal: Editar Ficha (via DocMenu) */}
+      <EditarFichaModal
+        isOpen={editarFichaId !== null}
+        contratoId={editarFichaId}
+        unidadeId={editarFichaUnidade}
+        onClose={() => setEditarFichaId(null)}
+        onSaved={() => { carregarContratos() }}
+      />
 
     </div>
   )

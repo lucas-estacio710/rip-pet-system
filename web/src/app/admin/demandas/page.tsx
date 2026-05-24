@@ -148,8 +148,21 @@ export default function DemandasPage() {
     setSavingId(null)
   }
 
+  function proximoNumero(): string {
+    const ano = new Date().getFullYear()
+    const reg = new RegExp(`^${ano}\\/(\\d+)$`)
+    // Considera só os números do ano corrente — reseta a contagem a cada virada de ano
+    const max = demandas
+      .map(d => {
+        const m = reg.exec(d.numero || '')
+        return m ? parseInt(m[1], 10) : 0
+      })
+      .reduce((a, b) => Math.max(a, b), 0)
+    return `${ano}/${String(max + 1).padStart(2, '0')}`
+  }
+
   function abrirNova() {
-    setForm({ ...VAZIA })
+    setForm({ ...VAZIA, numero: proximoNumero() })
     setEditando(null)
     setCriando(true)
   }
