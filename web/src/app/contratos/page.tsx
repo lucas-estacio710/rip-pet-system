@@ -28,7 +28,7 @@ import { ordenarCategoriasUrnas } from '@/lib/categorias'
 import { hojeLocal, dataLocal } from '@/lib/date-local'
 import DocMenu from '@/components/contratos/DocMenu'
 import FichaRemocao, { type FichaContratoData } from '@/components/fichas/FichaRemocao'
-import { gerarFichaPDFA4Duplicada, fichaFilenamePDF } from '@/lib/ficha-generator'
+import { gerarFichaPDFA4Duplicada, nomeFicha } from '@/lib/ficha-generator'
 import { baixarContratoPDF } from '@/lib/contrato-pdf-download'
 import EditarContratoModal from '@/components/contratos/modals/EditarContratoModal'
 import EditarFichaModal from '@/components/contratos/modals/EditarFichaModal'
@@ -1205,7 +1205,7 @@ function ContratosContent() {
         return
       }
       try {
-        await gerarFichaPDFA4Duplicada(fichaCaptureRef.current, fichaFilenamePDF(c.codigo, c.pet_nome))
+        await gerarFichaPDFA4Duplicada(fichaCaptureRef.current, nomeFicha(c, 'pdf'))
       } catch (err) {
         console.error('Erro ao gerar PDF da ficha:', err)
         alert('Erro ao gerar PDF da ficha.')

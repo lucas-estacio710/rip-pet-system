@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { Printer, Search, X, FileText, ClipboardList, Receipt, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
-import { gerarImpressaoUnificada, ImpressaoBlocos, ImpressaoProgress } from '@/lib/impressao-unificada'
+import { gerarImpressaoUnificada, gerarImpressaoIndividual, ImpressaoBlocos, ImpressaoProgress } from '@/lib/impressao-unificada'
 import { montarProtocoloData, normalizarProtocoloData } from '@/components/protocolo/protocolo-utils'
 import type { DadosContrato } from '@/lib/contrato-pdf'
 import type { FichaContratoData } from '@/components/fichas/FichaRemocao'
@@ -56,10 +56,31 @@ const STATUS_COR: Record<Status, string> = {
   finalizado: 'bg-slate-700/40 text-slate-400 border-slate-600/40',
 }
 
-const STATUS_ORDEM: Status[] = ['ativo', 'pinda', 'retorno', 'pendente', 'preventivo', 'finalizado']
+// 'finalizado' fora — contratos encerrados não precisam mais ser impressos por aqui
+const STATUS_ORDEM: Status[] = ['ativo', 'pinda', 'retorno', 'pendente', 'preventivo']
 
 function labelFase(f: ImpressaoProgress['fase']): string {
   return ({ contratos: 'Contratos', fichas: 'Fichas', protocolos: 'Protocolos', concatenando: 'Montando PDF' } as const)[f]
+}
+
+function primeiroNome(s: string | null | undefined): string {
+  if (!s) return '—'
+  const p = s.trim().split(/\s+/)[0]
+  return p || '—'
+}
+
+type ItemIndividual = { tipo: 'contrato' | 'ficha' | 'protocolo'; c: ContratoLite }
+
+const TIPO_LABEL: Record<ItemIndividual['tipo'], string> = {
+  contrato: 'Contrato',
+  ficha: 'Ficha de Remoção',
+  protocolo: 'Protocolo de Entrega',
+}
+
+const TIPO_EXT: Record<ItemIndividual['tipo'], string> = {
+  contrato: 'PDF',
+  ficha: 'PNG',
+  protocolo: 'PDF',
 }
 
 // ============================================
@@ -115,6 +136,8 @@ function Conteudo() {
   const [gerando, setGerando] = useState(false)
   const [progresso, setProgresso] = useState<ImpressaoProgress | null>(null)
   const [erroGerar, setErroGerar] = useState('')
+  // Modo de salvamento: único PDF concatenado vs. ZIP com 1 arquivo por documento
+  const [modoSalvar, setModoSalvar] = useState<'unico' | 'individual'>('unico')
 
   // Carregar contratos da unidade ativa (com filtros + busca)
   const carregar = useCallback(async () => {
@@ -124,6 +147,7 @@ function Conteudo() {
       .from('contratos')
       .select('id, codigo, pet_nome, status, numero_lacre, tutor_nome, protocolo_data')
       .eq('unidade_id', currentUnit.id)
+      .neq('status', 'finalizado')   // finalizados ficam fora desta página
       .order('data_acolhimento', { ascending: false, nullsFirst: false })
       .limit(100)
 
@@ -174,6 +198,22 @@ function Conteudo() {
     })
   }
 
+  /** Marca/desmarca um tipo em TODOS os contratos atualmente filtrados (toggle). */
+  function toggleTodosDoc(doc: keyof SelDocs) {
+    if (contratos.length === 0) return
+    setSelecoes(prev => {
+      const todosOn = contratos.every(c => prev.get(c.id)?.[doc])
+      const n = new Map(prev)
+      contratos.forEach(c => {
+        const cur = n.get(c.id) || { ...SEL_VAZIO }
+        const novo = { ...cur, [doc]: !todosOn }
+        if (!novo.contrato && !novo.ficha && !novo.protocolo) n.delete(c.id)
+        else n.set(c.id, novo)
+      })
+      return n
+    })
+  }
+
   function limparSelecao() { setSelecoes(new Map()) }
 
   async function gerarPDF() {
@@ -211,15 +251,17 @@ function Conteudo() {
         }
       })
 
-      // 2. Gerar PDF unificado
-      const blob = await gerarImpressaoUnificada(blocos, p => setProgresso(p))
+      // 2. Gerar — PDF único concatenado OU ZIP com arquivos individuais
+      const blob = modoSalvar === 'unico'
+        ? await gerarImpressaoUnificada(blocos, p => setProgresso(p))
+        : await gerarImpressaoIndividual(blocos, p => setProgresso(p))
 
-      // 3. Download
+      // 3. Download (extensão muda conforme o modo)
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
       const ts = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')
-      a.download = `impressao-${ts}.pdf`
+      a.download = modoSalvar === 'unico' ? `impressao-${ts}.pdf` : `impressao-${ts}.zip`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -233,8 +275,22 @@ function Conteudo() {
     }
   }
 
-  // Páginas computadas em tempo real
+  // Páginas computadas em tempo real (modo Imprimir em Grupo)
   const paginas = useMemo(() => computarPaginas(selecoes, contratos), [selecoes, contratos])
+
+  // Lista de arquivos no modo Salvar Individuais (1 item por documento marcado, agrupado por tipo)
+  const listaIndividuais = useMemo<ItemIndividual[]>(() => {
+    const byId = new Map(contratos.map(c => [c.id, c]))
+    const itens: ItemIndividual[] = []
+    ;(['contrato', 'ficha', 'protocolo'] as const).forEach(tipo => {
+      selecoes.forEach((sel, id) => {
+        if (!sel[tipo]) return
+        const c = byId.get(id)
+        if (c) itens.push({ tipo, c })
+      })
+    })
+    return itens
+  }, [selecoes, contratos])
   const totalSel = useMemo(() => {
     let cont = 0, ficha = 0, prot = 0
     selecoes.forEach(s => { if (s.contrato) cont++; if (s.ficha) ficha++; if (s.protocolo) prot++ })
@@ -262,10 +318,46 @@ function Conteudo() {
               </span>
             )}
           </div>
+          {/* Tabs de modo: Imprimir em Grupo (PDF concatenado) | Salvar Individuais (ZIP) */}
+          <div
+            className="inline-flex p-0.5 rounded-lg"
+            style={{ background: 'var(--surface-100)', border: '1px solid var(--surface-200)' }}
+            role="tablist"
+          >
+            {(['unico', 'individual'] as const).map(m => {
+              const ativo = modoSalvar === m
+              const label = m === 'unico' ? 'Imprimir em Grupo' : 'Salvar Individuais'
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  role="tab"
+                  aria-selected={ativo}
+                  onClick={() => setModoSalvar(m)}
+                  disabled={gerando}
+                  title={m === 'unico'
+                    ? 'Concatena tudo num PDF único, agrupado por tipo (pronto pra imprimir em lote)'
+                    : 'Salva 1 arquivo por documento (PDF de contratos, PNG de fichas, PDF de protocolos) num ZIP'}
+                  className="px-3 py-1 text-xs font-semibold rounded-md transition-colors disabled:opacity-50 whitespace-nowrap"
+                  style={{
+                    background: ativo ? 'var(--brand-600)' : 'transparent',
+                    color: ativo ? '#fff' : 'var(--shell-text-muted)',
+                  }}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+
           <button
             onClick={gerarPDF}
-            disabled={selecoes.size === 0 || gerando || paginas.length === 0}
-            title={selecoes.size === 0 ? 'Selecione documentos pra imprimir' : 'Gera um PDF único concatenando contratos, fichas e protocolos'}
+            disabled={selecoes.size === 0 || gerando || (modoSalvar === 'unico' && paginas.length === 0)}
+            title={selecoes.size === 0
+              ? 'Selecione documentos pra imprimir'
+              : modoSalvar === 'unico'
+                ? 'Gera um PDF único concatenando contratos, fichas e protocolos'
+                : 'Salva 1 arquivo por documento dentro de um ZIP'}
             className="btn-primary text-sm py-2 px-4 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             style={{ background: 'var(--brand-600)' }}
           >
@@ -274,7 +366,9 @@ function Conteudo() {
               : <Printer className="h-4 w-4" />}
             {gerando
               ? (progresso ? `${labelFase(progresso.fase)} ${progresso.atual}/${progresso.total}…` : 'Preparando…')
-              : 'Gerar PDF Único'}
+              : (modoSalvar === 'unico'
+                  ? 'Gerar PDF'
+                  : `Salvar ZIP (${totalSel.total} arquivo${totalSel.total !== 1 ? 's' : ''})`)}
           </button>
         </div>
       </div>
@@ -341,6 +435,38 @@ function Conteudo() {
             )}
           </div>
 
+          {/* Marcar todos os filtrados (aplica o tipo a TODOS os contratos do filtro atual) */}
+          {!loading && contratos.length > 0 && (
+            <div className="flex items-center gap-1.5 px-1 flex-wrap">
+              <span className="text-[10px] text-[var(--surface-400)] uppercase tracking-wider mr-1">Marcar todos:</span>
+              {(['contrato', 'ficha', 'protocolo'] as const).map(doc => {
+                const todosOn = contratos.every(c => selecoes.get(c.id)?.[doc])
+                const cor = COR_DOC[doc]
+                const Icon = doc === 'contrato' ? FileText : doc === 'ficha' ? ClipboardList : Receipt
+                const label = doc === 'contrato' ? 'Contratos' : doc === 'ficha' ? 'Fichas' : 'Protocolos'
+                return (
+                  <button
+                    key={doc}
+                    type="button"
+                    onClick={() => toggleTodosDoc(doc)}
+                    title={todosOn
+                      ? `Desmarcar ${label.toLowerCase()} de todos os ${contratos.length} contratos filtrados`
+                      : `Marcar ${label.toLowerCase()} em todos os ${contratos.length} contratos filtrados`}
+                    className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold transition-colors border ${
+                      todosOn
+                        ? `${cor.bg} ${cor.border} ${cor.texto}`
+                        : 'bg-transparent text-[var(--surface-400)] border-[var(--surface-200)] hover:border-[var(--surface-300)]'
+                    }`}
+                  >
+                    <Icon className="h-3 w-3" />
+                    {label}
+                    <span className="text-[9px] opacity-70">×{contratos.length}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
           {/* Lista de cards */}
           <div className="space-y-1.5 max-h-[70vh] overflow-y-auto pr-1">
             {loading && (
@@ -359,38 +485,41 @@ function Conteudo() {
               return (
                 <div
                   key={c.id}
-                  className={`rounded-lg border px-3 py-2 transition-colors ${
+                  title={`${c.codigo} · ${STATUS_LABEL[c.status]}`}
+                  className={`rounded-lg border px-2.5 py-1.5 transition-colors flex items-center gap-2 ${
                     algumMarcado
                       ? 'bg-[var(--surface-50)] border-[var(--brand-500)]/40'
                       : 'bg-[var(--surface-0)] border-[var(--surface-200)] hover:border-[var(--surface-300)]'
                   }`}
                 >
-                  <div className="flex items-center justify-between gap-2 mb-1.5">
-                    <div className="min-w-0 flex-1 flex items-center gap-2">
-                      <span className="font-mono font-bold text-[11px] text-[var(--shell-text)] truncate">{c.codigo}</span>
-                      <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold border ${STATUS_COR[c.status]}`}>{STATUS_LABEL[c.status]}</span>
-                      {c.numero_lacre && (
-                        <span className="font-mono text-[10px] text-white bg-blue-900 px-1.5 py-0.5 rounded">L:{c.numero_lacre}</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-[var(--shell-text)] truncate">{c.pet_nome || '(sem nome)'}</p>
-                      <p className="text-[10px] text-[var(--surface-400)] truncate">{c.tutor_nome || '—'}</p>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <DocCheckbox doc="contrato" Icon={FileText} sel={sel.contrato} onClick={() => toggleDoc(c.id, 'contrato')} label="Contrato" />
-                      <DocCheckbox doc="ficha" Icon={ClipboardList} sel={sel.ficha} onClick={() => toggleDoc(c.id, 'ficha')} label="Ficha" />
-                      <DocCheckbox
-                        doc="protocolo"
-                        Icon={Receipt}
-                        sel={sel.protocolo}
-                        onClick={() => toggleDoc(c.id, 'protocolo')}
-                        label="Protocolo"
-                        salvo={!!c.protocolo_data}
-                      />
-                    </div>
+                  {/* Lacre — destacado */}
+                  {c.numero_lacre ? (
+                    <span className="font-mono text-[10px] text-white bg-blue-900 px-1.5 py-0.5 rounded shrink-0" title="Lacre">
+                      {c.numero_lacre}
+                    </span>
+                  ) : (
+                    <span className="font-mono text-[10px] text-[var(--surface-400)] px-1.5 py-0.5 shrink-0" title="Sem lacre">—</span>
+                  )}
+                  {/* Status badge */}
+                  <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold border shrink-0 ${STATUS_COR[c.status]}`}>
+                    {STATUS_LABEL[c.status]}
+                  </span>
+                  {/* Pet · Tutor */}
+                  <span className="text-sm font-semibold text-[var(--shell-text)] truncate min-w-0">{c.pet_nome || '(sem nome)'}</span>
+                  <span className="text-[var(--surface-400)] shrink-0">·</span>
+                  <span className="text-[10px] text-[var(--surface-400)] truncate min-w-0">{c.tutor_nome || '—'}</span>
+                  {/* Checkboxes — empurrados pra direita */}
+                  <div className="ml-auto flex items-center gap-1 shrink-0">
+                    <DocCheckbox doc="contrato" Icon={FileText} sel={sel.contrato} onClick={() => toggleDoc(c.id, 'contrato')} label="Contrato" />
+                    <DocCheckbox doc="ficha" Icon={ClipboardList} sel={sel.ficha} onClick={() => toggleDoc(c.id, 'ficha')} label="Ficha" />
+                    <DocCheckbox
+                      doc="protocolo"
+                      Icon={Receipt}
+                      sel={sel.protocolo}
+                      onClick={() => toggleDoc(c.id, 'protocolo')}
+                      label="Protocolo"
+                      salvo={!!c.protocolo_data}
+                    />
                   </div>
                 </div>
               )
@@ -403,23 +532,58 @@ function Conteudo() {
           <div className="sticky top-4">
             <div className="rounded-lg border border-[var(--surface-200)] bg-[var(--surface-50)] p-4">
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-xs font-bold text-[var(--surface-500)] uppercase tracking-wider">Layout da impressão</h2>
-                <span className="text-xs text-[var(--surface-400)]">{paginas.length} {paginas.length === 1 ? 'pág' : 'págs'}</span>
+                <h2 className="text-xs font-bold text-[var(--surface-500)] uppercase tracking-wider">
+                  {modoSalvar === 'unico' ? 'Layout da impressão' : 'Arquivos que serão salvos'}
+                </h2>
+                <span className="text-xs text-[var(--surface-400)]">
+                  {modoSalvar === 'unico'
+                    ? `${paginas.length} ${paginas.length === 1 ? 'pág' : 'págs'}`
+                    : `${listaIndividuais.length} ${listaIndividuais.length === 1 ? 'arquivo' : 'arquivos'}`}
+                </span>
               </div>
 
-              {paginas.length === 0 ? (
+              {(modoSalvar === 'unico' ? paginas.length : listaIndividuais.length) === 0 ? (
                 <div className="py-12 text-center text-sm text-[var(--surface-400)]">
-                  Marque ao lado os documentos que deseja imprimir.
+                  Marque ao lado os documentos que deseja {modoSalvar === 'unico' ? 'imprimir' : 'salvar'}.
                 </div>
-              ) : (
+              ) : modoSalvar === 'unico' ? (
                 <div className="grid grid-cols-2 gap-3 max-h-[65vh] overflow-y-auto pr-1">
                   {paginas.map((p, i) => <PaginaPreview key={i} numero={i + 1} pagina={p} />)}
                 </div>
+              ) : (
+                <div className="space-y-1 max-h-[65vh] overflow-y-auto pr-1">
+                  {listaIndividuais.map((it, i) => {
+                    const cor = COR_DOC[it.tipo]
+                    const Icon = it.tipo === 'contrato' ? FileText : it.tipo === 'ficha' ? ClipboardList : Receipt
+                    return (
+                      <div
+                        key={`${it.tipo}_${it.c.id}_${i}`}
+                        title={`${TIPO_LABEL[it.tipo]} (.${TIPO_EXT[it.tipo].toLowerCase()})`}
+                        className={`rounded-md border ${cor.bg} ${cor.border} px-2 py-1.5 flex items-center gap-2 text-xs`}
+                      >
+                        <Icon className={`h-3.5 w-3.5 shrink-0 ${cor.texto}`} />
+                        <span className="font-mono text-white bg-blue-900 px-1.5 py-0.5 rounded text-[10px] shrink-0" title="Lacre">
+                          {it.c.numero_lacre || '—'}
+                        </span>
+                        <span className="text-[var(--shell-text)] truncate min-w-0">{primeiroNome(it.c.tutor_nome)}</span>
+                        <span className="text-[var(--surface-400)] shrink-0">·</span>
+                        <span className="text-[var(--shell-text)] font-semibold truncate min-w-0">
+                          {it.c.pet_nome || '—'}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
               )}
 
-              {paginas.length > 0 && (
+              {modoSalvar === 'unico' && paginas.length > 0 && (
                 <p className="mt-3 text-[10px] text-[var(--surface-400)] italic">
                   Agrupamento por tipo · contratos primeiro, depois fichas (2/pág), depois protocolos (4/pág).
+                </p>
+              )}
+              {modoSalvar === 'individual' && listaIndividuais.length > 0 && (
+                <p className="mt-3 text-[10px] text-[var(--surface-400)] italic">
+                  Empacotado em ZIP · 1 arquivo por documento · contratos/, fichas/, protocolos/
                 </p>
               )}
             </div>

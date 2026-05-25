@@ -133,8 +133,8 @@ const FichaRemocao = forwardRef<HTMLDivElement, { contrato: FichaContratoData }>
         <div style={{ ...BASE_FIELD, top: 171, left: 146, width: 90 }}>{contrato.pet_raca || ''}</div>
         <div style={{ ...BASE_FIELD, top: 173, left: 290, width: 90, fontSize: 9 }}>{contrato.pet_cor || ''}</div>
 
-        {/* Idade (10px à esquerda de Peso) / Peso / Sexo */}
-        <div style={{ ...BASE_FIELD, top: 193, left: 139, width: 50 }}>
+        {/* Idade / Peso / Sexo */}
+        <div style={{ ...BASE_FIELD, top: 190, left: 61, width: 50 }}>
           {contrato.pet_idade_anos ? `${contrato.pet_idade_anos} anos` : ''}
         </div>
         <div style={{ ...BASE_FIELD, top: 190, left: 199, width: 80 }}>

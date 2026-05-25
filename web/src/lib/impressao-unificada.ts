@@ -7,12 +7,20 @@
 import React, { createRef, RefObject } from 'react'
 import { createRoot } from 'react-dom/client'
 import { PDFDocument } from 'pdf-lib'
+import html2canvas from 'html2canvas'
+import JSZip from 'jszip'
 
 import { gerarContratoPDF, DadosContrato } from './contrato-pdf'
-import { gerarFichasA4Blob } from './ficha-generator'
+import { gerarFichasA4Blob, nomeFicha } from './ficha-generator'
 import { gerarProtocolosPDF } from './protocolo-pdf'
 import FichaRemocao, { FichaContratoData } from '@/components/fichas/FichaRemocao'
 import { ProtocoloData } from '@/components/protocolo/protocolo-utils'
+
+// Sanitiza nome de arquivo (sem acentos, espaços viram _, só [a-zA-Z0-9_-])
+function nomeArquivo(s: string | null | undefined, fallback: string): string {
+  if (!s || !s.trim()) return fallback
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '')
+}
 
 export type ImpressaoBlocos = {
   contratos: { dados: DadosContrato; nomeUnidade: string }[]
@@ -124,4 +132,69 @@ async function renderFichasOcultas(fichas: FichaContratoData[]): Promise<{ eleme
       if (container.parentNode) container.parentNode.removeChild(container)
     },
   }
+}
+
+// ============================================
+// MODO INDIVIDUAL — gera 1 arquivo por documento e empacota num ZIP
+// Contratos: 1 PDF cada · Fichas: 1 PNG cada · Protocolos: 1 PDF cada
+// (Protocolo poderia ser PNG, mas o gerador atual usa grid 2×2 — refatorar single
+// daria mais trabalho. Por ora, PDF de 1 página por protocolo.)
+// ============================================
+export async function gerarImpressaoIndividual(
+  blocos: ImpressaoBlocos,
+  onProgress?: (p: ImpressaoProgress) => void,
+): Promise<Blob> {
+  const zip = new JSZip()
+  let arquivos = 0
+
+  // 1. CONTRATOS — 1 PDF cada
+  for (let i = 0; i < blocos.contratos.length; i++) {
+    onProgress?.({ fase: 'contratos', atual: i + 1, total: blocos.contratos.length })
+    const c = blocos.contratos[i]
+    const pdf = await gerarContratoPDF(c.dados, c.nomeUnidade)
+    const codigo = nomeArquivo(c.dados.codigo, `contrato_${i + 1}`)
+    zip.file(`contratos/contrato_${codigo}.pdf`, pdf)
+    arquivos++
+  }
+
+  // 2. FICHAS — 1 PNG cada (renderiza off-screen + html2canvas)
+  if (blocos.fichas.length > 0) {
+    onProgress?.({ fase: 'fichas', atual: 0, total: blocos.fichas.length })
+    const { elements, cleanup } = await renderFichasOcultas(blocos.fichas)
+    try {
+      for (let i = 0; i < elements.length; i++) {
+        onProgress?.({ fase: 'fichas', atual: i + 1, total: elements.length })
+        const canvas = await html2canvas(elements[i], { scale: 2, backgroundColor: '#ffffff', useCORS: true })
+        const png = await new Promise<Blob>((resolve, reject) =>
+          canvas.toBlob(b => b ? resolve(b) : reject(new Error('toBlob falhou')), 'image/png')
+        )
+        const f = blocos.fichas[i]
+        // Padrão novo: LACRE_NOME-PET_IND.png
+        zip.file(`fichas/${nomeFicha(f, 'png')}`, png)
+        arquivos++
+      }
+    } finally {
+      cleanup()
+    }
+  }
+
+  // 3. PROTOCOLOS — 1 PDF cada (gerador atual usa grid; 1 chamada por protocolo)
+  for (let i = 0; i < blocos.protocolos.length; i++) {
+    onProgress?.({ fase: 'protocolos', atual: i + 1, total: blocos.protocolos.length })
+    const p = blocos.protocolos[i]
+    const pdf = await gerarProtocolosPDF([p])
+    // ProtocoloData pode não ter codigo direto — tenta vários caminhos comuns
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const codigo = nomeArquivo((p as any).codigo || (p as any).contrato?.codigo, `protocolo_${i + 1}`)
+    zip.file(`protocolos/protocolo_${codigo}.pdf`, pdf)
+    arquivos++
+  }
+
+  if (arquivos === 0) throw new Error('Nada para empacotar')
+
+  // 4. Gera o ZIP
+  onProgress?.({ fase: 'concatenando', atual: 0, total: arquivos })
+  const zipBlob = await zip.generateAsync({ type: 'blob' })
+  onProgress?.({ fase: 'concatenando', atual: arquivos, total: arquivos })
+  return zipBlob
 }

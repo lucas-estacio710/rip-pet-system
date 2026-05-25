@@ -42,10 +42,37 @@ function normalizarNomeArquivo(petNome: string): string {
     .replace(/[^a-zA-Z0-9_]/g, '')
 }
 
+function normalizarPedaco(s: string | null | undefined, fallback: string): string {
+  if (!s || !String(s).trim()) return fallback
+  return String(s)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/[^a-zA-Z0-9-]/g, '')
+    || fallback
+}
+
+/**
+ * Padr\u00e3o novo de nome de arquivo da ficha: `LACRE_NOME-PET_IND.ext` (ou COL).
+ * Aceita o contrato/ficha + extens\u00e3o (png pra captura individual; pdf pro A4 duplicado).
+ * Sem lacre \u2192 "SEMLACRE"; sem nome \u2192 "SEMPET"; tipo desconhecido \u2192 "??".
+ */
+export function nomeFicha(
+  f: { numero_lacre?: string | null; pet_nome?: string | null; tipo_cremacao?: string | null },
+  ext: 'png' | 'pdf' = 'png',
+): string {
+  const lacre = normalizarPedaco(f.numero_lacre, 'SEMLACRE')
+  const pet = normalizarPedaco(f.pet_nome, 'SEMPET')
+  const tipo = f.tipo_cremacao === 'individual' ? 'IND' : f.tipo_cremacao === 'coletiva' ? 'COL' : '??'
+  return `${lacre}_${pet}_${tipo}.${ext}`
+}
+
+/** @deprecated Use `nomeFicha({ numero_lacre, pet_nome, tipo_cremacao }, 'png')` */
 export function fichaFilename(codigo: string, petNome: string): string {
   return `${codigo}_${normalizarNomeArquivo(petNome)}.png`
 }
 
+/** @deprecated Use `nomeFicha({ numero_lacre, pet_nome, tipo_cremacao }, 'pdf')` */
 export function fichaFilenamePDF(codigo: string, petNome: string): string {
   return `${codigo}_${normalizarNomeArquivo(petNome)}.pdf`
 }

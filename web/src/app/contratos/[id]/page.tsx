@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import FichaRemocao from '@/components/fichas/FichaRemocao'
-import { captureElementAsBlob, fichaFilename, gerarFichaPDFA4Duplicada, fichaFilenamePDF } from '@/lib/ficha-generator'
+import { captureElementAsBlob, fichaFilename, gerarFichaPDFA4Duplicada, nomeFicha } from '@/lib/ficha-generator'
 import EditarFichaModal from '@/components/contratos/modals/EditarFichaModal'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, User, Phone, Mail, MapPin, DollarSign, FileText, X, Search, Plus, Pencil, Trash2, Check, Copy, Package, AlertTriangle, Star, Download, Share2, Receipt, RefreshCw, Award, Clock, CheckCheck, CalendarClock, SearchCheck, Flame, CheckCircle2 } from 'lucide-react'
@@ -472,7 +472,7 @@ export default function ContratoDetalhe() {
     const t = setTimeout(async () => {
       if (!fichaImprimirRef.current) { setImprimindoFicha(false); return }
       try {
-        await gerarFichaPDFA4Duplicada(fichaImprimirRef.current, fichaFilenamePDF(c.codigo, c.pet_nome))
+        await gerarFichaPDFA4Duplicada(fichaImprimirRef.current, nomeFicha(c, 'pdf'))
       } catch (err) {
         console.error('Erro ao gerar PDF da ficha:', err)
         alert('Erro ao gerar PDF da ficha.')

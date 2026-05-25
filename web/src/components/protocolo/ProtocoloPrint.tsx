@@ -21,8 +21,8 @@ export function buildProtocolosHtml(protocolos: ProtocoloData[]): string {
       const isBlank = data === null
       const html = ReactDOMServer.renderToStaticMarkup(
         isBlank
-          ? React.createElement(ProtocoloEntrega, { blank: true })
-          : React.createElement(ProtocoloEntrega, { data })
+          ? React.createElement(ProtocoloEntrega, { blank: true, print: true })
+          : React.createElement(ProtocoloEntrega, { data, print: true })
       )
       return `<div class="protocolo-cell" key="${idx}">${html}</div>`
     }).join('')

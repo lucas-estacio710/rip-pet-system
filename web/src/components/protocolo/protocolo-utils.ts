@@ -34,6 +34,7 @@ export type ProtocoloData = {
   dataAcolhimento: string | null
   // Tutor
   tutorNome: string
+  tutorTelefone: string | null
   tutorEndereco: string | null
   tutorBairro: string | null
   tutorCidade: string | null
@@ -138,6 +139,9 @@ export function montarProtocoloData(
     pet_peso: number | null
     data_acolhimento: string | null
     tutor_nome: string | null
+    tutor_telefone?: string | null
+    tutor_telefone2?: string | null
+    tutor_telefone_principal?: number | null
     tutor_endereco?: string | null
     tutor_bairro: string | null
     tutor_cidade: string | null
@@ -145,6 +149,9 @@ export function montarProtocoloData(
     tutor_cep?: string | null
     tutor?: {
       nome?: string | null
+      telefone?: string | null
+      telefone2?: string | null
+      telefone_principal?: number | null
       endereco?: string | null
       numero?: string | null
       complemento?: string | null
@@ -171,6 +178,11 @@ export function montarProtocoloData(
   }
 ): ProtocoloData {
   const tutorNome = contrato.tutor?.nome || contrato.tutor_nome || ''
+  // Telefone ativo: principal=2 → tel2; senão tel1 (com fallback pra tel2). Tenta tabela tutores primeiro, depois snapshot do contrato.
+  const tutorPrincipal = contrato.tutor?.telefone_principal ?? contrato.tutor_telefone_principal ?? 1
+  const tutorTel1 = contrato.tutor?.telefone ?? contrato.tutor_telefone ?? null
+  const tutorTel2 = contrato.tutor?.telefone2 ?? contrato.tutor_telefone2 ?? null
+  const tutorTelefone = tutorPrincipal === 2 ? (tutorTel2 || tutorTel1) : (tutorTel1 || tutorTel2)
   const tutorNumero = contrato.tutor?.numero || null
   const tutorComplemento = contrato.tutor?.complemento || null
   const enderecoBase = contrato.tutor?.endereco || contrato.tutor_endereco || null
@@ -228,6 +240,7 @@ export function montarProtocoloData(
     petPeso: contrato.pet_peso,
     dataAcolhimento: contrato.data_acolhimento,
     tutorNome,
+    tutorTelefone,
     tutorEndereco,
     tutorBairro,
     tutorCidade,
