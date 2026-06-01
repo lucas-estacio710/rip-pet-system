@@ -67,6 +67,7 @@ export const TELAS: ItemDef[] = [
   { key: 'tela_ads_shield', label: 'RIP Shield', desc: 'Detecção de fraude em cliques Google Ads' },
   { key: 'tela_dashboard', label: 'Dashboard (Admin)', desc: 'Painel interno do super_admin — uso/adoção dos usuários' },
   { key: 'tela_dashboards', label: 'Dashboards', desc: 'Estatísticas dos contratos para os usuários da unidade' },
+  { key: 'nav_bottom', label: 'Barra inferior (mobile)', desc: 'Atalhos no rodapé em telas <768px: Fichas, Pipeline, Encaminhamentos, Estoque, Painéis. Oculto = barra some (sidebar/drawer continuam). Cada atalho ainda respeita a visibilidade da própria tela.' },
 ]
 
 // ============================================

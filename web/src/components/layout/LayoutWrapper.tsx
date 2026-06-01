@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import { Sidebar } from './Sidebar'
 import { MobileHeader } from './MobileHeader'
 import { MobileDrawer } from './MobileDrawer'
+import { MobileBottomNav } from './MobileBottomNav'
 import { useSidebarState } from '@/hooks/useSidebarState'
 import { ToastProvider } from '@/components/ui/Toast'
 import { PanelLeftOpen, PanelLeftClose } from 'lucide-react'
@@ -70,6 +71,9 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
           <Sidebar mode="drawer" onNavigate={drawer.close} />
         </MobileDrawer>
 
+        {/* Mobile bottom nav (<768px) — atalhos rápidos, gated por FLS nav_bottom */}
+        <MobileBottomNav />
+
         {/* Main content area — responsive margins */}
         <main className={`theme-content pt-14 md:pt-0 md:ml-[72px] ${sidebarExpanded ? 'lg:ml-64' : 'lg:ml-[72px]'} min-h-screen transition-all duration-200`}>
           {/* Banner de impersonação */}
@@ -83,7 +87,7 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
               <UserMenu />
             </div>
           </div>
-          <div className="p-4 md:px-6 md:pt-2 md:pb-6 animate-fade-in">
+          <div className="px-4 pt-4 pb-20 md:px-6 md:pt-2 md:pb-6 animate-fade-in">
             {children}
           </div>
         </main>
