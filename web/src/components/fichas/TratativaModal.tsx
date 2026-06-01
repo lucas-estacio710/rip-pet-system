@@ -911,11 +911,27 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         .single() as { data: { id: string } | null; error: { message: string } | null }
       if (errContrato) throw new Error(`Erro ao criar contrato: ${errContrato.message}`)
 
-      // Vincular contrato à ficha + marcar como processada (se ainda não estava)
+      // Vincular contrato à ficha + marcar como processada (se ainda não estava).
+      // Reconcilia op_dados com o que foi de fato usado pra criar o contrato — garante
+      // que PDF da ficha, badges de pendência e o "desfazer ficha" (que preserva op_dados)
+      // reflitam os campos provisórios preenchidos aqui, mesmo sem clicar "Salvar Pendências".
+      const opPrev = (ficha.op_dados || {}) as Record<string, unknown>
+      const opReconciliado = {
+        ...opPrev,
+        semLocal: localColeta ? false : semLocal,
+        localColeta: localColeta || opPrev.localColeta,
+        semResponsavel: funcionarioId ? false : semResponsavel,
+        funcionarioId: funcionarioId || opPrev.funcionarioId,
+        semDataHora: dataHoraAcolhimento ? false : semDataHora,
+        dataHoraAcolhimento: dataHoraAcolhimento || opPrev.dataHoraAcolhimento,
+        semLacre: lacre.trim() ? false : semLacre,
+        lacre: lacre.trim() || opPrev.lacre,
+      }
       const { error: errLink } = await supabase.from('fichas').update({
         contrato_id: contrato!.id,
         processada: true,
         processada_em: ficha.processada ? undefined : new Date().toISOString(),
+        op_dados: opReconciliado,
       } as never).eq('id', ficha.id)
       if (errLink) throw new Error(`Erro ao vincular ficha ao contrato: ${errLink.message}`)
 
@@ -1478,7 +1494,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                       { key: 'unidade', label: 'Unidade RIP PET' },
                       { key: 'outro', label: 'Outro endereço' },
                     ].map(opt => (
-                      <button key={opt.key} type="button" onClick={() => { setLocalColeta(opt.key as typeof localColeta); setSemLocal(false) }}
+                      <button key={opt.key} type="button" onClick={() => setLocalColeta(opt.key as typeof localColeta)}
                         className={`py-1.5 px-2 rounded-lg text-[10px] font-medium border transition-all ${
                           localColeta === opt.key
                             ? 'border-amber-400 bg-amber-500/10 text-amber-400'
@@ -1537,7 +1553,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               {semResponsavel && (
                 <div>
                   <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Responsável pelo Acolhimento</label>
-                  <select value={funcionarioId} onChange={e => { setFuncionarioId(e.target.value); if (e.target.value) setSemResponsavel(false) }} className="input text-sm">
+                  <select value={funcionarioId} onChange={e => setFuncionarioId(e.target.value)} className="input text-sm">
                     <option value="">Selecione...</option>
                     {funcionarios.map(f => (<option key={f.id} value={f.id}>{f.nome}</option>))}
                   </select>
@@ -1547,14 +1563,14 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               {semDataHora && (
                 <div>
                   <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Data e Hora do Acolhimento</label>
-                  <input type="datetime-local" step="1800" value={dataHoraAcolhimento} onChange={e => { setDataHoraAcolhimento(e.target.value); if (e.target.value) setSemDataHora(false) }} className="input text-sm" />
+                  <input type="datetime-local" step="1800" value={dataHoraAcolhimento} onChange={e => setDataHoraAcolhimento(e.target.value)} className="input text-sm" />
                 </div>
               )}
 
               {semLacre && (
                 <div>
                   <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Número do Lacre</label>
-                  <input type="text" value={lacre} onChange={e => { setLacre(e.target.value); if (e.target.value.trim()) setSemLacre(false) }} placeholder="Número do lacre" className="input text-sm" />
+                  <input type="text" value={lacre} onChange={e => setLacre(e.target.value)} placeholder="Número do lacre" className="input text-sm" />
                 </div>
               )}
 
