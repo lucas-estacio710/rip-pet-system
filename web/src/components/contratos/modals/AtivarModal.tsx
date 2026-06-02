@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { X, Search, Check } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { dataLocal } from '@/lib/date-local'
+import { useUnit } from '@/contexts/UnitContext'
 
 type ContratoMinimal = {
   id: string
@@ -30,6 +31,7 @@ type Estab = { id: string; nome: string; tipo: string | null }
 
 export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Props) {
   const supabase = createClient()
+  const { currentUnit } = useUnit()
 
   const [form, setForm] = useState({
     data_acolhimento: '',
@@ -133,10 +135,13 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
       const dataHora = new Date(`${form.data_acolhimento}T${form.hora_acolhimento}:00`)
 
       const isClinica = form.local_coleta === 'Clínica'
+      // cb_cremacao_local (PI): ao acionar PV, vai direto pra 'pinda' (sem passar por 'ativo').
+      // Checa modulos_ativos direto — hasModule() retorna true sempre pra super_admin.
+      const novoStatus: 'ativo' | 'pinda' = currentUnit?.modulos_ativos?.includes('cb_cremacao_local') ? 'pinda' : 'ativo'
       const { error } = await supabase
         .from('contratos')
         .update({
-          status: 'ativo',
+          status: novoStatus,
           data_acolhimento: dataHora.toISOString(),
           local_coleta: form.local_coleta,
           clinica_coleta: isClinica ? form.clinica_coleta : null,
@@ -151,7 +156,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
 
       onSuccess?.({
         id: contrato.id,
-        status: 'ativo',
+        status: novoStatus,
         data_acolhimento: dataHora.toISOString(),
         local_coleta: form.local_coleta,
         numero_lacre: form.numero_lacre || null,

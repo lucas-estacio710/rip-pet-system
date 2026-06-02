@@ -838,7 +838,13 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       const contratoData = {
         codigo: codigo.trim(),
         unidade_id: f.unidade_id,
-        status: tipoPlano === 'emergencial' ? 'ativo' : 'preventivo',
+        // cb_cremacao_local (PI): EM nasce direto em 'pinda' (sem passar por 'ativo').
+        // PV continua 'preventivo' até ser acionado. Trigger 091 cria contrato_gc no insert.
+        // Checagem direta de modulos_ativos da unidade DA FICHA (não currentUnit) — super_admin
+        // pode estar processando ficha de qualquer unidade, e hasModule() retorna true sempre pra ele.
+        status: tipoPlano === 'emergencial'
+          ? (currentUnit?.modulos_ativos?.includes('cb_cremacao_local') ? 'pinda' : 'ativo')
+          : 'preventivo',
         tipo_plano: tipoPlano,
         tipo_cremacao: f.cremacao.toLowerCase() as 'individual' | 'coletiva',
         pet_nome: f.nome_pet?.toUpperCase() || '', pet_especie: f.especie.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(),

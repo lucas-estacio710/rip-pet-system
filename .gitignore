@@ -1,8 +1,9 @@
 # Variáveis de ambiente
 .env*
 
-# Claude (contém credenciais)
+# Tríade de doc interna (contém credenciais / fluxos de negócio)
 CLAUDE.md
+FLOW.md
 .claude/
 
 # Dados sensíveis
@@ -42,6 +43,7 @@ node_modules/
 # Arquivos temporários
 nul
 tmp_*.json
+.tmp/
 
 # OS
 .DS_Store

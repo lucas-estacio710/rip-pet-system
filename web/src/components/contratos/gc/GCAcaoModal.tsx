@@ -57,6 +57,9 @@ type Props = {
     petDados?: { pet_nome: string; pet_especie: string | null; pet_raca: string | null; pet_genero: string | null }
   ) => void
   supindaStatus?: string | null
+  /** Quando true (unidade tem `cb_cremacao_local`, ex: PI), o pet já está fisicamente
+   *  no crematório (mesma unidade). Permite Matriz "receber" sem exigir supinda finalizada. */
+  unidadeTemCremacaoLocal?: boolean
   gcAtual: GCData | null
   onClose: () => void
   onSaved: (gcAtualizado?: Record<string, unknown>) => void | Promise<void>
@@ -93,7 +96,7 @@ function alertaAgendamento(iso?: string | null): { dias: number; texto: string }
   return { dias, texto }
 }
 
-export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoCremacao, petEspecie, petPeso, petRaca, petGenero, petCor, numeroLacre, tutorNome, tutorTelefone, tutorTelefone2, tutorTelefoneNome, tutorTelefone2Nome, tutorTelefonePrincipal, certificadoNomesRaw, certificadoConfirmado, onCertificadoSaved, supindaStatus, gcAtual, onClose, onSaved }: Props) {
+export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoCremacao, petEspecie, petPeso, petRaca, petGenero, petCor, numeroLacre, tutorNome, tutorTelefone, tutorTelefone2, tutorTelefoneNome, tutorTelefone2Nome, tutorTelefonePrincipal, certificadoNomesRaw, certificadoConfirmado, onCertificadoSaved, supindaStatus, unidadeTemCremacaoLocal, gcAtual, onClose, onSaved }: Props) {
   const supabase = createClient()
   const [salvando, setSalvando] = useState(false)
   const [gc, setGc] = useState<GCData>(
@@ -179,7 +182,10 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
   // Regras de bloqueio
   // "Ida finalizada" e "finalizada" liberam "Confirmar Recebimento":
   // após a migration 082, o status do encaminhamento é quebrado em ida/volta.
-  const encFinalizado = supindaStatus === 'ida_finalizada' || supindaStatus === 'finalizada'
+  // encFinalizado = supinda chegou em Pinda (pet pronto pra ser "recebido" no GC).
+  // Para unidades com cb_cremacao_local (PI), o pet já está fisicamente no crematório
+  // desde o início — equivalente a supinda finalizada.
+  const encFinalizado = supindaStatus === 'ida_finalizada' || supindaStatus === 'finalizada' || !!unidadeTemCremacaoLocal
   const podeReceber = etapa === 'provisionado' && encFinalizado
   const [erro, setErro] = useState('')
   const [dirty, setDirty] = useState(false)

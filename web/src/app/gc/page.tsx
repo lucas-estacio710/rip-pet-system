@@ -73,6 +73,7 @@ type UnidadeInfo = {
   id: string
   codigo: string
   nome: string
+  modulos_ativos?: string[] | null
 }
 
 const UNIT_COLORS: Record<string, string> = {
@@ -148,17 +149,11 @@ export default function GCPage() {
   const carregarDados = useCallback(async () => {
     setLoading(true)
 
-    // Buscar contratos provisionados (supinda_id preenchido) — GC vê desde o planejamento
-    const [contratosRes, unidadesRes, supindasRes] = await Promise.all([
-      supabase
-        .from('contratos')
-        .select('id, codigo, pet_nome, pet_especie, pet_peso, pet_raca, pet_genero, pet_cor, tutor_nome, tutor_telefone, tutor_telefone2, tutor_telefone_nome, tutor_telefone2_nome, tutor_telefone_principal, tipo_cremacao, status, data_acolhimento, numero_lacre, observacoes, unidade_id, supinda_id, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_nome_6, certificado_nome_7, certificado_confirmado, contrato_gc(*)')
-        .not('supinda_id', 'is', null)
-        .in('status', ['ativo', 'pinda'])
-        .order('data_acolhimento', { ascending: true }),
+    // 1) Buscar unidades + supindas em paralelo (precisa unidades antes pra montar filtro de contratos)
+    const [unidadesRes, supindasRes] = await Promise.all([
       supabase
         .from('unidades')
-        .select('id, codigo, nome')
+        .select('id, codigo, nome, modulos_ativos')
         .eq('ativa', true)
         .neq('is_matriz', true)
         .order('ordem')
@@ -168,6 +163,22 @@ export default function GCPage() {
         .select('id, numero, data, status, unidades(codigo)')
         .order('data'),
     ])
+
+    // 2) Unidades com cb_cremacao_local — contratos delas entram no GC SEM precisar de supinda
+    const unidadesLocais = (unidadesRes.data || []).filter((u: any) => (u.modulos_ativos as string[] | null | undefined)?.includes('cb_cremacao_local'))
+    const idsLocais = unidadesLocais.map((u: any) => u.id as string)
+
+    // 3) Buscar contratos: tem supinda_id OU unidade tem cb_cremacao_local
+    const orFilter = idsLocais.length > 0
+      ? `supinda_id.not.is.null,unidade_id.in.(${idsLocais.join(',')})`
+      : 'supinda_id.not.is.null'
+
+    const contratosRes = await supabase
+      .from('contratos')
+      .select('id, codigo, pet_nome, pet_especie, pet_peso, pet_raca, pet_genero, pet_cor, tutor_nome, tutor_telefone, tutor_telefone2, tutor_telefone_nome, tutor_telefone2_nome, tutor_telefone_principal, tipo_cremacao, status, data_acolhimento, numero_lacre, observacoes, unidade_id, supinda_id, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_nome_6, certificado_nome_7, certificado_confirmado, contrato_gc(*)')
+      .or(orFilter)
+      .in('status', ['ativo', 'pinda'])
+      .order('data_acolhimento', { ascending: true })
 
     // Merge: campos sensíveis do pet (nome/espécie/raça/gênero) preferem o snapshot
     // do contrato_gc (migration 081) ao valor original em contratos.
@@ -194,11 +205,11 @@ export default function GCPage() {
         })) as never,
         { onConflict: 'contrato_id', ignoreDuplicates: true }
       )
-      // Recarregar pra pegar as rows criadas
+      // Recarregar pra pegar as rows criadas (mesmo filtro)
       const { data: reloadData } = await supabase
         .from('contratos')
         .select('id, codigo, pet_nome, pet_especie, pet_peso, pet_raca, pet_genero, pet_cor, tutor_nome, tutor_telefone, tutor_telefone2, tutor_telefone_nome, tutor_telefone2_nome, tutor_telefone_principal, tipo_cremacao, status, data_acolhimento, numero_lacre, observacoes, unidade_id, supinda_id, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_nome_6, certificado_nome_7, certificado_confirmado, contrato_gc(*)')
-        .not('supinda_id', 'is', null)
+        .or(orFilter)
         .in('status', ['ativo', 'pinda'])
         .order('data_acolhimento', { ascending: true })
 
@@ -717,6 +728,7 @@ export default function GCPage() {
             }
           }}
           supindaStatus={supindas.find(s => s.id === acaoModal.supinda_id)?.status || null}
+          unidadeTemCremacaoLocal={unidades.find(u => u.id === acaoModal.unidade_id)?.modulos_ativos?.includes('cb_cremacao_local') || false}
           gcAtual={acaoModal.gc as any}
           onClose={() => setAcaoModal(null)}
           onSaved={async (gcAtualizado?: Record<string, unknown>) => {

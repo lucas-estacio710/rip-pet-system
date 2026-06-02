@@ -81,6 +81,9 @@ export const OBJETOS: ChildItemDef[] = [
   // Fichas
   { key: 'cb_padronizacao_clinicas', tela: 'tela_fichas', label: 'Padronização Clínicas', desc: 'Autocomplete de estabelecimentos no processamento de ficha' },
 
+  // Pipeline — comportamentos opcionais por unidade
+  { key: 'cb_cremacao_local', tela: 'tela_pipeline', label: 'Cremação Local (sem encaminhamento)', desc: 'Unidade co-localizada com o crematório (ex: PI). Contratos nascem direto em status=pinda; GC criado automático; auto-retorno quando GC vira disponível. Sem supinda. Ver FLOW.md §7.1.' },
+
   // Dashboards (usuários)
   { key: 'obj_dash_operacional', tela: 'tela_dashboards', label: 'Operacional', desc: 'Volume, fluxo, supindas, entregas, rescaldos' },
   { key: 'obj_dash_financeiro', tela: 'tela_dashboards', label: 'Financeiro', desc: 'Receita, custo cremação, ticket médio, pendentes, NFS-e' },

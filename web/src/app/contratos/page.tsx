@@ -259,7 +259,7 @@ function calcFinanceiroProtocolo(
 function ContratosContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const { currentUnit, allUnidades, isLoading: unitLoading } = useUnit()
+  const { currentUnit, allUnidades, isLoading: unitLoading, hasModule } = useUnit()
   const { isVisible } = useFieldPermission()
   const T = 'tela_pipeline'
 
@@ -276,6 +276,10 @@ function ContratosContent() {
   const buscaDebounced = useDebounce(busca, 300)
   const [campoBusca, setCampoBusca] = useState<'todos' | 'pet' | 'tutor' | 'codigo' | 'lacre'>('todos')
   const [statusFiltro, setStatusFiltro] = useState<string>(searchParams.get('status') || 'ativo')
+  // cb_cremacao_local: contratos nascem em 'pinda' (sem passar por 'ativo'). Pill 'Ativo' some.
+  // Importante: NÃO usar hasModule() — ele retorna true pra super_admin sempre. Aqui é
+  // comportamento de fluxo, não visibilidade — checar modulos_ativos da unidade atual direto.
+  const fluxoLocal = !!currentUnit?.modulos_ativos?.includes('cb_cremacao_local')
   const [pagina, setPagina] = useState(parseInt(searchParams.get('pagina') || '0', 10))
   const [total, setTotal] = useState(0)
   const [totalGeral, setTotalGeral] = useState(0)
@@ -739,6 +743,14 @@ function ContratosContent() {
     } catch {}
   }, [selectedContratos])
 
+  // cb_cremacao_local: se a unidade tem fluxo local e o filtro caiu em 'ativo' por default
+  // (sem ?status na URL), trocar pra 'pinda' — que é onde os contratos nascem em PI.
+  useEffect(() => {
+    if (fluxoLocal && statusFiltro === 'ativo' && !searchParams.get('status')) {
+      setStatusFiltro('pinda')
+    }
+  }, [fluxoLocal, statusFiltro, searchParams])
+
   useEffect(() => {
     try {
       sessionStorage.setItem('pipeline:selectedEntregas', JSON.stringify(Array.from(selectedEntregas)))
@@ -936,8 +948,9 @@ function ContratosContent() {
     // Definir campo e direção da ordenação
     const campoOrdem = ordenacao === 'nome' ? 'pet_nome' : 'data_acolhimento'
     const ascending = ordemAsc
-    // Agrupar por encaminhamento: toggle do user, mas preventivo nunca agrupa (não tem supinda).
-    const agruparPorSupinda = agruparSupinda && statusFiltro !== 'preventivo'
+    // Agrupar por encaminhamento: toggle do user, mas preventivo nunca agrupa (não tem supinda)
+    // e unidades com cb_cremacao_local também não (não há encaminhamento — todos seriam "sem").
+    const agruparPorSupinda = agruparSupinda && statusFiltro !== 'preventivo' && !fluxoLocal
 
     // SELECT principal — só dados base + embeds leves essenciais (tutor + supinda + pagamentos).
     // Embeds pesados (contrato_produtos, contrato_gc, fonte_conhecimento) carregam em paralelo após.
@@ -1059,7 +1072,7 @@ function ContratosContent() {
     // Usar mesma ordenação da listagem
     const campoOrdem = ordenacao === 'nome' ? 'pet_nome' : 'data_acolhimento'
     const ascending = ordemAsc
-    const agruparPorSupinda = agruparSupinda && statusFiltro !== 'preventivo'
+    const agruparPorSupinda = agruparSupinda && statusFiltro !== 'preventivo' && !fluxoLocal
 
     // Mesmo padrão da listagem: SELECT leve + enriquecimento paralelo
     const SELECT_BUSCA = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento_id, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id'
@@ -2725,10 +2738,14 @@ ${petNome}`
       // Combina data + hora em ISO
       const dataHora = new Date(`${ativarForm.data_acolhimento}T${ativarForm.hora_acolhimento}:00`)
 
+      // cb_cremacao_local (PI): PV vai direto pra 'pinda' ao ser acionado (trigger 091 cria GC).
+      // Usa `fluxoLocal` (checa modulos_ativos direto) — hasModule retorna true pra super_admin sempre.
+      const novoStatus: 'ativo' | 'pinda' = fluxoLocal ? 'pinda' : 'ativo'
+
       const { error } = await supabase
         .from('contratos')
         .update({
-          status: 'ativo',
+          status: novoStatus,
           data_acolhimento: dataHora.toISOString(),
           local_coleta: ativarForm.local_coleta,
           clinica_coleta: ativarForm.local_coleta === 'Clínica' ? ativarForm.clinica_coleta : null,
@@ -2743,7 +2760,7 @@ ${petNome}`
       // Atualiza lista local
       setContratos(prev => prev.map(c =>
         c.id === ativarContrato.id
-          ? { ...c, status: 'ativo', data_acolhimento: dataHora.toISOString(), local_coleta: ativarForm.local_coleta, numero_lacre: ativarForm.numero_lacre || null }
+          ? { ...c, status: novoStatus, data_acolhimento: dataHora.toISOString(), local_coleta: ativarForm.local_coleta, numero_lacre: ativarForm.numero_lacre || null }
           : c
       ))
 
@@ -2751,7 +2768,7 @@ ${petNome}`
       setStatusCounts(prev => ({
         ...prev,
         preventivo: (prev.preventivo || 0) - 1,
-        ativo: (prev.ativo || 0) + 1,
+        [novoStatus]: (prev[novoStatus] || 0) + 1,
       }))
 
       setAtivarModal(false)
@@ -3509,7 +3526,7 @@ ${petNome}`
       {/* Pipeline — compact single-line */}
       <div className="overflow-x-auto scrollbar-hide">
         <div className="flex gap-1">
-          {STATUS_FLOW.map((status) => {
+          {STATUS_FLOW.filter(s => !(fluxoLocal && s.key === 'ativo')).map((status) => {
             const isActive = statusFiltro === status.key
             const count = statusCounts[status.key] || 0
             const colors = STATUS_COLORS[status.key]
@@ -3725,8 +3742,9 @@ ${petNome}`
             </button>
           </div>
 
-          {/* Toggle: agrupar por encaminhamento */}
-          {statusFiltro !== 'preventivo' && (
+          {/* Toggle: agrupar por encaminhamento — escondido em unidades com cb_cremacao_local
+              (não há encaminhamento, todos os pets cairiam em "Sem encaminhamento"). */}
+          {statusFiltro !== 'preventivo' && !fluxoLocal && (
             <button
               onClick={() => { setAgruparSupinda(!agruparSupinda); setPagina(0) }}
               className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
@@ -3989,7 +4007,8 @@ ${petNome}`
             const cidades = Object.keys(contratosAgrupados).sort()
 
             // Agrupar contratos por supinda: toggle do user, sem efeito em preventivo
-            const deveAgruparSupinda = agruparSupinda && statusFiltro !== 'preventivo'
+            // nem em unidades com cb_cremacao_local (sem encaminhamento).
+            const deveAgruparSupinda = agruparSupinda && statusFiltro !== 'preventivo' && !fluxoLocal
 
             function renderSupindaGroup(lista: Contrato[], renderFn: (c: Contrato) => React.ReactNode) {
               if (!deveAgruparSupinda) {
