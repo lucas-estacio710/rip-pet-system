@@ -30,6 +30,7 @@ export function MobileBottomNav() {
   const { hasModule, currentUnit } = useUnit()
   const supabase = createClient()
   const [fichasCount, setFichasCount] = useState<number | null>(null)
+  const [overlayAberto, setOverlayAberto] = useState(false)
 
   // FLS: 1 toggle controla a barra inteira (default permissivo = visível)
   const barraVisivel = hasModule('nav_bottom')
@@ -52,7 +53,19 @@ export function MobileBottomNav() {
     fetchFichas()
   }, [currentUnit?.id, barraVisivel])
 
-  if (!barraVisivel || visibleItems.length === 0) return null
+  // Esconde a barra quando há qualquer overlay full-screen aberto (modal/drawer).
+  // Todos os modais do projeto usam `fixed inset-0`; sem isso a barra (fixed bottom)
+  // fica por cima do rodapé dos modais e cobre botões de ação (Processar, Iniciar Fluxo, etc).
+  useEffect(() => {
+    if (!barraVisivel) return
+    const check = () => setOverlayAberto(!!document.querySelector('.fixed.inset-0'))
+    check()
+    const obs = new MutationObserver(check)
+    obs.observe(document.body, { childList: true, subtree: true })
+    return () => obs.disconnect()
+  }, [barraVisivel])
+
+  if (!barraVisivel || visibleItems.length === 0 || overlayAberto) return null
 
   return (
     // theme-content (não theme-sidebar) → a barra segue o tema claro/escuro do app
