@@ -33,7 +33,7 @@ const UNIDADES: Record<string, FichaUnidadeConfig> = {
     estado: 'SP',
     label: 'Unidade Campinas',
     unidadeCompleta: 'Campinas - SP',
-    maxParcelas: 10,
+    maxParcelas: 8,
   },
   sjc: {
     unidade_id: '883bcc04-7885-4c46-93ee-696f452cc07c',
