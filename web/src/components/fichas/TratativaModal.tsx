@@ -54,7 +54,7 @@ type Ficha = {
   op_dados: Record<string, unknown> | null
 }
 
-type Estabelecimento = { id: string; nome: string; tipo: string | null }
+type Estabelecimento = { id: string; nome: string; tipo: string | null; cidade: string | null }
 type Contato = { id: string; nome: string; cargo: string | null; estabelecimento_id: string | null }
 type Funcionario = { id: string; nome: string }
 type TutorExistente = { id: string; nome: string } | null
@@ -341,7 +341,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
     if (!isOpen || !ficha) return
     async function loadData() {
       const [{ data: estabs }, { data: conts }, { data: funcs }] = await Promise.all([
-        supabase.from('estabelecimentos').select('id, nome, tipo').eq('unidade_id', ficha!.unidade_id).order('nome'),
+        supabase.from('estabelecimentos').select('id, nome, tipo, cidade').eq('unidade_id', ficha!.unidade_id).order('nome'),
         supabase.from('contatos').select('id, nome, cargo, estabelecimento_id').eq('ativo', true).eq('unidade_id', ficha!.unidade_id).order('nome'),
         supabase.from('funcionarios').select('id, nome').eq('ativo', true).eq('unidade_id', ficha!.unidade_id).order('nome'),
       ])
@@ -1532,7 +1532,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                               <div className="absolute z-20 mt-1 w-full max-h-40 overflow-y-auto bg-[var(--surface-0)] border border-[var(--surface-200)] rounded-lg shadow-lg">
                                 {estabsFiltrados.map(e => (
                                   <button key={e.id} type="button" onClick={() => { setEstabId(e.id); setEstabNome(e.nome); setEstabBusca(e.nome); setEstabAberto(false) }}
-                                    className="w-full text-left px-3 py-1.5 text-sm hover:bg-[var(--surface-50)] text-[var(--surface-600)]">{e.nome}</button>
+                                    className="w-full text-left px-3 py-1.5 text-sm hover:bg-[var(--surface-50)] text-[var(--surface-600)] flex items-center justify-between gap-2"><span>{e.nome}</span>{e.cidade && <span className="text-[10px] text-[var(--surface-400)] shrink-0">{e.cidade}</span>}</button>
                                 ))}
                                 {estabBusca.trim() && !estabsFiltrados.some(e => e.nome.toLowerCase() === estabBusca.toLowerCase()) && (
                                   <button type="button" onClick={() => { setEstabId(null); setEstabNome(estabBusca.trim()); setEstabAberto(false) }}
@@ -1940,7 +1940,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                                     <button key={e.id} type="button" onClick={() => { setEstabId(e.id); setEstabNome(e.nome); setEstabBusca(e.nome); setEstabAberto(false) }}
                                       className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-50)] transition-colors flex items-center justify-between ${estabId === e.id ? 'bg-[var(--surface-50)] font-medium text-[var(--surface-800)]' : 'text-[var(--surface-600)]'}`}>
                                       <span>{e.nome}</span>
-                                      {e.tipo && <span className="text-xs text-[var(--surface-400)]">{e.tipo}</span>}
+                                      {e.cidade && <span className="text-xs text-[var(--surface-400)] shrink-0">{e.cidade}</span>}
                                     </button>
                                   ))}
                                   {estabBusca.trim() && !estabsFiltrados.some(e => e.nome.toLowerCase() === estabBusca.toLowerCase()) && (
@@ -2086,8 +2086,9 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                           <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-[var(--surface-0)] border border-[var(--surface-200)] rounded-lg shadow-lg">
                             {estabelecimentos.filter(e => e.nome.toLowerCase().includes(indicEstabBusca.toLowerCase())).slice(0, 15).map(e => (
                               <button key={e.id} type="button" onClick={() => { setIndicEstabId(e.id); setIndicEstabNome(e.nome); setIndicEstabBusca(e.nome); setIndicEstabAberto(false) }}
-                                className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-50)] transition-colors ${indicEstabId === e.id ? 'bg-[var(--surface-50)] font-medium' : 'text-[var(--surface-600)]'}`}>
-                                {e.nome}
+                                className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-50)] transition-colors flex items-center justify-between gap-2 ${indicEstabId === e.id ? 'bg-[var(--surface-50)] font-medium' : 'text-[var(--surface-600)]'}`}>
+                                <span>{e.nome}</span>
+                                {e.cidade && <span className="text-xs text-[var(--surface-400)] shrink-0">{e.cidade}</span>}
                               </button>
                             ))}
                             {indicEstabBusca.trim() && !estabelecimentos.some(e => e.nome.toLowerCase() === indicEstabBusca.toLowerCase()) && (
@@ -2138,9 +2139,13 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                                   if (estab) { setIndicEstabId(estab.id); setIndicEstabNome(estab.nome); setIndicEstabBusca(estab.nome); setIndicHospAtivo(true) }
                                 }
                               }}
-                                className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-50)] transition-colors flex items-center justify-between ${indicId === c.id ? 'bg-[var(--surface-50)] font-medium' : 'text-[var(--surface-600)]'}`}>
+                                className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-50)] transition-colors flex flex-col ${indicId === c.id ? 'bg-[var(--surface-50)] font-medium' : 'text-[var(--surface-600)]'}`}>
                                 <span>{c.nome}</span>
-                                {c.cargo && <span className="text-xs text-[var(--surface-400)]">{c.cargo}</span>}
+                                {(() => {
+                                  const cl = c.estabelecimento_id ? estabelecimentos.find(es => es.id === c.estabelecimento_id)?.nome : null
+                                  const sub = [c.cargo, cl].filter(Boolean).join(' · ')
+                                  return sub ? <span className="text-[11px] text-[var(--surface-400)]">{sub}</span> : null
+                                })()}
                               </button>
                             ))}
                             {indicBusca.trim() && !contatosFiltrados.some(c => c.nome.toLowerCase() === indicBusca.toLowerCase()) && (
@@ -2155,16 +2160,15 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                         {!indicId && indicNome.trim() && !indicAberto && (
                           <>
                             <p className="mt-1 text-xs text-amber-500">Novo contato será criado</p>
-                            <input type="text" list="indic-cargo-sugestoes" value={indicCargo} onChange={e => setIndicCargo(e.target.value)} placeholder="Cargo (ex: Veterinária, Recepcionista)..." className="input mt-1 text-sm" />
-                            <datalist id="indic-cargo-sugestoes">
-                              <option value="Veterinário(a)" />
-                              <option value="Recepcionista" />
-                              <option value="Auxiliar" />
-                              <option value="Atendente" />
-                              <option value="Gerente" />
-                              <option value="Sócio(a)" />
-                              <option value="Estagiário(a)" />
-                            </datalist>
+                            {/* Cargo: value canônico do CHECK contatos_cargo_check (veterinario/recepcionista/gerente/proprietario/outro); label amigável */}
+                            <select value={indicCargo} onChange={e => setIndicCargo(e.target.value)} className="input mt-1 text-sm">
+                              <option value="">Cargo (opcional)...</option>
+                              <option value="veterinario">Veterinário(a)</option>
+                              <option value="recepcionista">Recepcionista</option>
+                              <option value="gerente">Gerente</option>
+                              <option value="proprietario">Proprietário(a) / Sócio(a)</option>
+                              <option value="outro">Outro</option>
+                            </select>
                           </>
                         )}
                       </div>
