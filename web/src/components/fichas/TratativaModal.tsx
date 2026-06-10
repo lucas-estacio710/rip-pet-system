@@ -1326,7 +1326,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               <h4 className="text-[10px] font-bold text-amber-500 uppercase tracking-wider mb-1">Dados do Concierge — Acolhimento</h4>
               {(() => {
                 const localMap: Record<string, string> = { residencia: 'Residência (Endereço de Cadastro)', unidade: 'Unidade RIP PET' }
-                const localLabel = localColeta === 'outro' ? (enderecoOutro || 'Outro endereço') : localColeta === 'clinica' ? (estabNome || clinicaTextoLivre || 'Clínica / Hospital') : (localMap[localColeta] || localColeta || '')
+                const clinicaColetaLabel = temPadronizacaoClinicas ? estabNome : clinicaTextoLivre
+                const localLabel = localColeta === 'outro' ? (enderecoOutro || 'Outro endereço') : localColeta === 'clinica' ? (clinicaColetaLabel || 'Clínica / Hospital') : (localMap[localColeta] || localColeta || '')
                 return <p className="text-xs text-[var(--surface-600)]"><strong>Local:</strong> {localLabel ? localLabel : <span className="text-amber-400">A definir</span>}</p>
               })()}
               <p className="text-xs text-[var(--surface-600)]"><strong>Responsável:</strong> {funcionarioId ? (funcionarios.find(f => f.id === funcionarioId)?.nome || '-') : <span className="text-amber-400">A definir</span>}</p>
@@ -1384,7 +1385,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               msg += `*Espécie:* ${formatarDisplay(ficha.especie)} | *Raça:* ${ficha.raca || 'Não tem'}\n`
               msg += `*Idade:* ${ficha.idade || '-'} | *Gênero:* ${formatarDisplay(ficha.genero)}\n`
               msg += `*Cor:* ${ficha.cor} | *Peso Aproximado:* ${ficha.peso || '-'}\n`
-              const localMsg = localColeta === 'clinica' ? (estabNome || clinicaTextoLivre || ficha.localizacao_outra || ficha.localizacao)
+              const clinicaColetaMsg = (temPadronizacaoClinicas ? estabNome : clinicaTextoLivre) || ficha.localizacao_outra || ficha.localizacao
+              const localMsg = localColeta === 'clinica' ? clinicaColetaMsg
                 : localColeta === 'outro' ? (enderecoOutro || ficha.localizacao_outra || 'Outro endereço')
                 : localColeta === 'residencia' ? 'Residência (Endereço de Cadastro)'
                 : localColeta === 'unidade' ? 'Unidade RIP PET'
@@ -1424,7 +1426,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               const op = (ficha.op_dados || {}) as Record<string, unknown>
               const nomeUnidade = currentUnit ? `${currentUnit.cidade} - ${currentUnit.estado}` : 'Santos - SP'
               const opLocalColeta = op.localColeta as string | null
-              const localPdf = opLocalColeta === 'clinica' ? ((op.estabNome as string) || (op.clinicaTextoLivre as string) || ficha.localizacao)
+              const opClinicaColeta = temPadronizacaoClinicas ? (op.estabNome as string) : (op.clinicaTextoLivre as string)
+              const localPdf = opLocalColeta === 'clinica' ? (opClinicaColeta || ficha.localizacao_outra || ficha.localizacao)
                 : opLocalColeta === 'outro' ? ((op.enderecoOutro as string) || ficha.localizacao_outra || '')
                 : opLocalColeta === 'residencia' ? 'Residência (Endereço de Cadastro)'
                 : opLocalColeta === 'unidade' ? 'Unidade RIP PET'
