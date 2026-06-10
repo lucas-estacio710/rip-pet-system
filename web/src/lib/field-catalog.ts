@@ -117,6 +117,7 @@ export const CAMPOS_BOTOES: ChildItemDef[] = [
 
   // --- TUTORES ---
   { key: 'btn_recontratacao', tela: 'tela_tutores', label: 'Enviar Nova Contratação', desc: 'Gera link pré-preenchido pro tutor recontratar (novo pet). Premium — vendável por unidade.', modo: 'toggle' },
+  { key: 'btn_editar_tutor', tela: 'tela_tutores', label: 'Editar Tutor', desc: 'Botão "Editar" na página do tutor — abre modal de contato + endereço. Salva no cadastro e propaga o snapshot pros contratos não-finalizados do tutor.', modo: 'toggle' },
 
   // --- FICHAS ---
   { key: 'btn_pdf_ficha', tela: 'tela_fichas', label: 'Gerar PDF', desc: 'Botão azul de gerar PDF do contrato no card da ficha', modo: 'toggle' },

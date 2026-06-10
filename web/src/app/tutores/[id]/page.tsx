@@ -2,12 +2,29 @@
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { ArrowLeft, User, Phone, Mail, MapPin, FileText, Calendar } from 'lucide-react'
+import { ArrowLeft, User, Phone, Mail, MapPin, FileText, Calendar, Pencil } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { computeAllTags, ContratoTagData } from '@/lib/contrato-tags'
 import ContratoTags from '@/components/contratos/ContratoTags'
 import RecontratacaoButton from '@/components/contratos/RecontratacaoButton'
+import Modal from '@/components/ui/Modal'
+import { useToast } from '@/hooks/useToast'
+import { useFieldPermission } from '@/hooks/useFieldPermission'
 import Link from 'next/link'
+
+// Campos editáveis (contato + endereço) — não inclui nome/CPF (sensíveis p/ certificado).
+type TutorEditForm = {
+  telefone: string
+  telefone2: string
+  email: string
+  cep: string
+  endereco: string
+  numero: string
+  complemento: string
+  bairro: string
+  cidade: string
+  estado: string
+}
 
 type Tutor = {
   id: string
@@ -65,8 +82,122 @@ export default function TutorDetalhe() {
   const [tutor, setTutor] = useState<Tutor | null>(null)
   const [contratos, setContratos] = useState<Contrato[]>([])
   const [loading, setLoading] = useState(true)
+  const [editOpen, setEditOpen] = useState(false)
+  const [salvando, setSalvando] = useState(false)
+  const [form, setForm] = useState<TutorEditForm | null>(null)
 
   const supabase = createClient()
+  const { toast } = useToast()
+  const { canEdit, isVisible } = useFieldPermission()
+
+  function abrirEdicao() {
+    if (!tutor) return
+    setForm({
+      telefone: tutor.telefone || '',
+      telefone2: tutor.telefone2 || '',
+      email: tutor.email || '',
+      cep: tutor.cep || '',
+      endereco: tutor.endereco || '',
+      numero: tutor.numero || '',
+      complemento: tutor.complemento || '',
+      bairro: tutor.bairro || '',
+      cidade: tutor.cidade || '',
+      estado: tutor.estado || '',
+    })
+    setEditOpen(true)
+  }
+
+  function setCampo(campo: keyof TutorEditForm, valor: string) {
+    setForm(f => (f ? { ...f, [campo]: valor } : f))
+  }
+
+  async function salvarEdicao() {
+    if (!tutor || !form) return
+    setSalvando(true)
+    try {
+      // 1. Atualiza o cadastro mestre do tutor
+      const updateTutor = {
+        telefone: form.telefone.trim() || null,
+        telefone2: form.telefone2.trim() || null,
+        email: form.email.trim() || null,
+        cep: form.cep.trim() || null,
+        endereco: form.endereco.trim() || null,
+        numero: form.numero.trim() || null,
+        complemento: form.complemento.trim() || null,
+        bairro: form.bairro.trim() || null,
+        cidade: form.cidade.trim() || null,
+        estado: form.estado.trim() || null,
+      }
+      const { error: errTut } = await supabase.from('tutores').update(updateTutor as never).eq('id', tutor.id)
+      if (errTut) throw new Error('Erro ao salvar tutor: ' + errTut.message)
+
+      // 2. Propaga o snapshot pros contratos NÃO-finalizados (histórico dos finalizados preservado).
+      //    contratos.tutor_endereco é o endereço combinado (rua, número - complemento).
+      const enderecoSnapshot = [
+        form.endereco.trim(),
+        form.numero.trim() ? `, ${form.numero.trim()}` : '',
+        form.complemento.trim() ? ` - ${form.complemento.trim()}` : '',
+      ].join('').trim()
+      const updateContratos = {
+        tutor_telefone: form.telefone.trim() || null,
+        tutor_telefone2: form.telefone2.trim() || null,
+        tutor_email: form.email.trim() || null,
+        tutor_endereco: enderecoSnapshot || null,
+        tutor_bairro: form.bairro.trim() || null,
+        tutor_cidade: form.cidade.trim() || null,
+        tutor_cep: form.cep.trim() || null,
+      }
+      const { error: errCtr } = await supabase
+        .from('contratos')
+        .update(updateContratos as never)
+        .eq('tutor_id', tutor.id)
+        .neq('status', 'finalizado')
+      if (errCtr) throw new Error('Erro ao propagar pros contratos: ' + errCtr.message)
+
+      // 3. Histórico — uma linha por campo que mudou
+      const { data: { user } } = await supabase.auth.getUser()
+      const labels: Record<keyof TutorEditForm, string> = {
+        telefone: 'Telefone', telefone2: 'Telefone 2', email: 'E-mail', cep: 'CEP',
+        endereco: 'Endereço', numero: 'Número', complemento: 'Complemento',
+        bairro: 'Bairro', cidade: 'Cidade', estado: 'Estado',
+      }
+      const antes: Record<keyof TutorEditForm, string> = {
+        telefone: tutor.telefone || '', telefone2: tutor.telefone2 || '', email: tutor.email || '',
+        cep: tutor.cep || '', endereco: tutor.endereco || '', numero: tutor.numero || '',
+        complemento: tutor.complemento || '', bairro: tutor.bairro || '', cidade: tutor.cidade || '',
+        estado: tutor.estado || '',
+      }
+      const linhas = (Object.keys(form) as (keyof TutorEditForm)[])
+        .filter(k => (form[k] || '').trim() !== antes[k])
+        .map(k => ({
+          entidade: 'tutores',
+          entidade_id: tutor.id,
+          entidade_nome: tutor.nome,
+          campo: k,
+          campo_label: labels[k],
+          valor_anterior: antes[k] || null,
+          valor_novo: (form[k] || '').trim() || null,
+          tipo: 'alteracao',
+          alterado_por: user?.id || null,
+          alterado_por_email: user?.email || null,
+          nota: 'Edição de contato/endereço na página do tutor (propagado pros contratos não-finalizados).',
+        }))
+      if (linhas.length > 0) {
+        // Best-effort: o cadastro/contratos já foram salvos; falha de auditoria não deve quebrar o save.
+        const { error: errHist } = await supabase.from('historico_alteracoes').insert(linhas as never)
+        if (errHist) console.error('Falha ao registrar histórico (dados já salvos):', errHist.message)
+      }
+
+      setEditOpen(false)
+      toast('Dados do tutor atualizados', 'success')
+      await carregarDados()
+    } catch (e) {
+      console.error(e)
+      toast(e instanceof Error ? e.message : 'Erro ao salvar', 'error')
+    } finally {
+      setSalvando(false)
+    }
+  }
 
   useEffect(() => {
     carregarDados()
@@ -149,11 +280,21 @@ export default function TutorDetalhe() {
   return (
     <div className="max-w-4xl mx-auto pb-8">
       {/* Header */}
-      <div className="mb-4">
+      <div className="mb-4 flex items-center justify-between">
         <Link href="/tutores" className="inline-flex items-center gap-2 text-slate-400 hover:text-slate-300 transition-colors">
           <ArrowLeft className="h-4 w-4" />
           <span className="text-sm">Voltar para tutores</span>
         </Link>
+        {isVisible('tela_tutores', 'btn_editar_tutor') && (
+          <button
+            onClick={abrirEdicao}
+            disabled={!canEdit('tela_tutores', 'btn_editar_tutor')}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-700/60 text-slate-200 text-sm hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Pencil className="h-4 w-4" />
+            Editar
+          </button>
+        )}
       </div>
 
       {/* Card Principal */}
@@ -344,6 +485,80 @@ export default function TutorDetalhe() {
           </div>
         )}
       </div>
+
+      {/* Modal de edição — contato + endereço */}
+      <Modal
+        isOpen={editOpen}
+        onClose={() => !salvando && setEditOpen(false)}
+        title={`Editar ${tutor.nome}`}
+        size="lg"
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={() => setEditOpen(false)}
+              disabled={salvando}
+              className="px-4 py-2 rounded-lg text-sm text-[var(--surface-500)] hover:bg-[var(--surface-100)] transition-colors disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={salvarEdicao}
+              disabled={salvando}
+              className="px-4 py-2 rounded-lg text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
+            >
+              {salvando ? 'Salvando...' : 'Salvar'}
+            </button>
+          </div>
+        }
+      >
+        {form && (
+          <div className="space-y-3">
+            <p className="text-xs text-[var(--surface-500)] bg-[var(--surface-50)] rounded-lg px-3 py-2">
+              As alterações são salvas no cadastro do tutor e propagadas para os contratos <strong>não-finalizados</strong>. Contratos finalizados preservam os dados da época. Nome e CPF não são editáveis aqui.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <Campo label="Telefone" value={form.telefone} onChange={v => setCampo('telefone', v)} />
+              <Campo label="Telefone 2" value={form.telefone2} onChange={v => setCampo('telefone2', v)} />
+            </div>
+            <Campo label="E-mail" value={form.email} onChange={v => setCampo('email', v)} type="email" />
+            <div className="grid grid-cols-3 gap-3">
+              <Campo label="CEP" value={form.cep} onChange={v => setCampo('cep', v)} />
+              <div className="col-span-2">
+                <Campo label="Endereço" value={form.endereco} onChange={v => setCampo('endereco', v)} />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <Campo label="Número" value={form.numero} onChange={v => setCampo('numero', v)} />
+              <div className="col-span-2">
+                <Campo label="Complemento" value={form.complemento} onChange={v => setCampo('complemento', v)} />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="col-span-2">
+                <Campo label="Bairro" value={form.bairro} onChange={v => setCampo('bairro', v)} />
+              </div>
+              <Campo label="Cidade" value={form.cidade} onChange={v => setCampo('cidade', v)} />
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <Campo label="Estado" value={form.estado} onChange={v => setCampo('estado', v)} />
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
+  )
+}
+
+function Campo({ label, value, onChange, type = 'text' }: { label: string; value: string; onChange: (v: string) => void; type?: string }) {
+  return (
+    <div>
+      <label className="block text-[10px] uppercase text-[var(--surface-500)] mb-1">{label}</label>
+      <input
+        type={type}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="w-full px-3 py-2 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)] text-sm text-[var(--shell-text)] focus:outline-none focus:border-blue-500"
+      />
     </div>
   )
 }
