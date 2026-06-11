@@ -120,6 +120,11 @@ export default function FichasPage() {
   const supabase = createClient()
   const { currentUnit, isLoading: unitLoading } = useUnit()
   const { isVisible } = useFieldPermission()
+  // A lista de fichas é filtrada por currentUnit (ver query abaixo), então currentUnit É a unidade
+  // da ficha. Lê modulos_ativos direto — NÃO hasModule (FLS permissivo + true pra super_admin).
+  // Define qual campo de op_dados é o nome normalizado da clínica: com módulo → estabNome (FK);
+  // sem módulo (ex: SP) → clinicaTextoLivre (texto livre do concierge).
+  const temPadronizacaoClinicas = !!currentUnit?.modulos_ativos?.includes('cb_padronizacao_clinicas')
 
   const [fichas, setFichas] = useState<Ficha[]>([])
   const [loading, setLoading] = useState(true)
@@ -348,7 +353,7 @@ export default function FichasPage() {
     const opEstabNome = op.estabNome as string | null
     const opClinicaTexto = op.clinicaTextoLivre as string | null
     const opLocalColeta = op.localColeta as string | null
-    const localNormalizado = opLocalColeta === 'clinica' ? (opEstabNome || opClinicaTexto || ficha.localizacao_outra || ficha.localizacao)
+    const localNormalizado = opLocalColeta === 'clinica' ? ((temPadronizacaoClinicas ? opEstabNome : opClinicaTexto) || ficha.localizacao_outra || ficha.localizacao)
       : opLocalColeta === 'outro' ? (opLocal || ficha.localizacao_outra || 'Outro endereço')
       : opLocalColeta === 'residencia' ? 'Residência (Endereço de Cadastro)'
       : opLocalColeta === 'unidade' ? 'Unidade RIP PET'
@@ -392,7 +397,7 @@ export default function FichasPage() {
 
       // Local normalizado
       const opLocalColeta = op.localColeta as string | null
-      const localPdf = semLocal ? '' : opLocalColeta === 'clinica' ? ((op.estabNome as string) || (op.clinicaTextoLivre as string) || ficha.localizacao)
+      const localPdf = semLocal ? '' : opLocalColeta === 'clinica' ? ((temPadronizacaoClinicas ? (op.estabNome as string) : (op.clinicaTextoLivre as string)) || ficha.localizacao)
         : opLocalColeta === 'outro' ? ((op.enderecoOutro as string) || ficha.localizacao_outra || '')
         : opLocalColeta === 'residencia' ? 'Residência (Endereço de Cadastro)'
         : opLocalColeta === 'unidade' ? 'Unidade RIP PET'
