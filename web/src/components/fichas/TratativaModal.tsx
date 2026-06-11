@@ -111,9 +111,16 @@ function getPrimeiroNome(nomeCompleto: string | null | undefined): string {
 export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRetornarPendente, onReprocessar, onAtualizar, somenteLeitura }: Props) {
   const { toast } = useToast()
   const supabase = createClient()
-  const { hasModule, currentUnit, userName } = useUnit()
+  const { hasModule, currentUnit, allUnidades, userName } = useUnit()
   const { isVisible } = useFieldPermission()
-  const temPadronizacaoClinicas = hasModule('cb_padronizacao_clinicas')
+  // Fonte da verdade = modulos_ativos da unidade DA FICHA. NÃO usar hasModule(): ele é baseado
+  // em FLS e é PERMISSIVO por padrão (sem row 'hidden' = true), além de retornar true sempre pra
+  // super_admin. Resultado do bug: SP (sem o módulo, mas sem row FLS 'hidden') caía no caminho
+  // "com módulo" e mandava o estabNome cru no lugar do clinicaTextoLivre normalizado pelo concierge.
+  // Preferimos a unidade da ficha; se não estiver em allUnidades, currentUnit (perfil) já traz
+  // modulos_ativos confiável — mesmo padrão do cb_cremacao_local.
+  const unidadeDaFicha = (ficha && allUnidades.find(u => u.id === ficha.unidade_id)) || currentUnit
+  const temPadronizacaoClinicas = !!unidadeDaFicha?.modulos_ativos?.includes('cb_padronizacao_clinicas')
 
   // Lookups
   const [estabelecimentos, setEstabelecimentos] = useState<Estabelecimento[]>([])
