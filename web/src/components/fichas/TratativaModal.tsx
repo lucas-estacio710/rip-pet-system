@@ -517,7 +517,11 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       if (op.enderecoOutro) setEnderecoOutro(String(op.enderecoOutro))
       if (op.semLocal) setSemLocal(true)
       if (op.clinicaTextoLivre) setClinicaTextoLivre(String(op.clinicaTextoLivre))
-      if (op.estabId) { setEstabId(String(op.estabId)); setEstabNome(String(op.estabNome || '')) }
+      if (op.estabId) setEstabId(String(op.estabId))
+      // Restaura o nome da clínica do concierge SEMPRE (mesmo sem estabId — clínica nova
+      // digitada/criada). Sem isso, o pré-preenchimento cru (ficha.localizacao_outra) prevalece
+      // no reabrir e a confirmação/PDF voltam a mostrar o texto torto do tutor.
+      if (op.estabNome) { setEstabNome(String(op.estabNome)); setEstabBusca(String(op.estabNome)) }
       if (op.autonomo) setAutonomo(true)
       if (op.dataHoraAcolhimento) setDataHoraAcolhimento(String(op.dataHoraAcolhimento))
       if (op.semDataHora) setSemDataHora(true)
