@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import {
   Package, Search, X, Plus, Pencil, Eye, EyeOff, Save, Loader2,
-  Check, ChevronDown, ChevronUp, Shield, Image, Tag, DollarSign, Trash2
+  Check, ChevronDown, ChevronUp, Shield, Image, Tag, DollarSign, Trash2, Upload
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
@@ -61,6 +61,8 @@ export default function CatalogoPage() {
   const [editProduto, setEditProduto] = useState<Produto | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [isNew, setIsNew] = useState(false)
+  const [uploadingImg, setUploadingImg] = useState(false)
+  const [erroImg, setErroImg] = useState<string | null>(null)
 
   // Form state
   const [form, setForm] = useState({
@@ -186,6 +188,31 @@ export default function CatalogoPage() {
     setShowModal(false)
     setSaving(null)
     await carregarProdutos()
+  }
+
+  async function uploadImagem(file: File) {
+    setErroImg(null)
+    // Validação básica: imagem até 5 MB
+    if (!file.type.startsWith('image/')) { setErroImg('Selecione um arquivo de imagem'); return }
+    if (file.size > 5 * 1024 * 1024) { setErroImg('Imagem muito grande (máx. 5 MB)'); return }
+    setUploadingImg(true)
+    try {
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+      const slug = (form.codigo.trim() || 'produto').replace(/[^a-zA-Z0-9-]/g, '')
+      const path = `produtos/${slug}-${Date.now()}.${ext}`
+      const { error: upErr } = await supabase.storage
+        .from('fotos')
+        .upload(path, file, { cacheControl: '3600', upsert: false })
+      if (upErr) {
+        console.error('Erro upload imagem produto:', upErr)
+        setErroImg('Falha no upload. Tente novamente.')
+        return
+      }
+      const { data: pub } = supabase.storage.from('fotos').getPublicUrl(path)
+      setForm(f => ({ ...f, imagem_url: pub.publicUrl }))
+    } finally {
+      setUploadingImg(false)
+    }
   }
 
   // Contadores
@@ -542,16 +569,46 @@ export default function CatalogoPage() {
                 <p className="text-[10px] mt-1" style={{ color: '#64748b' }}>Aparece no protocolo de entrega. Deixe vazio se não aplicável.</p>
               </div>
 
-              {/* URL da Imagem */}
+              {/* Imagem do produto */}
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: '#94a3b8' }}>URL da Imagem</label>
-                <input
-                  value={form.imagem_url}
-                  onChange={e => setForm(f => ({ ...f, imagem_url: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg text-sm outline-none"
-                  style={{ background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155' }}
-                  placeholder="/estoque/imagem.png"
-                />
+                <label className="block text-xs font-medium mb-1" style={{ color: '#94a3b8' }}>Imagem do Produto</label>
+                <div className="flex items-start gap-3">
+                  {/* Preview */}
+                  <div
+                    className="w-16 h-16 rounded-lg flex items-center justify-center shrink-0 overflow-hidden"
+                    style={{ background: '#0f172a', border: '1px solid #334155' }}
+                  >
+                    {form.imagem_url
+                      ? <img src={form.imagem_url} alt="" className="w-full h-full object-cover" />
+                      : <Image className="h-5 w-5" style={{ color: '#475569' }} />}
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    {/* Botão de upload */}
+                    <label
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium cursor-pointer"
+                      style={{ background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155' }}
+                    >
+                      {uploadingImg ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                      {uploadingImg ? 'Enviando...' : 'Escolher arquivo'}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        disabled={uploadingImg}
+                        onChange={e => { const f = e.target.files?.[0]; if (f) uploadImagem(f); e.target.value = '' }}
+                      />
+                    </label>
+                    {/* URL (preenchida pelo upload ou colável manualmente) */}
+                    <input
+                      value={form.imagem_url}
+                      onChange={e => setForm(f => ({ ...f, imagem_url: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg text-xs outline-none"
+                      style={{ background: '#0f172a', color: '#94a3b8', border: '1px solid #334155' }}
+                      placeholder="Envie um arquivo ou cole uma URL"
+                    />
+                    {erroImg && <p className="text-[10px]" style={{ color: '#f87171' }}>{erroImg}</p>}
+                  </div>
+                </div>
               </div>
 
               {/* Toggles */}
