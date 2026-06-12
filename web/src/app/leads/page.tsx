@@ -84,7 +84,7 @@ type Periodo = 'hoje' | 'ontem' | '7d' | '4w'
 // Unidades com lead-capture/sessions ativos. "Todas" = soma estrita destas.
 // Sessions sem unidade_code (home raiz, scrapers, LPs sem tracking) ficam fora
 // pra garantir que SP+ST+CA = Todas no funil.
-const TRACKED_UNIDADES = ['SP', 'ST', 'CA'] as const
+const TRACKED_UNIDADES = ['SP', 'ST', 'CA', 'VP'] as const
 type TrackedUnidade = typeof TRACKED_UNIDADES[number]
 type UnidadeFilter = 'todas' | TrackedUnidade
 
@@ -93,6 +93,7 @@ const UNIDADES: { key: UnidadeFilter; label: string }[] = [
   { key: 'ST', label: 'Santos' },
   { key: 'SP', label: 'São Paulo' },
   { key: 'CA', label: 'Campinas' },
+  { key: 'VP', label: 'Vale do Paraíba' },
 ]
 
 type VisitorGroup = {
