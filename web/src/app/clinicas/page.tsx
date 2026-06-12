@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { Stethoscope, Search, X, MapPin, ChevronLeft, ChevronRight, LayoutGrid, List, ChevronRight as ArrowR } from 'lucide-react'
+import { Stethoscope, Search, X, MapPin, ChevronLeft, ChevronRight, LayoutGrid, List, ChevronRight as ArrowR, Pencil, Plus, Check, Loader2 } from 'lucide-react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { createClient } from '@/lib/supabase/client'
@@ -324,7 +324,11 @@ export default function ClinicasPage() {
 
       {/* Aba: Indicações por Mês */}
       {mainTab === 'indicacoes' && currentUnit && (
-        <IndicacoesMesView unidadeId={currentUnit.id} estabsMap={new Map(estabs.map(e => [e.id, e.nome]))} />
+        <IndicacoesMesView
+          unidadeId={currentUnit.id}
+          estabsMap={new Map(estabs.map(e => [e.id, e.nome]))}
+          temPadronizacao={!!currentUnit.modulos_ativos?.includes('cb_padronizacao_clinicas')}
+        />
       )}
 
       {/* Aba: Visitas — listagem cross-clínicas */}
@@ -781,12 +785,13 @@ type IndicacaoMes = {
 
 const MESES_LONGOS = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 
-function IndicacoesMesView({ unidadeId, estabsMap }: { unidadeId: string; estabsMap: Map<string, string> }) {
+function IndicacoesMesView({ unidadeId, estabsMap, temPadronizacao }: { unidadeId: string; estabsMap: Map<string, string>; temPadronizacao: boolean }) {
   const supabase = createClient()
   const [mesRef, setMesRef] = useState<Date>(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d })
   const [indicacoes, setIndicacoes] = useState<IndicacaoMes[]>([])
   const [loading, setLoading] = useState(true)
   const [fontesMap, setFontesMap] = useState<Map<string, string>>(new Map())
+  const [editando, setEditando] = useState<IndicacaoMes | null>(null)
 
   // Carrega catálogo de fontes_conhecimento (id → nome) uma vez pra lookup local
   useEffect(() => {
@@ -924,11 +929,12 @@ function IndicacoesMesView({ unidadeId, estabsMap }: { unidadeId: string; estabs
                     <th className="text-left px-3 py-1.5 font-bold">Status</th>
                     <th className="text-right px-3 py-1.5 font-bold">Comissão</th>
                     <th className="text-center px-3 py-1.5 font-bold">Pago?</th>
+                    {temPadronizacao && <th className="text-center px-3 py-1.5 font-bold">Editar</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {lista.map(i => (
-                    <LinhaIndicacao key={i.id} ind={i} fontesMap={fontesMap} supabase={supabase} />
+                    <LinhaIndicacao key={i.id} ind={i} fontesMap={fontesMap} supabase={supabase} podeEditar={temPadronizacao} onEditar={setEditando} />
                   ))}
                 </tbody>
               </table>
@@ -936,6 +942,234 @@ function IndicacoesMesView({ unidadeId, estabsMap }: { unidadeId: string; estabs
           ))}
         </div>
       )}
+
+      {editando && (
+        <EditarIndicacaoModal
+          ind={editando}
+          unidadeId={unidadeId}
+          estabsMap={estabsMap}
+          onClose={() => setEditando(null)}
+          onSaved={() => { setEditando(null); carregar() }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ============================================
+// Modal: editar a indicação de um contrato (clínica + contato) — só unidade com módulo.
+// Espelha a lógica da tratativa: autocomplete de estabelecimento e contato, criando
+// novos registros no banco se necessário. Atualiza estabelecimento_indicacao_id + contato_id.
+// ============================================
+function EditarIndicacaoModal({ ind, unidadeId, estabsMap, onClose, onSaved }: {
+  ind: IndicacaoMes
+  unidadeId: string
+  estabsMap: Map<string, string>
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const supabase = createClient()
+
+  // Estabelecimento (clínica que indicou)
+  const [estabs, setEstabs] = useState<{ id: string; nome: string; cidade: string | null }[]>([])
+  const [estabId, setEstabId] = useState<string | null>(ind.estabelecimento_indicacao_id)
+  const [estabBusca, setEstabBusca] = useState(
+    ind.estabelecimento_indicacao_id ? (estabsMap.get(ind.estabelecimento_indicacao_id) || '') : (ind.indicacao_clinica || '')
+  )
+  const [estabAberto, setEstabAberto] = useState(false)
+
+  // Contato (pessoa que indicou)
+  const [contatos, setContatos] = useState<{ id: string; nome: string; cargo: string | null }[]>([])
+  const [contatoId, setContatoId] = useState<string | null>(ind.contato_id)
+  const [contatoBusca, setContatoBusca] = useState(ind.contato?.nome || ind.indicacao_contato || '')
+  const [contatoCargo, setContatoCargo] = useState('')
+  const [contatoAberto, setContatoAberto] = useState(false)
+
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  // Carrega estabelecimentos da unidade (pro autocomplete + novos criados)
+  useEffect(() => {
+    supabase.from('estabelecimentos').select('id, nome, cidade').eq('unidade_id', unidadeId).order('nome')
+      .then(({ data }) => { if (data) setEstabs(data as { id: string; nome: string; cidade: string | null }[]) })
+  }, [supabase, unidadeId])
+
+  // Carrega contatos do estabelecimento selecionado
+  useEffect(() => {
+    if (!estabId) { setContatos([]); return }
+    supabase.from('contatos').select('id, nome, cargo').eq('estabelecimento_id', estabId).eq('ativo', true).order('nome')
+      .then(({ data }) => { if (data) setContatos(data as { id: string; nome: string; cargo: string | null }[]) })
+  }, [supabase, estabId])
+
+  const estabsFiltrados = useMemo(() => {
+    const t = estabBusca.trim().toLowerCase()
+    return estabs.filter(e => !t || e.nome.toLowerCase().includes(t)).slice(0, 8)
+  }, [estabs, estabBusca])
+  const contatosFiltrados = useMemo(() => {
+    const t = contatoBusca.trim().toLowerCase()
+    return contatos.filter(c => !t || c.nome.toLowerCase().includes(t)).slice(0, 8)
+  }, [contatos, contatoBusca])
+
+  // Trocar de clínica zera o contato (contato pertence a uma clínica)
+  function selecionarEstab(id: string | null, nome: string) {
+    setEstabId(id); setEstabBusca(nome); setEstabAberto(false)
+    setContatoId(null); setContatoBusca('')
+  }
+
+  async function salvar() {
+    setErro(null)
+    setSalvando(true)
+    try {
+      // 1. Resolver estabelecimento — cria se digitou um novo
+      let resolvedEstabId = estabId
+      if (!resolvedEstabId && estabBusca.trim()) {
+        const { data, error } = await supabase
+          .from('estabelecimentos')
+          .insert({ nome: estabBusca.trim(), tipo: 'clinica', unidade_id: unidadeId } as never)
+          .select('id').single() as { data: { id: string } | null; error: { message: string } | null }
+        if (error) throw new Error('Erro ao criar clínica: ' + error.message)
+        resolvedEstabId = data?.id || null
+      }
+
+      // 2. Resolver contato — busca existente, senão cria
+      let resolvedContatoId = contatoId
+      if (!resolvedContatoId && contatoBusca.trim()) {
+        let q = supabase.from('contatos').select('id').ilike('nome', contatoBusca.trim()).limit(1)
+        if (resolvedEstabId) q = q.eq('estabelecimento_id', resolvedEstabId)
+        const { data: existente } = await q.maybeSingle() as { data: { id: string } | null }
+        if (existente) {
+          resolvedContatoId = existente.id
+        } else {
+          const { data, error } = await supabase
+            .from('contatos')
+            .insert({ nome: contatoBusca.trim(), cargo: contatoCargo || null, estabelecimento_id: resolvedEstabId, unidade_id: unidadeId } as never)
+            .select('id').single() as { data: { id: string } | null; error: { message: string } | null }
+          if (error) throw new Error('Erro ao criar contato: ' + error.message)
+          resolvedContatoId = data?.id || null
+        }
+      }
+
+      // 3. Atualiza o contrato (FK + espelho texto pra exibição/fallback)
+      const { error: errCtr } = await supabase.from('contratos').update({
+        estabelecimento_indicacao_id: resolvedEstabId,
+        contato_id: resolvedContatoId,
+        indicacao_clinica: estabBusca.trim() || null,
+        indicacao_contato: contatoBusca.trim() || null,
+      } as never).eq('id', ind.id)
+      if (errCtr) throw new Error('Erro ao salvar indicação: ' + errCtr.message)
+
+      onSaved()
+    } catch (e) {
+      console.error(e)
+      setErro(e instanceof Error ? e.message : 'Erro ao salvar')
+      setSalvando(false)
+    }
+  }
+
+  const contatoIsNovo = !contatoId && !!contatoBusca.trim() && !contatos.some(c => c.nome.toLowerCase() === contatoBusca.trim().toLowerCase())
+  const CARGOS: { v: string; label: string }[] = [
+    { v: '', label: 'Sem cargo' },
+    { v: 'veterinario', label: 'Veterinário(a)' },
+    { v: 'recepcionista', label: 'Recepcionista' },
+    { v: 'gerente', label: 'Gerente' },
+    { v: 'proprietario', label: 'Proprietário(a)' },
+    { v: 'outro', label: 'Outro' },
+  ]
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => !salvando && onClose()}>
+      <div className="rounded-2xl shadow-2xl w-full max-w-md bg-[var(--surface-0)] border border-[var(--surface-200)]" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-[var(--surface-200)]">
+          <h3 className="text-sm font-semibold text-[var(--shell-text)]">Editar indicação · {ind.pet_nome || '—'}</h3>
+          <button onClick={onClose} disabled={salvando} className="p-1 rounded hover:bg-[var(--surface-100)] text-[var(--surface-500)]"><X className="h-4 w-4" /></button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          {/* Clínica de indicação */}
+          <div className="relative">
+            <label className="block text-xs font-medium text-[var(--surface-500)] mb-1">Clínica de indicação</label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--surface-400)]" />
+              <input
+                value={estabBusca}
+                onChange={e => { setEstabBusca(e.target.value); setEstabId(null); setEstabAberto(true) }}
+                onFocus={() => setEstabAberto(true)}
+                placeholder="Buscar ou criar clínica..."
+                className="w-full pl-9 pr-3 py-2 rounded-lg text-sm bg-[var(--surface-50)] border border-[var(--surface-200)] text-[var(--shell-text)] outline-none focus:border-cyan-500"
+              />
+            </div>
+            {estabAberto && (estabsFiltrados.length > 0 || estabBusca.trim()) && (
+              <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-[var(--surface-0)] border border-[var(--surface-200)] rounded-lg shadow-lg">
+                {estabsFiltrados.map(e => (
+                  <button key={e.id} type="button" onClick={() => selecionarEstab(e.id, e.nome)}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-50)] flex items-center justify-between ${estabId === e.id ? 'bg-[var(--surface-50)] font-medium' : 'text-[var(--surface-600)]'}`}>
+                    <span>{e.nome}</span>{e.cidade && <span className="text-xs text-[var(--surface-400)]">{e.cidade}</span>}
+                  </button>
+                ))}
+                {estabBusca.trim() && !estabs.some(e => e.nome.toLowerCase() === estabBusca.trim().toLowerCase()) && (
+                  <button type="button" onClick={() => { setEstabId(null); setEstabAberto(false); setContatoId(null); setContatoBusca('') }}
+                    className="w-full text-left px-3 py-2 text-sm text-amber-500 hover:bg-amber-500/10 flex items-center gap-2 border-t border-[var(--surface-100)]">
+                    <Plus className="h-3.5 w-3.5" />Criar &quot;{estabBusca.trim()}&quot;
+                  </button>
+                )}
+              </div>
+            )}
+            {estabId && <p className="mt-1 text-xs text-green-500 flex items-center gap-1"><Check className="h-3 w-3" />Clínica cadastrada</p>}
+            {!estabId && estabBusca.trim() && !estabAberto && <p className="mt-1 text-xs text-amber-500">Nova clínica será criada</p>}
+          </div>
+
+          {/* Contato que indicou */}
+          <div className="relative">
+            <label className="block text-xs font-medium text-[var(--surface-500)] mb-1">Contato que indicou</label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--surface-400)]" />
+              <input
+                value={contatoBusca}
+                onChange={e => { setContatoBusca(e.target.value); setContatoId(null); setContatoAberto(true) }}
+                onFocus={() => setContatoAberto(true)}
+                placeholder={estabBusca.trim() ? 'Buscar ou criar contato...' : 'Escolha a clínica primeiro'}
+                className="w-full pl-9 pr-3 py-2 rounded-lg text-sm bg-[var(--surface-50)] border border-[var(--surface-200)] text-[var(--shell-text)] outline-none focus:border-cyan-500"
+              />
+            </div>
+            {contatoAberto && (contatosFiltrados.length > 0 || contatoBusca.trim()) && (
+              <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-[var(--surface-0)] border border-[var(--surface-200)] rounded-lg shadow-lg">
+                {contatosFiltrados.map(c => (
+                  <button key={c.id} type="button" onClick={() => { setContatoId(c.id); setContatoBusca(c.nome); setContatoAberto(false) }}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-50)] flex items-center justify-between ${contatoId === c.id ? 'bg-[var(--surface-50)] font-medium' : 'text-[var(--surface-600)]'}`}>
+                    <span>{c.nome}</span>{c.cargo && <span className="text-xs text-[var(--surface-400)]">{c.cargo}</span>}
+                  </button>
+                ))}
+                {contatoBusca.trim() && !contatos.some(c => c.nome.toLowerCase() === contatoBusca.trim().toLowerCase()) && (
+                  <button type="button" onClick={() => setContatoAberto(false)}
+                    className="w-full text-left px-3 py-2 text-sm text-amber-500 hover:bg-amber-500/10 flex items-center gap-2 border-t border-[var(--surface-100)]">
+                    <Plus className="h-3.5 w-3.5" />Criar &quot;{contatoBusca.trim()}&quot;
+                  </button>
+                )}
+              </div>
+            )}
+            {contatoId && <p className="mt-1 text-xs text-green-500 flex items-center gap-1"><Check className="h-3 w-3" />Contato cadastrado</p>}
+            {/* Cargo só ao criar contato novo */}
+            {contatoIsNovo && (
+              <div className="mt-2">
+                <label className="block text-[10px] uppercase text-[var(--surface-400)] mb-1">Cargo do novo contato</label>
+                <select value={contatoCargo} onChange={e => setContatoCargo(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-50)] border border-[var(--surface-200)] text-[var(--shell-text)] outline-none">
+                  {CARGOS.map(c => <option key={c.v} value={c.v}>{c.label}</option>)}
+                </select>
+              </div>
+            )}
+          </div>
+
+          {erro && <p className="text-xs text-red-500">{erro}</p>}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 p-4 border-t border-[var(--surface-200)]">
+          <button onClick={onClose} disabled={salvando} className="px-4 py-2 rounded-lg text-sm text-[var(--surface-500)] hover:bg-[var(--surface-100)] disabled:opacity-50">Cancelar</button>
+          <button onClick={salvar} disabled={salvando} className="px-4 py-2 rounded-lg text-sm font-semibold bg-cyan-600 text-white hover:bg-cyan-700 disabled:opacity-50 inline-flex items-center gap-2">
+            {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Salvar
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1323,10 +1557,12 @@ function KPI({ label, value, sub, cor, alerta }: { label: string; value: number 
 // ============================================
 // Linha da tabela de indicações — edição inline de comissão_valor e comissão_paga
 // ============================================
-function LinhaIndicacao({ ind, fontesMap, supabase }: {
+function LinhaIndicacao({ ind, fontesMap, supabase, podeEditar, onEditar }: {
   ind: IndicacaoMes
   fontesMap: Map<string, string>
   supabase: ReturnType<typeof createClient>
+  podeEditar: boolean
+  onEditar: (ind: IndicacaoMes) => void
 }) {
   const [valor, setValor] = useState<string>(ind.comissao_valor != null ? String(ind.comissao_valor) : '')
   const [paga, setPaga] = useState<boolean>(!!ind.comissao_paga)
@@ -1442,6 +1678,19 @@ function LinhaIndicacao({ ind, fontesMap, supabase }: {
           {paga ? '✓' : ''}
         </button>
       </td>
+      {/* Editar indicação (só unidade com módulo) */}
+      {podeEditar && (
+        <td className="px-2 py-1 text-center">
+          <button
+            type="button"
+            onClick={() => onEditar(ind)}
+            title="Editar clínica/contato da indicação"
+            className="inline-flex items-center justify-center w-6 h-6 rounded text-[var(--surface-400)] hover:bg-[var(--surface-200)] hover:text-cyan-600 transition-colors"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+        </td>
+      )}
     </tr>
   )
 }
