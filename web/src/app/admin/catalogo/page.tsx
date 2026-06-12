@@ -225,6 +225,13 @@ export default function CatalogoPage() {
     return c
   }, [produtos])
 
+  // Categorias existentes (pra sugestão no cadastro) — derivadas dos produtos carregados
+  const categorias = useMemo(() => {
+    const set = new Set<string>()
+    produtos.forEach(p => { if (p.categoria?.trim()) set.add(p.categoria.trim()) })
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  }, [produtos])
+
   // Sort icon
   const SortIcon = ({ field }: { field: SortField }) => {
     if (sortField !== field) return <ChevronDown className="h-3 w-3 opacity-30" />
@@ -522,10 +529,15 @@ export default function CatalogoPage() {
                 <input
                   value={form.categoria}
                   onChange={e => setForm(f => ({ ...f, categoria: e.target.value }))}
+                  list="lista-categorias"
                   className="w-full px-3 py-2 rounded-lg text-sm outline-none"
                   style={{ background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155' }}
-                  placeholder="Ex: Standard, Potes, Pedras..."
+                  placeholder="Escolha uma existente ou digite uma nova"
                 />
+                <datalist id="lista-categorias">
+                  {categorias.map(c => <option key={c} value={c} />)}
+                </datalist>
+                <p className="text-[10px] mt-1" style={{ color: '#64748b' }}>Clique no campo pra ver as categorias já cadastradas, ou digite uma nova.</p>
               </div>
 
               {/* Custo + Preço */}
