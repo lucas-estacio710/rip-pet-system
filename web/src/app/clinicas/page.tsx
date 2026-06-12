@@ -979,7 +979,7 @@ function EditarIndicacaoModal({ ind, unidadeId, estabsMap, onClose, onSaved }: {
   const [estabAberto, setEstabAberto] = useState(false)
 
   // Contato (pessoa que indicou)
-  const [contatos, setContatos] = useState<{ id: string; nome: string; cargo: string | null }[]>([])
+  const [contatos, setContatos] = useState<{ id: string; nome: string; cargo: string | null; estabelecimento_id: string | null }[]>([])
   const [contatoId, setContatoId] = useState<string | null>(ind.contato_id)
   const [contatoBusca, setContatoBusca] = useState(ind.contato?.nome || ind.indicacao_contato || '')
   const [contatoCargo, setContatoCargo] = useState('')
@@ -994,26 +994,39 @@ function EditarIndicacaoModal({ ind, unidadeId, estabsMap, onClose, onSaved }: {
       .then(({ data }) => { if (data) setEstabs(data as { id: string; nome: string; cidade: string | null }[]) })
   }, [supabase, unidadeId])
 
-  // Carrega contatos do estabelecimento selecionado
+  // Carrega TODOS os contatos da unidade (não escopa por clínica) — pra poder buscar por nome
+  // e ver o estabelecimento vinculado de cada um, igual à ficha.
   useEffect(() => {
-    if (!estabId) { setContatos([]); return }
-    supabase.from('contatos').select('id, nome, cargo').eq('estabelecimento_id', estabId).eq('ativo', true).order('nome')
-      .then(({ data }) => { if (data) setContatos(data as { id: string; nome: string; cargo: string | null }[]) })
-  }, [supabase, estabId])
+    supabase.from('contatos').select('id, nome, cargo, estabelecimento_id').eq('unidade_id', unidadeId).eq('ativo', true).order('nome')
+      .then(({ data }) => { if (data) setContatos(data as { id: string; nome: string; cargo: string | null; estabelecimento_id: string | null }[]) })
+  }, [supabase, unidadeId])
 
   const estabsFiltrados = useMemo(() => {
     const t = estabBusca.trim().toLowerCase()
     return estabs.filter(e => !t || e.nome.toLowerCase().includes(t)).slice(0, 8)
   }, [estabs, estabBusca])
+  // Filtra por nome; com clínica selecionada, prioriza os contatos dessa clínica + sem-clínica no topo.
   const contatosFiltrados = useMemo(() => {
     const t = contatoBusca.trim().toLowerCase()
-    return contatos.filter(c => !t || c.nome.toLowerCase().includes(t)).slice(0, 8)
-  }, [contatos, contatoBusca])
+    let lista = t ? contatos.filter(c => c.nome.toLowerCase().includes(t)) : contatos
+    if (estabId) {
+      const desse = lista.filter(c => c.estabelecimento_id === estabId)
+      const sem = lista.filter(c => !c.estabelecimento_id)
+      const outros = lista.filter(c => c.estabelecimento_id && c.estabelecimento_id !== estabId)
+      lista = [...desse, ...sem, ...outros]
+    }
+    return lista.slice(0, 10)
+  }, [contatos, contatoBusca, estabId])
 
-  // Trocar de clínica zera o contato (contato pertence a uma clínica)
+  // Resolve o nome do estabelecimento de um contato (pro sub-rótulo). Usa estabs (com cidade) ou o map do pai.
+  function nomeEstabDe(estabId: string | null): string | null {
+    if (!estabId) return null
+    return estabs.find(e => e.id === estabId)?.nome || estabsMap.get(estabId) || null
+  }
+
+  // Trocar de clínica NÃO zera o contato (igual ficha) — só re-prioriza a lista.
   function selecionarEstab(id: string | null, nome: string) {
     setEstabId(id); setEstabBusca(nome); setEstabAberto(false)
-    setContatoId(null); setContatoBusca('')
   }
 
   async function salvar() {
@@ -1127,16 +1140,24 @@ function EditarIndicacaoModal({ ind, unidadeId, estabsMap, onClose, onSaved }: {
                 value={contatoBusca}
                 onChange={e => { setContatoBusca(e.target.value); setContatoId(null); setContatoAberto(true) }}
                 onFocus={() => setContatoAberto(true)}
-                placeholder={estabBusca.trim() ? 'Buscar ou criar contato...' : 'Escolha a clínica primeiro'}
+                placeholder="Buscar contato ou digitar um novo..."
                 className="w-full pl-9 pr-3 py-2 rounded-lg text-sm bg-[var(--surface-50)] border border-[var(--surface-200)] text-[var(--shell-text)] outline-none focus:border-cyan-500"
               />
             </div>
             {contatoAberto && (contatosFiltrados.length > 0 || contatoBusca.trim()) && (
               <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-[var(--surface-0)] border border-[var(--surface-200)] rounded-lg shadow-lg">
                 {contatosFiltrados.map(c => (
-                  <button key={c.id} type="button" onClick={() => { setContatoId(c.id); setContatoBusca(c.nome); setContatoAberto(false) }}
-                    className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-50)] flex items-center justify-between ${contatoId === c.id ? 'bg-[var(--surface-50)] font-medium' : 'text-[var(--surface-600)]'}`}>
-                    <span>{c.nome}</span>{c.cargo && <span className="text-xs text-[var(--surface-400)]">{c.cargo}</span>}
+                  <button key={c.id} type="button" onClick={() => {
+                    setContatoId(c.id); setContatoBusca(c.nome); setContatoAberto(false)
+                    // Auto-preenche a clínica do contato se nenhuma estiver selecionada (igual ficha)
+                    if (c.estabelecimento_id && !estabId) {
+                      const nome = nomeEstabDe(c.estabelecimento_id)
+                      if (nome) { setEstabId(c.estabelecimento_id); setEstabBusca(nome) }
+                    }
+                  }}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-50)] flex flex-col ${contatoId === c.id ? 'bg-[var(--surface-50)] font-medium' : 'text-[var(--surface-600)]'}`}>
+                    <span>{c.nome}</span>
+                    {(() => { const sub = [c.cargo, nomeEstabDe(c.estabelecimento_id)].filter(Boolean).join(' · '); return sub ? <span className="text-[11px] text-[var(--surface-400)]">{sub}</span> : null })()}
                   </button>
                 ))}
                 {contatoBusca.trim() && !contatos.some(c => c.nome.toLowerCase() === contatoBusca.trim().toLowerCase()) && (
