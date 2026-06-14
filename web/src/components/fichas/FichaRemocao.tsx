@@ -35,11 +35,30 @@ export type FichaContratoData = {
   clinica_veterinaria?: string | null
   colaborador_responsavel?: string | null
   observacoes?: string | null
+  // Telefone normalizado pelo concierge + nome do contato a chamar (campo "Tel/Cont")
+  tutor_telefone?: string | null
+  tutor_telefone2?: string | null
+  tutor_telefone_nome?: string | null
+  tutor_telefone2_nome?: string | null
+  tutor_telefone_principal?: number | null
+  // Cidade de remoção/acolhimento (campo "Cidade Acolhimento")
+  remocao_cidade?: string | null
   // Compat com chamadores legados — não usado neste layout
   tutor_nome?: string | null
   tutor_bairro?: string | null
   tutor_cidade?: string | null
   tutor?: { nome?: string | null; bairro?: string | null; cidade?: string | null } | null
+}
+
+// Formata telefone p/ exibição: remove DDI Brasil (55) e formata (XX) XXXXX-XXXX.
+// Mantém DDI de números estrangeiros (não começam com 55) — mostra como normalizado.
+function fmtTelefone(raw?: string | null): string {
+  if (!raw) return ''
+  let d = raw.replace(/\D/g, '')
+  if (d.startsWith('55') && d.length >= 12) d = d.slice(2) // tira DDI Brasil
+  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`
+  if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`
+  return raw.trim() // estrangeiro ou formato inesperado: como veio (com DDI)
 }
 
 const TEMPLATE_W = 398
@@ -80,6 +99,11 @@ const FichaRemocao = forwardRef<HTMLDivElement, { contrato: FichaContratoData }>
       contrato.certificado_nome_4, contrato.certificado_nome_5, contrato.certificado_nome_6,
       contrato.certificado_nome_7,
     ]
+    // Telefone principal normalizado + nome do contato a chamar
+    const usaTel2 = contrato.tutor_telefone_principal === 2
+    const telBruto = usaTel2 ? contrato.tutor_telefone2 : contrato.tutor_telefone
+    const telNome = usaTel2 ? contrato.tutor_telefone2_nome : contrato.tutor_telefone_nome
+    const telCont = [fmtTelefone(telBruto), telNome?.trim()].filter(Boolean).join(' — ')
 
     return (
       <div
@@ -114,45 +138,56 @@ const FichaRemocao = forwardRef<HTMLDivElement, { contrato: FichaContratoData }>
         <div style={{ ...BASE_FIELD, top: 97, left: 182, fontWeight: 700, fontSize: 12 }}>
           {isCol ? 'X' : ''}
         </div>
-        <div style={{ ...BASE_FIELD, top: 97, left: 268, fontWeight: 700, fontSize: 12 }}>
+        <div style={{ ...BASE_FIELD, top: 97, left: 269, fontWeight: 700, fontSize: 12 }}>
           {isInd ? 'X' : ''}
         </div>
 
         {/* Data/hora de Acolhimento */}
-        <div style={{ ...BASE_FIELD, top: 117, left: 183, width: 22, textAlign: 'center' }}>{d.dd}</div>
-        <div style={{ ...BASE_FIELD, top: 117, left: 222, width: 22, textAlign: 'center' }}>{d.mm}</div>
-        <div style={{ ...BASE_FIELD, top: 117, left: 259, width: 38, textAlign: 'center' }}>{d.yyyy}</div>
-        <div style={{ ...BASE_FIELD, top: 117, left: 315, width: 22, textAlign: 'center' }}>{d.hh}</div>
-        <div style={{ ...BASE_FIELD, top: 117, left: 345, width: 22, textAlign: 'center' }}>{d.min}</div>
+        <div style={{ ...BASE_FIELD, top: 118, left: 183, width: 22, textAlign: 'center' }}>{d.dd}</div>
+        <div style={{ ...BASE_FIELD, top: 118, left: 222, width: 22, textAlign: 'center' }}>{d.mm}</div>
+        <div style={{ ...BASE_FIELD, top: 118, left: 259, width: 38, textAlign: 'center' }}>{d.yyyy}</div>
+        <div style={{ ...BASE_FIELD, top: 118, left: 315, width: 22, textAlign: 'center' }}>{d.hh}</div>
+        <div style={{ ...BASE_FIELD, top: 118, left: 345, width: 22, textAlign: 'center' }}>{d.min}</div>
 
         {/* Nome do Animal */}
         <div style={{ ...BASE_FIELD, top: 152, left: 118, width: 257 }}>{contrato.pet_nome}</div>
 
         {/* Espécie / Raça / Cor */}
-        <div style={{ ...BASE_FIELD, top: 171, left: 70, width: 55 }}>{contrato.pet_especie || ''}</div>
-        <div style={{ ...BASE_FIELD, top: 171, left: 146, width: 90 }}>{contrato.pet_raca || ''}</div>
-        <div style={{ ...BASE_FIELD, top: 173, left: 290, width: 90, fontSize: 9 }}>{contrato.pet_cor || ''}</div>
+        <div style={{ ...BASE_FIELD, top: 172, left: 66, width: 55 }}>{contrato.pet_especie || ''}</div>
+        <div style={{ ...BASE_FIELD, top: 172, left: 146, width: 90 }}>{contrato.pet_raca || ''}</div>
+        <div style={{ ...BASE_FIELD, top: 174, left: 289, width: 90, fontSize: 9 }}>{contrato.pet_cor || ''}</div>
 
         {/* Idade / Peso / Sexo */}
         <div style={{ ...BASE_FIELD, top: 190, left: 61, width: 50 }}>
           {contrato.pet_idade_anos ? `${contrato.pet_idade_anos} anos` : ''}
         </div>
-        <div style={{ ...BASE_FIELD, top: 190, left: 199, width: 80 }}>
+        <div style={{ ...BASE_FIELD, top: 190, left: 200, width: 80 }}>
           {contrato.pet_peso ? `${contrato.pet_peso} kg` : ''}
         </div>
-        <div style={{ ...BASE_FIELD, top: 189, left: 315, width: 70 }}>
+        <div style={{ ...BASE_FIELD, top: 190, left: 315, width: 70 }}>
           {contrato.pet_genero === 'macho' ? 'Macho' : contrato.pet_genero === 'femea' ? 'Fêmea' : ''}
         </div>
 
-        {/* Tutor(es) — 7 nomes. Step 20px (18 + 2px de compensação acumulada por linha) */}
+        {/* Tutor(es) — 7 nomes. Step 16px (linhas comprimidas no template pra abrir espaço
+            pros campos Tel/Cont e Cidade Acolhimento abaixo). */}
         {nomes.map((n, i) => (
-          <div key={i} style={{ ...BASE_FIELD, top: 215 + i * 20, left: 74, width: 306 }}>
+          <div key={i} style={{ ...BASE_FIELD, top: 215 + i * 16 + (i === 0 ? 2 : 1), left: 74, width: 306 }}>
             {n || ''}
           </div>
         ))}
 
+        {/* Tel/Cont — telefone principal normalizado + nome do contato a chamar */}
+        <div style={{ ...BASE_FIELD, top: 328, left: 74, width: 302 }}>
+          {telCont}
+        </div>
+
+        {/* Cidade Acolhimento (cidade de remoção) */}
+        <div style={{ ...BASE_FIELD, top: 345, left: 140, width: 245 }}>
+          {contrato.remocao_cidade || ''}
+        </div>
+
         {/* Clínica Veterinária */}
-        <div style={{ ...BASE_FIELD, top: 364, left: 128, width: 247 }}>
+        <div style={{ ...BASE_FIELD, top: 364, left: 130, width: 247 }}>
           {contrato.clinica_veterinaria || contrato.local_coleta || ''}
         </div>
 
@@ -162,7 +197,7 @@ const FichaRemocao = forwardRef<HTMLDivElement, { contrato: FichaContratoData }>
         </div>
 
         {/* Observações especiais (pode ocupar mais de 1 linha) */}
-        <div style={{ ...BASE_FIELD, top: 457, left: 20, width: 360, whiteSpace: 'normal', fontSize: 9 }}>
+        <div style={{ ...BASE_FIELD, top: 430, left: 20, width: 360, whiteSpace: 'normal', fontSize: 9 }}>
           {contrato.observacoes || ''}
         </div>
       </div>

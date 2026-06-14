@@ -1193,7 +1193,7 @@ function ContratosContent() {
     // colaborador_responsavel e clinica_veterinaria no novo layout da ficha.
     const { data: extra } = await supabase
       .from('contratos')
-      .select('clinica_coleta, funcionario:funcionario_id(nome), estabelecimento:estabelecimento_id(nome)')
+      .select('clinica_coleta, remocao_cidade, tutor_telefone, tutor_telefone2, tutor_telefone_nome, tutor_telefone2_nome, tutor_telefone_principal, funcionario:funcionario_id(nome), estabelecimento:estabelecimento_id(nome)')
       .eq('id', contrato.id)
       .single()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1203,6 +1203,12 @@ function ContratosContent() {
       colaborador_responsavel: ex?.funcionario?.nome || null,
       // Clínica: prioridade estabelecimento padronizado (FK) > texto livre do tutor (geralmente "lixo").
       clinica_veterinaria: ex?.estabelecimento?.nome || ex?.clinica_coleta || null,
+      remocao_cidade: ex?.remocao_cidade || null,
+      tutor_telefone: ex?.tutor_telefone || null,
+      tutor_telefone2: ex?.tutor_telefone2 || null,
+      tutor_telefone_nome: ex?.tutor_telefone_nome || null,
+      tutor_telefone2_nome: ex?.tutor_telefone2_nome || null,
+      tutor_telefone_principal: ex?.tutor_telefone_principal || null,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any)
   }

@@ -46,6 +46,7 @@ export default function FichasBatchModal({ supindaId, supindaNumero, onClose }: 
         id, codigo, numero_lacre, tipo_cremacao, data_acolhimento,
         pet_nome, pet_especie, pet_raca, pet_cor, pet_idade_anos, pet_peso, pet_genero,
         tutor_nome, tutor_bairro, tutor_cidade, local_coleta, observacoes,
+        remocao_cidade, tutor_telefone, tutor_telefone2, tutor_telefone_nome, tutor_telefone2_nome, tutor_telefone_principal,
         tutor:tutor_id ( nome, bairro, cidade )
       `)
       .eq('supinda_id', supindaId)

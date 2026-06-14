@@ -740,6 +740,12 @@ function mapToFichaData(c: any): FichaContratoData {
     clinica_veterinaria: c.estabelecimento_coleta?.nome || c.clinica_coleta || null,
     colaborador_responsavel: c.funcionario?.nome || null,
     observacoes: c.observacoes,
+    remocao_cidade: c.remocao_cidade,
+    tutor_telefone: c.tutor_telefone,
+    tutor_telefone2: c.tutor_telefone2,
+    tutor_telefone_nome: c.tutor_telefone_nome,
+    tutor_telefone2_nome: c.tutor_telefone2_nome,
+    tutor_telefone_principal: c.tutor_telefone_principal,
     tutor_nome: c.tutor_nome,
     tutor: c.tutor ? { nome: c.tutor.nome, bairro: c.tutor.bairro, cidade: c.tutor.cidade } : null,
   }
