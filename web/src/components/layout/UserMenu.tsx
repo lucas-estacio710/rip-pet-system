@@ -7,7 +7,7 @@ import { useUnit } from '@/contexts/UnitContext'
 import { createClient } from '@/lib/supabase/client'
 import {
   User, ChevronDown, LogOut, Eye, Users, Settings, Crown, Shield,
-  Palette, Moon, Sun, UserCheck, Tag, ListTodo, Printer
+  Palette, Moon, Sun, UserCheck, Tag, ListTodo, Printer, Wrench
 } from 'lucide-react'
 import { useTheme } from '@/hooks/useTheme'
 import { THEMES, THEME_META, type Theme } from '@/lib/theme'
@@ -152,6 +152,17 @@ export function UserMenu() {
               >
                 <ListTodo className="h-4 w-4" style={{ color: '#a78bfa' }} />
                 <span className="text-sm">Demandas</span>
+              </Link>
+              <Link
+                href="/admin/tratamento-erros"
+                onClick={() => setIsOpen(false)}
+                className="flex items-center gap-3 px-4 py-2.5 transition-colors"
+                style={{ color: '#e2e8f0' }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                <Wrench className="h-4 w-4" style={{ color: '#f59e0b' }} />
+                <span className="text-sm">Tratamento de Erros</span>
               </Link>
               <button
                 onClick={() => { setIsOpen(false); setShowImpersonate(true) }}
