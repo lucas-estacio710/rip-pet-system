@@ -91,6 +91,8 @@ export default function ProdutoDetalhePage() {
   const [estoqueUnidade, setEstoqueUnidade] = useState<number>(0)
   const [minimoUnidade, setMinimoUnidade] = useState<number>(0)
   const [vendidaUnidade, setVendidaUnidade] = useState<number>(0)
+  // Reservado p/ PV (derivado de contratos preventivos — view 096, Opção B)
+  const [reservadoUnidade, setReservadoUnidade] = useState<number>(0)
 
   // Editor inline de estoque_minimo (por unidade)
   const [editandoMinimo, setEditandoMinimo] = useState(false)
@@ -139,6 +141,17 @@ export default function ProdutoDetalhePage() {
       setEstoqueUnidade(peData?.estoque_atual ?? 0)
       setMinimoUnidade(peData?.estoque_minimo ?? 0)
       setVendidaUnidade(peData?.qtde_vendida ?? 0)
+
+      // Reservado p/ PV — contratos preventivos da unidade (view 096)
+      const { data: resData } = await supabase
+        .from('vw_estoque_reservado_pv')
+        .select('reservado')
+        .eq('produto_id', params.id as string)
+        .eq('unidade_id', currentUnit.id)
+        .maybeSingle<{ reservado: number }>()
+      setReservadoUnidade(resData?.reservado ?? 0)
+    } else {
+      setReservadoUnidade(0)
     }
 
     // Entradas DA UNIDADE ATIVA
@@ -331,6 +344,11 @@ export default function ProdutoDetalhePage() {
                 }`}>
                   {produto.estoque_infinito ? '∞' : estoqueUnidade}
                 </span>
+                {!produto.estoque_infinito && reservadoUnidade > 0 && (
+                  <div className="mt-1 text-[11px] text-amber-500" title="Reservado para contratos preventivos">
+                    {reservadoUnidade} reservado(s) PV · livre {estoqueUnidade - reservadoUnidade}
+                  </div>
+                )}
               </div>
 
               {/* Estoque Ideal (por unidade) */}

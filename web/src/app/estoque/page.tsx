@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, Fragment } from 'react'
 import { useRouter } from 'next/navigation'
-import { Boxes, Grid, List, Search, Package, AlertTriangle, ShoppingCart, Target, X, Plus, Minus, Trash2, Save, TrendingUp, Sliders, Pencil, Check } from 'lucide-react'
+import { Boxes, Grid, List, Search, Package, AlertTriangle, ShoppingCart, Target, X, Plus, Minus, Trash2, Save, TrendingUp, Sliders, Pencil, Check, Scale } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -10,6 +10,7 @@ import EmptyState from '@/components/ui/EmptyState'
 import ProdutosFilterBar, { type StatusEstoqueFiltro } from '@/components/ui/ProdutosFilterBar'
 import { ordenarCategoriasUrnas, ORDEM_ACESSORIOS } from '@/lib/categorias'
 import { hojeLocal, dataLocal } from '@/lib/date-local'
+import { fetchReservadoPV, calcularLivre } from '@/lib/estoque-reservado'
 
 type Produto = {
   id: string
@@ -26,6 +27,7 @@ type Produto = {
   ativo: boolean
   estoque_infinito?: boolean
   qtde_vendida?: number
+  reservado_pv?: number
 }
 
 const CATEGORIA_URNA_LABELS: Record<string, string> = {
@@ -74,7 +76,7 @@ const TIPO_BORDER: Record<string, string> = {
 
 export default function EstoquePage() {
   const router = useRouter()
-  const { currentUnit } = useUnit()
+  const { currentUnit, isSuperAdmin } = useUnit()
   const [produtos, setProdutos] = useState<Produto[]>([])
   const [loading, setLoading] = useState(true)
   const [filtro, setFiltro] = useState<string>('')
@@ -111,6 +113,12 @@ export default function EstoquePage() {
     })
   }
 
+  // Balanço de inventário (super_admin) — contagem real → ajusta o delta de cada item
+  const [modalBalanco, setModalBalanco] = useState(false)
+  const [balancoBusca, setBalancoBusca] = useState('')
+  const [balancoContagem, setBalancoContagem] = useState<Record<string, number>>({})
+  const [salvandoBalanco, setSalvandoBalanco] = useState(false)
+
   // Salvamento
   const [modalSalvarEntrada, setModalSalvarEntrada] = useState(false)
   const [modalSalvarMinimo, setModalSalvarMinimo] = useState(false)
@@ -133,6 +141,12 @@ export default function EstoquePage() {
   const [verAntigos, setVerAntigos] = useState(false)
   const [expandidas, setExpandidas] = useState<Set<string>>(new Set())
   const [editandoRemessa, setEditandoRemessa] = useState<{ keyAntiga: string; data: string; nome: string } | null>(null)
+  // Edição de ITENS de uma remessa — modo explícito (abre → edita rascunho → Salvar/Cancelar).
+  // editandoItensKey = qual remessa está em edição; itensDraft = qtd por item; itensExcluir = marcados pra remover.
+  const [editandoItensKey, setEditandoItensKey] = useState<string | null>(null)
+  const [itensDraft, setItensDraft] = useState<Record<string, number>>({})
+  const [itensExcluir, setItensExcluir] = useState<Set<string>>(new Set())
+  const [salvandoItens, setSalvandoItens] = useState(false)
 
   const supabase = createClient()
 
@@ -187,6 +201,8 @@ export default function EstoquePage() {
       const rows = (peData || []) as PeRow[]
       rows.forEach(r => peMap.set(r.produto_id, r))
     }
+    // Reservado p/ PV (Opção B): derivado de contratos preventivos via view, não da flag is_reserva_pv
+    const reservadoMap = await fetchReservadoPV(supabase, currentUnit?.id)
     const merged = produtosData.map((p: Produto) => {
       const pe = peMap.get(p.id)
       return {
@@ -194,6 +210,7 @@ export default function EstoquePage() {
         estoque_atual: pe?.estoque_atual ?? 0,
         estoque_minimo: pe?.estoque_minimo ?? 0,
         qtde_vendida: pe?.qtde_vendida ?? 0,
+        reservado_pv: reservadoMap.get(p.id) ?? 0,
       }
     })
     setProdutos(merged)
@@ -390,26 +407,48 @@ export default function EstoquePage() {
     } as never)
   }
 
-  async function alterarItemQuantidade(item: ItemRemessa, novaQtd: number) {
-    if (novaQtd === item.quantidade) return
-    if (novaQtd < 0) return
-    if (novaQtd === 0) {
-      if (!confirm(`Excluir ${item.produto_nome} desta remessa?\nO saldo da unidade vai cair em ${item.quantidade} (pode ficar negativo).`)) return
+  // --- Edição de itens em modo explícito (Salvar/Cancelar) ---
+  function abrirEdicaoItens(remessa: Remessa, key: string) {
+    setEditandoItensKey(key)
+    setItensDraft(Object.fromEntries(remessa.itens.map(i => [i.id, i.quantidade])))
+    setItensExcluir(new Set())
+  }
+  function cancelarEdicaoItens() {
+    setEditandoItensKey(null)
+    setItensDraft({})
+    setItensExcluir(new Set())
+  }
+  async function salvarEdicaoItens(remessa: Remessa) {
+    // Aplica só o que mudou: itens marcados pra excluir viram 0 (editar_entrada_estoque deleta);
+    // demais aplicam a nova quantidade do rascunho. Audita cada um e recarrega uma vez só no fim.
+    const mudancas = remessa.itens
+      .map(item => {
+        const novaQtd = itensExcluir.has(item.id) ? 0 : (itensDraft[item.id] ?? item.quantidade)
+        return novaQtd !== item.quantidade ? { item, novaQtd } : null
+      })
+      .filter(Boolean) as { item: ItemRemessa; novaQtd: number }[]
+    if (mudancas.length === 0) { cancelarEdicaoItens(); return }
+    setSalvandoItens(true)
+    let erros = 0
+    for (const { item, novaQtd } of mudancas) {
+      await logHistorico({
+        entidade_id: item.id,
+        entidade_nome: item.produto_nome,
+        campo: 'quantidade',
+        campo_label: `Qtd ${item.produto_codigo}`,
+        valor_anterior: String(item.quantidade),
+        valor_novo: String(novaQtd),
+        tipo: novaQtd === 0 ? 'exclusao' : 'edicao',
+      })
+      const { error } = await (supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ error: { message: string } | null }>)('editar_entrada_estoque', {
+        p_entrada_id: item.id,
+        p_nova_quantidade: novaQtd,
+      })
+      if (error) { console.error('Editar item falhou', item.id, error); erros++ }
     }
-    await logHistorico({
-      entidade_id: item.id,
-      entidade_nome: item.produto_nome,
-      campo: 'quantidade',
-      campo_label: `Qtd ${item.produto_codigo}`,
-      valor_anterior: String(item.quantidade),
-      valor_novo: String(novaQtd),
-      tipo: novaQtd === 0 ? 'exclusao' : 'edicao',
-    })
-    const { error } = await (supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ error: { message: string } | null }>)('editar_entrada_estoque', {
-      p_entrada_id: item.id,
-      p_nova_quantidade: novaQtd,
-    })
-    if (error) { alert('Erro: ' + error.message); return }
+    setSalvandoItens(false)
+    if (erros > 0) alert(`${erros} item(ns) falharam ao salvar. Verifique o console.`)
+    cancelarEdicaoItens()
     await carregarHistorico()
     await carregarProdutos()
   }
@@ -491,6 +530,66 @@ export default function EstoquePage() {
     await carregarProdutos()
   }
 
+  // ====================================
+  // Inventário (super_admin)
+  // ====================================
+  // Recebe a quantidade CONTADA por produto e aplica o delta (contado - saldo atual)
+  // via registrar_inventario_estoque: grava uma remessa "Inventário ..." em
+  // estoque_entradas (quantidade = delta, +/-) E ajusta o saldo. Assim o acerto fica
+  // VISÍVEL em "Últimas Entradas". Também audita em historico_alteracoes (quem/quando).
+  // Produtos com estoque_infinito são ignorados.
+  const balancoAjustes = useMemo(() => {
+    return Object.entries(balancoContagem)
+      .map(([pid, contado]) => {
+        const p = produtos.find(x => x.id === pid)
+        if (!p || p.estoque_infinito) return null
+        const delta = contado - p.estoque_atual
+        return delta !== 0 ? { p, contado, delta } : null
+      })
+      .filter(Boolean) as { p: Produto; contado: number; delta: number }[]
+  }, [balancoContagem, produtos])
+
+  async function aplicarBalanco() {
+    if (!currentUnit?.id || balancoAjustes.length === 0) return
+    setSalvandoBalanco(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    // Uma remessa única por execução (agrupa todos os itens deste inventário em "Últimas Entradas")
+    const agora = new Date()
+    const remessaNome = `Inventário ${agora.toLocaleDateString('pt-BR')} ${agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+    const dataInv = hojeLocal()
+    let erros = 0
+    for (const a of balancoAjustes) {
+      const { error } = await (supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ error: { message: string } | null }>)('registrar_inventario_estoque', {
+        p_produto_id: a.p.id,
+        p_unidade_id: currentUnit.id,
+        p_delta: a.delta,
+        p_remessa: remessaNome,
+        p_data_entrada: dataInv,
+      })
+      if (error) { console.error('Inventário falhou', a.p.id, error); erros++; continue }
+      // Auditoria do ajuste (saldo do sistema -> contado) — guarda o autor (estoque_entradas não tem)
+      await supabase.from('historico_alteracoes').insert({
+        entidade: 'produtos_estoque',
+        entidade_id: a.p.id,
+        entidade_nome: a.p.nome,
+        campo: 'estoque_atual',
+        campo_label: `Inventário ${a.p.codigo} (${currentUnit.codigo})`,
+        valor_anterior: String(a.p.estoque_atual),
+        valor_novo: String(a.contado),
+        nota: `Ajuste de inventário: ${a.delta > 0 ? '+' : ''}${a.delta}`,
+        tipo: 'edicao',
+        alterado_por: user?.id ?? null,
+        alterado_por_email: user?.email ?? null,
+      } as never)
+    }
+    setSalvandoBalanco(false)
+    if (erros > 0) alert(`Inventário aplicado com ${erros} erro(s). Verifique o console.`)
+    setBalancoContagem({})
+    setBalancoBusca('')
+    setModalBalanco(false)
+    await carregarProdutos()
+  }
+
   const produtosFiltrados = useMemo(() => {
     let out = produtos.filter(p => {
       if (filtro && p.tipo !== filtro) return false
@@ -564,24 +663,35 @@ export default function EstoquePage() {
             <h1 className="text-title text-[var(--shell-text)]">Estoque</h1>
           </div>
         </div>
-        {tab === 'atual' && (
-          <div className="flex gap-1 bg-[var(--surface-100)] rounded-[var(--radius-md)] p-1">
+        <div className="flex items-center gap-2">
+          {isSuperAdmin && (
             <button
-              onClick={() => setViewMode('grid')}
-              className={`p-2 rounded-[var(--radius-sm)] transition-all ${viewMode === 'grid' ? 'bg-[var(--surface-0)] shadow-sm text-[var(--brand-600)]' : 'text-[var(--surface-400)] hover:text-[var(--surface-600)]'}`}
-              title="Grade"
+              onClick={() => setModalBalanco(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[var(--radius-md)] bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 transition-colors"
+              title="Inventário (ajusta saldo pela contagem real e registra em Últimas Entradas)"
             >
-              <Grid className="h-4 w-4" />
+              <Scale className="h-4 w-4" /> Inventário
             </button>
-            <button
-              onClick={() => setViewMode('list')}
-              className={`p-2 rounded-[var(--radius-sm)] transition-all ${viewMode === 'list' ? 'bg-[var(--surface-0)] shadow-sm text-[var(--brand-600)]' : 'text-[var(--surface-400)] hover:text-[var(--surface-600)]'}`}
-              title="Lista"
-            >
-              <List className="h-4 w-4" />
-            </button>
-          </div>
-        )}
+          )}
+          {tab === 'atual' && (
+            <div className="flex gap-1 bg-[var(--surface-100)] rounded-[var(--radius-md)] p-1">
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`p-2 rounded-[var(--radius-sm)] transition-all ${viewMode === 'grid' ? 'bg-[var(--surface-0)] shadow-sm text-[var(--brand-600)]' : 'text-[var(--surface-400)] hover:text-[var(--surface-600)]'}`}
+                title="Grade"
+              >
+                <Grid className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`p-2 rounded-[var(--radius-sm)] transition-all ${viewMode === 'list' ? 'bg-[var(--surface-0)] shadow-sm text-[var(--brand-600)]' : 'text-[var(--surface-400)] hover:text-[var(--surface-600)]'}`}
+                title="Lista"
+              >
+                <List className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Tabs */}
@@ -769,6 +879,15 @@ export default function EstoquePage() {
                         {produto.estoque_infinito ? '∞' : produto.estoque_atual}
                       </span>
                     </div>
+
+                    {!produto.estoque_infinito && (produto.reservado_pv || 0) > 0 && (
+                      <div
+                        className="flex items-center gap-0.5 text-amber-500"
+                        title={`${produto.reservado_pv} reservado(s) p/ preventivo · livre: ${calcularLivre(produto.estoque_atual, produto.reservado_pv || 0)}`}
+                      >
+                        <span className="font-medium text-mono">PV-{produto.reservado_pv}</span>
+                      </div>
+                    )}
 
                     <div className="flex items-center gap-0.5 text-[var(--surface-400)]" title="Estoque ideal">
                       <Target className="h-3 w-3" />
@@ -1455,10 +1574,36 @@ export default function EstoquePage() {
                     </div>
 
                     {/* Itens (expandido) */}
-                    {aberta && (
+                    {aberta && (() => {
+                      const editandoItens = editandoItensKey === key
+                      return (
                       <div>
-                        {remessa.itens.map(item => (
-                          <div key={item.id} className="flex items-center gap-3 px-4 py-2 border-b border-[var(--surface-100)] last:border-b-0 hover:bg-[var(--surface-50)]">
+                        {/* Toolbar de edição de itens */}
+                        <div className="flex items-center justify-end gap-2 px-4 py-2 bg-[var(--surface-50)]/50 border-b border-[var(--surface-100)]">
+                          {editandoItens ? (
+                            <>
+                              <span className="text-xs text-[var(--surface-500)] mr-auto">Edite as quantidades e salve, ou cancele para descartar.</span>
+                              <button onClick={cancelarEdicaoItens} disabled={salvandoItens}
+                                className="px-3 py-1.5 text-xs rounded-md bg-[var(--surface-200)] text-[var(--surface-700)] hover:bg-[var(--surface-300)] disabled:opacity-50">
+                                Cancelar
+                              </button>
+                              <button onClick={() => salvarEdicaoItens(remessa)} disabled={salvandoItens}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs rounded-md bg-emerald-600 text-white font-medium hover:bg-emerald-700 disabled:opacity-50">
+                                <Save className="h-3.5 w-3.5" /> {salvandoItens ? 'Salvando…' : 'Salvar'}
+                              </button>
+                            </>
+                          ) : (
+                            <button onClick={() => abrirEdicaoItens(remessa, key)} disabled={editandoItensKey !== null}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs rounded-md border border-[var(--surface-200)] text-[var(--surface-600)] hover:bg-[var(--surface-100)] disabled:opacity-40"
+                              title={editandoItensKey !== null ? 'Termine a edição em andamento primeiro' : 'Editar quantidades dos itens'}>
+                              <Pencil className="h-3.5 w-3.5" /> Editar itens
+                            </button>
+                          )}
+                        </div>
+                        {remessa.itens.map(item => {
+                          const marcadoExcluir = itensExcluir.has(item.id)
+                          return (
+                          <div key={item.id} className={`flex items-center gap-3 px-4 py-2 border-b border-[var(--surface-100)] last:border-b-0 hover:bg-[var(--surface-50)] ${marcadoExcluir ? 'opacity-50' : ''}`}>
                             <div className="w-10 h-10 rounded bg-[var(--surface-100)] overflow-hidden flex-shrink-0 flex items-center justify-center">
                               <img
                                 src={item.produto_imagem_url || getImagemUrl(item.produto_codigo)}
@@ -1467,27 +1612,35 @@ export default function EstoquePage() {
                                 onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
                               />
                             </div>
-                            <p className="flex-1 min-w-0 text-sm text-[var(--surface-800)] truncate">{item.produto_nome}</p>
-                            <input
-                              type="number" min="0" defaultValue={item.quantidade}
-                              onBlur={e => {
-                                const v = Math.max(0, parseInt(e.target.value) || 0)
-                                if (v !== item.quantidade) alterarItemQuantidade(item, v)
-                              }}
-                              onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                              className="w-16 h-7 text-center text-sm bg-[var(--surface-50)] border border-[var(--surface-200)] rounded text-mono focus:outline-none focus:border-[var(--brand-500)]"
-                            />
-                            <button
-                              onClick={() => alterarItemQuantidade(item, 0)}
-                              className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
-                              title="Excluir item"
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
+                            <p className={`flex-1 min-w-0 text-sm text-[var(--surface-800)] truncate ${marcadoExcluir ? 'line-through' : ''}`}>{item.produto_nome}</p>
+                            {editandoItens ? (
+                              <>
+                                <input
+                                  type="number" value={itensDraft[item.id] ?? item.quantidade}
+                                  disabled={marcadoExcluir}
+                                  onChange={e => {
+                                    const v = parseInt(e.target.value, 10)
+                                    setItensDraft(prev => ({ ...prev, [item.id]: Number.isNaN(v) ? 0 : v }))
+                                  }}
+                                  className="w-16 h-7 text-center text-sm bg-[var(--surface-50)] border border-[var(--surface-200)] rounded text-mono focus:outline-none focus:border-[var(--brand-500)] disabled:opacity-40"
+                                />
+                                <button
+                                  onClick={() => setItensExcluir(prev => { const n = new Set(prev); if (n.has(item.id)) n.delete(item.id); else n.add(item.id); return n })}
+                                  className={`p-1 rounded transition-colors ${marcadoExcluir ? 'text-emerald-600 hover:bg-emerald-50' : 'text-red-500 hover:text-red-700 hover:bg-red-50'}`}
+                                  title={marcadoExcluir ? 'Desfazer exclusão' : 'Marcar para excluir'}
+                                >
+                                  {marcadoExcluir ? <Check className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
+                                </button>
+                              </>
+                            ) : (
+                              <span className="w-16 text-center text-sm text-mono text-[var(--surface-700)]">{item.quantidade}</span>
+                            )}
                           </div>
-                        ))}
+                          )
+                        })}
                       </div>
-                    )}
+                      )
+                    })()}
                   </div>
                 )
               })}
@@ -1566,6 +1719,80 @@ export default function EstoquePage() {
         </div>
       )}
 
+      {/* Modal: Balanço de inventário (super_admin) */}
+      {modalBalanco && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => !salvandoBalanco && setModalBalanco(false)}>
+          <div className="bg-slate-800 rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-slate-700 flex-shrink-0">
+              <h3 className="text-lg font-semibold text-slate-200 inline-flex items-center gap-2">
+                <Scale className="h-5 w-5 text-amber-400" /> Inventário
+              </h3>
+              <button onClick={() => setModalBalanco(false)} disabled={salvandoBalanco} className="text-slate-400 hover:text-slate-200 disabled:opacity-50">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="px-5 pt-4 flex-shrink-0">
+              <p className="text-xs text-slate-400 mb-3">
+                Informe a <strong className="text-slate-300">quantidade contada</strong> de cada produto. O sistema ajusta o saldo pelo delta (pode ficar negativo) e registra uma remessa <strong className="text-slate-300">&quot;Inventário&quot;</strong> em Últimas Entradas. Unidade: <strong className="text-slate-300">{currentUnit?.nome} ({currentUnit?.codigo})</strong>.
+              </p>
+              <div className="relative mb-3">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                <input
+                  type="text" value={balancoBusca} onChange={e => setBalancoBusca(e.target.value)}
+                  placeholder="Buscar produto por nome ou código…"
+                  className="w-full pl-9 pr-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                />
+              </div>
+            </div>
+            <div className="overflow-y-auto px-5 flex-1">
+              {produtos
+                .filter(p => !p.estoque_infinito)
+                .filter(p => {
+                  if (!balancoBusca.trim()) return true
+                  const t = balancoBusca.toLowerCase()
+                  return p.nome.toLowerCase().includes(t) || p.codigo.toLowerCase().includes(t)
+                })
+                .map(p => {
+                  const contado = balancoContagem[p.id] ?? p.estoque_atual
+                  const delta = contado - p.estoque_atual
+                  return (
+                    <div key={p.id} className="flex items-center gap-3 py-2 border-b border-slate-700/50">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm text-slate-200 truncate">{p.nome}</div>
+                        <div className="text-[11px] text-slate-500 font-mono">{p.codigo} · sistema: {p.estoque_atual}</div>
+                      </div>
+                      <input
+                        type="number" value={contado}
+                        onChange={e => {
+                          const v = parseInt(e.target.value, 10)
+                          setBalancoContagem(prev => {
+                            const next = { ...prev }
+                            if (Number.isNaN(v) || v === p.estoque_atual) delete next[p.id]
+                            else next[p.id] = v
+                            return next
+                          })
+                        }}
+                        className="w-20 px-2 py-1.5 bg-slate-700 border border-slate-600 rounded-lg text-slate-200 text-center text-sm focus:outline-none focus:border-amber-500"
+                      />
+                      <span className={`w-12 text-right text-sm font-mono font-semibold ${delta > 0 ? 'text-emerald-400' : delta < 0 ? 'text-red-400' : 'text-slate-600'}`}>
+                        {delta === 0 ? '—' : (delta > 0 ? `+${delta}` : delta)}
+                      </span>
+                    </div>
+                  )
+                })}
+            </div>
+            <div className="flex gap-2 p-5 border-t border-slate-700 flex-shrink-0">
+              <button onClick={() => setModalBalanco(false)} disabled={salvandoBalanco}
+                className="flex-1 px-4 py-2 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 disabled:opacity-50">Cancelar</button>
+              <button onClick={aplicarBalanco} disabled={salvandoBalanco || balancoAjustes.length === 0}
+                className="flex-1 px-4 py-2 rounded-lg bg-amber-600 text-white font-semibold hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed">
+                {salvandoBalanco ? 'Lançando…' : `Lançar inventário (${balancoAjustes.length})`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal: Visual do estoque (mosaico — uma imagem por unidade física) */}
       {visualEstoque && (() => {
         const totalUnidades = visualEstoque.produtos.reduce((acc, p) => acc + (p.estoque_infinito ? 0 : p.estoque_atual), 0)
@@ -1602,12 +1829,18 @@ export default function EstoquePage() {
                     {comEstoque.map((p, idx) => {
                       const imgSrc = p.imagem_url || getImagemUrl(p.codigo)
                       const visto = tiquesVistos.has(p.id)
+                      const reservado = p.reservado_pv || 0
                       return (
                         <Fragment key={p.id}>
                           {/* Colchete de abertura + qtd + tique */}
                           <div className="flex items-center gap-1 self-center text-xs font-mono text-[var(--surface-500)]">
                             <span className="text-base leading-none text-[var(--surface-400)]">[</span>
-                            <span className="font-bold tabular-nums">{p.estoque_atual}</span>
+                            <span
+                              className={`font-bold tabular-nums ${(p.reservado_pv || 0) > 0 ? 'bg-amber-200 text-amber-900 rounded px-1' : ''}`}
+                              title={(p.reservado_pv || 0) > 0 ? `${p.reservado_pv} segurado(s) p/ PV · livre ${p.estoque_atual - (p.reservado_pv || 0)}` : undefined}
+                            >
+                              {p.estoque_atual}
+                            </span>
                             <button
                               type="button"
                               onClick={() => toggleTique(p.id)}
@@ -1626,15 +1859,28 @@ export default function EstoquePage() {
                               <span className="absolute bottom-0.5 right-0.5 text-white text-xs font-bold font-mono tabular-nums bg-black/70 rounded px-1 py-0 leading-tight">
                                 ×{p.estoque_atual}
                               </span>
+                              {reservado > 0 && (
+                                <span className="absolute top-0.5 left-0.5 text-amber-900 text-[9px] font-bold font-mono bg-amber-300/95 rounded px-1 leading-tight"
+                                  title={`${reservado} segurado(s) p/ PV · livre ${p.estoque_atual - reservado}`}>
+                                  PV {reservado}
+                                </span>
+                              )}
                             </div>
                           ) : (
-                            Array.from({ length: p.estoque_atual }).map((_, i) => (
-                              <div key={i} className={`w-14 h-14 rounded-md bg-[var(--surface-100)] overflow-hidden flex-shrink-0 transition-opacity ${visto ? 'opacity-50' : ''}`}
-                                title={`${p.nome} (${p.estoque_atual} un)`}>
-                                <img src={imgSrc} alt={p.nome} className="w-full h-full object-cover"
+                            Array.from({ length: p.estoque_atual }).map((_, i) => {
+                              // As últimas `reservado` unidades estão seguradas p/ PV
+                              const ehReserva = i >= p.estoque_atual - reservado
+                              return (
+                              <div key={i} className={`relative w-14 h-14 rounded-md overflow-hidden flex-shrink-0 transition-opacity ${visto ? 'opacity-50' : ''} ${ehReserva ? 'ring-2 ring-amber-400 bg-amber-100' : 'bg-[var(--surface-100)]'}`}
+                                title={ehReserva ? `${p.nome} — segurado p/ PV` : `${p.nome} (${p.estoque_atual} un)`}>
+                                <img src={imgSrc} alt={p.nome} className={`w-full h-full object-cover ${ehReserva ? 'opacity-60' : ''}`}
                                   onError={(e) => { const t = e.target as HTMLImageElement; t.style.visibility = 'hidden' }} />
+                                {ehReserva && (
+                                  <span className="absolute inset-x-0 bottom-0 text-center text-[9px] font-bold text-amber-900 bg-amber-300/90 leading-tight">PV</span>
+                                )}
                               </div>
-                            ))
+                              )
+                            })
                           )}
                           {/* Colchete de fechamento */}
                           <span className="self-center text-base leading-none font-mono text-[var(--surface-400)]">]</span>

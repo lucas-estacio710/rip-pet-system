@@ -209,6 +209,11 @@ type Contrato = {
   estabelecimento_id: string | null
   estabelecimento_coleta?: { nome: string } | null
   clinica_coleta: string | null
+  // Indicação (quem indicou) — FK ou fallback texto. Ver FLOW §3.6.
+  contato?: { nome: string; cargo: string | null } | null
+  estabelecimento_indicacao?: { nome: string } | null
+  indicacao_clinica: string | null
+  indicacao_contato: string | null
   data_leva_pinda: string | null
   data_cremacao: string | null
   data_retorno: string | null
@@ -1667,7 +1672,7 @@ export default function ContratoDetalhe() {
     const contratoId = params.id as string
     const { data, error } = await supabase
       .from('contratos')
-      .select('*, tutor:tutores(*), supinda:supindas!fk_contrato_supinda(numero, data), funcionario:funcionarios(nome), estabelecimento_coleta:estabelecimentos!contratos_estabelecimento_id_fkey(nome), unidade_remocao:unidades!contratos_unidade_remocao_id_fkey(id, codigo, nome), unidade_entrega:unidades!contratos_unidade_entrega_id_fkey(id, codigo, nome), contrato_gc(etapa, cinzas_prontas, certificado_pronto, contato_status)')
+      .select('*, tutor:tutores(*), supinda:supindas!fk_contrato_supinda(numero, data), funcionario:funcionarios(nome), estabelecimento_coleta:estabelecimentos!contratos_estabelecimento_id_fkey(nome), contato:contatos!contratos_contato_id_fkey(nome, cargo), estabelecimento_indicacao:estabelecimentos!contratos_estabelecimento_indicacao_id_fkey(nome), unidade_remocao:unidades!contratos_unidade_remocao_id_fkey(id, codigo, nome), unidade_entrega:unidades!contratos_unidade_entrega_id_fkey(id, codigo, nome), contrato_gc(etapa, cinzas_prontas, certificado_pronto, contato_status)')
       .eq('id', contratoId)
       .single()
 
@@ -2526,6 +2531,22 @@ ${petNome}`
                 )
               })()}
           </div>
+
+          {/* Row 2.6: Indicação (quem indicou) — FK contato/estab_indicacao ou fallback texto. Ver FLOW §3.6 */}
+          {(() => {
+            const quemIndicou = contrato.contato?.nome || contrato.indicacao_contato
+            const clinicaIndic = contrato.estabelecimento_indicacao?.nome || contrato.indicacao_clinica
+            if (!quemIndicou && !clinicaIndic) return null
+            return (
+              <div className="flex items-center gap-1.5 text-xs text-[var(--surface-500)] mb-3 flex-wrap">
+                <span className="text-[var(--surface-400)]">🩺</span>
+                <span className="font-medium text-[var(--surface-600)]">Indicação:</span>
+                {quemIndicou && <span className="font-semibold text-[var(--surface-700)]">{quemIndicou}</span>}
+                {quemIndicou && clinicaIndic && <span className="text-[var(--surface-300)]">·</span>}
+                {clinicaIndic && <span>{clinicaIndic}</span>}
+              </div>
+            )
+          })()}
 
           {/* Row 3: Tags */}
           <div className="mb-3">
@@ -3520,8 +3541,13 @@ ${petNome}`
 
                       {/* Info */}
                       <div className="flex-1 min-w-0">
-                        {cp.is_reserva_pv && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-200 text-yellow-800 font-semibold">PV</span>
+                        {contrato.status === 'preventivo' && !cp.produto.estoque_infinito && (
+                          <span
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-200 text-yellow-800 font-semibold"
+                            title="Reserva de preventivo: segura 1 unidade no estoque da unidade até o PV ser acionado"
+                          >
+                            PV · segura estoque
+                          </span>
                         )}
                         <p className="font-semibold text-slate-200 text-sm line-clamp-2">{cp.produto.nome}</p>
                       </div>
