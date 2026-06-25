@@ -34,6 +34,17 @@ type SortDir = 'asc' | 'desc'
 const TIPO_LABELS: Record<string, string> = { urna: 'Urna', acessorio: 'Acessório', incluso: 'Incluso' }
 const TIPO_COLORS: Record<string, string> = { urna: '#7c3aed', acessorio: '#3b82f6', incluso: '#22c55e' }
 
+// Opções de tipo de rescaldo (enum tipo_rescaldo). `pelinho` fica de fora — tem fluxo próprio (PelinhoModal).
+// Vazio = produto não é de rescaldo (rescaldo_tipo = null). Labels espelham o RescaldoModal.
+const RESCALDO_TIPO_OPCOES: { value: string; label: string }[] = [
+  { value: '', label: 'Nenhum (não é rescaldo)' },
+  { value: 'molde_patinha', label: '🐾 Molde de Patinha' },
+  { value: 'carimbo', label: '📄 Carimbo' },
+  { value: 'pelo_extra', label: '✂️ Pelo Extra' },
+  { value: 'itens_pessoais', label: '📦 Itens Pessoais' },
+  { value: 'outro', label: '💎 Outro' },
+]
+
 function formatMoeda(v: number | null) {
   if (v === null || v === undefined) return '—'
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -68,7 +79,7 @@ export default function CatalogoPage() {
   const [form, setForm] = useState({
     codigo: '', nome: '', tipo: 'urna' as string, categoria: '',
     custo: '', preco: '', nome_retorno: '', precisa_foto: false,
-    estoque_infinito: false, imagem_url: '',
+    estoque_infinito: false, imagem_url: '', rescaldo_tipo: '',
   })
 
   useEffect(() => { carregarProdutos() }, [])
@@ -140,7 +151,7 @@ export default function CatalogoPage() {
   function openNew() {
     setIsNew(true)
     setEditProduto(null)
-    setForm({ codigo: '', nome: '', tipo: 'urna', categoria: '', custo: '', preco: '', nome_retorno: '', precisa_foto: false, estoque_infinito: false, imagem_url: '' })
+    setForm({ codigo: '', nome: '', tipo: 'urna', categoria: '', custo: '', preco: '', nome_retorno: '', precisa_foto: false, estoque_infinito: false, imagem_url: '', rescaldo_tipo: '' })
     setShowModal(true)
   }
 
@@ -158,6 +169,7 @@ export default function CatalogoPage() {
       precisa_foto: p.precisa_foto,
       estoque_infinito: p.estoque_infinito,
       imagem_url: p.imagem_url || '',
+      rescaldo_tipo: p.rescaldo_tipo || '',
     })
     setShowModal(true)
   }
@@ -177,6 +189,7 @@ export default function CatalogoPage() {
       precisa_foto: form.precisa_foto,
       estoque_infinito: form.estoque_infinito,
       imagem_url: form.imagem_url.trim() || null,
+      rescaldo_tipo: form.rescaldo_tipo || null,
     }
 
     if (isNew) {
@@ -579,6 +592,22 @@ export default function CatalogoPage() {
                   placeholder="Nome abreviado (ex: Plano MDF P)"
                 />
                 <p className="text-[10px] mt-1" style={{ color: '#64748b' }}>Aparece no protocolo de entrega. Deixe vazio se não aplicável.</p>
+              </div>
+
+              {/* Tipo de rescaldo */}
+              <div>
+                <label className="block text-xs font-medium mb-1" style={{ color: '#94a3b8' }}>Tipo de Rescaldo</label>
+                <select
+                  value={form.rescaldo_tipo}
+                  onChange={e => setForm(f => ({ ...f, rescaldo_tipo: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+                  style={{ background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155' }}
+                >
+                  {RESCALDO_TIPO_OPCOES.map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] mt-1" style={{ color: '#64748b' }}>Marca o produto como item de rescaldo — passa a aparecer no modal de Rescaldos do contrato. Pelinho tem fluxo próprio e não entra aqui.</p>
               </div>
 
               {/* Imagem do produto */}

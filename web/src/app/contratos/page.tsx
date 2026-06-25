@@ -19,6 +19,7 @@ import { useUnit } from '@/contexts/UnitContext'
 import ProdutosFilterBar from '@/components/ui/ProdutosFilterBar'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
 import PelinhoModal from '@/components/contratos/modals/PelinhoModal'
+import RescaldoModal from '@/components/contratos/modals/RescaldoModal'
 import CertificadoModal from '@/components/contratos/modals/CertificadoModal'
 import AtivarModal from '@/components/contratos/modals/AtivarModal'
 import FinalizadoraModal from '@/components/contratos/modals/FinalizadoraModal'
@@ -595,7 +596,6 @@ function ContratosContent() {
   const [rescaldoModal, setRescaldoModal] = useState(false)
   const [rescaldoContrato, setRescaldoContrato] = useState<Contrato | null>(null)
   const [salvandoRescaldo, setSalvandoRescaldo] = useState(false)
-  const [buscaRescaldo, setBuscaRescaldo] = useState('')
   const [produtosRescaldo, setProdutosRescaldo] = useState<Array<{ id: string; codigo: string; nome: string; tipo: string; rescaldo_tipo: string; preco: number | null; imagem_url: string | null }>>([])
 
   const POR_PAGINA = 30
@@ -3306,7 +3306,6 @@ ${petNome}`
   function abrirRescaldoModal(contrato: Contrato) {
     highlightContrato(contrato.id)
     setRescaldoContrato(contrato)
-    setBuscaRescaldo('')
     setRescaldoModal(true)
   }
 
@@ -6737,194 +6736,31 @@ ${petNome}`
         </div>
       )}
 
-      {/* Modal Rescaldos (via contrato_produtos) */}
-      {rescaldoModal && rescaldoContrato && (() => {
-        const rescaldosNoContrato = (rescaldoContrato.contrato_produtos || []).filter(cp => cp.produto?.rescaldo_tipo || cp.produto?.codigo === '0002')
-        const temNenhum = rescaldosNoContrato.some(cp => cp.produto?.codigo === '0002')
-        const rescaldosReais = rescaldosNoContrato.filter(cp => cp.produto?.codigo !== '0002')
-        const produtosDisponiveis = produtosRescaldo.filter(p =>
-          (buscaRescaldo ? p.nome.toLowerCase().includes(buscaRescaldo.toLowerCase()) || p.codigo.toLowerCase().includes(buscaRescaldo.toLowerCase()) : true)
-        )
-
-        const RESCALDO_TIPO_LABELS: Record<string, { label: string; icon: string }> = {
-          molde_patinha: { label: 'Molde de Patinha', icon: '🐾' },
-          pelo_extra: { label: 'Pelo Extra', icon: '✂️' },
-          carimbo: { label: 'Carimbo', icon: '📄' },
-        }
-
-        const porTipo = new Map<string, typeof produtosDisponiveis>()
-        produtosDisponiveis.forEach(p => {
-          const tipo = p.rescaldo_tipo || 'outro'
-          if (!porTipo.has(tipo)) porTipo.set(tipo, [])
-          porTipo.get(tipo)!.push(p)
-        })
-
-        return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => { setRescaldoModal(false); unhighlightContrato(); }}>
-          <div className="bg-slate-800 rounded-xl shadow-xl max-w-lg w-full mx-4 p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-slate-200">🐾 Rescaldos — {rescaldoContrato.pet_nome}</h3>
-              <button onClick={() => { setRescaldoModal(false); unhighlightContrato(); }} className="text-slate-400 hover:text-slate-200">
-                ✕
-              </button>
-            </div>
-
-            <p className="text-sm text-slate-400 mb-4">{rescaldoContrato.codigo}</p>
-
-            {/* Marcado como "Nenhum rescaldo" */}
-            {temNenhum && (
-              <div className="flex items-center gap-3 p-3 rounded-lg border border-red-700 bg-red-900/30 mb-4">
-                <span className="text-lg">🚫</span>
-                <div className="flex-1">
-                  <p className="font-medium text-red-300 text-sm">Nenhum rescaldo</p>
-                  <p className="text-xs text-red-400">Tutor não quer rescaldo</p>
-                </div>
-                <button
-                  onClick={() => {
-                    const cpNenhum = rescaldosNoContrato.find(cp => cp.produto?.codigo === '0002')
-                    if (cpNenhum) removerProdutoRescaldo(cpNenhum.id, cpNenhum.produto_id)
-                  }}
-                  className="flex items-center justify-center w-9 h-9 rounded-full bg-red-900/40 text-red-500 hover:bg-red-900/50 transition-colors"
-                  title="Remover"
-                >
-                  ✕
-                </button>
-              </div>
-            )}
-
-            {/* Seção 1: Rescaldos no contrato */}
-            <div className="space-y-2 mb-4">
-              <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">No contrato</p>
-              {rescaldosReais.length === 0 && !temNenhum && (
-                <p className="text-center text-slate-400 py-3 text-sm">Nenhum rescaldo adicionado</p>
-              )}
-              {rescaldosReais.map(cp => (
-                <div
-                  key={cp.id}
-                  className={`flex items-center gap-3 p-3 rounded-lg border ${
-                    cp.rescaldo_feito ? 'bg-green-900/30 border-green-700' : 'bg-amber-900/30 border-amber-700'
-                  }`}
-                >
-                  {cp.produto?.imagem_url && (
-                    <img src={cp.produto.imagem_url} alt="" className="w-8 h-8 rounded object-cover flex-shrink-0" />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-slate-200 text-sm truncate">{cp.produto?.nome || 'Produto'}</p>
-                    <p className={`text-xs ${cp.rescaldo_feito ? 'text-green-400' : 'text-amber-400'}`}>
-                      {cp.rescaldo_feito ? '✅ Feito' : '⏳ Pendente'}
-                    </p>
-                  </div>
-
-                  {/* Toggle feito */}
-                  <button
-                    onClick={() => toggleRescaldoFeito(cp.id, !cp.rescaldo_feito)}
-                    className={`flex items-center justify-center w-9 h-9 rounded-full transition-colors ${
-                      cp.rescaldo_feito
-                        ? 'bg-green-500 text-white hover:bg-green-600'
-                        : 'bg-slate-600 text-slate-400 hover:bg-amber-400 hover:text-white'
-                    }`}
-                    title={cp.rescaldo_feito ? 'Marcar como pendente' : 'Marcar como feito'}
-                  >
-                    {cp.rescaldo_feito ? '✓' : '○'}
-                  </button>
-
-                  {/* Remover */}
-                  <button
-                    onClick={() => removerProdutoRescaldo(cp.id, cp.produto_id)}
-                    className="flex items-center justify-center w-9 h-9 rounded-full bg-red-900/40 text-red-500 hover:bg-red-900/50 transition-colors"
-                    title="Remover produto de rescaldo"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            {/* Seção 2: Adicionar produto de rescaldo — agrupado por tipo */}
-            {!temNenhum && (
-              <div className="border-t pt-4">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">Adicionar</p>
-                  {/* Botão "Nenhum rescaldo" */}
-                  <button
-                    onClick={async () => {
-                      setSalvandoRescaldo(true)
-                      const { data: prod } = await supabase
-                        .from('produtos')
-                        .select('id, codigo, nome, tipo, rescaldo_tipo, preco, imagem_url')
-                        .eq('codigo', '0002')
-                        .single()
-                      if (prod) {
-                        await adicionarProdutoRescaldo(prod as typeof produtosRescaldo[0])
-                      }
-                      setSalvandoRescaldo(false)
-                    }}
-                    disabled={salvandoRescaldo}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-700 bg-red-900/30 hover:bg-red-900/50 transition-colors text-red-300 text-xs font-medium disabled:opacity-50"
-                  >
-                    🚫 Nenhum rescaldo
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  value={buscaRescaldo}
-                  onChange={e => setBuscaRescaldo(e.target.value)}
-                  placeholder="Buscar por nome ou codigo..."
-                  className="w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 mb-3"
-                />
-                <div className="space-y-4 max-h-60 overflow-y-auto">
-                  {[...porTipo.entries()].map(([tipo, prods]) => {
-                    const info = RESCALDO_TIPO_LABELS[tipo] || { label: tipo, icon: '💎' }
-                    return (
-                      <div key={tipo}>
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-sm">{info.icon}</span>
-                          <h4 className="text-xs font-semibold text-purple-300">{info.label}</h4>
-                          <span className="text-xs text-slate-500">({prods.length})</span>
-                          <div className="flex-1 h-px bg-purple-900/40" />
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          {prods.map(p => (
-                            <button
-                              key={p.id}
-                              onClick={() => adicionarProdutoRescaldo(p)}
-                              disabled={salvandoRescaldo}
-                              className="flex items-center gap-2 p-2 rounded-lg border border-purple-700 bg-purple-900/30 hover:bg-purple-900/50 transition-colors text-left disabled:opacity-50"
-                            >
-                              {p.imagem_url ? (
-                                <img src={p.imagem_url} alt="" className="w-8 h-8 rounded object-cover flex-shrink-0" />
-                              ) : (
-                                <div className="w-8 h-8 rounded bg-purple-900/40 flex items-center justify-center flex-shrink-0 text-xs">{info.icon}</div>
-                              )}
-                              <div className="min-w-0">
-                                <p className="text-xs font-medium text-slate-200 truncate">{p.nome}</p>
-                                {p.preco ? <p className="text-[10px] text-slate-400">R$ {p.preco.toFixed(2)}</p> : null}
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )
-                  })}
-                  {porTipo.size === 0 && (
-                    <p className="text-center text-slate-400 py-2 text-sm">Nenhum produto encontrado</p>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <div className="mt-4 pt-4 border-t flex justify-end">
-              <button
-                onClick={() => { setRescaldoModal(false); unhighlightContrato(); }}
-                className="px-4 py-2 bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 transition-colors"
-              >
-                Fechar
-              </button>
-            </div>
-          </div>
-        </div>
-        )
-      })()}
+      {/* Modal Rescaldos (componente compartilhado) */}
+      {rescaldoContrato && (
+        <RescaldoModal
+          isOpen={rescaldoModal}
+          petNome={rescaldoContrato.pet_nome}
+          codigo={rescaldoContrato.codigo}
+          rescaldos={rescaldoContrato.contrato_produtos || []}
+          produtosRescaldo={produtosRescaldo}
+          salvando={salvandoRescaldo}
+          onToggleFeito={toggleRescaldoFeito}
+          onAdicionar={adicionarProdutoRescaldo}
+          onAdicionarNenhum={async () => {
+            setSalvandoRescaldo(true)
+            const { data: prod } = await supabase
+              .from('produtos')
+              .select('id, codigo, nome, tipo, rescaldo_tipo, preco, imagem_url')
+              .eq('codigo', '0002')
+              .single()
+            if (prod) await adicionarProdutoRescaldo(prod as typeof produtosRescaldo[0])
+            setSalvandoRescaldo(false)
+          }}
+          onRemover={removerProdutoRescaldo}
+          onClose={() => { setRescaldoModal(false); unhighlightContrato() }}
+        />
+      )}
 
       {/* Off-screen: FichaRemocao para captura via DocMenu (PNG download) */}
       {fichaParaCapturar && (
