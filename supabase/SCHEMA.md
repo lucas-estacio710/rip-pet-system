@@ -14,8 +14,12 @@
 > **Como atualizar:** Edite a tabela afetada neste arquivo refletindo exatamente a alteracao feita no banco.
 > Atualize tambem a data de "Ultima atualizacao" abaixo.
 
-**Ultima atualizacao:** 2026-04-17
-**Total:** 45 tabelas/views
+**Ultima atualizacao:** 2026-06-22 (migration 096: view vw_estoque_reservado_pv — reserva de PV derivada)
+**Total:** 50 tabelas/views (48 tabelas + 2 views: `vw_estatisticas_estabelecimentos`, `vw_estoque_reservado_pv`)
+**RPCs ativas no banco (21):** `ajustar_estoque_unidade`, `editar_entrada_estoque`, `format_valor_historico`, `get_admin_activity_overview`, `get_ads_suspects`, `get_campo_label`, `insert_funnel_events`, `insert_lead`, `is_super_admin`, `list_users_with_profiles`, `patch_session_ip`, `recalc_contrato_valores`, `registrar_entrada_estoque`, `registrar_inventario_estoque`, `renomear_remessa`, `save_partial_lead`, `set_estoque_minimo_unidade`, `sync_ads_blocklist`, `upsert_session`, `user_unidade_codes`, `user_unidade_ids`
+
+> **Como auditar drift entre este arquivo e o banco real:**
+> `GET https://{PROJECT}.supabase.co/rest/v1/` com header `apikey: {SERVICE_ROLE_KEY}` retorna o swagger OpenAPI completo do schema `public` (tabelas, colunas, tipos, RPCs). Use isso pra validar este arquivo periodicamente — script de referência em `.tmp/dump_schema.py` + `.tmp/full_diff.py` (gitignored).
 
 ## configuracoes (6 colunas)
 
@@ -60,7 +64,7 @@
 | unidade_id | uuid | FK->unidades.id |
 | whatsapp | text |  |
 
-## contrato_gc (21 colunas)
+## contrato_gc (25 colunas)
 
 | Coluna | Tipo | Info |
 |--------|------|------|
@@ -75,22 +79,30 @@
 | cremacao_por | text |  |
 | data_agendamento | timestamp with time zone |  |
 | data_cremacao | timestamp with time zone |  |
-| data_disponivel | timestamp with time zone |  |
-| data_recebimento | timestamp with time zone | default=now() |
-| etapa | text | default=recebido |
+| data_disponivel | timestamp with time zone | quando a etapa virou 'disponivel' (cinzas + cert prontos). Usado pelo trigger 091 pra setar `contratos.data_retorno` em unidades com `cb_cremacao_local` |
+| data_recebimento | timestamp with time zone | nullable, sem default (migration 084) |
+| etapa | text | default=provisionado (migration 084) |
 | forno | integer |  |
 | id | uuid | PK default=gen_random_uuid() |
 | lacre_conferido | boolean | default=False |
 | observacoes_unidade | text |  |
 | pedidos_especiais_obs | text |  |
+| pet_especie | text | snapshot editável (migration 081) |
+| pet_genero | text | snapshot editável (migration 081) |
+| pet_nome | text | snapshot editável (migration 081) |
+| pet_raca | text | snapshot editável (migration 081) |
 | recebido_por | text |  |
 | updated_at | timestamp with time zone | default=now() |
+
+**Triggers:**
+- `contrato_gc_snapshot_pet` (BEFORE INSERT, migration 081) — preenche snapshot pet_* a partir de `contratos` se vier vazio.
+- `gc_disponivel_auto_retorno` (AFTER UPDATE OF etapa, migration 091) — quando etapa muda pra `disponivel`, AVANÇA `contratos.status` para `retorno` **se a unidade dona do contrato tem `cb_cremacao_local` em `modulos_ativos`**. Para outras unidades, retorno é disparado por `/encaminhamentos`.
 
 ## contrato_itens_pessoais (7 colunas)
 
 | Coluna | Tipo | Info |
 |--------|------|------|
-| contrato_id | uuid | FK->contratos.id |
+| contrato_id | uuid | FK->contratos.id ON DELETE CASCADE (mig 093) |
 | created_at | timestamp with time zone | default=now() |
 | descricao | character varying |  |
 | destino | public.destino_item_pessoal | enum=[doar, descartar, retornar, cremar_junto] |
@@ -103,7 +115,7 @@
 | Coluna | Tipo | Info |
 |--------|------|------|
 | conteudo_enviado | text |  |
-| contrato_id | uuid | FK->contratos.id |
+| contrato_id | uuid | FK->contratos.id ON DELETE CASCADE (mig 093) |
 | created_at | timestamp with time zone | default=now() |
 | enviada_em | timestamp with time zone | default=now() |
 | enviada_via | character varying |  |
@@ -116,13 +128,13 @@
 
 | Coluna | Tipo | Info |
 |--------|------|------|
-| contrato_id | uuid | FK->contratos.id |
+| contrato_id | uuid | FK->contratos.id ON DELETE CASCADE (mig 093) |
 | created_at | timestamp with time zone | default=now() |
 | desconto | numeric | default=0 |
 | foto_recebida | boolean | default=False |
 | foto_url | text |  |
 | id | uuid | PK default=gen_random_uuid() |
-| is_reserva_pv | boolean | default=False |
+| is_reserva_pv | boolean | default=False — **DEPRECATED** (mig 096): nunca foi gravada `true`. Reserva de PV agora é derivada de `status='preventivo'` via `vw_estoque_reservado_pv`. |
 | produto_id | uuid | FK->produtos.id |
 | quantidade | integer | default=1 |
 | rescaldo_feito | boolean | default=False |
@@ -130,11 +142,13 @@
 | updated_at | timestamp with time zone | default=now() |
 | valor | numeric |  |
 
+**Trigger (migration 074):** `trg_recalc_contrato_valores` (AFTER INSERT/UPDATE/DELETE) chama `recalc_contrato_valores(contrato_id)` que recalcula `contratos.valor_acessorios` (SUM valor*qtd onde tipo != 'incluso') e `contratos.desconto_acessorios` (SUM desconto*qtd) automaticamente. Frontend não precisa atualizar esses campos manualmente.
+
 ## contrato_rescaldos (8 colunas)
 
 | Coluna | Tipo | Info |
 |--------|------|------|
-| contrato_id | uuid | FK->contratos.id |
+| contrato_id | uuid | FK->contratos.id ON DELETE CASCADE (mig 093) |
 | created_at | timestamp with time zone | default=now() |
 | id | uuid | PK default=gen_random_uuid() |
 | observacoes | text |  |
@@ -147,7 +161,7 @@
 
 | Coluna | Tipo | Info |
 |--------|------|------|
-| contrato_id | uuid | FK->contratos.id |
+| contrato_id | uuid | FK->contratos.id ON DELETE CASCADE (mig 093) |
 | created_at | timestamp with time zone | default=now() |
 | data_minima | date |  |
 | dias_bloqueados | public.dia_semana[] |  |
@@ -157,13 +171,14 @@
 | periodos_bloqueados | public.periodo_dia[] |  |
 | updated_at | timestamp with time zone | default=now() |
 
-## contratos (83 colunas)
+## contratos (98 colunas)
 
 | Coluna | Tipo | Info |
 |--------|------|------|
 | acompanhamento_online | boolean | default=False |
 | acompanhamento_presencial | boolean | default=False |
-| certificado_confirmado | boolean | default=False |
+| acondicionado | boolean | default=False — flag de encaminhamento (pet preparado para embarque); separado de certificado_confirmado a partir da migration 080 |
+| certificado_confirmado | boolean | default=False — apenas nomes do certificado confirmados via CertificadoModal |
 | certificado_nome_1 | text |  |
 | certificado_nome_2 | text |  |
 | certificado_nome_3 | text |  |
@@ -184,12 +199,16 @@
 | data_entrega | date |  |
 | data_leva_pinda | date |  |
 | data_retorno | date |  |
-| desconto_acessorios | numeric | default=0 |
-| desconto_plano | numeric | default=0 |
+| desconto_acessorios | numeric | default=0 (auto via trigger 074, SUM(cp.desconto*qtd)) |
+| desconto_acessorios_ajuste | numeric | default=0. Ajuste manual extra. Total = desconto_acessorios + desconto_acessorios_ajuste (migration 078) |
+| desconto_plano | numeric | default=0 (deprecated — usar desconto_plano_unificado) |
+| desconto_plano_unificado | numeric | default=0. Substitui desconto_plano + Σ pagamentos.desconto(plano). Editável manual (migration 078) |
+| descricao_contrato | text | Texto livre que substitui a descrição padrão de IND/COL no PDF do contrato (mig 090) |
 | estabelecimento_id | uuid | FK->estabelecimentos.id (local de remoção) |
 | estabelecimento_indicacao_id | uuid | FK->estabelecimentos.id (quem indicou) |
 | fonte_conhecimento_id | uuid | FK->fontes_conhecimento.id (legado, primeiro da lista) |
 | fonte_conhecimento_ids | uuid[] | Array de FKs para múltiplas fontes |
+| fonte_outro_especificar | text | Texto livre quando uma das fontes é "Outro". Origem: fichas.outro_especificar |
 | funcionario_id | uuid | FK->funcionarios.id |
 | id | uuid | PK default=gen_random_uuid() |
 | indicacao_clinica | text | fallback texto (sem módulo clínicas) |
@@ -215,6 +234,7 @@
 | pet_nome | character varying |  |
 | pet_peso | numeric |  |
 | pet_raca | character varying |  |
+| pet_raca_normalizada | text | default=pet_raca (trigger BEFORE INSERT). Editada via CertificadoModal para normalização (catálogo). Migration 081. |
 | protocolo_data | jsonb |  |
 | remocao_bairro | text |  |
 | remocao_cep | text |  |
@@ -250,6 +270,15 @@
 | velorio_agendado_para | timestamp with time zone |  |
 | velorio_deseja | boolean |  |
 | velorio_realizado | boolean | default=False |
+| vip_pet | boolean | NOT NULL default=false — flag VIP Pet (Sim/Não), mig 094 |
+| comissao_valor | numeric | nullable, default=NULL — comissão devida à clínica de indicação (mig 085) |
+| comissao_paga | boolean | NOT NULL default=false — pagamento da comissão efetivado (mig 085) |
+
+**Triggers:**
+- `contratos_pet_raca_normalizada_default` (BEFORE INSERT, migration 081) — copia `pet_raca` para `pet_raca_normalizada` se NULL.
+- `contratos_create_gc_on_pinda` (AFTER INSERT OR UPDATE OF status, migration 091) — quando contrato entra em `status='pinda'`, cria row em `contrato_gc` (etapa=`provisionado`) se ainda não existe. **Universal** (vale pra todas as unidades; idempotente). Snapshot pet_* é preenchido pelo trigger 081.
+
+**FKs filhas com `ON DELETE CASCADE` (mig 093):** contrato_produtos, pagamentos, contrato_rescaldos, contrato_itens_pessoais, contrato_mensagens, tarefas, rota_entregas, contrato_restricoes_entrega — além de contrato_gc (mig 044). Deletar um contrato apaga todos esses filhos automaticamente. (`fichas.contrato_id` NÃO cascateia — fica órfão/null; tratado em código no undo de ficha.)
 
 ## conversation_context (8 colunas)
 
@@ -557,7 +586,7 @@
 |--------|------|------|
 | bandeira | text |  |
 | conta_id | uuid | FK->contas.id |
-| contrato_id | uuid | FK->contratos.id |
+| contrato_id | uuid | FK->contratos.id ON DELETE CASCADE (mig 093) |
 | created_at | timestamp with time zone | default=now() |
 | data_pagamento | date | default=CURRENT_DATE |
 | desconto | numeric | default=0 |
@@ -612,25 +641,48 @@
 | codigo | character varying |  |
 | created_at | timestamp with time zone | default=now() |
 | custo | numeric | default=0 |
-| estoque_atual | integer | default=0 |
+| estoque_atual | integer | default=0 (DEPRECATED — usar produtos_estoque, migration 075) |
 | estoque_infinito | boolean | default=False |
-| estoque_minimo | integer | default=0 |
+| estoque_minimo | integer | default=0 (DEPRECATED — usar produtos_estoque, migration 075/076) |
 | id | uuid | PK default=gen_random_uuid() |
 | imagem_url | text |  |
 | nome | character varying |  |
 | nome_retorno | text |  |
 | precisa_foto | boolean | default=False |
 | preco | numeric | default=0 |
-| qtde_vendida | integer | default=0 |
+| qtde_vendida | integer | default=0 (DEPRECATED — usar produtos_estoque, migration 076) |
 | rescaldo_tipo | public.tipo_rescaldo | enum=[molde_patinha, pelinho, pelo_extra, carimbo, outro, itens_pessoais] |
 | tipo | public.tipo_produto | enum=[urna, acessorio, incluso] |
 | updated_at | timestamp with time zone | default=now() |
+
+## produtos_estoque (6 colunas)
+
+Estoque por unidade (migration 075). Substitui produtos.estoque_atual/estoque_minimo/qtde_vendida (deprecated globais). PK composta (produto_id, unidade_id).
+
+| Coluna | Tipo | Info |
+|--------|------|------|
+| produto_id | uuid | PK + FK->produtos.id ON DELETE CASCADE NOT NULL |
+| unidade_id | uuid | PK + FK->unidades.id ON DELETE CASCADE NOT NULL |
+| estoque_atual | integer | NOT NULL default=0. Permite negativo (decisão operador, migration 077) |
+| estoque_minimo | integer | NOT NULL default=0 |
+| qtde_vendida | integer | NOT NULL default=0. Sincronizado via trigger trg_cp_qtde_vendida (migration 076) |
+| updated_at | timestamptz | NOT NULL default=now(), trigger trg_pe_updated_at |
+
+**Index:** idx_pe_unidade (unidade_id)
+**RLS:** SELECT autenticado. INSERT/UPDATE/DELETE só via RPCs SECURITY DEFINER.
+**RPCs (migrations 075-077):**
+- `ajustar_estoque_unidade(produto_id, unidade_id, delta)` — UPSERT atômico, retorna novo saldo (NULL se estoque_infinito)
+- `registrar_entrada_estoque(produto_id, unidade_id, qtd, custo, remessa, data)` — insere em estoque_entradas + ajusta saldo (qtd DEVE ser > 0)
+- `registrar_inventario_estoque(produto_id, unidade_id, delta, remessa, data)` — ajuste de inventário (mig 095): insere em estoque_entradas com quantidade=delta (aceita NEGATIVO) + ajusta saldo. Usado pelo botão "Inventário" em /estoque
+- `set_estoque_minimo_unidade(produto_id, unidade_id, minimo)` — UPSERT atômico do mínimo
+- `editar_entrada_estoque(entrada_id, nova_qtd)` — edita/deleta entrada, ajusta saldo por delta (permite negativo)
+- `renomear_remessa(unidade_id, data_antiga, remessa_antiga, data_nova, remessa_nova)` — UPDATE em lote
 
 ## rota_entregas (8 colunas)
 
 | Coluna | Tipo | Info |
 |--------|------|------|
-| contrato_id | uuid | FK->contratos.id |
+| contrato_id | uuid | FK->contratos.id ON DELETE CASCADE (mig 093) |
 | created_at | timestamp with time zone | default=now() |
 | data_entrega | timestamp with time zone |  |
 | entregue | boolean | default=False |
@@ -745,7 +797,7 @@ Blocklist cumulativa de IPs ja flagrados como fraude (migration 069). Persiste e
 | peso_total | numeric |  |
 | quantidade_pets | integer |  |
 | responsavel | character varying |  |
-| status | public.status_supinda | default=planejada enum=[planejada, em_andamento, retornada] |
+| status | public.status_supinda | default=planejada enum=[planejada, em_andamento, retornada, embarcada, embarcada_ida, ida_finalizada, finalizada]. Fluxo atual (migration 082): planejada → embarcada_ida → ida_finalizada → finalizada. Valores legados (em_andamento, retornada, embarcada) preservados no enum. |
 | unidade_id | uuid | FK->unidades.id |
 | updated_at | timestamp with time zone | default=now() |
 
@@ -761,7 +813,7 @@ Blocklist cumulativa de IPs ja flagrados como fraude (migration 069). Persiste e
 
 | Coluna | Tipo | Info |
 |--------|------|------|
-| contrato_id | uuid | FK->contratos.id |
+| contrato_id | uuid | FK->contratos.id ON DELETE CASCADE (mig 093) |
 | created_at | timestamp with time zone | default=now() |
 | criado_por | text | Nome do autor |
 | criado_por_email | text | Email do autor |
@@ -853,7 +905,32 @@ Blocklist cumulativa de IPs ja flagrados como fraude (migration 069). Persiste e
 **RLS:** SELECT autenticado, INSERT/UPDATE/DELETE super_admin
 **Nota:** Apenas exceções são armazenadas (default = 'edit'). super_admin nunca tem rows aqui.
 
-## user_activity_pings (12 colunas)
+## demandas (13 colunas)
+
+Gerenciador interno de pendências/roadmap. Tela `/admin/demandas` — só super_admin. Substitui os `PENDENCIAS*.md` como fonte da verdade viva. (migration 086)
+
+| Coluna | Tipo | Info |
+|--------|------|------|
+| id | uuid | PK default=gen_random_uuid() |
+| numero | text | NOT NULL - identificador no padrão `2026/##` (renumerado na mig 087, por prioridade) |
+| titulo | text | NOT NULL |
+| descricao | text | o que é a demanda |
+| diagnostico | text | estado atual / causa raiz / o que falta |
+| areas | text[] | tags de etapa/aba do fluxo (Fichas, Contrato, GC, Tutores...) — múltiplas por demanda (mig 088) |
+| status | text | NOT NULL default='aberto' CHECK IN ('aberto','em_andamento','parcial','feito','descartado') |
+| prioridade | text | CHECK IN ('alta','media','baixa') |
+| tamanho | text | CHECK IN ('XS','S','M','L','XL') |
+| comentarios | text | histórico livre (evidência/commit, decisões, andamento) |
+| ordem | integer | default=100 - ordenação manual (desempate) |
+| created_at | timestamptz | default=now() |
+| updated_at | timestamptz | default=now(), trigger update_updated_at |
+
+**Index:** idx_demandas_status (status)
+**UNIQUE:** numero (mig 089) — impede colisão de número
+**RLS:** SELECT/INSERT/UPDATE/DELETE só super_admin (`public.is_super_admin()`) — dados internos
+**Seed:** 30 demandas mapeadas em 22/05/2026 (numero renumerado para `2026/01`..`2026/30` na mig 087)
+
+## user_activity_pings (11 colunas)
 
 Heartbeat client-side pra rastrear adoção real (cada abertura de aba → row; ping a cada 60s).
 Sessão "viva" = last_ping_at > now() - 2 min. Alimenta o Dashboard Admin via RPC `get_admin_activity_overview()`.
@@ -931,3 +1008,13 @@ Sessão "viva" = last_ping_at > now() - 2 min. Alimenta o Dashboard Admin via RP
 | unidade_id | uuid | FK->unidades.id |
 | visitas_30d | bigint |  |
 | visitas_90d | bigint |  |
+
+## vw_estoque_reservado_pv (3 colunas) — mig 096
+
+Estoque reservado por PV, **derivado** (não usa a flag `is_reserva_pv`). Agrega `contrato_produtos` de contratos `status='preventivo'`. `security_invoker=on` (RLS de contratos vale). Consumida por `web/src/lib/estoque-reservado.ts`.
+
+| Coluna | Tipo | Info |
+|--------|------|------|
+| unidade_id | uuid | FK->unidades.id (= contratos.unidade_id) |
+| produto_id | uuid | FK->produtos.id |
+| reservado | int | count(*) de linhas em PVs (1 linha = 1 unidade física) |
