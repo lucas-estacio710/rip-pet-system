@@ -220,16 +220,23 @@ export default function FichasPage() {
       .eq('processada', true)
       .eq('unidade_id', currentUnit.id)
       .gte('created_at', from).lt('created_at', to)
+    // Canceladas independem de `processada` — o cancelamento reverte pra false,
+    // então conta por op_dados.cancelada direto, senão a ficha some de TODAS as abas.
+    const cancQuery = supabase
+      .from('fichas')
+      .select('*', { count: 'exact', head: true })
+      .contains('op_dados', { cancelada: true })
+      .eq('unidade_id', currentUnit.id)
+      .gte('created_at', from).lt('created_at', to)
 
-    const [{ count: pend }, { data: procRows }] = await Promise.all([pendQuery, procQuery])
+    const [{ count: pend }, { data: procRows }, { count: cancCount }] = await Promise.all([pendQuery, procQuery, cancQuery])
     const rows = (procRows || []) as Array<{ op_dados: Record<string, unknown> | null; contrato_id: string | null }>
-    const canc = rows.filter(r => !!r.op_dados?.cancelada).length
     const comContrato = rows.filter(r => !r.op_dados?.cancelada && r.contrato_id != null).length
     const procSemContrato = rows.filter(r => !r.op_dados?.cancelada && r.contrato_id == null).length
     setPendentesCount(pend || 0)
     setProcessadasCount(procSemContrato)
     setContratoCriadoCount(comContrato)
-    setCanceladasCount(canc)
+    setCanceladasCount(cancCount || 0)
   }
 
   const isCancelada = (f: Ficha) => !!(f.op_dados as Record<string, unknown>)?.cancelada
@@ -254,6 +261,9 @@ export default function FichasPage() {
     // Filter
     if (filtro === 'pendentes') {
       query = query.or('processada.is.null,processada.eq.false')
+    } else if (filtro === 'canceladas') {
+      // Canceladas independem de `processada` (cancelamento reverte pra false)
+      query = query.contains('op_dados', { cancelada: true })
     } else {
       query = query.eq('processada', true)
     }
