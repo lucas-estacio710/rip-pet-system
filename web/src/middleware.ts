@@ -38,7 +38,7 @@ export async function middleware(request: NextRequest) {
 
   const isLoginPage = pathname === '/login'
   const isAuthCallback = pathname.startsWith('/auth/callback')
-  const isFicha = pathname.startsWith('/ficha')
+  const isFicha = pathname.startsWith('/ficha') || pathname.startsWith('/preventivo')
   const isPublicAuthPage = pathname === '/esqueci-senha' || pathname === '/redefinir-senha'
   const isInstalarPage = pathname === '/instalar'
   const isWebhook = pathname.startsWith('/api/push/webhook')

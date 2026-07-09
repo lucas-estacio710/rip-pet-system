@@ -44,6 +44,7 @@ type Ficha = {
   peso: string | null
   // Servico
   cremacao: string
+  tipo_plano: 'emergencial' | 'preventivo'
   valor: number | null
   pagamento: string
   parcelas: string | null
@@ -359,23 +360,29 @@ export default function FichasPage() {
     msg += `*Espécie:* ${formatarDisplay(ficha.especie)} | *Raça:* ${ficha.raca || 'Não tem'}\n`
     msg += `*Idade:* ${ficha.idade || '-'} | *Gênero:* ${formatarDisplay(ficha.genero)}\n`
     msg += `*Cor:* ${ficha.cor} | *Peso Aproximado:* ${ficha.peso || '-'}\n`
-    const opLocal = (op.enderecoOutro as string) || ficha.localizacao_outra
-    const opEstabNome = op.estabNome as string | null
-    const opClinicaTexto = op.clinicaTextoLivre as string | null
-    const opLocalColeta = op.localColeta as string | null
-    const localNormalizado = opLocalColeta === 'clinica' ? ((temPadronizacaoClinicas ? opEstabNome : opClinicaTexto) || ficha.localizacao_outra || ficha.localizacao)
-      : opLocalColeta === 'outro' ? (opLocal || ficha.localizacao_outra || 'Outro endereço')
-      : opLocalColeta === 'residencia' ? 'Residência (Endereço de Cadastro)'
-      : opLocalColeta === 'unidade' ? 'Unidade RIP PET'
-      : `${ficha.localizacao}${ficha.localizacao_outra ? ` (${ficha.localizacao_outra})` : ficha.localizacao?.includes('Residência') ? ' (Endereço de Cadastro)' : ''}`
-    msg += `*Localização:* ${localNormalizado}\n`
+    // Óbito/remoção — omitido no preventivo (pet vivo)
+    const isPreventivo = ficha.tipo_plano === 'preventivo'
+    if (!isPreventivo) {
+      const opLocal = (op.enderecoOutro as string) || ficha.localizacao_outra
+      const opEstabNome = op.estabNome as string | null
+      const opClinicaTexto = op.clinicaTextoLivre as string | null
+      const opLocalColeta = op.localColeta as string | null
+      const localNormalizado = opLocalColeta === 'clinica' ? ((temPadronizacaoClinicas ? opEstabNome : opClinicaTexto) || ficha.localizacao_outra || ficha.localizacao)
+        : opLocalColeta === 'outro' ? (opLocal || ficha.localizacao_outra || 'Outro endereço')
+        : opLocalColeta === 'residencia' ? 'Residência (Endereço de Cadastro)'
+        : opLocalColeta === 'unidade' ? 'Unidade RIP PET'
+        : `${ficha.localizacao}${ficha.localizacao_outra ? ` (${ficha.localizacao_outra})` : ficha.localizacao?.includes('Residência') ? ' (Endereço de Cadastro)' : ''}`
+      msg += `*Localização:* ${localNormalizado}\n`
+    }
 
-    msg += `\n*- DADOS DA CREMAÇÃO:*\n`
+    msg += `\n*- DADOS DA ${isPreventivo ? 'CONTRATAÇÃO PREVENTIVA' : 'CREMAÇÃO'}:*\n`
     // Valor só é definido no processamento — em ficha recebida (sem valor) some da msg
     msg += `*Cremação Escolhida:* ${cremacao}${valor ? ` | *Valor:* ${valor}` : ''}\n`
-    msg += `*Forma de Pagamento:* ${pagamento}${ficha.parcelas ? ` ${ficha.parcelas}` : ''}\n`
-    msg += `*Velório:* ${velorio}\n`
-    msg += `*Acompanhamento da Cremação:* ${acompanhamento}\n`
+    if (!isPreventivo) {
+      msg += `*Forma de Pagamento:* ${pagamento}${ficha.parcelas ? ` ${ficha.parcelas}` : ''}\n`
+      msg += `*Velório:* ${velorio}\n`
+      msg += `*Acompanhamento da Cremação:* ${acompanhamento}\n`
+    }
 
     if (ficha.como_conheceu && ficha.como_conheceu.length > 0) {
       const indNome = (op.indicNomeQuemIndicou as string) || ficha.veterinario_especificar
@@ -664,9 +671,21 @@ export default function FichasPage() {
             return (
               <div
                 key={ficha.id}
-                className="card px-3 py-2 card-hover transition-all"
+                className="card px-3 py-2 card-hover transition-all relative overflow-hidden"
               >
-                <div className="flex gap-2.5">
+                {/* Faixa lateral EM/PV — fade grosso + rótulo vertical */}
+                <div
+                  className="absolute left-0 top-0 bottom-0 w-7 flex items-center justify-start pl-0.5 pointer-events-none"
+                  style={{ background: ficha.tipo_plano === 'preventivo'
+                    ? 'linear-gradient(to right, rgba(34,197,94,0.9), rgba(34,197,94,0))'
+                    : 'linear-gradient(to right, rgba(239,68,68,0.9), rgba(239,68,68,0))' }}
+                  title={ficha.tipo_plano === 'preventivo' ? 'Preventivo' : 'Emergencial'}
+                >
+                  <span className="text-white font-black text-[10px] tracking-wider" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
+                    {ficha.tipo_plano === 'preventivo' ? 'PV' : 'EM'}
+                  </span>
+                </div>
+                <div className="flex gap-2.5 pl-6">
                   {/* Badge IND/COL */}
                   <div className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-white font-black text-[10px]" style={{
                     background: ficha.cremacao?.toLowerCase() === 'individual' ? '#16a34a' : '#7c3aed',
@@ -780,7 +799,7 @@ export default function FichasPage() {
                     {/* Linha 3: Actions */}
                     <div className="flex items-center gap-1.5 mt-1">
                     {isCancelada(ficha) ? (
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex flex-wrap items-center justify-end gap-1.5">
                         <span className="text-[9px] text-red-400 italic">
                           {(() => {
                             const op = (ficha.op_dados as Record<string, unknown>) || {}
@@ -808,7 +827,7 @@ export default function FichasPage() {
                         </button>
                       </div>
                     ) : isPendente ? (
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex flex-wrap items-center justify-end gap-1.5">
                         <button
                           onClick={async (e) => {
                             e.stopPropagation()
@@ -857,7 +876,7 @@ export default function FichasPage() {
                         </button>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex flex-wrap items-center justify-end gap-1.5">
                         {!ficha.contrato_id && (
                           <button
                             onClick={async (e) => {

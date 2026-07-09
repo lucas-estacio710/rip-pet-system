@@ -28,7 +28,7 @@ const THEME_ICONS: Record<Theme, string> = {
   white: '☀️',
 }
 
-const STANDALONE_ROUTES = ['/login', '/ficha/']
+const STANDALONE_ROUTES = ['/login', '/ficha/', '/preventivo/']
 
 export function LayoutWrapper({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -75,7 +75,7 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
         <MobileBottomNav />
 
         {/* Main content area — responsive margins */}
-        <main className={`theme-content pt-14 md:pt-0 md:ml-[72px] ${sidebarExpanded ? 'lg:ml-64' : 'lg:ml-[72px]'} min-h-screen transition-all duration-200`}>
+        <main className={`theme-content pt-14 md:pt-0 md:ml-[72px] ${sidebarExpanded ? 'lg:ml-64' : 'lg:ml-[72px]'} min-h-screen overflow-x-hidden transition-all duration-200`}>
           {/* Banner de impersonação */}
           <ImpersonateBanner />
           {/* Top bar — unit selector + user menu */}

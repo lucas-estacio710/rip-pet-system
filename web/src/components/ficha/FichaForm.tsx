@@ -134,7 +134,7 @@ function validarCNPJ(cnpj: string) {
 // ============================================
 // Component
 // ============================================
-function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
+function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConfig; modoPreventivo: boolean }) {
   const searchParams = useSearchParams()
   const STORAGE_KEY = `fichaRipPet_${config.codigo}`
   const [form, setForm] = useState<FormData>(INITIAL_FORM)
@@ -401,13 +401,16 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
       if (!form.raca.trim()) errs.raca = 'Obrigatório'
       if (!form.cor.trim()) errs.cor = 'Obrigatório'
       if (!form.peso.trim()) errs.peso = 'Obrigatório'
-      if (!form.localizacao) errs.localizacao = 'Obrigatório'
-      if ((form.localizacao === 'Outro' || form.localizacao === 'Hospital/Clínica Veterinária') && !form.localizacaoOutra.trim()) errs.localizacaoOutra = 'Especifique'
       if (!form.cremacao) errs.cremacao = 'Selecione o tipo'
-      if (!form.pagamento) errs.pagamento = 'Obrigatório'
-      if (form.pagamento === 'credito' && !form.parcelas) errs.parcelas = 'Obrigatório'
-      if (!form.velorio) errs.velorio = 'Obrigatório'
-      if (!form.acompanhamento) errs.acompanhamento = 'Obrigatório'
+      // Campos de óbito/remoção — não se aplicam ao preventivo (pet vivo)
+      if (!modoPreventivo) {
+        if (!form.localizacao) errs.localizacao = 'Obrigatório'
+        if ((form.localizacao === 'Outro' || form.localizacao === 'Hospital/Clínica Veterinária') && !form.localizacaoOutra.trim()) errs.localizacaoOutra = 'Especifique'
+        if (!form.pagamento) errs.pagamento = 'Obrigatório'
+        if (form.pagamento === 'credito' && !form.parcelas) errs.parcelas = 'Obrigatório'
+        if (!form.velorio) errs.velorio = 'Obrigatório'
+        if (!form.acompanhamento) errs.acompanhamento = 'Obrigatório'
+      }
     }
 
     if (s === 3) {
@@ -466,6 +469,7 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
     const payload = {
       unidade: config.unidadeCompleta,
       unidade_id: config.unidade_id,
+      tipo_plano: modoPreventivo ? 'preventivo' : 'emergencial',
       // Tutor
       nome_completo: form.nomeCompleto,
       cpf: form.cpf,
@@ -486,13 +490,15 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
       raca: form.raca || null,
       cor: form.cor,
       peso: form.peso ? (form.pesoUnidade === 'g' ? (parseInt(form.peso, 10) / 1000).toString() : form.peso) : null,
-      localizacao: form.localizacao,
-      localizacao_outra: form.localizacaoOutra || null,
+      // Campos de óbito/remoção ficam vazios no preventivo (pet vivo).
+      // localizacao/pagamento/velorio/acompanhamento são NOT NULL → usar '' (não null).
+      localizacao: modoPreventivo ? '' : form.localizacao,
+      localizacao_outra: modoPreventivo ? null : (form.localizacaoOutra || null),
       cremacao: capitalize(form.cremacao),
-      pagamento: pagamentoMap[form.pagamento] || form.pagamento,
-      parcelas: form.parcelas || null,
-      velorio: form.velorio,
-      acompanhamento: form.acompanhamento,
+      pagamento: modoPreventivo ? '' : (pagamentoMap[form.pagamento] || form.pagamento),
+      parcelas: modoPreventivo ? null : (form.parcelas || null),
+      velorio: modoPreventivo ? '' : form.velorio,
+      acompanhamento: modoPreventivo ? '' : form.acompanhamento,
       // Extras
       outros_tutores: form.outrosTutores.filter(Boolean),
       como_conheceu: form.comoConheceu,
@@ -623,7 +629,7 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
   // Form helpers
   // ============================================
   const inputClass = (field: string) =>
-    `w-full px-4 py-3 rounded-xl border-2 text-base outline-none transition-colors ${
+    `w-full px-4 py-3 rounded-xl border-2 text-base text-slate-900 placeholder:text-slate-400 [color-scheme:light] outline-none transition-colors ${
       errors[field] ? 'border-red-400 bg-red-50' : 'border-slate-200 focus:border-blue-500 bg-white'
     }`
 
@@ -639,14 +645,14 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
   // Render
   // ============================================
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-slate-100 pb-20">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-slate-100 pb-20 text-slate-900 [color-scheme:light]">
       {/* Header */}
       <div className="bg-gradient-to-r from-[#1e5a96] to-[#2d7bb8] px-4 py-5 text-white">
         <div className="max-w-lg mx-auto flex items-center gap-4">
           <img src="/logo_rounded.png" alt="R.I.P. Pet" className="w-12 h-12 rounded-full cursor-pointer" onClick={() => handleEasterEgg('logo')} />
           <div>
             <h1 className="text-xl font-bold">R.I.P. Pet</h1>
-            <p className="text-sm opacity-90">Ficha de Contrato e Translado</p>
+            <p className="text-sm opacity-90">{modoPreventivo ? 'Contratação de Plano Preventivo' : 'Ficha de Contrato e Translado'}</p>
           </div>
           <span className="ml-auto text-xs bg-white/20 px-3 py-1 rounded-full font-semibold cursor-pointer select-none" onClick={() => handleEasterEgg('unidade')}>{config.label}</span>
         </div>
@@ -703,7 +709,8 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
                 {errors.nomeCompleto && <p className={errorClass}>{errors.nomeCompleto}</p>}
               </div>
 
-              {/* Outros tutores */}
+              {/* Outros tutores (oculto no preventivo) */}
+              {!modoPreventivo && (
               <div>
                 {form.outrosTutores.length === 0 ? (
                   <button type="button" onClick={addOutroTutor} className="text-sm text-blue-600 font-medium hover:text-blue-800 hover:underline">
@@ -714,7 +721,7 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
                     <label className="text-sm font-medium text-slate-600 mb-2 block">Outros nomes no certificado</label>
                     {form.outrosTutores.map((t, i) => (
                       <div key={i} className="flex gap-2 mb-2">
-                        <input className="flex-1 px-3 py-2 rounded-lg border-2 border-slate-200 text-sm outline-none focus:border-blue-500 bg-white" value={t} onChange={e => updateOutroTutor(i, e.target.value)} placeholder={`Nome do tutor ${i + 2}`} />
+                        <input className="flex-1 px-3 py-2 rounded-lg border-2 border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 [color-scheme:light] outline-none focus:border-blue-500 bg-white" value={t} onChange={e => updateOutroTutor(i, e.target.value)} placeholder={`Nome do tutor ${i + 2}`} />
                         <button type="button" onClick={() => removeOutroTutor(i)} className="text-red-400 hover:text-red-600 text-sm px-2">Remover</button>
                       </div>
                     ))}
@@ -726,6 +733,7 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
                   </>
                 )}
               </div>
+              )}
 
               <div>
                 <div className="flex items-baseline justify-between mb-1.5">
@@ -747,7 +755,7 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
                       <input
                         value={form.codigoPaisCustom || ''}
                         onChange={e => updateField('codigoPaisCustom' as keyof FormData, e.target.value.replace(/\D/g, '').slice(0, 4))}
-                        className="w-[60px] px-2 py-3 rounded-xl border-2 border-slate-200 text-base outline-none focus:border-blue-500 bg-white text-center"
+                        className="w-[60px] px-2 py-3 rounded-xl border-2 border-slate-200 text-base text-slate-900 placeholder:text-slate-400 [color-scheme:light] outline-none focus:border-blue-500 bg-white text-center"
                         placeholder="DDI"
                         inputMode="numeric"
                       />
@@ -757,7 +765,7 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
                     <select
                       value={form.codigoPais}
                       onChange={e => updateField('codigoPais', e.target.value)}
-                      className="w-[100px] px-2 py-3 rounded-xl border-2 border-slate-200 text-base outline-none focus:border-blue-500 bg-white"
+                      className="w-[100px] px-2 py-3 rounded-xl border-2 border-slate-200 text-base text-slate-900 [color-scheme:light] outline-none focus:border-blue-500 bg-white"
                     >
                       <option value="55">🇧🇷 +55</option>
                       <option value="1">🇺🇸 +1</option>
@@ -937,7 +945,8 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
                 {errors.peso && <p className={errorClass}>{errors.peso}</p>}
               </div>
 
-              {/* Localização */}
+              {/* Localização (óbito — oculto no preventivo) */}
+              {!modoPreventivo && (
               <div>
                 <label className={labelClass}>Localização do Pet <span className="text-red-400">*</span></label>
                 <select className={inputClass('localizacao')} value={form.localizacao} onChange={e => updateField('localizacao', e.target.value)}>
@@ -963,6 +972,7 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
                   </div>
                 )}
               </div>
+              )}
 
               {/* Cremação */}
               <div>
@@ -980,6 +990,8 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
                 {errors.cremacao && <p className={errorClass}>{errors.cremacao}</p>}
               </div>
 
+              {/* Pagamento + Velório + Acompanhamento (óbito — ocultos no preventivo) */}
+              {!modoPreventivo && (<>
               {/* Pagamento */}
               <div>
                 <label className={labelClass}>Forma de Pagamento <span className="text-red-400">*</span></label>
@@ -1036,6 +1048,7 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
                 </div>
                 {errors.acompanhamento && <p className={errorClass}>{errors.acompanhamento}</p>}
               </div>
+              </>)}
 
               <div className="flex gap-3">
                 <button type="button" onClick={prevStep} className="flex-1 py-3.5 border-2 border-slate-200 text-slate-600 rounded-xl text-base font-semibold hover:bg-slate-50 transition-colors">
@@ -1088,11 +1101,11 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
                   <p className="text-sm"><span className="font-medium text-slate-600">Raça:</span> <span className="text-slate-800">{form.raca}</span></p>
                   <p className="text-sm"><span className="font-medium text-slate-600">Cor:</span> <span className="text-slate-800">{form.cor}</span></p>
                   <p className="text-sm"><span className="font-medium text-slate-600">Peso:</span> <span className="text-slate-800">{form.peso} {form.pesoUnidade}</span></p>
-                  <p className="text-sm"><span className="font-medium text-slate-600">Local:</span> <span className="text-slate-800">{form.localizacao}{form.localizacaoOutra ? ` (${form.localizacaoOutra})` : ''}</span></p>
+                  {!modoPreventivo && <p className="text-sm"><span className="font-medium text-slate-600">Local:</span> <span className="text-slate-800">{form.localizacao}{form.localizacaoOutra ? ` (${form.localizacaoOutra})` : ''}</span></p>}
                   <p className="text-sm"><span className="font-medium text-slate-600">Cremação:</span> <span className="text-slate-800 capitalize">{form.cremacao}</span></p>
-                  <p className="text-sm"><span className="font-medium text-slate-600">Pagamento:</span> <span className="text-slate-800">{form.pagamento === 'pix' ? 'Pix' : form.pagamento === 'dinheiro' ? 'Dinheiro' : form.pagamento === 'debito' ? 'Cartão de Débito' : `Cartão de Crédito ${form.parcelas}`}</span></p>
-                  <p className="text-sm"><span className="font-medium text-slate-600">Velório:</span> <span className="text-slate-800">{form.velorio}</span></p>
-                  <p className="text-sm"><span className="font-medium text-slate-600">Acompanhamento:</span> <span className="text-slate-800">{form.acompanhamento}</span></p>
+                  {!modoPreventivo && <p className="text-sm"><span className="font-medium text-slate-600">Pagamento:</span> <span className="text-slate-800">{form.pagamento === 'pix' ? 'Pix' : form.pagamento === 'dinheiro' ? 'Dinheiro' : form.pagamento === 'debito' ? 'Cartão de Débito' : `Cartão de Crédito ${form.parcelas}`}</span></p>}
+                  {!modoPreventivo && <p className="text-sm"><span className="font-medium text-slate-600">Velório:</span> <span className="text-slate-800">{form.velorio}</span></p>}
+                  {!modoPreventivo && <p className="text-sm"><span className="font-medium text-slate-600">Acompanhamento:</span> <span className="text-slate-800">{form.acompanhamento}</span></p>}
                 </div>
               </div>
 
@@ -1190,10 +1203,10 @@ function FichaFormContent({ config }: { config: FichaUnidadeConfig }) {
   )
 }
 
-export default function FichaForm({ config }: { config: FichaUnidadeConfig }) {
+export default function FichaForm({ config, modoPreventivo = false }: { config: FichaUnidadeConfig; modoPreventivo?: boolean }) {
   return (
     <Suspense fallback={<div className="p-8 text-center">Carregando...</div>}>
-      <FichaFormContent config={config} />
+      <FichaFormContent config={config} modoPreventivo={modoPreventivo} />
     </Suspense>
   )
 }

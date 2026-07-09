@@ -37,6 +37,7 @@ type Ficha = {
   cor: string
   peso: string | null
   cremacao: string
+  tipo_plano?: 'emergencial' | 'preventivo'
   valor: number | null
   pagamento: string
   parcelas: string | null
@@ -293,7 +294,10 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   const indicEstabRef = useRef<HTMLDivElement>(null)
 
   // Form fields
-  const tipoPlano = 'emergencial' as const
+  // Deriva da ficha (mig 097): preventivo → contrato nasce status/tipo_plano 'preventivo'.
+  const tipoPlano: 'emergencial' | 'preventivo' = ficha?.tipo_plano === 'preventivo' ? 'preventivo' : 'emergencial'
+  // Preventivo = pet vivo: sem acolhimento (data/hora, local, responsável, lacre) nem seguradora.
+  const isPreventivo = tipoPlano === 'preventivo'
   const [funcionarioId, setFuncionarioId] = useState('')
   // Telefone — operador confirma ou adiciona secundário
   const [telefoneConfirmado, setTelefoneConfirmado] = useState(false)
@@ -1026,10 +1030,14 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   const lacreOk = semLacre || !!lacre.trim()
   const valorOk = !!valorPlano.trim()
   const fonteOk = !!(ficha?.como_conheceu && ficha.como_conheceu.length > 0)
-  const acolhimentoValido = telefoneOk && localOk && responsavelOk && dataHoraOk && lacreOk && valorOk
+  const acolhimentoValido = isPreventivo
+    ? (telefoneOk && valorOk)  // PV: sem acolhimento (local/responsável/data/lacre escondidos)
+    : (telefoneOk && localOk && responsavelOk && dataHoraOk && lacreOk && valorOk)
 
   // Iniciar Fluxo: mais rigoroso — local, responsável, data/hora e fonte de conhec. NÃO podem ser provisórios (só lacre pode)
-  const fluxoValido = telefoneOk && !!localColeta && !!funcionarioId && !!dataHoraAcolhimento && lacreOk && valorOk && fonteOk
+  const fluxoValido = isPreventivo
+    ? (telefoneOk && valorOk && fonteOk)  // PV: pet vivo, sem acolhimento
+    : (telefoneOk && !!localColeta && !!funcionarioId && !!dataHoraAcolhimento && lacreOk && valorOk && fonteOk)
 
   const footer = somenteLeitura ? (
     /* Modo somente leitura (recebidas) — Cancelar, Fechar e Processar */
@@ -1090,13 +1098,14 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       ) : isVisible('tela_fichas', 'btn_iniciar_fluxo') && (() => {
         const faltam: string[] = []
         if (!telefoneOk) faltam.push('Telefone')
-        if (!localColeta) faltam.push('Local de Acolhimento')
-        if (!funcionarioId) faltam.push('Responsável')
-        if (!dataHoraAcolhimento) faltam.push('Data/Hora')
+        if (!isPreventivo && !localColeta) faltam.push('Local de Acolhimento')
+        if (!isPreventivo && !funcionarioId) faltam.push('Responsável')
+        if (!isPreventivo && !dataHoraAcolhimento) faltam.push('Data/Hora')
         if (!valorPlano.trim()) faltam.push('Valor do Plano')
         if (!fonteOk) faltam.push('Como nos conheceu')
+        const labelBtn = isPreventivo ? 'Criar Contrato' : 'Iniciar Fluxo'
         const titulo = fluxoValido
-          ? 'Iniciar Fluxo (criar contrato)'
+          ? `${labelBtn} (criar contrato)`
           : `Preencha antes: ${faltam.join(', ')}`
         return (
           <button
@@ -1105,7 +1114,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
             title={titulo}
             className="py-2 px-3 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:bg-emerald-600/40 disabled:cursor-not-allowed"
           >
-            {salvando ? 'Criando...' : 'Iniciar Fluxo'}
+            {salvando ? 'Criando...' : labelBtn}
           </button>
         )
       })()}
@@ -1269,7 +1278,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                 <span className={`font-bold ${pesoColor}`}>Peso: {ficha?.peso ? `${ficha.peso}kg` : '-'}</span>
                 <span>Idade: {ficha?.idade || '-'}</span>
               </div>
-              <p className="text-xs text-[var(--surface-600)]"><strong>Localização:</strong> {ficha?.localizacao}{ficha?.localizacao_outra ? ` (${ficha.localizacao_outra})` : ''}</p>
+              {!isPreventivo && <p className="text-xs text-[var(--surface-600)]"><strong>Localização:</strong> {ficha?.localizacao}{ficha?.localizacao_outra ? ` (${ficha.localizacao_outra})` : ''}</p>}
             </div>
           </div>
 
@@ -1295,6 +1304,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                   )}
                 </div>
               )}
+              {!isPreventivo && (
               <p className="text-xs text-[var(--surface-600)]">
                 <strong>Pagamento:</strong> {formatarDisplay(fichaAtual?.pagamento)}
                 {fichaAtual?.pagamento === 'Cartão Crédito' && (
@@ -1307,7 +1317,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                   </>
                 )}
               </p>
-              <p className="text-xs text-[var(--surface-600)]"><strong>Velório:</strong> {ficha?.velorio} | <strong>Acomp.:</strong> {ficha?.acompanhamento}</p>
+              )}
+              {!isPreventivo && <p className="text-xs text-[var(--surface-600)]"><strong>Velório:</strong> {ficha?.velorio} | <strong>Acomp.:</strong> {ficha?.acompanhamento}</p>}
             </div>
             {/* Info Adicional — como conheceu */}
             <div className="p-3 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)] space-y-1.5">
@@ -1331,8 +1342,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
             </div>
           )}
 
-          {/* Acolhimento — só processadas */}
-          {!somenteLeitura && (
+          {/* Acolhimento — só processadas E só emergencial (PV não tem acolhimento) */}
+          {!somenteLeitura && !isPreventivo && (
             <div className="p-3 rounded-lg border border-amber-500/20 space-y-1.5" style={{ background: 'rgba(250, 204, 21, 0.05)' }}>
               <h4 className="text-[10px] font-bold text-amber-500 uppercase tracking-wider mb-1">Dados do Concierge — Acolhimento</h4>
               {(() => {
@@ -1396,18 +1407,22 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               msg += `*Espécie:* ${formatarDisplay(ficha.especie)} | *Raça:* ${ficha.raca || 'Não tem'}\n`
               msg += `*Idade:* ${ficha.idade || '-'} | *Gênero:* ${formatarDisplay(ficha.genero)}\n`
               msg += `*Cor:* ${ficha.cor} | *Peso Aproximado:* ${ficha.peso || '-'}\n`
-              const clinicaColetaMsg = (temPadronizacaoClinicas ? estabNome : clinicaTextoLivre) || ficha.localizacao_outra || ficha.localizacao
-              const localMsg = localColeta === 'clinica' ? clinicaColetaMsg
-                : localColeta === 'outro' ? (enderecoOutro || ficha.localizacao_outra || 'Outro endereço')
-                : localColeta === 'residencia' ? 'Residência (Endereço de Cadastro)'
-                : localColeta === 'unidade' ? 'Unidade RIP PET'
-                : `${ficha.localizacao}${ficha.localizacao_outra ? ` (${ficha.localizacao_outra})` : ''}`
-              msg += `*Localização:* ${localMsg}\n`
-              msg += `\n*- DADOS DA CREMAÇÃO:*\n`
+              if (!isPreventivo) {
+                const clinicaColetaMsg = (temPadronizacaoClinicas ? estabNome : clinicaTextoLivre) || ficha.localizacao_outra || ficha.localizacao
+                const localMsg = localColeta === 'clinica' ? clinicaColetaMsg
+                  : localColeta === 'outro' ? (enderecoOutro || ficha.localizacao_outra || 'Outro endereço')
+                  : localColeta === 'residencia' ? 'Residência (Endereço de Cadastro)'
+                  : localColeta === 'unidade' ? 'Unidade RIP PET'
+                  : `${ficha.localizacao}${ficha.localizacao_outra ? ` (${ficha.localizacao_outra})` : ''}`
+                msg += `*Localização:* ${localMsg}\n`
+              }
+              msg += `\n*- DADOS DA ${isPreventivo ? 'CONTRATAÇÃO PREVENTIVA' : 'CREMAÇÃO'}:*\n`
               msg += `*Cremação Escolhida:* ${cremacao} | *Valor:* ${valor || '-'}\n`
-              msg += `*Forma de Pagamento:* ${formatarDisplay(ficha.pagamento)}${ficha.parcelas ? ` ${ficha.parcelas}` : ''}\n`
-              msg += `*Velório:* ${ficha.velorio}\n`
-              msg += `*Acompanhamento da Cremação:* ${ficha.acompanhamento}\n`
+              if (!isPreventivo) {
+                msg += `*Forma de Pagamento:* ${formatarDisplay(ficha.pagamento)}${ficha.parcelas ? ` ${ficha.parcelas}` : ''}\n`
+                msg += `*Velório:* ${ficha.velorio}\n`
+                msg += `*Acompanhamento da Cremação:* ${ficha.acompanhamento}\n`
+              }
               if (ficha.como_conheceu && ficha.como_conheceu.length > 0) {
                 const indNome = indicNomeQuemIndicou || ficha.veterinario_especificar
                 const indClinica = indicEstabNome || indicHospClinica
@@ -1658,7 +1673,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         {/* ======== LEFT COLUMN — Ficha summary ======== */}
         <div className="space-y-4">
           <h3 className="text-sm font-semibold text-[var(--surface-500)] uppercase tracking-wide">
-            Dados da Ficha — <span className="text-red-400">Tipo: Emergencial</span>
+            Dados da Ficha — <span className={isPreventivo ? 'text-green-400' : 'text-red-400'}>Tipo: {isPreventivo ? 'Preventivo' : 'Emergencial'}</span>
           </h3>
 
           {/* Tutor */}
@@ -1781,7 +1796,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
 
           {/* ═══════ BLOCO: ACOLHIMENTO ═══════ */}
           <div className="p-3 rounded-xl border border-[var(--surface-200)] space-y-3">
-            <h4 className="text-xs font-bold text-[var(--surface-600)] uppercase tracking-wider">Acolhimento</h4>
+            <h4 className="text-xs font-bold text-[var(--surface-600)] uppercase tracking-wider">{isPreventivo ? 'Contato' : 'Acolhimento'}</h4>
 
             {/* Telefone — quem é o contato ativo? */}
             <div className="p-3 rounded-lg border-2 border-amber-500/30 bg-amber-500/5 space-y-2">
@@ -1879,6 +1894,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               )}
             </div>
 
+            {/* Local, Responsável, Data/Hora, Lacre — só emergencial (pet vivo não tem acolhimento) */}
+            {!isPreventivo && (<>
             {/* Local de Acolhimento */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
@@ -2047,6 +2064,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                 <input type="text" value={lacre} onChange={e => setLacre(e.target.value)} placeholder="Número do lacre" className="input text-sm" />
               )}
             </div>
+            </>)}
 
           </div>
 
@@ -2260,7 +2278,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               </p>
             )}
 
-            {/* Atendimento com Seguradora */}
+            {/* Atendimento com Seguradora — só emergencial */}
+            {!isPreventivo && (
             <div className="mt-3 pt-3 border-t border-[var(--surface-200)]">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -2281,6 +2300,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                 />
               )}
             </div>
+            )}
           </div>
 
           {/* Data do contrato */}
