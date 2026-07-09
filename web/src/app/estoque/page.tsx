@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState, Fragment } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Boxes, Grid, List, Search, Package, AlertTriangle, ShoppingCart, Target, X, Plus, Minus, Trash2, Save, TrendingUp, Sliders, Pencil, Check, Scale } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
@@ -76,14 +76,26 @@ const TIPO_BORDER: Record<string, string> = {
 
 export default function EstoquePage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { currentUnit, isSuperAdmin } = useUnit()
   const [produtos, setProdutos] = useState<Produto[]>([])
   const [loading, setLoading] = useState(true)
-  const [filtro, setFiltro] = useState<string>('')
-  const [filtroCategoria, setFiltroCategoria] = useState<string>('')
-  const [filtroEstoque, setFiltroEstoque] = useState<string>('')
-  const [busca, setBusca] = useState('')
+  const [filtro, setFiltro] = useState<string>(() => searchParams.get('tipo') || '')
+  const [filtroCategoria, setFiltroCategoria] = useState<string>(() => searchParams.get('cat') || '')
+  const [filtroEstoque, setFiltroEstoque] = useState<string>(() => searchParams.get('est') || '')
+  const [busca, setBusca] = useState(() => searchParams.get('q') || '')
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+
+  // Persiste os filtros na URL (2026/68) — sobrevive a entrar num produto e voltar
+  useEffect(() => {
+    const params = new URLSearchParams()
+    if (filtro) params.set('tipo', filtro)
+    if (filtroCategoria) params.set('cat', filtroCategoria)
+    if (filtroEstoque) params.set('est', filtroEstoque)
+    if (busca) params.set('q', busca)
+    const qs = params.toString()
+    router.replace(qs ? `/estoque?${qs}` : '/estoque', { scroll: false })
+  }, [filtro, filtroCategoria, filtroEstoque, busca, router])
 
   // Tabs
   const [tab, setTab] = useState<'atual' | 'entrada' | 'minimo' | 'historico'>('atual')
@@ -950,7 +962,8 @@ export default function EstoquePage() {
               <span className="ml-auto text-[10px] text-[var(--surface-400)] tabular-nums">{g.produtos.length}</span>
             </button>
             {!colapsado && (
-          <table className="w-full">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[520px]">
             <thead className="bg-[var(--surface-50)] border-b border-[var(--surface-200)]">
               <tr>
                 <th className="text-left px-4 py-3 text-caption text-[var(--surface-500)]">Produto</th>
@@ -1032,6 +1045,7 @@ export default function EstoquePage() {
               })}
             </tbody>
           </table>
+          </div>
             )}
           </div>
           )

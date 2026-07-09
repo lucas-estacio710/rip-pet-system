@@ -266,7 +266,7 @@ export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClos
                   <span>Estes campos vieram do formulário público preenchido pelo tutor. Edite só se houver erro evidente — alterações ficam registradas no histórico.</span>
                 </p>
 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
                     <label className="text-caption text-[var(--shell-text-muted)] block mb-1">N° do Lacre</label>
                     <input value={lacre} onChange={(e) => setLacre(e.target.value)} className="input w-full" />
@@ -282,7 +282,7 @@ export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClos
                   <input value={petNome} onChange={(e) => setPetNome(e.target.value)} className="input w-full" />
                 </div>
 
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   <div>
                     <label className="text-caption text-[var(--shell-text-muted)] block mb-1">Espécie</label>
                     <select value={petEspecie} onChange={(e) => setPetEspecie(e.target.value)} className="input w-full">
@@ -302,7 +302,7 @@ export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClos
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   <div>
                     <label className="text-caption text-[var(--shell-text-muted)] block mb-1">Idade (anos)</label>
                     <input value={petIdade} onChange={(e) => setPetIdade(e.target.value)} inputMode="numeric" className="input w-full" />

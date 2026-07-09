@@ -229,7 +229,7 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
       onClick={onClose}
     >
       <div
-        className="bg-slate-800 rounded-xl shadow-xl max-w-2xl w-full p-6"
+        className="bg-slate-800 rounded-xl shadow-xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}

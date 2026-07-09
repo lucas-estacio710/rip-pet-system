@@ -17,6 +17,8 @@ import ActionButtons from '@/components/contratos/ActionButtons'
 import EntregaModal from '@/components/contratos/modals/EntregaModal'
 import { useUnit } from '@/contexts/UnitContext'
 import ProdutosFilterBar from '@/components/ui/ProdutosFilterBar'
+import { Skeleton } from '@/components/ui/Skeleton'
+import EmptyState from '@/components/ui/EmptyState'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
 import PelinhoModal from '@/components/contratos/modals/PelinhoModal'
 import RescaldoModal from '@/components/contratos/modals/RescaldoModal'
@@ -3977,13 +3979,13 @@ ${petNome}`
       {!(statusFiltro === 'retorno' && montagemInline) && (
       <div className="space-y-2">
         {loading ? (
-          <div className="bg-slate-800 rounded-lg shadow-sm border p-8 text-center text-slate-400">
-            Carregando...
+          <div className="space-y-2">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-[68px] w-full" />
+            ))}
           </div>
         ) : contratos.length === 0 ? (
-          <div className="bg-slate-800 rounded-lg shadow-sm border p-8 text-center text-slate-400">
-            Nenhum contrato encontrado
-          </div>
+          <EmptyState title="Nenhum contrato encontrado" description="Ajuste os filtros ou a busca para ver contratos aqui." />
         ) : (
           (() => {
             // Quando busca ativa, filtrar client-side por status selecionado

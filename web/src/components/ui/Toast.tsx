@@ -36,9 +36,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     const id = `toast-${++counterRef.current}`
     setToasts(prev => [...prev, { id, message, variant }])
 
-    setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id))
-    }, 4000)
+    // Erros NÃO somem sozinhos (2026/69) — o usuário fecha no X quando terminar de ler.
+    // Demais variantes auto-dismiss (warning fica um pouco mais).
+    if (variant !== 'error') {
+      setTimeout(() => {
+        setToasts(prev => prev.filter(t => t.id !== id))
+      }, variant === 'warning' ? 6000 : 4000)
+    }
   }, [])
 
   const removeToast = useCallback((id: string) => {
@@ -50,7 +54,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       {children}
 
       {/* Toast container — bottom-right desktop, bottom-center mobile */}
-      <div className="fixed bottom-4 right-4 left-4 md:left-auto md:w-96 z-[100] flex flex-col gap-2 pointer-events-none">
+      <div role="status" aria-live="polite" className="fixed bottom-4 right-4 left-4 md:left-auto md:w-96 z-[100] flex flex-col gap-2 pointer-events-none">
         {toasts.map(t => {
           const config = VARIANT_CONFIG[t.variant]
           const Icon = config.icon
@@ -68,6 +72,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               <p className="flex-1 text-sm font-medium">{t.message}</p>
               <button
                 onClick={() => removeToast(t.id)}
+                aria-label="Fechar aviso"
                 className="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity"
               >
                 <X className="h-4 w-4" />

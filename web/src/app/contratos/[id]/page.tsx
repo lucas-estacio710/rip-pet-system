@@ -4165,7 +4165,7 @@ ${petNome}`
               {/* Método */}
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1">Método</label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {['pix', 'credito', 'debito', 'dinheiro'].map((metodo) => (
                     <button
                       key={metodo}

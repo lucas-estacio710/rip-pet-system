@@ -916,7 +916,8 @@ function IndicacoesMesView({ unidadeId, estabsMap, temPadronizacao }: { unidadeI
                 </div>
                 <span className="text-[11px] font-semibold text-cyan-600">{lista.length} pet{lista.length === 1 ? '' : 's'}</span>
               </div>
-              <table className="w-full text-xs">
+              <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] text-xs">
                 <thead>
                   <tr className="bg-[var(--surface-50)] text-[10px] uppercase text-[var(--surface-500)]">
                     <th className="text-left px-3 py-1.5 font-bold">Pet</th>
@@ -938,6 +939,7 @@ function IndicacoesMesView({ unidadeId, estabsMap, temPadronizacao }: { unidadeI
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           ))}
         </div>
