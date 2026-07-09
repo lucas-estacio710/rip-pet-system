@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { TrendingUp, TrendingDown } from 'lucide-react'
+import Link from 'next/link'
+import { TrendingUp, TrendingDown, ChevronDown, ChevronUp } from 'lucide-react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
@@ -39,6 +40,9 @@ const METODO_META: { key: string; label: string; color: string }[] = [
 
 type ContratoRow = {
   id: string
+  codigo: string | null
+  pet_nome: string | null
+  tutor_nome: string | null
   valor_plano: number | null
   desconto_plano_unificado: number | null
   valor_acessorios: number | null
@@ -46,6 +50,14 @@ type ContratoRow = {
   desconto_acessorios_ajuste: number | null
   data_contrato: string | null
   data_acolhimento: string | null
+}
+
+type PendenteItem = {
+  id: string
+  codigo: string | null
+  pet_nome: string | null
+  tutor_nome: string | null
+  saldo: number
 }
 
 type PagRow = {
@@ -64,14 +76,14 @@ type Agg = {
   recebido: number
   recebidoSeguradora: number
   emAberto: number
-  contratosComSaldo: number
+  pendentes: PendenteItem[]
   metodos: Record<string, number>
   nContratos: number
 }
 
 const AGG_ZERO: Agg = {
   vendido: 0, vendidoPlano: 0, vendidoCatalogo: 0, bruto: 0, descontos: 0,
-  recebido: 0, recebidoSeguradora: 0, emAberto: 0, contratosComSaldo: 0,
+  recebido: 0, recebidoSeguradora: 0, emAberto: 0, pendentes: [],
   metodos: {}, nContratos: 0,
 }
 
@@ -113,7 +125,7 @@ async function fetchContratos(
   for (let offset = 0; ; offset += PAGE) {
     const base = supabase
       .from('contratos')
-      .select('id, valor_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, data_contrato, data_acolhimento')
+      .select('id, codigo, pet_nome, tutor_nome, valor_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, data_contrato, data_acolhimento')
       .eq('unidade_id', unidadeId)
       .range(offset, offset + PAGE - 1)
     const { data, error } = await filtroModo(base, modo, from, to)
@@ -161,7 +173,7 @@ async function fetchPagamentosDosContratos(
 }
 
 function aggregate(contratos: ContratoRow[], pagamentos: PagRow[]): Agg {
-  const acc: Agg = { ...AGG_ZERO, metodos: {} }
+  const acc: Agg = { ...AGG_ZERO, metodos: {}, pendentes: [] }
   const pagoPorContrato = new Map<string, number>()
   for (const p of pagamentos) {
     const valor = p.valor ?? 0
@@ -178,8 +190,11 @@ function aggregate(contratos: ContratoRow[], pagamentos: PagRow[]): Agg {
     acc.bruto += (c.valor_plano || 0) + (c.valor_acessorios || 0)
     const saldo = Math.max(0, plano + catalogo - (pagoPorContrato.get(c.id) ?? 0))
     acc.emAberto += saldo
-    if (saldo > 0.005) acc.contratosComSaldo++
+    if (saldo > 0.005) {
+      acc.pendentes.push({ id: c.id, codigo: c.codigo, pet_nome: c.pet_nome, tutor_nome: c.tutor_nome, saldo })
+    }
   }
+  acc.pendentes.sort((a, b) => b.saldo - a.saldo)
   acc.vendido = acc.vendidoPlano + acc.vendidoCatalogo
   acc.descontos = acc.bruto - acc.vendido
   acc.nContratos = contratos.length
@@ -223,6 +238,7 @@ export default function FinanceiroTab({ range, comparePrev, modo }: Props) {
   const [pagamentos, setPagamentos] = useState<PagRow[]>([])
   const [prevAgg, setPrevAgg] = useState<Agg>(AGG_ZERO)
   const [loading, setLoading] = useState(true)
+  const [pendentesAberto, setPendentesAberto] = useState(false)
 
   useEffect(() => {
     if (!currentUnit) return
@@ -390,11 +406,40 @@ export default function FinanceiroTab({ range, comparePrev, modo }: Props) {
             <div className="transition-all duration-700 rounded-r-full" style={{ width: `${100 - pctRecebido}%`, background: COLOR_ABERTO }} />
           </div>
           <div className="mt-2 text-[11px] text-[var(--surface-500)]">
-            {agg.contratosComSaldo > 0
-              ? <>{agg.contratosComSaldo.toLocaleString('pt-BR')} contrato{agg.contratosComSaldo === 1 ? '' : 's'} com saldo em aberto</>
-              : 'Nenhum saldo em aberto'}
+            {agg.pendentes.length > 0 ? (
+              <button
+                onClick={() => setPendentesAberto(v => !v)}
+                className="inline-flex items-center gap-1 font-medium text-[var(--surface-600)] hover:text-[var(--surface-800)] transition-colors"
+              >
+                {pendentesAberto ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                {agg.pendentes.length.toLocaleString('pt-BR')} contrato{agg.pendentes.length === 1 ? '' : 's'} com saldo em aberto
+              </button>
+            ) : 'Nenhum saldo em aberto'}
             {agg.recebidoSeguradora > 0 && <> · inclui seguradora {fmtBRL(agg.recebidoSeguradora)}</>}
           </div>
+          {pendentesAberto && agg.pendentes.length > 0 && (
+            <ul className="mt-2 max-h-44 overflow-y-auto divide-y divide-[var(--surface-200)] rounded-lg border border-[var(--surface-200)]">
+              {agg.pendentes.map(p => (
+                <li key={p.id}>
+                  <Link
+                    href={`/contratos/${p.id}`}
+                    className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-[11px] hover:bg-[var(--surface-100)] transition-colors"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium text-[var(--surface-700)]">
+                        {p.pet_nome || '(sem pet)'}
+                        <span className="font-normal text-[var(--surface-400)]"> · {p.tutor_nome || '(sem tutor)'}</span>
+                      </span>
+                      {p.codigo && <span className="block font-mono text-[10px] text-[var(--surface-400)] truncate">{p.codigo}</span>}
+                    </span>
+                    <span className="font-mono font-semibold tabular-nums shrink-0" style={{ color: COLOR_ABERTO }}>
+                      {fmtBRL2(p.saldo)}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
 
