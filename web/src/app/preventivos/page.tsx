@@ -2,11 +2,13 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, ChevronLeft, ChevronRight, Heart, X } from 'lucide-react'
+import { Search, ChevronLeft, ChevronRight, Heart, X, Weight } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { sanitizeBuscaPostgrest } from '@/lib/sanitize'
 import Link from 'next/link'
 import { useDebounce } from '@/hooks/useDebounce'
+import { useFieldPermission } from '@/hooks/useFieldPermission'
+import { computePagamento, TAG_STATE_STYLES, type ContratoTagData } from '@/lib/contrato-tags'
 import AtivarModal from '@/components/contratos/modals/AtivarModal'
 
 // ============================================
@@ -34,6 +36,13 @@ type Contrato = {
   seguradora: string | null
   valor_plano: number | null
   desconto_plano_unificado: number | null
+  valor_acessorios: number | null
+  desconto_acessorios: number | null
+  desconto_acessorios_ajuste: number | null
+  fonte_conhecimento_id: string | null
+  fonte_outro_especificar: string | null
+  fonte_conhecimento?: { nome: string } | null
+  pagamentos?: { tipo: string | null; valor: number | null }[]
   contrato_produtos?: {
     id: string
     produto: { codigo: string; nome: string; tipo: string } | null
@@ -47,6 +56,9 @@ const SELECT_FIELDS = `
   tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone,
   tutor_cidade, tutor_bairro, tipo_cremacao, tipo_plano, status, data_contrato,
   seguradora, valor_plano, desconto_plano_unificado,
+  valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste,
+  fonte_conhecimento_id, fonte_outro_especificar,
+  pagamentos(tipo, valor),
   contrato_produtos(id, produto:produtos(codigo, nome, tipo))
 `
 
@@ -66,7 +78,7 @@ function formatarData(data: string | null) {
   const dia = String(d.getDate()).padStart(2, '0')
   const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
   const mes = meses[d.getMonth()]
-  const ano = String(d.getFullYear()).slice(2)
+  const ano = String(d.getFullYear())
   return { dia, mes, ano }
 }
 
@@ -78,16 +90,61 @@ function formatarTelefone(tel: string | null): string {
   return tel
 }
 
+// Nome do tutor: primeiro nome destacado (igual ao pipeline)
+const PREFIXOS_NOME_COMPOSTO = ['maria', 'ana', 'anna', 'rosa', 'joao', 'joão', 'jose', 'josé', 'pedro', 'luiz', 'luis', 'luís', 'carlos', 'marco']
+function separarPrimeiroNome(nomeCompleto: string | null | undefined): { primeiro: string; resto: string } {
+  if (!nomeCompleto) return { primeiro: '', resto: '' }
+  const partes = nomeCompleto.trim().split(/\s+/)
+  if (partes.length <= 1) return { primeiro: partes[0] || '', resto: '' }
+  const qtd = (partes.length >= 2 && PREFIXOS_NOME_COMPOSTO.includes(partes[0].toLowerCase())) ? 2 : 1
+  return { primeiro: partes.slice(0, qtd).join(' '), resto: partes.slice(qtd).join(' ') }
+}
+
+// Porte pelo peso (igual ao pipeline)
+function getPetPorte(peso: number | null): string | null {
+  if (!peso) return null
+  if (peso <= 3) return 'PP'
+  if (peso <= 11) return 'P'
+  if (peso <= 25) return 'M'
+  if (peso <= 32) return 'MG'
+  if (peso <= 46) return 'G'
+  return 'XG'
+}
+
+// Gradiente/borda por tipo de cremação (igual ao card do pipeline)
+function getTipoStyle(tipo: string): { background: string; borderColor: string } {
+  return tipo === 'individual'
+    ? { background: 'linear-gradient(135deg, #10b981 0%, #6ee7b7 30%, transparent 70%)', borderColor: '#10b981' }
+    : { background: 'linear-gradient(135deg, #8b5cf6 0%, #c4b5fd 30%, transparent 70%)', borderColor: '#8b5cf6' }
+}
+
+// Ícones da fonte de conhecimento (fundo prata fixo, igual ao pipeline)
+const FONTE_STYLE: React.CSSProperties = { background: 'linear-gradient(135deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', border: '1px solid #cbd5e1' }
+const FONTE_ICONS: Record<string, { icon?: string; img?: string; style: React.CSSProperties }> = {
+  'Google': { img: '/icons/google.svg', style: FONTE_STYLE },
+  'Instagram/Facebook': { img: '/icons/meta.svg', style: FONTE_STYLE },
+  'Indicação em Clínica': { img: '/icons/hospital.svg', style: FONTE_STYLE },
+  'Indicação em clínica': { img: '/icons/hospital.svg', style: FONTE_STYLE },
+  'Cliente': { icon: '🔄', style: { ...FONTE_STYLE, color: '#d97706' } },
+  'Parente/Amigo': { icon: '👥', style: { ...FONTE_STYLE, color: '#7c3aed' } },
+  'Seguradora': { icon: '🛡️', style: { ...FONTE_STYLE, color: '#4338ca' } },
+  'Ponto': { icon: '📍', style: { ...FONTE_STYLE, color: '#dc2626' } },
+}
+
+
 // ============================================
 // Page
 // ============================================
 export default function PreventivosPage() {
   const router = useRouter()
   const supabase = createClient()
+  const { isVisible } = useFieldPermission()
 
   const [contratos, setContratos] = useState<Contrato[]>([])
   const [loading, setLoading] = useState(true)
   const [total, setTotal] = useState(0)
+  const [totalInd, setTotalInd] = useState(0)
+  const [totalCol, setTotalCol] = useState(0)
   const [pagina, setPagina] = useState(0)
   const [busca, setBusca] = useState('')
   const buscaDebounced = useDebounce(busca, 300)
@@ -135,8 +192,33 @@ export default function PreventivosPage() {
     if (error) {
       console.error('Erro ao carregar preventivos:', error)
     } else {
-      setContratos((data || []) as Contrato[])
+      const rows = (data || []) as Contrato[]
+      setContratos(rows)
       setTotal(count || 0)
+      // Quebra por tipo de cremação (respeita a busca)
+      const countTipo = (tipo: 'individual' | 'coletiva') => {
+        let q = supabase.from('contratos').select('id', { count: 'exact', head: true }).eq('status', 'preventivo').eq('tipo_cremacao', tipo)
+        const t = sanitizeBuscaPostgrest(buscaDebounced)
+        if (buscaDebounced.trim() && t) q = q.or(`codigo.ilike.%${t}%,pet_nome.ilike.%${t}%,tutor_nome.ilike.%${t}%`)
+        return q
+      }
+      Promise.all([countTipo('individual'), countTipo('coletiva')]).then(([ci, cc]) => {
+        if (minhaBuscaId !== buscaIdRef.current) return
+        setTotalInd(ci.count || 0)
+        setTotalCol(cc.count || 0)
+      })
+      // Resolve o nome da fonte de conhecimento (id → nome), igual ao pipeline
+      const fonteIds = [...new Set(rows.map(c => c.fonte_conhecimento_id).filter(Boolean))] as string[]
+      if (fonteIds.length > 0) {
+        const { data: fontes } = await supabase.from('fontes_conhecimento').select('id, nome').in('id', fonteIds)
+        if (fontes && minhaBuscaId === buscaIdRef.current) {
+          const byId = new Map((fontes as { id: string; nome: string }[]).map(f => [f.id, f]))
+          setContratos(prev => prev.map(c => ({
+            ...c,
+            fonte_conhecimento: c.fonte_conhecimento_id ? (byId.get(c.fonte_conhecimento_id) ?? null) : null,
+          })))
+        }
+      }
     }
     setLoading(false)
   }
@@ -147,9 +229,12 @@ export default function PreventivosPage() {
   }
 
   function handleAtivarSuccess() {
+    const id = ativarContrato?.id
     setAtivarModal(false)
     setAtivarContrato(null)
-    carregarContratos()
+    // Pós-ativação: vai direto pro contrato no fluxo (não volta pra lista de preventivos)
+    if (id) router.push(`/contratos/${id}`)
+    else carregarContratos()
   }
 
   const totalPaginas = Math.ceil(total / POR_PAGINA)
@@ -173,9 +258,16 @@ export default function PreventivosPage() {
           </div>
           <div>
             <h1 className="text-title text-[var(--shell-text)]">Preventivos</h1>
-            <p className="text-small text-[var(--shell-text-muted)]">
-              Pets com contrato ativo aguardando acionamento
-              {!loading && <span className="ml-2 font-mono text-amber-400">{total}</span>}
+            <p className="text-sm text-[var(--shell-text-muted)]">
+              Contratos:
+              {!loading && <span className="ml-1.5 font-mono font-bold text-amber-400">{total}</span>}
+              {!loading && (
+                <span className="ml-1.5 text-[var(--surface-400)]">
+                  (<span className="text-emerald-500 font-medium">Individual: {totalInd}</span>
+                  {' / '}
+                  <span className="text-violet-500 font-medium">Coletiva: {totalCol}</span>)
+                </span>
+              )}
             </p>
           </div>
         </div>
@@ -230,13 +322,17 @@ export default function PreventivosPage() {
             const dataBox = formatarData(contrato.data_contrato)
             const tutorNome = contrato.tutor?.nome || contrato.tutor_nome || '—'
             const telefone = contrato.tutor?.telefone || contrato.tutor_telefone
-            const valor = (contrato.valor_plano || 0) - (contrato.desconto_plano_unificado || 0)
             const urna = getUrnaReservada(contrato)
+            const tipoStyle = getTipoStyle(contrato.tipo_cremacao)
+            const pagTag = computePagamento(contrato as unknown as ContratoTagData)
+            const pagStyle = TAG_STATE_STYLES[pagTag.state]
+            const fonteNome = contrato.fonte_conhecimento?.nome
 
             return (
               <div
                 key={contrato.id}
-                className="card card-hover p-3 cursor-pointer transition-all border-l-4 border-l-amber-500"
+                className="relative overflow-hidden rounded-lg border-2 shadow-sm hover:shadow-md p-3 cursor-pointer transition-all"
+                style={{ backgroundImage: tipoStyle.background, backgroundColor: 'var(--surface-0)', borderColor: tipoStyle.borderColor }}
                 onClick={() => router.push(`/contratos/${contrato.id}`)}
               >
                 <div className="flex items-center gap-3">
@@ -247,21 +343,52 @@ export default function PreventivosPage() {
                       style={{ background: 'linear-gradient(135deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', color: '#334155' }}
                     >
                       <span className="text-[11px] font-bold leading-none">{dataBox.dia}</span>
-                      <span className="text-[9px] font-medium leading-none mt-0.5">{dataBox.mes}</span>
-                      <span className="text-[8px] text-slate-500 leading-none">{dataBox.ano}</span>
+                      <span className="text-[9px] font-medium leading-none">{dataBox.mes}</span>
+                      <span className="text-[10px] font-bold text-slate-500 leading-none mt-1">{dataBox.ano}</span>
                     </div>
                   )}
 
-                  {/* Pet icon */}
+                  {/* Pet icon — espécie + porte + peso agrupados (igual ao pipeline) */}
                   <div
-                    className="flex-shrink-0 w-11 h-11 rounded-lg flex items-center justify-center"
+                    className="flex-shrink-0 w-11 h-11 rounded-lg flex flex-col items-center justify-end p-0 pb-0.5 overflow-hidden"
                     style={{ background: pet.bg }}
                   >
-                    <span className="text-2xl">{pet.emoji}</span>
+                    <span className="text-xl leading-none">{pet.emoji}</span>
+                    <span className="text-[7px] font-bold leading-none flex items-center gap-px" style={{ color: '#334155' }}>
+                      {getPetPorte(contrato.pet_peso) && <span className="font-black mr-0.5">{getPetPorte(contrato.pet_peso)}</span>}
+                      {contrato.pet_peso ? <><Weight className="h-2 w-2" />{contrato.pet_peso}</> : '-'}
+                    </span>
                   </div>
 
+                  {/* Fonte de conhecimento */}
+                  {fonteNome && (
+                    <div
+                      className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center"
+                      style={FONTE_ICONS[fonteNome]?.style || FONTE_STYLE}
+                      title={contrato.seguradora ? `${fonteNome}: ${contrato.seguradora}` : (fonteNome === 'Outro' && contrato.fonte_outro_especificar ? `Outro: ${contrato.fonte_outro_especificar}` : fonteNome)}
+                    >
+                      {FONTE_ICONS[fonteNome]?.img ? (
+                        <img src={FONTE_ICONS[fonteNome].img} alt={fonteNome} className="w-5 h-5" />
+                      ) : (
+                        <span className="text-base leading-none">{FONTE_ICONS[fonteNome]?.icon || '❓'}</span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Farol de pagamento PAGO → à esquerda (igual pipeline: completed = "resolvido") */}
+                  {isVisible('tela_preventivos', 'btn_farol_pagamento') && pagTag.state === 'completed' && (
+                    <div
+                      className="flex-shrink-0 w-9 h-9 rounded-lg flex flex-col items-center justify-center"
+                      style={{ backgroundColor: pagStyle.bg, color: pagStyle.color, borderColor: pagStyle.borderColor, borderWidth: 2, borderStyle: 'solid' }}
+                      title={pagTag.tooltip}
+                    >
+                      <span className="text-lg">{pagTag.emoji}</span>
+                      {pagTag.sublabel && <span className="text-[9px] font-bold leading-none">{pagTag.sublabel}</span>}
+                    </div>
+                  )}
+
                   {/* Info */}
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span
                         className="text-base font-bold inline-block"
@@ -298,8 +425,16 @@ export default function PreventivosPage() {
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 text-xs mt-0.5 text-[var(--shell-text-muted)]">
-                      <span>{tutorNome}</span>
+                    <div className="flex items-center gap-2 text-xs mt-0.5">
+                      {(() => {
+                        const { primeiro, resto } = separarPrimeiroNome(tutorNome)
+                        return (
+                          <span style={{ background: 'linear-gradient(90deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', padding: '1px 5px', borderRadius: '4px' }}>
+                            <span className="font-bold" style={{ color: '#6d28d9' }}>{primeiro}</span>
+                            {resto && <span className="font-normal" style={{ color: '#475569' }}> {resto}</span>}
+                          </span>
+                        )
+                      })()}
                       {contrato.tutor_cidade && (
                         <span className="text-[var(--surface-400)]">📍 {contrato.tutor_cidade}</span>
                       )}
@@ -309,17 +444,20 @@ export default function PreventivosPage() {
                     )}
                   </div>
 
-                  {/* Valor */}
-                  {valor > 0 && (
-                    <div className="flex-shrink-0 text-right hidden sm:block">
-                      <div className="text-sm font-bold text-mono text-emerald-400">
-                        R$ {valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </div>
-                      {contrato.pet_peso && (
-                        <div className="text-[10px] text-[var(--surface-400)]">{contrato.pet_peso}kg</div>
-                      )}
+                  {/* Farol de pagamento PENDENTE → à direita (igual pipeline: alert = "precisa ação") */}
+                  {isVisible('tela_preventivos', 'btn_farol_pagamento') && pagTag.state === 'alert' && (
+                    <div
+                      className="flex-shrink-0 w-9 h-9 lg:w-10 lg:h-10 rounded-lg flex flex-col items-center justify-center"
+                      style={{ backgroundColor: pagStyle.bg, color: pagStyle.color, borderColor: pagStyle.borderColor, borderWidth: 2, borderStyle: 'solid' }}
+                      title={pagTag.tooltip}
+                    >
+                      <span className="text-xl">{pagTag.emoji}</span>
+                      {pagTag.sublabel && <span className="text-[9px] font-bold leading-none">{pagTag.sublabel}</span>}
                     </div>
                   )}
+
+                  {/* Spacer — empurra as ações pra direita (faróis ficam logo após as infos) */}
+                  <div className="flex-1" />
 
                   {/* WhatsApp */}
                   {telefone && (
@@ -343,7 +481,10 @@ export default function PreventivosPage() {
                     className="flex-shrink-0 flex items-center justify-center w-9 h-9 bg-red-900 text-white rounded-full hover:bg-red-800 transition-colors"
                     title="Ativar contrato (pet faleceu)"
                   >
-                    <span className="text-base">✝️</span>
+                    <div className="flex flex-col items-center justify-center leading-none gap-0">
+                      <span className="text-[10px] font-black tracking-tight">ATV</span>
+                      <span className="text-[11px]">✝️</span>
+                    </div>
                   </button>
                 </div>
               </div>

@@ -1,17 +1,42 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import { X, Search, Check } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { dataLocal } from '@/lib/date-local'
 import { useUnit } from '@/contexts/UnitContext'
+import AcolhimentoForm, { AcolhimentoData, ACOLHIMENTO_INICIAL } from '@/components/fichas/AcolhimentoForm'
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ⚠️  MODAIS GÊMEOS — AtivarModal (este)  ⇄  TratativaModal
+//     (web/src/components/fichas/TratativaModal.tsx)
+// ───────────────────────────────────────────────────────────────────────────────
+// Os dois compartilham o MESMO bloco de Acolhimento (via <AcolhimentoForm>) e os
+// mesmos caminhos de gravação: criar/vincular estabelecimento (clínica), contato
+// para cremação (tel1/tel2/principal), local de coleta, responsável, data/hora, lacre.
+//
+// REGRA DE OURO: toda correção de comportamento num DEVE ser refletida no outro.
+//   Ex.: insert em `estabelecimentos` precisa de `endereco: ''` (coluna NOT NULL
+//   sem default) — se esquecer num, a criação de clínica nova falha em silêncio.
+//
+// PARTICULARIDADES (o que PODE divergir de propósito):
+//   • Obrigatoriedade: na ativação de PV (aqui) local/responsável/data-hora são
+//     OBRIGATÓRIOS (pet já faleceu/foi acionado) — prop `provisorios`. Na ficha
+//     emergencial (Tratativa) esses campos aceitam "sem X provisoriamente".
+//   • O TratativaModal tem o bloco extra de INDICAÇÃO (quem indicou), que também
+//     cria estabelecimento; o AtivarModal não tem.
+//
+// Ainda não foram unificados de propósito: o TratativaModal é crítico p/ operação.
+// Enquanto separados, andam juntos — mesmos caminhos, particularidades pontuais.
+// ═══════════════════════════════════════════════════════════════════════════════
 
 type ContratoMinimal = {
   id: string
   codigo: string
   pet_nome: string
   tutor_nome: string
-  tutor?: { nome: string } | null
+  tutor_telefone?: string | null
+  unidade_id?: string | null
+  tutor?: { nome: string; telefone?: string | null } | null
 }
 
 type Props = {
@@ -27,128 +52,211 @@ type Props = {
   }) => void
 }
 
-type Estab = { id: string; nome: string; tipo: string | null }
+type Estab = { id: string; nome: string; tipo: string | null; cidade: string | null }
+
+// Estabelecimento "Autônomo" fixo (mesmo id usado no TratativaModal).
+const AUTONOMOS_ESTAB_ID = 'b4eedcff-7ccf-4cfb-bf3a-1978eeec6382'
 
 export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Props) {
   const supabase = createClient()
   const { currentUnit } = useUnit()
 
-  const [form, setForm] = useState({
-    data_acolhimento: '',
-    hora_acolhimento: '',
-    local_coleta: 'Residência' as 'Residência' | 'Unidade' | 'Clínica',
-    clinica_coleta: '',
-    estabelecimento_id: '' as string,
-    numero_lacre: '',
-    funcionario_id: '',
-    supinda_id: '',
-  })
-  const [salvando, setSalvando] = useState(false)
-  const [funcionarios, setFuncionarios] = useState<{ id: string; nome: string }[]>([])
-  const [supindas, setSupindas] = useState<{ id: string; numero: string; data: string }[]>([])
-  const [estabelecimentos, setEstabelecimentos] = useState<Estab[]>([])
-  const [estabAberto, setEstabAberto] = useState(false)
-  const estabRef = useRef<HTMLDivElement | null>(null)
+  const temPadronizacaoClinicas = !!currentUnit?.modulos_ativos?.includes('cb_padronizacao_clinicas')
 
-  // On open: reset form with current date/time and load auxiliary data
+  const [acolhimento, setAcolhimento] = useState<AcolhimentoData>(ACOLHIMENTO_INICIAL)
+  const [salvando, setSalvando] = useState(false)
+
+  const [funcionarios, setFuncionarios] = useState<{ id: string; nome: string }[]>([])
+  const [estabelecimentos, setEstabelecimentos] = useState<Estab[]>([])
+
+  const telefoneBase = contrato.tutor?.telefone || contrato.tutor_telefone || ''
+  const tutorNome = contrato.tutor?.nome || contrato.tutor_nome || ''
+
+  // On open: load auxiliary data + pré-preenche o form com o que já existe no contrato
   useEffect(() => {
     if (!isOpen) return
 
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const isoParaDatetimeLocal = (iso: string) => {
+      const d = new Date(iso)
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+    }
     const agora = new Date()
-    const dataStr = dataLocal(agora)
-    const horaStr = agora.toTimeString().slice(0, 5)
+    const dataHoraAgora = `${agora.getFullYear()}-${pad(agora.getMonth() + 1)}-${pad(agora.getDate())}T${pad(agora.getHours())}:${pad(agora.getMinutes())}`
 
-    setForm({
-      data_acolhimento: dataStr,
-      hora_acolhimento: horaStr,
-      local_coleta: 'Residência',
-      clinica_coleta: '',
-      estabelecimento_id: '',
-      numero_lacre: '',
-      funcionario_id: '',
-      supinda_id: '',
+    // Reverte o label salvo em local_coleta pro key do form
+    const localMap: Record<string, AcolhimentoData['localColeta']> = {
+      'Residência': 'residencia', 'Residencia': 'residencia',
+      'Clínica': 'clinica', 'Clinica': 'clinica',
+      'Unidade': 'unidade', 'Outro': 'outro',
+    }
+
+    // Funcionários ativos da unidade do contrato (fallback: unidade ativa)
+    const unidadeFuncs = contrato.unidade_id || currentUnit?.id
+    let funcQuery = supabase.from('funcionarios').select('id, nome').eq('ativo', true)
+    if (unidadeFuncs) funcQuery = funcQuery.eq('unidade_id', unidadeFuncs)
+    funcQuery.order('nome').then(({ data }) => {
+      if (data) setFuncionarios(data)
     })
 
-    // Load funcionarios
-    supabase
-      .from('funcionarios')
-      .select('id, nome')
-      .eq('ativo', true)
-      .order('nome')
-      .then(({ data }) => {
-        if (data) setFuncionarios(data)
-      })
-
-    // Load supindas
-    supabase
-      .from('supindas')
-      .select('id, numero, data')
-      .order('numero', { ascending: false })
-      .limit(10)
-      .then(({ data }) => {
-        if (data) setSupindas(data)
-      })
-
-    // Load estabelecimentos (clínicas e hospitais) para autocomplete
+    // Estabelecimentos (clínicas e hospitais) para o autocomplete
     supabase
       .from('estabelecimentos')
-      .select('id, nome, tipo')
+      .select('id, nome, tipo, cidade')
       .in('tipo', ['clinica', 'hospital'])
       .order('nome')
       .then(({ data }) => {
         if (data) setEstabelecimentos(data as Estab[])
       })
+
+    // Pré-preenche o Acolhimento com o que já está gravado no contrato (só ajustar se preciso)
+    supabase
+      .from('contratos')
+      .select('local_coleta, clinica_coleta, estabelecimento_id, funcionario_id, numero_lacre, data_acolhimento, tutor_telefone_nome, tutor_telefone2, tutor_telefone2_nome, estab:estabelecimentos!estabelecimento_id(nome)')
+      .eq('id', contrato.id)
+      .single()
+      .then(({ data }) => {
+        const c = data as {
+          local_coleta: string | null; clinica_coleta: string | null; estabelecimento_id: string | null
+          funcionario_id: string | null; numero_lacre: string | null; data_acolhimento: string | null
+          tutor_telefone_nome: string | null; tutor_telefone2: string | null; tutor_telefone2_nome: string | null
+          estab: { nome: string } | null
+        } | null
+
+        if (!c) {
+          setAcolhimento({ ...ACOLHIMENTO_INICIAL, dataHoraAcolhimento: dataHoraAgora })
+          return
+        }
+
+        const localColeta = c.local_coleta ? (localMap[c.local_coleta] || '') : ''
+        const temTel2 = !!c.tutor_telefone2
+
+        setAcolhimento({
+          ...ACOLHIMENTO_INICIAL,
+          telefone1Nome: c.tutor_telefone_nome || '',
+          telefone2: c.tutor_telefone2 || '',
+          telefone2Nome: c.tutor_telefone2_nome || '',
+          usarTelefone2ComoPrincipal: temTel2,
+          localColeta,
+          estabId: c.estabelecimento_id || null,
+          estabNome: localColeta === 'clinica' && temPadronizacaoClinicas ? (c.estab?.nome || c.clinica_coleta || '') : '',
+          clinicaTextoLivre: localColeta === 'clinica' && !temPadronizacaoClinicas ? (c.clinica_coleta || '') : '',
+          enderecoOutro: localColeta === 'outro' ? (c.clinica_coleta || '') : '',
+          funcionarioId: c.funcionario_id || '',
+          dataHoraAcolhimento: c.data_acolhimento ? isoParaDatetimeLocal(c.data_acolhimento) : dataHoraAgora,
+          lacre: c.numero_lacre || '',
+        })
+      })
   }, [isOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Click fora do dropdown fecha
-  useEffect(() => {
-    if (!estabAberto) return
-    function handle(e: MouseEvent) {
-      if (estabRef.current && !estabRef.current.contains(e.target as Node)) setEstabAberto(false)
-    }
-    document.addEventListener('mousedown', handle)
-    return () => document.removeEventListener('mousedown', handle)
-  }, [estabAberto])
+  // Local válido: preenchido e, se clínica/outro, com o detalhe informado
+  const localOk =
+    !!acolhimento.localColeta &&
+    (acolhimento.localColeta !== 'clinica'
+      ? true
+      : temPadronizacaoClinicas
+        ? acolhimento.autonomo || !!acolhimento.estabNome.trim()
+        : !!acolhimento.clinicaTextoLivre.trim()) &&
+    (acolhimento.localColeta !== 'outro' || !!acolhimento.enderecoOutro.trim())
 
-  function subtrairTempo(tipo: 'dia' | 'hora') {
-    const dataHora = new Date(`${form.data_acolhimento}T${form.hora_acolhimento}:00`)
-    if (tipo === 'dia') {
-      dataHora.setDate(dataHora.getDate() - 1)
-    } else {
-      dataHora.setHours(dataHora.getHours() - 1)
-    }
-    const dataStr = dataLocal(dataHora)
-    const horaStr = dataHora.toTimeString().slice(0, 5)
-    setForm({ ...form, data_acolhimento: dataStr, hora_acolhimento: horaStr })
-  }
+  // PV: pet morreu / foi acionado → local, responsável e data/hora obrigatórios (lacre não)
+  const podeAtivar = localOk && !!acolhimento.funcionarioId && !!acolhimento.dataHoraAcolhimento
 
   async function salvarAtivacao() {
-    if (!form.data_acolhimento || !form.hora_acolhimento) {
-      alert('Preencha a data e hora do acolhimento')
+    const a = acolhimento
+
+    const faltando: string[] = []
+    if (!a.localColeta) faltando.push('Local de acolhimento')
+    else if (a.localColeta === 'clinica') {
+      const clinicaOk = temPadronizacaoClinicas ? (a.autonomo || !!a.estabNome.trim()) : !!a.clinicaTextoLivre.trim()
+      if (!clinicaOk) faltando.push('Clínica / hospital')
+    } else if (a.localColeta === 'outro' && !a.enderecoOutro.trim()) {
+      faltando.push('Endereço (Outro)')
+    }
+    if (!a.funcionarioId) faltando.push('Responsável pelo acolhimento')
+    if (!a.dataHoraAcolhimento) faltando.push('Data e hora do acolhimento')
+
+    if (faltando.length) {
+      alert('Preencha os campos obrigatórios da ativação:\n\n• ' + faltando.join('\n• '))
       return
     }
 
     setSalvando(true)
 
     try {
-      // Combine date + time into ISO datetime
-      const dataHora = new Date(`${form.data_acolhimento}T${form.hora_acolhimento}:00`)
+      const dataHoraIso = !a.semDataHora && a.dataHoraAcolhimento
+        ? new Date(a.dataHoraAcolhimento).toISOString()
+        : null
 
-      const isClinica = form.local_coleta === 'Clínica'
+      // Local de acolhimento → label + campo de texto (clínica/outro)
+      const localColetaMap: Record<string, string> = { residencia: 'Residência', clinica: 'Clínica', unidade: 'Unidade', outro: 'Outro' }
+      const localColetaValor = a.semLocal ? null : (localColetaMap[a.localColeta] || null)
+      const isClinica = !a.semLocal && a.localColeta === 'clinica'
+      const isOutro = !a.semLocal && a.localColeta === 'outro'
+
+      // Resolve estabelecimento (com padronização): autônomo / existente / criar novo
+      let resolvedEstabId: string | null = null
+      let clinicaColetaNome: string | null = null
+      if (isClinica) {
+        if (temPadronizacaoClinicas) {
+          if (a.autonomo) {
+            resolvedEstabId = AUTONOMOS_ESTAB_ID
+            clinicaColetaNome = 'Autônomo'
+          } else {
+            clinicaColetaNome = a.estabNome.trim() || null
+            resolvedEstabId = a.estabId
+            if (!resolvedEstabId && a.estabNome.trim()) {
+              const unidadeId = contrato.unidade_id || currentUnit?.id || null
+              // endereco é NOT NULL sem default — precisa ir como '' senão o insert falha
+              const { data: novoEstab, error: estabErr } = await supabase
+                .from('estabelecimentos')
+                .insert({ nome: a.estabNome.trim(), tipo: 'clinica', unidade_id: unidadeId, endereco: '' } as never)
+                .select('id')
+                .single() as { data: { id: string } | null; error: { message: string } | null }
+              if (estabErr) {
+                setSalvando(false)
+                alert('Não foi possível criar o estabelecimento "' + a.estabNome.trim() + '":\n' + estabErr.message)
+                return
+              }
+              if (novoEstab) resolvedEstabId = novoEstab.id
+            }
+          }
+        } else {
+          clinicaColetaNome = a.clinicaTextoLivre.trim() || null
+        }
+      }
+
+      // clinica_coleta grava o nome da clínica (se clínica) ou o endereço livre (se "Outro")
+      const clinicaColeta = isClinica ? clinicaColetaNome : (isOutro ? (a.enderecoOutro.trim() || null) : null)
+
+      // Contato para cremação: se marcou "Não, é outro" e informou telefone2 → vira principal
+      const hasTel2 = a.usarTelefone2ComoPrincipal && !!a.telefone2.trim()
+      const tel1NomeVal = a.telefone1Nome.trim() || null
+      const tel2NomeVal = a.telefone2Nome.trim() || null
+      const telPrincipal = hasTel2 ? a.telefone2 : telefoneBase
+      const telSecundario = hasTel2 ? telefoneBase : null
+      const telPrincipalNome = hasTel2 ? tel2NomeVal : tel1NomeVal
+      const telSecundarioNome = hasTel2 ? tel1NomeVal : null
+
       // cb_cremacao_local (PI): ao acionar PV, vai direto pra 'pinda' (sem passar por 'ativo').
       // Checa modulos_ativos direto — hasModule() retorna true sempre pra super_admin.
       const novoStatus: 'ativo' | 'pinda' = currentUnit?.modulos_ativos?.includes('cb_cremacao_local') ? 'pinda' : 'ativo'
+
       const { error } = await supabase
         .from('contratos')
         .update({
           status: novoStatus,
-          data_acolhimento: dataHora.toISOString(),
-          local_coleta: form.local_coleta,
-          clinica_coleta: isClinica ? form.clinica_coleta : null,
-          estabelecimento_id: isClinica ? (form.estabelecimento_id || null) : null,
-          numero_lacre: form.numero_lacre || null,
-          funcionario_id: form.funcionario_id || null,
-          supinda_id: form.supinda_id || null,
+          data_acolhimento: dataHoraIso,
+          local_coleta: localColetaValor,
+          clinica_coleta: clinicaColeta,
+          estabelecimento_id: isClinica ? (resolvedEstabId || null) : null,
+          numero_lacre: a.semLacre ? null : (a.lacre.trim() || null),
+          funcionario_id: a.semResponsavel ? null : (a.funcionarioId || null),
+          tutor_telefone: telPrincipal,
+          tutor_telefone2: telSecundario,
+          tutor_telefone_nome: telPrincipalNome,
+          tutor_telefone2_nome: telSecundarioNome,
+          tutor_telefone_principal: 1,
         } as never)
         .eq('id', contrato.id)
 
@@ -157,9 +265,9 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
       onSuccess?.({
         id: contrato.id,
         status: novoStatus,
-        data_acolhimento: dataHora.toISOString(),
-        local_coleta: form.local_coleta,
-        numero_lacre: form.numero_lacre || null,
+        data_acolhimento: dataHoraIso || '',
+        local_coleta: localColetaValor || '',
+        numero_lacre: a.semLacre ? null : (a.lacre.trim() || null),
       })
 
       onClose()
@@ -179,221 +287,55 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
       onClick={onClose}
     >
       <div
-        className="bg-slate-800 rounded-xl shadow-xl w-full max-w-md max-h-[90vh] flex flex-col"
+        className="bg-[var(--surface-0)] rounded-xl shadow-xl w-full max-w-md max-h-[90vh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b bg-red-900/30 rounded-t-xl shrink-0">
+        <div className="flex items-center justify-between p-4 border-b border-[var(--surface-200)] bg-amber-500/5 rounded-t-xl shrink-0">
           <div className="flex items-center gap-2">
             <span className="text-2xl">✝️</span>
             <div>
-              <h3 className="font-bold text-slate-200">Ativar Contrato</h3>
-              <p className="text-sm text-slate-400">
-                {contrato.pet_nome} &middot; {contrato.tutor?.nome || contrato.tutor_nome}
+              <h3 className="font-bold text-[var(--surface-800)]">Ativar Contrato</h3>
+              <p className="text-sm text-[var(--surface-500)]">
+                {contrato.pet_nome} &middot; {tutorNome}
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1 hover:bg-red-900/30 rounded-full transition-colors"
+            className="p-1 hover:bg-[var(--surface-100)] rounded-full transition-colors"
           >
-            <X className="h-5 w-5 text-slate-400" />
+            <X className="h-5 w-5 text-[var(--surface-500)]" />
           </button>
         </div>
 
         {/* Body */}
         <div className="p-4 space-y-4 flex-1 overflow-y-auto min-h-0">
-          {/* Data e Hora com botoes de subtracao */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="block text-sm font-medium text-slate-300">
-                Data e Hora do Acolhimento
-              </label>
-              <div className="flex gap-1">
-                <button
-                  type="button"
-                  onClick={() => subtrairTempo('dia')}
-                  className="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-400 rounded transition-colors"
-                >
-                  -1 dia
-                </button>
-                <button
-                  type="button"
-                  onClick={() => subtrairTempo('hora')}
-                  className="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-400 rounded transition-colors"
-                >
-                  -1 hora
-                </button>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <input
-                type="date"
-                value={form.data_acolhimento}
-                onChange={(e) => setForm({ ...form, data_acolhimento: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-              />
-              <input
-                type="time"
-                value={form.hora_acolhimento}
-                onChange={(e) => setForm({ ...form, hora_acolhimento: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-              />
-            </div>
-          </div>
-
-          {/* Local de Coleta */}
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
-              Local de Coleta
-            </label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              {(['Residência', 'Unidade', 'Clínica'] as const).map(local => (
-                <button
-                  key={local}
-                  type="button"
-                  onClick={() =>
-                    setForm({
-                      ...form,
-                      local_coleta: local,
-                      clinica_coleta: local !== 'Clínica' ? '' : form.clinica_coleta,
-                      estabelecimento_id: local !== 'Clínica' ? '' : form.estabelecimento_id,
-                    })
-                  }
-                  className={`py-2 px-3 rounded-lg text-sm font-medium border-2 transition-all ${
-                    form.local_coleta === local
-                      ? 'border-red-500 bg-red-900/30 text-red-300'
-                      : 'border-slate-600 text-slate-400 hover:border-slate-500'
-                  }`}
-                >
-                  {local === 'Residência' && '🏠'}
-                  {local === 'Unidade' && '🏢'}
-                  {local === 'Clínica' && '🏥'}
-                  {' '}{local}
-                </button>
-              ))}
-            </div>
-            {/* Campo clinica - combobox com autocomplete */}
-            {form.local_coleta === 'Clínica' && (() => {
-              const busca = form.clinica_coleta.toLowerCase().trim()
-              const filtrados = busca
-                ? estabelecimentos.filter(e => e.nome.toLowerCase().includes(busca)).slice(0, 12)
-                : estabelecimentos.slice(0, 12)
-              const matchExato = busca && estabelecimentos.some(e => e.nome.toLowerCase() === busca)
-              return (
-                <div ref={estabRef} className="relative mt-2">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
-                  <input
-                    type="text"
-                    value={form.clinica_coleta}
-                    onChange={(e) => setForm({ ...form, clinica_coleta: e.target.value, estabelecimento_id: '' })}
-                    onFocus={() => setEstabAberto(true)}
-                    placeholder="Buscar clínica..."
-                    className="w-full pl-9 pr-9 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                    autoFocus
-                  />
-                  {form.estabelecimento_id && (
-                    <Check className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-green-500" />
-                  )}
-                  {estabAberto && (filtrados.length > 0 || (busca && !matchExato)) && (
-                    <div className="absolute z-30 mt-1 w-full max-h-56 overflow-y-auto bg-slate-700 border border-slate-600 rounded-lg shadow-lg">
-                      {filtrados.map(e => (
-                        <button
-                          key={e.id}
-                          type="button"
-                          onClick={() => {
-                            setForm(f => ({ ...f, clinica_coleta: e.nome, estabelecimento_id: e.id }))
-                            setEstabAberto(false)
-                          }}
-                          className={`w-full text-left px-3 py-2 text-sm transition-colors flex items-center justify-between hover:bg-slate-600 ${
-                            form.estabelecimento_id === e.id ? 'bg-slate-600 text-slate-100 font-medium' : 'text-slate-300'
-                          }`}
-                        >
-                          <span>{e.nome}</span>
-                          {e.tipo && <span className="text-xs text-slate-400">{e.tipo}</span>}
-                        </button>
-                      ))}
-                      {busca && !matchExato && (
-                        <button
-                          type="button"
-                          onClick={() => setEstabAberto(false)}
-                          className="w-full text-left px-3 py-2 text-xs text-amber-400 hover:bg-amber-900/20 border-t border-slate-600"
-                        >
-                          Manter &quot;{form.clinica_coleta.trim()}&quot; como texto livre (sem vínculo)
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  {form.clinica_coleta.trim() && !form.estabelecimento_id && !estabAberto && (
-                    <p className="mt-1 text-xs text-amber-400">Sem vínculo a estabelecimento cadastrado</p>
-                  )}
-                </div>
-              )
-            })()}
-          </div>
-
-          {/* Funcionario e Encaminhamento */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">
-                Responsável
-              </label>
-              <select
-                value={form.funcionario_id}
-                onChange={(e) => setForm({ ...form, funcionario_id: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 bg-slate-700"
-              >
-                <option value="">Selecione...</option>
-                {funcionarios.map(f => (
-                  <option key={f.id} value={f.id}>{f.nome}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">
-                Encaminhamento
-              </label>
-              <select
-                value={form.supinda_id}
-                onChange={(e) => setForm({ ...form, supinda_id: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 bg-slate-700"
-              >
-                <option value="">Selecione...</option>
-                {supindas.map(s => (
-                  <option key={s.id} value={s.id}>
-                    #{s.numero} - {new Date(s.data).toLocaleDateString('pt-BR')}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Numero do Lacre */}
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">
-              Número do Lacre <span className="text-slate-400">(opcional)</span>
-            </label>
-            <input
-              type="text"
-              value={form.numero_lacre}
-              onChange={(e) => setForm({ ...form, numero_lacre: e.target.value })}
-              placeholder="Ex: L12345"
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-            />
-          </div>
+          <AcolhimentoForm
+            value={acolhimento}
+            onChange={setAcolhimento}
+            temPadronizacaoClinicas={temPadronizacaoClinicas}
+            funcionarios={funcionarios}
+            estabelecimentos={estabelecimentos}
+            telefoneBase={telefoneBase}
+            tutorNome={tutorNome}
+            // PV: pet já morreu e foi acionado → local, responsável e data/hora obrigatórios.
+            // Só o lacre pode ficar provisório.
+            provisorios={{ local: false, responsavel: false, dataHora: false, lacre: true }}
+          />
         </div>
 
         {/* Footer */}
-        <div className="flex gap-2 p-4 border-t bg-slate-700/50 rounded-b-xl shrink-0">
+        <div className="flex gap-2 p-4 border-t border-[var(--surface-200)] bg-[var(--surface-50)] rounded-b-xl shrink-0">
           <button
             onClick={onClose}
-            className="flex-1 py-2 px-4 border border-slate-600 rounded-lg text-slate-300 hover:bg-slate-700 transition-colors"
+            className="flex-1 py-2 px-4 border border-[var(--surface-300)] rounded-lg text-[var(--surface-600)] hover:bg-[var(--surface-100)] transition-colors"
           >
             Cancelar
           </button>
           <button
             onClick={salvarAtivacao}
-            disabled={salvando || !form.data_acolhimento || !form.hora_acolhimento}
+            disabled={salvando || !podeAtivar}
             className="flex-1 py-2 px-4 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
           >
             {salvando ? (

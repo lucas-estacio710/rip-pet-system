@@ -102,6 +102,9 @@ export const CAMPOS_BOTOES: ChildItemDef[] = [
   { key: 'btn_fluxo_retorno', tela: 'tela_pipeline', label: 'Fluxo Retorno', desc: 'Indicador de complexidade de montagem', modo: 'toggle' },
   { key: 'btn_bypass', tela: 'tela_pipeline', label: 'Bypass (B)', desc: 'Finalizar contrato pulando encaminhamento e GC. Temporário.', modo: 'toggle' },
 
+  // --- PREVENTIVOS ---
+  { key: 'btn_farol_pagamento', tela: 'tela_preventivos', label: 'Farol de Pagamento', desc: 'Indicador Pago/Parcial/A pagar no card de preventivo', modo: 'toggle' },
+
   // --- CONTRATO DETALHE (3-way: mesma key = mesmo toggle do pipeline) ---
   { key: 'btn_farois', tela: 'tela_contrato', label: 'Faróis Pipeline', desc: '3-way: Pipeline ↔ Contrato', modo: 'toggle' },
   { key: 'btn_mensagens', tela: 'tela_contrato', label: 'Mensagens Personalizadas', desc: '3-way: Pipeline ↔ Contrato', modo: 'toggle' },

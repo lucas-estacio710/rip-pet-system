@@ -11,6 +11,29 @@ import { useFieldPermission } from '@/hooks/useFieldPermission'
 import { gerarContratoPDF, contratoFilename } from '@/lib/contrato-pdf'
 import { hojeLocal } from '@/lib/date-local'
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// ⚠️  MODAIS GÊMEOS — TratativaModal (este)  ⇄  AtivarModal
+//     (web/src/components/contratos/modals/AtivarModal.tsx)
+// ───────────────────────────────────────────────────────────────────────────────
+// Os dois tratam do MESMO bloco de Acolhimento (aqui em markup próprio; no Ativar
+// via <AcolhimentoForm>) e dos mesmos caminhos de gravação: criar/vincular
+// estabelecimento (clínica), contato p/ cremação (tel1/tel2/principal), local de
+// coleta, responsável, data/hora, lacre.
+//
+// REGRA DE OURO: toda correção de comportamento num DEVE ser refletida no outro.
+//   Ex.: insert em `estabelecimentos` precisa de `endereco: ''` (coluna NOT NULL
+//   sem default) — vale tanto p/ o estab. de COLETA quanto o de INDICAÇÃO aqui.
+//
+// PARTICULARIDADES (o que PODE divergir de propósito):
+//   • Obrigatoriedade: na ficha emergencial (aqui) local/responsável/data-hora
+//     aceitam "sem X provisoriamente". Na ativação de PV (AtivarModal) são
+//     OBRIGATÓRIOS (pet já faleceu/foi acionado).
+//   • Este modal tem o bloco extra de INDICAÇÃO (quem indicou), ausente no Ativar.
+//
+// ⚠️ Este componente é CRÍTICO p/ operação — por isso NÃO foi unificado com o
+//    Ativar ainda. Ao mexer aqui, replique a mesma mudança no gêmeo.
+// ═══════════════════════════════════════════════════════════════════════════════
+
 // ============================================
 // Types
 // ============================================
@@ -646,9 +669,10 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       if (teveIndicacao && temPadronizacaoClinicas) {
         // Estabelecimento da indicação
         if (!resolvedIndicEstabId && indicEstabNome.trim()) {
+          // endereco é NOT NULL sem default — precisa ir como '' senão o insert falha
           const { data: novoEstab, error: errEstab } = await supabase
             .from('estabelecimentos')
-            .insert({ nome: indicEstabNome.trim(), tipo: 'clinica', unidade_id: ficha.unidade_id } as never)
+            .insert({ nome: indicEstabNome.trim(), tipo: 'clinica', unidade_id: ficha.unidade_id, endereco: '' } as never)
             .select('id').single() as { data: { id: string } | null; error: { message: string } | null }
           if (errEstab) throw new Error(`Erro ao criar estabelecimento: ${errEstab.message}`)
           if (novoEstab) {
@@ -824,7 +848,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         else {
           clinicaColetaNome = estabNome.trim() || null
           if (!resolvedEstabId && estabNome.trim()) {
-            const { data: novoEstab } = await supabase.from('estabelecimentos').insert({ nome: estabNome.trim(), tipo: 'clinica', unidade_id: f.unidade_id } as never).select('id').single() as { data: { id: string } | null }
+            // endereco é NOT NULL sem default — precisa ir como '' senão o insert falha silenciosamente
+            const { data: novoEstab } = await supabase.from('estabelecimentos').insert({ nome: estabNome.trim(), tipo: 'clinica', unidade_id: f.unidade_id, endereco: '' } as never).select('id').single() as { data: { id: string } | null }
             if (novoEstab) resolvedEstabId = novoEstab.id
           }
         }
