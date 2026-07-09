@@ -6,15 +6,15 @@ import AnimatedNumber from './AnimatedNumber'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import { computePreviousRange, type PeriodRange } from '@/lib/dashboard-period'
+import { filtroModo, type DashboardModo } from '@/lib/dashboard-modo'
 
 type Props = {
   range: PeriodRange
   comparePrev: boolean
+  modo: DashboardModo
 }
 
-const STATUS_REMOVIDO = ['ativo', 'pinda', 'retorno', 'pendente', 'finalizado']
-
-export default function RemocoesKPI({ range, comparePrev }: Props) {
+export default function RemocoesKPI({ range, comparePrev, modo }: Props) {
   const { currentUnit } = useUnit()
   const [count, setCount] = useState(0)
   const [prevCount, setPrevCount] = useState(0)
@@ -27,13 +27,11 @@ export default function RemocoesKPI({ range, comparePrev }: Props) {
     setLoading(true)
 
     const queryCount = async (from: Date, to: Date): Promise<number> => {
-      const { count, error } = await supabase
+      const base = supabase
         .from('contratos')
         .select('id', { count: 'exact', head: true })
         .eq('unidade_id', currentUnit.id)
-        .in('status', STATUS_REMOVIDO)
-        .gte('data_acolhimento', from.toISOString())
-        .lte('data_acolhimento', to.toISOString())
+      const { count, error } = await filtroModo(base, modo, from, to)
       if (error) { console.error('[RemocoesKPI]', error); return 0 }
       return count ?? 0
     }
@@ -49,7 +47,7 @@ export default function RemocoesKPI({ range, comparePrev }: Props) {
     })
 
     return () => { cancelled = true }
-  }, [range.key, range.from.getTime(), range.to.getTime(), comparePrev, currentUnit?.id])
+  }, [range.key, range.from.getTime(), range.to.getTime(), comparePrev, modo, currentUnit?.id])
 
   const delta = count - prevCount
   const pct = prevCount > 0 ? Math.round((delta / prevCount) * 100) : (count > 0 ? 100 : 0)
@@ -60,7 +58,7 @@ export default function RemocoesKPI({ range, comparePrev }: Props) {
   return (
     <div className="card p-6 sm:p-10 text-center">
       <div className="text-xs uppercase tracking-wide text-[var(--surface-500)] mb-3">
-        Remoções no período
+        {modo === 'contratos' ? 'Contratos no período' : 'Remoções no período'}
       </div>
 
       <div className="font-mono text-6xl sm:text-7xl font-bold text-[var(--surface-800)] tabular-nums leading-none">

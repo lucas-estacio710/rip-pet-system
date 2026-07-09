@@ -6,13 +6,13 @@ import AnimatedNumber from './AnimatedNumber'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import { computePreviousRange, type PeriodRange } from '@/lib/dashboard-period'
+import { filtroModo, type DashboardModo } from '@/lib/dashboard-modo'
 
 type Props = {
   range: PeriodRange
   comparePrev: boolean
+  modo: DashboardModo
 }
-
-const STATUS_REMOVIDO = ['ativo', 'pinda', 'retorno', 'pendente', 'finalizado']
 
 const CATS = [
   { key: 'Residência', label: 'Residência', color: '#ef4444' }, // vermelho
@@ -29,7 +29,7 @@ function bucketize(value: string | null): CatKey {
   return 'Residência' // 'Residência', 'Outro' e null caem aqui
 }
 
-export default function LocalRemocaoKPI({ range, comparePrev }: Props) {
+export default function LocalRemocaoKPI({ range, comparePrev, modo }: Props) {
   const { currentUnit } = useUnit()
   const [counts, setCounts] = useState<Record<CatKey, number>>(ZERO)
   const [prevCounts, setPrevCounts] = useState<Record<CatKey, number>>(ZERO)
@@ -43,13 +43,11 @@ export default function LocalRemocaoKPI({ range, comparePrev }: Props) {
 
     const queryBreakdown = async (from: Date, to: Date): Promise<Record<CatKey, number>> => {
       const acc: Record<CatKey, number> = { ...ZERO }
-      const { data, error } = await supabase
+      const base = supabase
         .from('contratos')
         .select('local_coleta')
         .eq('unidade_id', currentUnit.id)
-        .in('status', STATUS_REMOVIDO)
-        .gte('data_acolhimento', from.toISOString())
-        .lte('data_acolhimento', to.toISOString())
+      const { data, error } = await filtroModo(base, modo, from, to)
       if (error) { console.error('[LocalRemocaoKPI]', error); return acc }
       const rows = (data ?? []) as { local_coleta: string | null }[]
       for (const row of rows) acc[bucketize(row.local_coleta)]++
@@ -68,7 +66,7 @@ export default function LocalRemocaoKPI({ range, comparePrev }: Props) {
     })
 
     return () => { cancelled = true }
-  }, [range.key, range.from.getTime(), range.to.getTime(), comparePrev, currentUnit?.id])
+  }, [range.key, range.from.getTime(), range.to.getTime(), comparePrev, modo, currentUnit?.id])
 
   const total = (Object.values(counts) as number[]).reduce((a, b) => a + b, 0)
   const segments = CATS.map(c => ({

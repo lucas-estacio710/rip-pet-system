@@ -6,17 +6,18 @@ import AnimatedNumber from './AnimatedNumber'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import { computePreviousRange, type PeriodRange } from '@/lib/dashboard-period'
+import { filtroModo, type DashboardModo } from '@/lib/dashboard-modo'
 
 type Props = {
   range: PeriodRange
   comparePrev: boolean
+  modo: DashboardModo
 }
 
-const STATUS_REMOVIDO = ['ativo', 'pinda', 'retorno', 'pendente', 'finalizado']
 const COLOR_IND = '#10b981' // verde
 const COLOR_COL = '#a855f7' // roxo
 
-export default function TipoCremacaoKPI({ range, comparePrev }: Props) {
+export default function TipoCremacaoKPI({ range, comparePrev, modo }: Props) {
   const { currentUnit } = useUnit()
   const [ind, setInd] = useState(0)
   const [col, setCol] = useState(0)
@@ -31,14 +32,12 @@ export default function TipoCremacaoKPI({ range, comparePrev }: Props) {
     setLoading(true)
 
     const queryByTipo = async (tipo: 'individual' | 'coletiva', from: Date, to: Date): Promise<number> => {
-      const { count, error } = await supabase
+      const base = supabase
         .from('contratos')
         .select('id', { count: 'exact', head: true })
         .eq('unidade_id', currentUnit.id)
-        .in('status', STATUS_REMOVIDO)
         .eq('tipo_cremacao', tipo)
-        .gte('data_acolhimento', from.toISOString())
-        .lte('data_acolhimento', to.toISOString())
+      const { count, error } = await filtroModo(base, modo, from, to)
       if (error) { console.error('[TipoCremacaoKPI]', error); return 0 }
       return count ?? 0
     }
@@ -56,7 +55,7 @@ export default function TipoCremacaoKPI({ range, comparePrev }: Props) {
     })
 
     return () => { cancelled = true }
-  }, [range.key, range.from.getTime(), range.to.getTime(), comparePrev, currentUnit?.id])
+  }, [range.key, range.from.getTime(), range.to.getTime(), comparePrev, modo, currentUnit?.id])
 
   const total = ind + col
   const pctInd = total > 0 ? Math.round((ind / total) * 100) : 0

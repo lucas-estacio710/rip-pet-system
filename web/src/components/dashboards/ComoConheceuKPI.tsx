@@ -5,15 +5,16 @@ import { TrendingUp, TrendingDown } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import { computePreviousRange, type PeriodRange } from '@/lib/dashboard-period'
+import { filtroModo, type DashboardModo } from '@/lib/dashboard-modo'
 
 type Props = {
   range: PeriodRange
   comparePrev: boolean
+  modo: DashboardModo
   /** Incrementa pra forçar re-fetch (ex: após reclassificação no FonteOutroKPI) */
   refreshKey?: number
 }
 
-const STATUS_REMOVIDO = ['ativo', 'pinda', 'retorno', 'pendente', 'finalizado']
 const MODE_KEY = 'dashboards.comoConheceu.mode'
 
 // 9 fontes canônicas (sempre exibidas, mesmo com 0).
@@ -58,7 +59,7 @@ type ContratoRow = {
 }
 type RankItem = { id: string; nome: string; count: number; prevCount: number }
 
-export default function ComoConheceuKPI({ range, comparePrev, refreshKey = 0 }: Props) {
+export default function ComoConheceuKPI({ range, comparePrev, modo, refreshKey = 0 }: Props) {
   const { currentUnit } = useUnit()
   const [items, setItems] = useState<RankItem[]>([])
   const [total, setTotal] = useState(0)
@@ -97,13 +98,11 @@ export default function ComoConheceuKPI({ range, comparePrev, refreshKey = 0 }: 
       // 2. Aggregate por NOME (não por id) — soma duplicatas
       const aggregate = async (from: Date, to: Date): Promise<Map<string, number>> => {
         const counts = new Map<string, number>()
-        const { data, error } = await supabase
+        const base = supabase
           .from('contratos')
           .select('fonte_conhecimento_id, fonte_conhecimento_ids')
           .eq('unidade_id', currentUnit!.id)
-          .in('status', STATUS_REMOVIDO)
-          .gte('data_acolhimento', from.toISOString())
-          .lte('data_acolhimento', to.toISOString())
+        const { data, error } = await filtroModo(base, modo, from, to)
         if (error) { console.error('[ComoConheceuKPI]', error); return counts }
         const rows = (data ?? []) as ContratoRow[]
         for (const row of rows) {
@@ -147,7 +146,7 @@ export default function ComoConheceuKPI({ range, comparePrev, refreshKey = 0 }: 
 
     load()
     return () => { cancelled = true }
-  }, [range.key, range.from.getTime(), range.to.getTime(), comparePrev, currentUnit?.id, mode, refreshKey])
+  }, [range.key, range.from.getTime(), range.to.getTime(), comparePrev, modo, currentUnit?.id, mode, refreshKey])
 
   const max = items[0]?.count ?? 0
 

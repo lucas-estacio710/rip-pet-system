@@ -13,6 +13,7 @@ import {
   formatRangeShort,
   type PeriodKey,
 } from '@/lib/dashboard-period'
+import { type DashboardModo, MODO_STORAGE_KEY } from '@/lib/dashboard-modo'
 
 const TELA = 'tela_dashboards'
 const PERIOD_STORAGE_KEY = 'dashboards.period'
@@ -62,6 +63,7 @@ export default function DashboardsPage() {
   const [customFrom, setCustomFrom] = useState<Date | null>(null)
   const [customTo, setCustomTo] = useState<Date | null>(null)
   const [comparePrev, setComparePrev] = useState(false)
+  const [modo, setModo] = useState<DashboardModo>('remocoes')
 
   // Hidrata do localStorage no client
   useEffect(() => {
@@ -73,8 +75,15 @@ export default function DashboardsPage() {
       setCustomFrom(fromIsoDate(localStorage.getItem(CUSTOM_FROM_KEY)))
       setCustomTo(fromIsoDate(localStorage.getItem(CUSTOM_TO_KEY)))
       setComparePrev(localStorage.getItem(COMPARE_PREV_KEY) === '1')
+      const savedModo = localStorage.getItem(MODO_STORAGE_KEY)
+      if (savedModo === 'contratos' || savedModo === 'remocoes') setModo(savedModo)
     } catch { /* ignora */ }
   }, [])
+
+  function selectModo(m: DashboardModo) {
+    setModo(m)
+    try { localStorage.setItem(MODO_STORAGE_KEY, m) } catch { /* ignora */ }
+  }
 
   function selectPeriod(k: PeriodKey) {
     setPeriodKey(k)
@@ -182,12 +191,36 @@ export default function DashboardsPage() {
           </div>
         )}
 
-        {/* Range + toggle de comparação */}
+        {/* Range + toggle de modo (Remoções/Contratos) + comparação */}
         <div className="flex items-center gap-x-4 gap-y-1 flex-wrap mt-1.5">
           <div className="flex items-center gap-1.5 text-[11px] text-[var(--surface-500)] font-mono">
             <Calendar className="h-3 w-3" />
             {formatRangeShort(range)}
           </div>
+
+          {/* Toggle Remoções ↔ Contratos */}
+          <div className="inline-flex rounded-full border border-[var(--surface-300)] p-0.5 bg-[var(--surface-0)]">
+            {([['remocoes', 'Remoções'], ['contratos', 'Contratos']] as const).map(([key, label]) => {
+              const isActive = modo === key
+              return (
+                <button
+                  key={key}
+                  onClick={() => selectModo(key)}
+                  className="text-[11px] font-medium px-2.5 py-0.5 rounded-full transition-colors"
+                  style={{
+                    background: isActive ? 'var(--brand-500)' : 'transparent',
+                    color: isActive ? '#fff' : 'var(--surface-600)',
+                  }}
+                  title={key === 'remocoes'
+                    ? 'Conta remoções (pet já coletado), por data de acolhimento'
+                    : 'Conta todos os contratos (inclui preventivos), por data do contrato'}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+
           <label className="inline-flex items-center gap-1.5 text-[11px] text-[var(--surface-500)] cursor-pointer select-none">
             <input
               type="checkbox"
@@ -230,7 +263,7 @@ export default function DashboardsPage() {
 
       {/* Conteúdo da aba ativa */}
       {activeTab?.key === 'operacional' ? (
-        <OperacionalTab range={range} comparePrev={comparePrev} />
+        <OperacionalTab range={range} comparePrev={comparePrev} modo={modo} />
       ) : activeTab ? (
         <div className="card p-4 sm:p-6">
           <EmptyState

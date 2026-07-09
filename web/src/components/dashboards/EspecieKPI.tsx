@@ -6,13 +6,13 @@ import AnimatedNumber from './AnimatedNumber'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import { computePreviousRange, type PeriodRange } from '@/lib/dashboard-period'
+import { filtroModo, type DashboardModo } from '@/lib/dashboard-modo'
 
 type Props = {
   range: PeriodRange
   comparePrev: boolean
+  modo: DashboardModo
 }
-
-const STATUS_REMOVIDO = ['ativo', 'pinda', 'retorno', 'pendente', 'finalizado']
 
 type EspKey = 'canina' | 'felina' | 'exotica'
 
@@ -24,7 +24,7 @@ const ESPECIES: { key: EspKey; label: string; color: string; icon: LucideIcon }[
 
 const ZERO: Record<EspKey, number> = { canina: 0, felina: 0, exotica: 0 }
 
-export default function EspecieKPI({ range, comparePrev }: Props) {
+export default function EspecieKPI({ range, comparePrev, modo }: Props) {
   const { currentUnit } = useUnit()
   const [counts, setCounts] = useState<Record<EspKey, number>>(ZERO)
   const [prevCounts, setPrevCounts] = useState<Record<EspKey, number>>(ZERO)
@@ -38,13 +38,11 @@ export default function EspecieKPI({ range, comparePrev }: Props) {
 
     const queryBreakdown = async (from: Date, to: Date): Promise<Record<EspKey, number>> => {
       const acc: Record<EspKey, number> = { ...ZERO }
-      const { data, error } = await supabase
+      const base = supabase
         .from('contratos')
         .select('pet_especie')
         .eq('unidade_id', currentUnit.id)
-        .in('status', STATUS_REMOVIDO)
-        .gte('data_acolhimento', from.toISOString())
-        .lte('data_acolhimento', to.toISOString())
+      const { data, error } = await filtroModo(base, modo, from, to)
       if (error) { console.error('[EspecieKPI]', error); return acc }
       const rows = (data ?? []) as { pet_especie: EspKey | null }[]
       for (const row of rows) {
@@ -65,7 +63,7 @@ export default function EspecieKPI({ range, comparePrev }: Props) {
     })
 
     return () => { cancelled = true }
-  }, [range.key, range.from.getTime(), range.to.getTime(), comparePrev, currentUnit?.id])
+  }, [range.key, range.from.getTime(), range.to.getTime(), comparePrev, modo, currentUnit?.id])
 
   const total = (Object.values(counts) as number[]).reduce((a, b) => a + b, 0)
 
