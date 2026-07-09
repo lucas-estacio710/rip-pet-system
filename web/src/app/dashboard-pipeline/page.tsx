@@ -5,6 +5,7 @@ import { Activity, DollarSign, Building2, Megaphone, BarChart3, Calendar, type L
 import EmptyState from '@/components/ui/EmptyState'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
 import OperacionalTab from '@/components/dashboards/OperacionalTab'
+import FinanceiroTab from '@/components/dashboards/FinanceiroTab'
 import {
   PERIOD_GROUPS,
   DEFAULT_PERIOD,
@@ -264,6 +265,8 @@ export default function DashboardsPage() {
       {/* Conteúdo da aba ativa */}
       {activeTab?.key === 'operacional' ? (
         <OperacionalTab range={range} comparePrev={comparePrev} modo={modo} />
+      ) : activeTab?.key === 'financeiro' ? (
+        <FinanceiroTab range={range} comparePrev={comparePrev} />
       ) : activeTab ? (
         <div className="card p-4 sm:p-6">
           <EmptyState
