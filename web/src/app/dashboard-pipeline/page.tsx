@@ -266,7 +266,7 @@ export default function DashboardsPage() {
       {activeTab?.key === 'operacional' ? (
         <OperacionalTab range={range} comparePrev={comparePrev} modo={modo} />
       ) : activeTab?.key === 'financeiro' ? (
-        <FinanceiroTab range={range} comparePrev={comparePrev} />
+        <FinanceiroTab range={range} comparePrev={comparePrev} modo={modo} />
       ) : activeTab ? (
         <div className="card p-4 sm:p-6">
           <EmptyState
