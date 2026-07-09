@@ -7,6 +7,7 @@ import LocalRemocaoKPI from './LocalRemocaoKPI'
 import EspecieKPI from './EspecieKPI'
 import ComoConheceuKPI from './ComoConheceuKPI'
 import FonteOutroKPI from './FonteOutroKPI'
+import ResponsavelKPI from './ResponsavelKPI'
 import type { PeriodRange } from '@/lib/dashboard-period'
 import type { DashboardModo } from '@/lib/dashboard-modo'
 
@@ -32,6 +33,7 @@ export default function OperacionalTab({ range, comparePrev, modo }: Props) {
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <ComoConheceuKPI range={range} comparePrev={comparePrev} modo={modo} refreshKey={refreshKey} />
         <FonteOutroKPI range={range} onChange={triggerRefresh} />
+        <ResponsavelKPI range={range} comparePrev={comparePrev} modo={modo} />
       </div>
     </div>
   )
