@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { Stethoscope, Search, X, MapPin, ChevronLeft, ChevronRight, LayoutGrid, List, ChevronRight as ArrowR, Pencil, Plus, Check, Loader2 } from 'lucide-react'
+import { Stethoscope, Search, X, MapPin, ChevronLeft, ChevronRight, LayoutGrid, List, ChevronRight as ArrowR, Pencil, Plus, Check, Loader2, Copy } from 'lucide-react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { createClient } from '@/lib/supabase/client'
@@ -785,6 +785,39 @@ type IndicacaoMes = {
 
 const MESES_LONGOS = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 
+// Linha padrão da mensagem de comissão pro vet/hospital:
+// "05/mai - Tutor: Iving De Deus Leite | Pet: Frida | Individual"
+function linhaMensagemIndicacao(i: IndicacaoMes): string {
+  let data = '—'
+  if (i.data_contrato) {
+    const d = new Date(i.data_contrato + 'T00:00:00')
+    const dia = String(d.getDate()).padStart(2, '0')
+    const mes = d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')
+    data = `${dia}/${mes}`
+  }
+  const tipo = i.tipo_cremacao === 'individual' ? 'Individual' : i.tipo_cremacao === 'coletiva' ? 'Coletiva' : '—'
+  return `${data} - Tutor: ${(i.tutor_nome || '—').trim()} | Pet: ${(i.pet_nome || '—').trim()} | ${tipo}`
+}
+
+// Mensagem agrupada da clínica: uma linha por pet, em ordem cronológica
+function mensagemGrupoIndicacao(lista: IndicacaoMes[]): string {
+  return [...lista]
+    .sort((a, b) => (a.data_contrato || '').localeCompare(b.data_contrato || ''))
+    .map(linhaMensagemIndicacao)
+    .join('\n')
+}
+
+async function copiarTexto(texto: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(texto)
+    return true
+  } catch (e) {
+    console.error('Clipboard falhou:', e)
+    alert('Não foi possível copiar. Copie manualmente:\n\n' + texto)
+    return false
+  }
+}
+
 function IndicacoesMesView({ unidadeId, estabsMap, temPadronizacao }: { unidadeId: string; estabsMap: Map<string, string>; temPadronizacao: boolean }) {
   const supabase = createClient()
   const [mesRef, setMesRef] = useState<Date>(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d })
@@ -792,6 +825,14 @@ function IndicacoesMesView({ unidadeId, estabsMap, temPadronizacao }: { unidadeI
   const [loading, setLoading] = useState(true)
   const [fontesMap, setFontesMap] = useState<Map<string, string>>(new Map())
   const [editando, setEditando] = useState<IndicacaoMes | null>(null)
+  const [grupoCopiado, setGrupoCopiado] = useState<string | null>(null)
+
+  async function copiarGrupo(key: string, lista: IndicacaoMes[]) {
+    if (await copiarTexto(mensagemGrupoIndicacao(lista))) {
+      setGrupoCopiado(key)
+      setTimeout(() => setGrupoCopiado(k => (k === key ? null : k)), 1500)
+    }
+  }
 
   // Carrega catálogo de fontes_conhecimento (id → nome) uma vez pra lookup local
   useEffect(() => {
@@ -914,7 +955,18 @@ function IndicacoesMesView({ unidadeId, estabsMap, temPadronizacao }: { unidadeI
                   <Stethoscope className="h-4 w-4 text-cyan-600" />
                   <span className="text-sm font-semibold text-[var(--shell-text)]">{nome}</span>
                 </div>
-                <span className="text-[11px] font-semibold text-cyan-600">{lista.length} pet{lista.length === 1 ? '' : 's'}</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => copiarGrupo(keyEstab, lista)}
+                    title="Copiar mensagem com todos os pets desta clínica"
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold text-cyan-600 hover:bg-cyan-500/15 transition-colors"
+                  >
+                    {grupoCopiado === keyEstab ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                    {grupoCopiado === keyEstab ? 'Copiado!' : 'Copiar msg'}
+                  </button>
+                  <span className="text-[11px] font-semibold text-cyan-600">{lista.length} pet{lista.length === 1 ? '' : 's'}</span>
+                </div>
               </div>
               <div className="overflow-x-auto">
               <table className="w-full min-w-[720px] text-xs">
@@ -1590,6 +1642,14 @@ function LinhaIndicacao({ ind, fontesMap, supabase, podeEditar, onEditar }: {
   const [valor, setValor] = useState<string>(ind.comissao_valor != null ? String(ind.comissao_valor) : '')
   const [paga, setPaga] = useState<boolean>(!!ind.comissao_paga)
   const [salvando, setSalvando] = useState(false)
+  const [copiado, setCopiado] = useState(false)
+
+  async function copiarLinha() {
+    if (await copiarTexto(linhaMensagemIndicacao(ind))) {
+      setCopiado(true)
+      setTimeout(() => setCopiado(false), 1500)
+    }
+  }
 
   const quemIndicou = ind.contato?.nome || ind.indicacao_contato || '—'
   const tipo = ind.tipo_cremacao === 'individual' ? 'IND' : ind.tipo_cremacao === 'coletiva' ? 'COL' : ''
@@ -1650,7 +1710,19 @@ function LinhaIndicacao({ ind, fontesMap, supabase, podeEditar, onEditar }: {
 
   return (
     <tr className={`border-t border-[var(--surface-100)] hover:bg-[var(--surface-50)] ${paga ? 'bg-green-500/5' : ''}`}>
-      <td className="px-3 py-1.5 font-medium text-[var(--shell-text)]">{ind.pet_nome || '—'}</td>
+      <td className="px-3 py-1.5 font-medium text-[var(--shell-text)]">
+        <span className="inline-flex items-center gap-1.5">
+          {ind.pet_nome || '—'}
+          <button
+            type="button"
+            onClick={copiarLinha}
+            title="Copiar mensagem deste pet"
+            className="inline-flex items-center justify-center w-5 h-5 rounded text-[var(--surface-400)] hover:bg-[var(--surface-200)] hover:text-cyan-600 transition-colors"
+          >
+            {copiado ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
+          </button>
+        </span>
+      </td>
       <td className="px-3 py-1.5 text-[var(--surface-600)]">{ind.tutor_nome || '—'}</td>
       <td className="px-3 py-1.5">
         {tipo && (
