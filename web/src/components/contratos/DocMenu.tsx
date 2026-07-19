@@ -13,7 +13,7 @@ type Props = {
   onImprimirFicha: () => void | Promise<void>
   /** Opcional: callback do Protocolo de Entrega. Se omitido junto com hideProtocolo, o item some. */
   onProtocolo?: () => void | Promise<void>
-  /** Esconde o item Protocolo de Entrega (ex: no detalhe do contrato, onde ainda não existe modal) */
+  /** Esconde o item Protocolo de Entrega (pipeline e detalhe usam o mesmo ProtocoloEditorModal) */
   hideProtocolo?: boolean
   /** Loading global do botão (ex: capturando ficha) — desabilita o trigger */
   loading?: boolean

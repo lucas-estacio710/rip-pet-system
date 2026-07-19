@@ -229,7 +229,9 @@ const styles = {
   emptyRow: {
     height: '20px',                   // era 11px — linhas vazias maiores pra preencher melhor o slot
     border: '1px solid #ddd',
-    background: 'repeating-linear-gradient(135deg, transparent, transparent 3px, #d4d4d4 3px, #d4d4d4 4px)',
+    // Sem background: linhas são pra preencher à mão. (O hachurado antigo nunca
+    // aparecia porque o rasterizador velho do html2canvas não pintava
+    // repeating-linear-gradient; o foreignObject pinta fiel e ele surgiu no PDF.)
   },
 }
 
@@ -238,10 +240,10 @@ export default function ProtocoloEntrega({ data, blank, print }: { data?: Protoc
 
   if (!data) return null
 
-  // Em print: a td tem altura fixa (height + line-height controlado) + padding 0; o conteúdo é
-  // envolto em <CellWrap> com flex (centraliza de verdade — html2canvas honra display:flex+
-  // align-items em div interno; ignora vertical-align em td).
-  // Truque: `height: 1px` na td força o filho `height: 100%` a ocupar a célula inteira.
+  // Em print: td com altura MÍNIMA de 22px (height em td = min-height; a linha cresce
+  // se o nome quebrar em 2 linhas) + <CellWrap> flex que centraliza vertical/horizontal.
+  // ⚠️ SEM hacks de deslocamento (top:-4px etc): o PDF usa foreignObjectRendering
+  // (protocolo-pdf.ts), que pinta pelo browser — o que o iframe mostra é o que sai.
   const tdC: React.CSSProperties = print
     ? { ...styles.tdCenter, padding: 0, lineHeight: 1, whiteSpace: 'normal' as const, height: '22px' }
     : styles.tdCenter
@@ -249,7 +251,7 @@ export default function ProtocoloEntrega({ data, blank, print }: { data?: Protoc
     ? { ...styles.tdRight, padding: 0, lineHeight: 1, whiteSpace: 'normal' as const, height: '22px' }
     : styles.tdRight
 
-  // Wrapper interno: flex centralizado vertical/horizontal, ocupando 100% da td.
+  // Wrapper interno: flex centralizado vertical/horizontal.
   // Em modo modal (não print), pass-through.
   const CellWrap = ({ children, align = 'center' }: { children: React.ReactNode; align?: 'center' | 'right' }) => {
     if (!print) return <>{children}</>
@@ -258,27 +260,19 @@ export default function ProtocoloEntrega({ data, blank, print }: { data?: Protoc
         display: 'flex',
         alignItems: 'center',
         justifyContent: align === 'right' ? 'flex-end' : 'center',
-        height: '100%',
         minHeight: '22px',
         lineHeight: 1.2,
-        padding: '0 4px',
+        padding: '3px 4px',
         boxSizing: 'border-box',
       }}>{children}</div>
     )
   }
-  const thC: React.CSSProperties = print
-    ? { ...styles.thCenter, padding: '4px 4px 16px 4px', lineHeight: 1, verticalAlign: 'top' as const }
-    : styles.thCenter
-  const thR: React.CSSProperties = print
-    ? { ...styles.thRight, padding: '4px 4px 16px 4px', lineHeight: 1, verticalAlign: 'top' as const }
-    : styles.thRight
+  const thC: React.CSSProperties = styles.thCenter
+  const thR: React.CSSProperties = styles.thRight
   const checkItemStyle: React.CSSProperties = print
     ? { ...styles.checkItem, lineHeight: 1 }
     : styles.checkItem
-  // Checkbox sobe 2px pra alinhar com o centro visual do label (compensa border + altura)
-  const checkboxStyle: React.CSSProperties = print
-    ? { ...styles.checkbox, position: 'relative', top: '6px' }
-    : styles.checkbox
+  const checkboxStyle: React.CSSProperties = styles.checkbox
 
   const enderecoCompleto = [
     data.tutorEndereco,
@@ -301,11 +295,12 @@ export default function ProtocoloEntrega({ data, blank, print }: { data?: Protoc
       {/* Header */}
       <div style={styles.header}>
         <img src="/rippet_logo_horizontal.png" style={styles.headerLogo} alt="R.I.P. Pet" />
-        <span style={print ? { position: 'relative', top: '-4px', left: '5px' } : undefined}>PROTOCOLO DE ENTREGA</span>
+        <span>PROTOCOLO DE ENTREGA</span>
       </div>
 
-      {/* Info do contrato */}
-      <div style={styles.section}>
+      {/* Info do contrato — .pr-fluid: no PDF (foreignObject) a altura clonada é
+          relaxada pra texto que quebrar diferente empurrar em vez de encavalar */}
+      <div className="pr-fluid" style={styles.section}>
         {/* Tutor — ESTRUTURA IDÊNTICA às outras rows (Pet, Endereço): 2 <div> filhos do styles.row,
             que tem justify-content:space-between. Tutor vai à esquerda, telefone à direita. */}
         <div style={styles.row}>
@@ -380,8 +375,8 @@ export default function ProtocoloEntrega({ data, blank, print }: { data?: Protoc
       </div>
 
       {/* Tabela de Produtos */}
-      <div style={{ padding: '0', flex: 1, display: 'flex', flexDirection: 'column' as const }}>
-        <table style={styles.table}>
+      <div style={{ padding: '0' }}>
+        <table className="pr-fluid" style={styles.table}>
           <thead>
             <tr>
               <th style={{ ...thC, width: '32px' }}>Sit.</th>
@@ -452,16 +447,16 @@ export default function ProtocoloEntrega({ data, blank, print }: { data?: Protoc
         </table>
       </div>
 
-      {/* Totais — sobe 20px na impressão */}
-      <div style={print ? { ...styles.totais, padding: '0 8px 6px 8px', position: 'relative', top: '-20px' } : styles.totais}>
+      {/* Totais — fluxo normal (sem top:-20px: pintura deslocada encavalava com a
+          última linha da tabela quando o cabeçalho crescia). A folga vertical do
+          card vai pro spacer antes da assinatura. */}
+      <div style={styles.totais}>
         <div>Total: {formatarValor(data.totalAPagar)}</div>
         <div style={{ color: temSaldo ? '#dc2626' : '#16a34a' }}>
           Saldo: {temSaldo ? formatarValor(saldoProtocolo) : 'Pago'}
         </div>
       </div>
 
-      {/* Wrapper que sobe 10px todo o bloco após o Total — só no PDF impresso */}
-      <div style={print ? { marginTop: '-10px' } : undefined}>
       {/* Opções de pagamento — operador controla via checkbox no modal (mostrarPagamento) */}
       {data.mostrarPagamento !== false && (
         <div style={print ? { ...styles.pagamento, borderBottom: 'none' } : styles.pagamento}>
@@ -507,6 +502,10 @@ export default function ProtocoloEntrega({ data, blank, print }: { data?: Protoc
         </div>
       </div>
 
+      {/* Spacer: absorve a folga vertical do card (assinatura fica no rodapé) e
+          também absorve crescimento do conteúdo sem nada encavalar/cortar */}
+      {print && <div style={{ flex: 1 }} />}
+
       {/* Assinatura */}
       <div style={styles.assinatura}>
         <div style={styles.textoConfirmacao}>
@@ -519,26 +518,20 @@ export default function ProtocoloEntrega({ data, blank, print }: { data?: Protoc
           Data: ____/____/________
         </div>
       </div>
-      </div>{/* fecha wrapper marginTop:-10 */}
     </div>
   )
 }
 
 /** Protocolo em branco para preencher à mão */
 function ProtocoloEmBranco({ print }: { print?: boolean }) {
-  // Mesmos overrides do preenchido — pra ficarem idênticos no PDF.
-  const thC: React.CSSProperties = print
-    ? { ...styles.thCenter, padding: '4px 4px 16px 4px', lineHeight: 1, verticalAlign: 'top' as const }
-    : styles.thCenter
-  const thR: React.CSSProperties = print
-    ? { ...styles.thRight, padding: '4px 4px 16px 4px', lineHeight: 1, verticalAlign: 'top' as const }
-    : styles.thRight
+  // Mesmos estilos do preenchido — pra ficarem idênticos no PDF (sem hacks de
+  // deslocamento; o PDF pinta via foreignObjectRendering, fiel ao layout real).
+  const thC: React.CSSProperties = styles.thCenter
+  const thR: React.CSSProperties = styles.thRight
   const checkItemStyle: React.CSSProperties = print
     ? { ...styles.checkItem, lineHeight: 1 }
     : styles.checkItem
-  const checkboxStyle: React.CSSProperties = print
-    ? { ...styles.checkbox, position: 'relative', top: '6px' }
-    : styles.checkbox
+  const checkboxStyle: React.CSSProperties = styles.checkbox
   const linhaVazia = { height: '16px', borderBottom: '1px dotted #bbb' }
   // marginBottom 5px — mesmo espaçamento da styles.row (versão preenchida)
   const labelLinha = (label: string) => (
@@ -553,7 +546,7 @@ function ProtocoloEmBranco({ print }: { print?: boolean }) {
       {/* Header */}
       <div style={styles.header}>
         <img src="/rippet_logo_horizontal.png" style={styles.headerLogo} alt="R.I.P. Pet" />
-        <span style={print ? { position: 'relative', top: '-4px', left: '5px' } : undefined}>PROTOCOLO DE ENTREGA</span>
+        <span>PROTOCOLO DE ENTREGA</span>
       </div>
 
       {/* Campos em branco — mesmo padding (8px) da versão preenchida pra alinhar */}
@@ -573,7 +566,7 @@ function ProtocoloEmBranco({ print }: { print?: boolean }) {
       </div>
 
       {/* Tabela de Produtos vazia */}
-      <div style={{ padding: '0', flex: 1, display: 'flex', flexDirection: 'column' as const }}>
+      <div style={{ padding: '0' }}>
         <table style={styles.table}>
           <thead>
             <tr>
@@ -624,6 +617,9 @@ function ProtocoloEmBranco({ print }: { print?: boolean }) {
           </div>
         </div>
       </div>
+
+      {/* Spacer: assinatura no rodapé, sem sobreposição */}
+      {print && <div style={{ flex: 1 }} />}
 
       {/* Assinatura */}
       <div style={styles.assinatura}>

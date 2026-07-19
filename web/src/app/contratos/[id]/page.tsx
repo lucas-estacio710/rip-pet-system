@@ -5,13 +5,12 @@ import FichaRemocao from '@/components/fichas/FichaRemocao'
 import { captureElementAsBlob, fichaFilename, gerarFichaPDFA4Duplicada, nomeFicha } from '@/lib/ficha-generator'
 import EditarFichaModal from '@/components/contratos/modals/EditarFichaModal'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, User, Phone, Mail, MapPin, DollarSign, FileText, X, Search, Plus, Pencil, Trash2, Check, Copy, Package, AlertTriangle, Star, Download, Share2, Receipt, RefreshCw, Award, Clock, CheckCheck, CalendarClock, SearchCheck, Flame, CheckCircle2 } from 'lucide-react'
+import { ArrowLeft, User, Phone, Mail, MapPin, DollarSign, FileText, X, Search, Plus, Pencil, Trash2, Check, Copy, Package, AlertTriangle, Star, Download, Share2, Receipt, Award, Clock, CheckCheck, CalendarClock, SearchCheck, Flame, CheckCircle2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { copyToClipboard } from '@/lib/clipboard'
 import Link from 'next/link'
-import { ProtocoloData, getNomeRetorno, isProtocoloExcluido, montarProtocoloData, normalizarProtocoloData, formatarValor } from '@/components/protocolo/protocolo-utils'
-import ProtocoloEntrega from '@/components/protocolo/ProtocoloEntrega'
-import { printProtocolos } from '@/components/protocolo/ProtocoloPrint'
+import { ProtocoloData, montarProtocoloData, normalizarProtocoloData } from '@/components/protocolo/protocolo-utils'
+import ProtocoloEditorModal from '@/components/protocolo/ProtocoloEditorModal'
 import InteractiveTags from '@/components/contratos/InteractiveTags'
 import ActionButtons from '@/components/contratos/ActionButtons'
 import EntregaModal from '@/components/contratos/modals/EntregaModal'
@@ -4896,284 +4895,37 @@ ${petNome}`
       )}
 
       {/* Modal Protocolo de Entrega (editável) */}
-      {protocoloEdit && (() => {
-        const pe = protocoloEdit
-
-        // Sem recálculo — pe já contém os valores editáveis (totalAPagar, totalPago, saldo, opcoesPagamento)
-        const dadosImpressao = pe
-
-        // Helper para editar um produto
-        const editProd = (idx: number, campo: Partial<ProtocoloData['produtos'][0]>) => {
-          const novosProdutos = [...pe.produtos]
-          novosProdutos[idx] = { ...novosProdutos[idx], ...campo }
-          setProtocoloEdit({ ...pe, produtos: novosProdutos })
-        }
-
-        const removeProd = (idx: number) => {
-          setProtocoloEdit({ ...pe, produtos: pe.produtos.filter((_, i) => i !== idx) })
-        }
-
-        const addProd = () => {
-          setProtocoloEdit({
-            ...pe,
-            produtos: [...pe.produtos, {
-              nome: 'Item avulso',
-              nomeRetorno: '',
-              valor: 0,
-              pago: '',
-              tipo: 'acessorio',
-            }]
-          })
-        }
-
-        return (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2" onClick={() => setProtocoloEdit(null)}>
-            <div className="bg-slate-800 rounded-xl shadow-xl max-w-2xl w-full max-h-[95vh] overflow-auto" onClick={e => e.stopPropagation()}>
-              {/* Header */}
-              <div className="flex items-center justify-between p-3 border-b sticky top-0 bg-slate-800 z-10">
-                <h3 className="text-base font-semibold text-slate-200">📄 Protocolo de Entrega</h3>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={async () => {
-                      if (!contrato) return
-                      setSalvandoProtocolo(true)
-                      const { error } = await supabase
-                        .from('contratos')
-                        .update({ protocolo_data: dadosImpressao } as never)
-                        .eq('id', contrato.id)
-                      if (!error) {
-                        setContrato({ ...contrato, protocolo_data: dadosImpressao })
-                        setSalvandoProtocolo(false)
-                        setProtocoloEdit(null)
-                      } else {
-                        alert('Erro ao salvar protocolo: ' + error.message)
-                        setSalvandoProtocolo(false)
-                      }
-                    }}
-                    disabled={salvandoProtocolo}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm disabled:opacity-50"
-                  >
-                    <Check className="h-4 w-4" />
-                    {salvandoProtocolo ? 'Salvando...' : 'Salvar'}
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (!confirm('Regenerar protocolo do zero? As edições atuais serão perdidas.')) return
-                      const cpProdutos = contratoProdutos.map(cp => ({
-                        valor: cp.valor,
-                        produto: cp.produto ? { nome: cp.produto.nome, tipo: cp.produto.tipo, preco: cp.produto.preco } : null,
-                      }))
-                      const financeiro = calcFinanceiroProtocolo(contrato, pagamentos)
-                      setProtocoloEdit(montarProtocoloData(contrato, cpProdutos, financeiro))
-                    }}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors text-sm"
-                    title="Regenerar do zero (descarta edições)"
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                    Regenerar
-                  </button>
-                  <button
-                    onClick={() => printProtocolos([dadosImpressao])}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors text-sm"
-                  >
-                    <FileText className="h-4 w-4" />
-                    Imprimir
-                  </button>
-                  <button onClick={() => setProtocoloEdit(null)} className="text-slate-400 hover:text-slate-200">
-                    <X className="h-5 w-5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Editor */}
-              <div className="p-3 space-y-3">
-                {/* Tabela editável de produtos */}
-                <div>
-                  <div className="text-xs font-semibold text-slate-400 uppercase mb-1">Produtos</div>
-                  <table className="w-full text-sm border-collapse">
-                    <thead>
-                      <tr className="bg-slate-700/50 text-xs text-slate-400 uppercase">
-                        <th className="p-1.5 text-center w-14 border">Sit.</th>
-                        <th className="p-1.5 text-left border">Nome (no protocolo)</th>
-                        <th className="p-1.5 text-right w-24 border">Valor</th>
-                        <th className="p-1.5 w-8 border"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pe.produtos.map((prod, idx) => (
-                        <tr key={idx} className="border-b hover:bg-slate-700">
-                          <td className="p-1 text-center border">
-                            <button
-                              onClick={() => {
-                                const next = prod.pago === 'ok' ? 'pend' : prod.pago === 'pend' ? '' : 'ok'
-                                editProd(idx, { pago: next })
-                              }}
-                              className={`px-1.5 py-0.5 rounded text-xs font-bold min-w-[38px] ${
-                                prod.pago === 'ok'
-                                  ? 'bg-green-900/40 text-green-400 hover:bg-green-200'
-                                  : prod.pago === 'pend'
-                                  ? 'bg-red-900/40 text-red-400 hover:bg-red-900/50'
-                                  : 'bg-slate-600/40 text-slate-400 hover:bg-slate-600'
-                              }`}
-                            >
-                              {prod.pago === 'ok' ? 'Ok' : prod.pago === 'pend' ? 'Pend' : '—'}
-                            </button>
-                          </td>
-                          <td className="p-1 border">
-                            <input
-                              type="text"
-                              value={prod.nomeRetorno}
-                              onChange={e => editProd(idx, { nomeRetorno: e.target.value })}
-                              className="w-full bg-transparent border-0 p-0.5 text-sm focus:outline-none focus:bg-blue-900/30 rounded"
-                            />
-                          </td>
-                          <td className="p-1 border">
-                            <input
-                              type="text"
-                              value={prod.valorDisplay !== undefined ? prod.valorDisplay : (prod.valor || '')}
-                              onChange={e => {
-                                const raw = e.target.value
-                                const num = parseFloat(raw.replace(',', '.'))
-                                if (!isNaN(num) && /^[\d.,]+$/.test(raw.trim())) {
-                                  // É número puro
-                                  editProd(idx, { valor: num, valorDisplay: undefined })
-                                } else {
-                                  // É texto livre (ex: "Incluso", "Cortesia Vet")
-                                  editProd(idx, { valor: 0, valorDisplay: raw })
-                                }
-                              }}
-                              className="w-full bg-transparent border-0 p-0.5 text-sm text-right focus:outline-none focus:bg-blue-900/30 rounded"
-                              placeholder="0"
-                            />
-                          </td>
-                          <td className="p-1 border text-center">
-                            <button
-                              onClick={() => removeProd(idx)}
-                              className="text-slate-300 hover:text-red-500 transition-colors"
-                              title="Remover"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {/* Soma real-time dos itens + botão adicionar */}
-                  <div className="flex items-center justify-between mt-1.5">
-                    <button
-                      onClick={addProd}
-                      className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 hover:bg-blue-900/30 px-2 py-1 rounded transition-colors"
-                    >
-                      <Plus className="h-3.5 w-3.5" /> Adicionar item
-                    </button>
-                    <div className="text-xs font-mono text-gray-500 pr-10">
-                      Soma itens: <span className="font-bold text-gray-800">{formatarValor(pe.produtos.reduce((acc, p) => acc + (p.valor || 0), 0))}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Resumo financeiro (editável) */}
-                {(() => {
-                  const somaItens = Math.round(pe.produtos.reduce((acc, p) => acc + (p.valor || 0), 0) * 100) / 100
-                  const batendo = Math.abs((pe.totalPago + pe.saldo) - somaItens) < 0.01
-                  return (
-                    <div className={`flex items-center justify-between text-sm rounded-lg p-2 gap-2 border ${batendo ? 'bg-slate-700/50 border-transparent' : 'bg-red-900/20 border-red-500/40'}`}>
-                      <div className="flex flex-col">
-                        <span className="text-slate-400 text-xs">Total</span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={pe.totalAPagar}
-                          onChange={e => setProtocoloEdit({ ...pe, totalAPagar: parseFloat(e.target.value) || 0 })}
-                          className="w-24 bg-slate-600/50 border border-slate-500 rounded px-1.5 py-0.5 text-sm font-bold text-right focus:outline-none focus:border-blue-400"
-                        />
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-slate-400 text-xs">Pago</span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={pe.totalPago}
-                          onChange={e => setProtocoloEdit({ ...pe, totalPago: parseFloat(e.target.value) || 0 })}
-                          className="w-24 bg-slate-600/50 border border-slate-500 rounded px-1.5 py-0.5 text-sm font-bold text-green-400 text-right focus:outline-none focus:border-blue-400"
-                        />
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-slate-400 text-xs">Saldo</span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={pe.saldo}
-                          onChange={e => setProtocoloEdit({ ...pe, saldo: parseFloat(e.target.value) || 0 })}
-                          className={`w-24 bg-slate-600/50 border border-slate-500 rounded px-1.5 py-0.5 text-sm font-bold text-right focus:outline-none focus:border-blue-400 ${pe.saldo > 0 ? 'text-red-400' : 'text-green-400'}`}
-                        />
-                      </div>
-                      <div className="flex flex-col items-center justify-center" title={batendo ? 'Pago + Saldo = Soma Itens ✓' : `Soma itens: ${somaItens.toFixed(2)} | P+S: ${(pe.totalPago + pe.saldo).toFixed(2)}`}>
-                        <span className="text-[10px] text-slate-500">P+S=Σ</span>
-                        <span className={`text-sm ${batendo ? 'text-green-400' : 'text-red-400 animate-pulse'}`}>{batendo ? '✓' : '✗'}</span>
-                      </div>
-                    </div>
-                  )
-                })()}
-
-                {/* Toggle + Opções de pagamento (editáveis) */}
-                <div className="space-y-2">
-                  <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={pe.mostrarPagamento !== false}
-                      onChange={e => setProtocoloEdit({ ...pe, mostrarPagamento: e.target.checked })}
-                      className="rounded"
-                    />
-                    Mostrar opções de pagamento no protocolo
-                  </label>
-                  {pe.mostrarPagamento !== false && (
-                    <div className="flex gap-2 text-xs">
-                      <div className="flex-1 bg-slate-700/50 rounded p-2 text-center">
-                        <div className="text-slate-400 uppercase text-[10px]">Pix/Dinheiro</div>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={pe.opcoesPagamento.pix}
-                          onChange={e => setProtocoloEdit({ ...pe, opcoesPagamento: { ...pe.opcoesPagamento, pix: parseFloat(e.target.value) || 0 } })}
-                          className="w-full bg-slate-600/50 border border-slate-500 rounded px-1 py-0.5 text-sm font-bold text-center focus:outline-none focus:border-blue-400"
-                        />
-                      </div>
-                      <div className="flex-1 bg-slate-700/50 rounded p-2 text-center">
-                        <div className="text-slate-400 uppercase text-[10px]">1-6x cartão</div>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={pe.opcoesPagamento.parcelado6}
-                          onChange={e => setProtocoloEdit({ ...pe, opcoesPagamento: { ...pe.opcoesPagamento, parcelado6: parseFloat(e.target.value) || 0 } })}
-                          className="w-full bg-slate-600/50 border border-slate-500 rounded px-1 py-0.5 text-sm font-bold text-center focus:outline-none focus:border-blue-400"
-                        />
-                      </div>
-                      <div className="flex-1 bg-slate-700/50 rounded p-2 text-center">
-                        <div className="text-slate-400 uppercase text-[10px]">7-12x cartão</div>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={pe.opcoesPagamento.parcelado12}
-                          onChange={e => setProtocoloEdit({ ...pe, opcoesPagamento: { ...pe.opcoesPagamento, parcelado12: parseFloat(e.target.value) || 0 } })}
-                          className="w-full bg-slate-600/50 border border-slate-500 rounded px-1 py-0.5 text-sm font-bold text-center focus:outline-none focus:border-blue-400"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Separador */}
-                <div className="border-t pt-3">
-                  <div className="text-xs font-semibold text-slate-400 uppercase mb-2">Preview</div>
-                  <ProtocoloEntrega data={dadosImpressao} />
-                </div>
-              </div>
-            </div>
-          </div>
-        )
-      })()}
+      {protocoloEdit && contrato && (
+        <ProtocoloEditorModal
+          data={protocoloEdit}
+          onChange={setProtocoloEdit}
+          salvando={salvandoProtocolo}
+          onSave={async () => {
+            setSalvandoProtocolo(true)
+            const { error } = await supabase
+              .from('contratos')
+              .update({ protocolo_data: protocoloEdit } as never)
+              .eq('id', contrato.id)
+            if (!error) {
+              setContrato({ ...contrato, protocolo_data: protocoloEdit })
+              setSalvandoProtocolo(false)
+              setProtocoloEdit(null)
+            } else {
+              alert('Erro ao salvar protocolo: ' + error.message)
+              setSalvandoProtocolo(false)
+            }
+          }}
+          onRegenerate={() => {
+            const cpProdutos = contratoProdutos.map(cp => ({
+              valor: cp.valor,
+              produto: cp.produto ? { nome: cp.produto.nome, tipo: cp.produto.tipo, preco: cp.produto.preco } : null,
+            }))
+            const financeiro = calcFinanceiroProtocolo(contrato, pagamentos)
+            setProtocoloEdit(montarProtocoloData(contrato, cpProdutos, financeiro))
+          }}
+          onClose={() => setProtocoloEdit(null)}
+        />
+      )}
 
       {/* Modal Compartilhar */}
       {compartilharModal && contrato && (
