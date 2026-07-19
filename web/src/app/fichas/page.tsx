@@ -501,7 +501,7 @@ export default function FichasPage() {
     const codigo = String(op.codigo || '')
     let msg = `📄 *Contrato Preventivo${codigo ? ` — ${codigo}` : ''}*\n`
     msg += `*Pet:* ${ficha.nome_pet?.toUpperCase() || '-'}${ficha.cremacao ? ` | *Cremação:* ${ficha.cremacao}` : ''}\n\n`
-    msg += `Por favor, confira com atenção os dados e as condições do contrato enviado acima.\n\n`
+    msg += `Por favor, confira com atenção os dados e as condições do contrato enviado anexo.\n\n`
     msg += `Estando tudo certo, nos responda com o seu *"De acordo"*`
     return msg
   }

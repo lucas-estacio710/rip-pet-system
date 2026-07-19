@@ -1575,7 +1575,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                 const codigoDa = String(op.codigo || codigo || '')
                 let msg = `📄 *Contrato Preventivo${codigoDa ? ` — ${codigoDa}` : ''}*\n`
                 msg += `*Pet:* ${ficha.nome_pet?.toUpperCase() || '-'}${ficha.cremacao ? ` | *Cremação:* ${ficha.cremacao}` : ''}\n\n`
-                msg += `Por favor, confira com atenção os dados e as condições do contrato enviado acima.\n\n`
+                msg += `Por favor, confira com atenção os dados e as condições do contrato enviado anexo.\n\n`
                 msg += `Estando tudo certo, nos responda com o seu *"De acordo"*`
                 window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`, '_blank')
               }}
