@@ -378,8 +378,8 @@ export default function FichasPage() {
     msg += `\n*- DADOS DA ${isPreventivo ? 'CONTRATAÇÃO PREVENTIVA' : 'CREMAÇÃO'}:*\n`
     // Valor só é definido no processamento — em ficha recebida (sem valor) some da msg
     msg += `*Cremação Escolhida:* ${cremacao}${valor ? ` | *Valor:* ${valor}` : ''}\n`
+    if (ficha.pagamento) msg += `*Forma de Pagamento:* ${pagamento}${ficha.parcelas ? ` ${ficha.parcelas}` : ''}\n`
     if (!isPreventivo) {
-      msg += `*Forma de Pagamento:* ${pagamento}${ficha.parcelas ? ` ${ficha.parcelas}` : ''}\n`
       msg += `*Velório:* ${velorio}\n`
       msg += `*Acompanhamento da Cremação:* ${acompanhamento}\n`
     }

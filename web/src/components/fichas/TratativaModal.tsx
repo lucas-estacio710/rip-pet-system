@@ -1350,7 +1350,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                   )}
                 </div>
               )}
-              {!isPreventivo && (
+              {!!fichaAtual?.pagamento && (
               <p className="text-xs text-[var(--surface-600)]">
                 <strong>Pagamento:</strong> {formatarDisplay(fichaAtual?.pagamento)}
                 {fichaAtual?.pagamento === 'Cartão Crédito' && (
@@ -1464,8 +1464,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               }
               msg += `\n*- DADOS DA ${isPreventivo ? 'CONTRATAÇÃO PREVENTIVA' : 'CREMAÇÃO'}:*\n`
               msg += `*Cremação Escolhida:* ${cremacao} | *Valor:* ${valor || '-'}\n`
+              if (ficha.pagamento) msg += `*Forma de Pagamento:* ${formatarDisplay(ficha.pagamento)}${ficha.parcelas ? ` ${ficha.parcelas}` : ''}\n`
               if (!isPreventivo) {
-                msg += `*Forma de Pagamento:* ${formatarDisplay(ficha.pagamento)}${ficha.parcelas ? ` ${ficha.parcelas}` : ''}\n`
                 msg += `*Velório:* ${ficha.velorio}\n`
                 msg += `*Acompanhamento da Cremação:* ${ficha.acompanhamento}\n`
               }

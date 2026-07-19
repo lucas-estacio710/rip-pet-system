@@ -295,6 +295,12 @@ export async function gerarContratoPvPDF(dados: DadosContrato, nomeUnidade: stri
   if (dados.descricaoContrato && dados.descricaoContrato.trim()) {
     paragraph(dados.descricaoContrato.trim(), { boldPrefix: 'Detalhamento do plano: ', spaceAfter: 1.2 })
   }
+  // Forma de pagamento escolhida pelo tutor na ficha PV (quando informada)
+  if (dados.metodoPagamento) {
+    const pgMap: Record<string, string> = { pix: 'Pix', dinheiro: 'Dinheiro', debito: 'Cartão de Débito', credito: 'Cartão de Crédito' }
+    const pgDisplay = pgMap[dados.metodoPagamento.toLowerCase()] || dados.metodoPagamento
+    paragraph(`${pgDisplay}${dados.parcelas && dados.parcelas > 1 ? ` em ${dados.parcelas}x` : ''}.`, { boldPrefix: 'Forma de pagamento: ', spaceAfter: 1.2 })
+  }
 
   // ═══════════════ CLÁUSULA 3 ═══════════════
   heading('CLÁUSULA 3 - DOS SERVIÇOS')

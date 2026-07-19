@@ -402,12 +402,13 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
       if (!form.cor.trim()) errs.cor = 'Obrigatório'
       if (!form.peso.trim()) errs.peso = 'Obrigatório'
       if (!form.cremacao) errs.cremacao = 'Selecione o tipo'
+      // Pagamento vale pra EM e PV (decisão 19/07: PV também escolhe forma + parcelas)
+      if (!form.pagamento) errs.pagamento = 'Obrigatório'
+      if (form.pagamento === 'credito' && !form.parcelas) errs.parcelas = 'Obrigatório'
       // Campos de óbito/remoção — não se aplicam ao preventivo (pet vivo)
       if (!modoPreventivo) {
         if (!form.localizacao) errs.localizacao = 'Obrigatório'
         if ((form.localizacao === 'Outro' || form.localizacao === 'Hospital/Clínica Veterinária') && !form.localizacaoOutra.trim()) errs.localizacaoOutra = 'Especifique'
-        if (!form.pagamento) errs.pagamento = 'Obrigatório'
-        if (form.pagamento === 'credito' && !form.parcelas) errs.parcelas = 'Obrigatório'
         if (!form.velorio) errs.velorio = 'Obrigatório'
         if (!form.acompanhamento) errs.acompanhamento = 'Obrigatório'
       }
@@ -491,12 +492,13 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
       cor: form.cor,
       peso: form.peso ? (form.pesoUnidade === 'g' ? (parseInt(form.peso, 10) / 1000).toString() : form.peso) : null,
       // Campos de óbito/remoção ficam vazios no preventivo (pet vivo).
-      // localizacao/pagamento/velorio/acompanhamento são NOT NULL → usar '' (não null).
+      // localizacao/velorio/acompanhamento são NOT NULL → usar '' (não null).
+      // Pagamento é coletado nos DOIS modos (PV também escolhe forma + parcelas).
       localizacao: modoPreventivo ? '' : form.localizacao,
       localizacao_outra: modoPreventivo ? null : (form.localizacaoOutra || null),
       cremacao: capitalize(form.cremacao),
-      pagamento: modoPreventivo ? '' : (pagamentoMap[form.pagamento] || form.pagamento),
-      parcelas: modoPreventivo ? null : (form.parcelas || null),
+      pagamento: pagamentoMap[form.pagamento] || form.pagamento,
+      parcelas: form.parcelas || null,
       velorio: modoPreventivo ? '' : form.velorio,
       acompanhamento: modoPreventivo ? '' : form.acompanhamento,
       // Extras
@@ -990,9 +992,7 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
                 {errors.cremacao && <p className={errorClass}>{errors.cremacao}</p>}
               </div>
 
-              {/* Pagamento + Velório + Acompanhamento (óbito — ocultos no preventivo) */}
-              {!modoPreventivo && (<>
-              {/* Pagamento */}
+              {/* Pagamento — EM e PV (PV também escolhe forma + parcelas) */}
               <div>
                 <label className={labelClass}>Forma de Pagamento <span className="text-red-400">*</span></label>
                 <div className="grid grid-cols-2 gap-2">
@@ -1020,6 +1020,8 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
                 )}
               </div>
 
+              {/* Velório + Acompanhamento (óbito — ocultos no preventivo) */}
+              {!modoPreventivo && (<>
               {/* Velório */}
               <div>
                 <label className={labelClass}>Velório presencial em {config.cidade}? <span className="text-red-400">*</span></label>
@@ -1103,7 +1105,7 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
                   <p className="text-sm"><span className="font-medium text-slate-600">Peso:</span> <span className="text-slate-800">{form.peso} {form.pesoUnidade}</span></p>
                   {!modoPreventivo && <p className="text-sm"><span className="font-medium text-slate-600">Local:</span> <span className="text-slate-800">{form.localizacao}{form.localizacaoOutra ? ` (${form.localizacaoOutra})` : ''}</span></p>}
                   <p className="text-sm"><span className="font-medium text-slate-600">Cremação:</span> <span className="text-slate-800 capitalize">{form.cremacao}</span></p>
-                  {!modoPreventivo && <p className="text-sm"><span className="font-medium text-slate-600">Pagamento:</span> <span className="text-slate-800">{form.pagamento === 'pix' ? 'Pix' : form.pagamento === 'dinheiro' ? 'Dinheiro' : form.pagamento === 'debito' ? 'Cartão de Débito' : `Cartão de Crédito ${form.parcelas}`}</span></p>}
+                  <p className="text-sm"><span className="font-medium text-slate-600">Pagamento:</span> <span className="text-slate-800">{form.pagamento === 'pix' ? 'Pix' : form.pagamento === 'dinheiro' ? 'Dinheiro' : form.pagamento === 'debito' ? 'Cartão de Débito' : `Cartão de Crédito ${form.parcelas}`}</span></p>
                   {!modoPreventivo && <p className="text-sm"><span className="font-medium text-slate-600">Velório:</span> <span className="text-slate-800">{form.velorio}</span></p>}
                   {!modoPreventivo && <p className="text-sm"><span className="font-medium text-slate-600">Acompanhamento:</span> <span className="text-slate-800">{form.acompanhamento}</span></p>}
                 </div>
