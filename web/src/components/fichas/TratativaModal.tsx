@@ -1561,6 +1561,32 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
             Gerar Contrato PDF
           </button>
 
+          {/* DA — pede o De Acordo do contrato PV (aceite eletrônico).
+              ⚠️ Existe cópia em fichas/page.tsx (montarMsgDeAcordo) — manter em sincronia. */}
+          {isPreventivo && (
+            <button
+              type="button"
+              onClick={() => {
+                if (!ficha) return
+                const op = (ficha.op_dados || {}) as Record<string, unknown>
+                const tel = (op.usarTelefone2ComoPrincipal && op.telefone2)
+                  ? String(op.telefone2).replace(/\D/g, '')
+                  : ficha.telefone?.replace(/\D/g, '') || ''
+                const codigoDa = String(op.codigo || codigo || '')
+                let msg = `📄 *Contrato Preventivo${codigoDa ? ` — ${codigoDa}` : ''}*\n`
+                msg += `*Pet:* ${ficha.nome_pet?.toUpperCase() || '-'}${ficha.cremacao ? ` | *Cremação:* ${ficha.cremacao}` : ''}\n\n`
+                msg += `Por favor, confira com atenção os dados e as condições do contrato enviado acima.\n\n`
+                msg += `Estando tudo certo, responda com o seu *"DE ACORDO"* — em seguida enviaremos o link de pagamento para concluir a contratação. ✅\n\n`
+                msg += `_O aceite eletrônico ("De Acordo" + pagamento) tem validade de assinatura, conforme previsto no contrato._`
+                window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`, '_blank')
+              }}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-emerald-600 text-white font-semibold text-sm hover:bg-emerald-700 transition-colors"
+            >
+              <img src="/wts-icon.png" alt="WhatsApp" className="h-5 w-5 object-contain" />
+              DA — Pedir &quot;De Acordo&quot;
+            </button>
+          )}
+
           </>)}
 
           {/* Campos provisórios — editáveis (só processadas) */}

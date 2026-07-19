@@ -494,6 +494,25 @@ export default function FichasPage() {
     window.open(`https://wa.me/${tel}?text=${msg}`, '_blank')
   }
 
+  // Mensagem "DA" — pede o De Acordo do contrato PV (aceite eletrônico).
+  // ⚠️ Existe cópia no TratativaModal (botão DA) — manter em sincronia.
+  function montarMsgDeAcordo(ficha: Ficha): string {
+    const op = (ficha.op_dados || {}) as Record<string, unknown>
+    const codigo = String(op.codigo || '')
+    let msg = `📄 *Contrato Preventivo${codigo ? ` — ${codigo}` : ''}*\n`
+    msg += `*Pet:* ${ficha.nome_pet?.toUpperCase() || '-'}${ficha.cremacao ? ` | *Cremação:* ${ficha.cremacao}` : ''}\n\n`
+    msg += `Por favor, confira com atenção os dados e as condições do contrato enviado acima.\n\n`
+    msg += `Estando tudo certo, responda com o seu *"DE ACORDO"* — em seguida enviaremos o link de pagamento para concluir a contratação. ✅\n\n`
+    msg += `_O aceite eletrônico ("De Acordo" + pagamento) tem validade de assinatura, conforme previsto no contrato._`
+    return msg
+  }
+
+  function abrirWhatsAppDeAcordo(ficha: Ficha) {
+    const tel = getTelefoneAtuante(ficha)
+    const msg = encodeURIComponent(montarMsgDeAcordo(ficha))
+    window.open(`https://wa.me/${tel}?text=${msg}`, '_blank')
+  }
+
   // ============================================
   // Render
   // ============================================
@@ -916,6 +935,13 @@ export default function FichasPage() {
                           <button onClick={(e) => { e.stopPropagation(); gerarPdfFicha(ficha) }}
                             className="flex items-center justify-center w-8 h-8 rounded-full hover:opacity-80 transition-opacity" title="PDF">
                             <img src="/pdf-icon.png" alt="PDF" className="w-7 h-7 object-contain" />
+                          </button>
+                        )}
+                        {ficha.op_dados && ficha.tipo_plano === 'preventivo' && (
+                          <button onClick={(e) => { e.stopPropagation(); abrirWhatsAppDeAcordo(ficha) }}
+                            className="flex items-center justify-center w-8 h-8 rounded-full border border-emerald-500/40 text-emerald-500 hover:bg-emerald-500/10 transition-colors text-[10px] font-bold"
+                            title='Pedir "De Acordo" do contrato PV'>
+                            DA
                           </button>
                         )}
                         <button onClick={() => setFichaModal(ficha)}
