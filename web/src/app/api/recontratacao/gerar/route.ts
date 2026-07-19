@@ -18,8 +18,11 @@ export async function POST(request: NextRequest) {
     const { data: { user } } = await supabaseAdmin.auth.getUser(accessToken)
     if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
 
-    const { tutorId } = await request.json()
+    const { tutorId, tipo } = await request.json()
     if (!tutorId) return NextResponse.json({ error: 'tutorId é obrigatório' }, { status: 400 })
+    // tipo escolhe a ficha pública de destino: emergencial (/ficha) ou preventivo (/preventivo).
+    // Mesmo token/slug nos dois casos — o FichaForm trata ?rt= igualmente em ambos os modos.
+    const tipoPlano = tipo === 'preventivo' ? 'preventivo' : 'emergencial'
 
     // Tutor → unidade → slug
     const { data: tutor } = await supabaseAdmin
@@ -43,9 +46,10 @@ export async function POST(request: NextRequest) {
 
     const token = gerarTokenRecontratacao(tutor.id, unidade.slug)
     const origin = process.env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin
-    const url = `${origin}/ficha/${unidade.slug}?rt=${token}`
+    const path = tipoPlano === 'preventivo' ? 'preventivo' : 'ficha'
+    const url = `${origin}/${path}/${unidade.slug}?rt=${token}`
 
-    return NextResponse.json({ url, slug: unidade.slug })
+    return NextResponse.json({ url, slug: unidade.slug, tipo: tipoPlano })
   } catch (e) {
     console.error('Erro ao gerar link de recontratação:', e)
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 })
