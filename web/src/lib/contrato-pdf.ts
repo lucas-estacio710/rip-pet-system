@@ -53,6 +53,12 @@ export type DadosContrato = {
   descontoAcessorios?: number | null
   /** Ajuste manual sobre o desconto de acessórios. */
   descontoAcessoriosAjuste?: number | null
+  /** Chaveia o template: 'preventivo' gera o contrato PV (contrato-pv-pdf.ts, desenhado 100% via código). Ausente/emergencial = template overlay padrão. */
+  tipoPlano?: 'emergencial' | 'preventivo' | null
+  /** Data do contrato (YYYY-MM-DD) — usada na linha de data do contrato PV (o emergencial usa dataAcolhimento). */
+  dataContrato?: string | null
+  /** Só no contrato PV: imprime o bloco de campos de assinatura. Default false — aceite digital ("De Acordo" via WhatsApp). Persistido em op_dados.camposAssinatura. */
+  assinaturaCampos?: boolean | null
 }
 
 const UNIDADES: Record<string, DadosUnidade> = {
@@ -163,6 +169,11 @@ function fmtTel(t: string | null): string {
 }
 
 export async function gerarContratoPDF(dados: DadosContrato, nomeUnidade: string): Promise<Blob> {
+  // Contrato PREVENTIVO tem documento próprio (texto de cláusulas, sem template de fundo)
+  if (dados.tipoPlano === 'preventivo') {
+    const { gerarContratoPvPDF } = await import('./contrato-pv-pdf')
+    return gerarContratoPvPDF(dados, nomeUnidade)
+  }
   // Carregar template PDF
   // Template por unidade: PA e RS usam template específico
   const u = getUnidade(nomeUnidade)

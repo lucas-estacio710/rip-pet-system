@@ -19,13 +19,14 @@ export async function baixarContratoPDF(supabase: SupabaseClient, contratoId: st
   if (!full) throw new Error('Contrato não encontrado')
 
   // Forma de pagamento e parcelas vêm da FICHA (opção do tutor), não da tabela pagamentos.
+  // op_dados traz o toggle camposAssinatura (PV) definido no processamento.
   const { data: ficha } = await supabase
     .from('fichas')
-    .select('pagamento, parcelas')
+    .select('pagamento, parcelas, op_dados')
     .eq('contrato_id', contratoId)
     .order('created_at', { ascending: true })
     .limit(1)
-  const fi = ((ficha as { pagamento: string | null; parcelas: string | null }[] | null) || [])[0] || null
+  const fi = ((ficha as { pagamento: string | null; parcelas: string | null; op_dados: Record<string, unknown> | null }[] | null) || [])[0] || null
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const f: any = full
@@ -81,6 +82,9 @@ export async function baixarContratoPDF(supabase: SupabaseClient, contratoId: st
     descontoPlanoUnificado: f.desconto_plano_unificado ?? null,
     descontoAcessorios: f.desconto_acessorios ?? null,
     descontoAcessoriosAjuste: f.desconto_acessorios_ajuste ?? null,
+    tipoPlano: f.tipo_plano ?? null,
+    dataContrato: f.data_contrato ?? null,
+    assinaturaCampos: !!(fi?.op_dados as Record<string, unknown> | null)?.camposAssinatura,
   }, nomeUnidade)
 
   // Download

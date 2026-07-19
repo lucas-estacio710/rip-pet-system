@@ -224,7 +224,7 @@ function Conteudo() {
       const ids = Array.from(selecoes.keys())
       const { data: full, error } = await supabase
         .from('contratos')
-        .select('*, tutor:tutores(*), funcionario:funcionarios(nome), estabelecimento_coleta:estabelecimentos!contratos_estabelecimento_id_fkey(nome), contrato_produtos(*, produto:produtos(*)), pagamentos(*)')
+        .select('*, tutor:tutores(*), funcionario:funcionarios(nome), estabelecimento_coleta:estabelecimentos!contratos_estabelecimento_id_fkey(nome), contrato_produtos(*, produto:produtos(*)), pagamentos(*), fichas(op_dados)')
         .in('id', ids)
       if (error || !full) throw new Error(error?.message || 'Erro ao carregar contratos')
 
@@ -712,6 +712,10 @@ function mapToContratoDados(c: any): DadosContrato {
     velorioDeseja: c.velorio_deseja ?? null,
     acompanhamentoOnline: c.acompanhamento_online ?? false,
     acompanhamentoPresencial: c.acompanhamento_presencial ?? false,
+    tipoPlano: c.tipo_plano ?? null,
+    dataContrato: c.data_contrato ?? null,
+    descricaoContrato: c.descricao_contrato ?? null,
+    assinaturaCampos: !!c.fichas?.[0]?.op_dados?.camposAssinatura,
   } as DadosContrato
 }
 

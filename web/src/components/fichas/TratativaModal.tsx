@@ -336,6 +336,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   const [valorPlano, setValorPlano] = useState('')
   const [descontoPreVenda, setDescontoPreVenda] = useState('')
   const [descontoTipo, setDescontoTipo] = useState<'valor' | 'percentual'>('valor')
+  const [detalhamentoPlano, setDetalhamentoPlano] = useState('')
+  const [camposAssinatura, setCamposAssinatura] = useState(false) // PV: bloco de assinatura no PDF (default Não = aceite digital)
   const [temSeguradora, setTemSeguradora] = useState(false)
   const [seguradoraNome, setSeguradoraNome] = useState('')
   const [localColeta, setLocalColeta] = useState<'residencia' | 'clinica' | 'unidade' | 'outro' | ''>('')
@@ -564,6 +566,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       if (op.valorPlano) setValorPlano(String(op.valorPlano))
       if (op.descontoPreVenda) setDescontoPreVenda(String(op.descontoPreVenda))
       if (op.descontoTipo) setDescontoTipo(op.descontoTipo as 'valor' | 'percentual')
+      if (op.detalhamentoPlano) setDetalhamentoPlano(String(op.detalhamentoPlano))
+      if (op.camposAssinatura) setCamposAssinatura(true)
       if (op.temSeguradora) setTemSeguradora(true)
       if (op.seguradoraNome) setSeguradoraNome(String(op.seguradoraNome))
       if (op.dataContrato) setDataContrato(String(op.dataContrato))
@@ -723,6 +727,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         valorPlano: valorPlano || null,
         descontoPreVenda: descontoPreVenda || null,
         descontoTipo,
+        detalhamentoPlano: detalhamentoPlano.trim() || null,
+        camposAssinatura,
         temSeguradora,
         seguradoraNome: seguradoraNome.trim() || null,
         dataContrato,
@@ -946,6 +952,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         numero_lacre: lacre || null,
         seguradora: temSeguradora && seguradoraNome.trim() ? seguradoraNome.trim() : null,
         observacoes: f.observacoes || null,
+        descricao_contrato: detalhamentoPlano.trim() || null,
         certificado_nome_1: f.nome_completo || null,
         ...(f.outros_tutores ? Object.fromEntries(
           f.outros_tutores.filter(Boolean).slice(0, 6).map((nome, i) => [`certificado_nome_${i + 2}`, nome])
@@ -992,6 +999,20 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
             unidade_id: f.unidade_id,
             criado_por: 'Tutor (ficha)',
             criado_por_email: f.email || null,
+          } as never)
+        }
+      }
+
+      // Detalhamento do plano vira observação no contrato (tarefa "Observação da Unidade")
+      if (detalhamentoPlano.trim()) {
+        const { data: tipoUnidade } = await supabase.from('tarefa_tipos').select('id').eq('nome', 'Observação da Unidade').maybeSingle() as { data: { id: string } | null }
+        if (tipoUnidade) {
+          await supabase.from('tarefas').insert({
+            contrato_id: contrato!.id,
+            descricao: `Plano: ${detalhamentoPlano.trim()}`,
+            tipo_id: tipoUnidade.id,
+            unidade_id: f.unidade_id,
+            criado_por: userName || 'Operador',
           } as never)
         }
       }
@@ -1519,6 +1540,10 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                   acompanhamentoPresencial: ficha.acompanhamento?.includes('Presencial') || false,
                   temDesconto: dp > 0,
                   dataAcolhimento: (op.dataHoraAcolhimento as string) || null,
+                  tipoPlano: isPreventivo ? 'preventivo' : 'emergencial',
+                  dataContrato: (op.dataContrato as string) || dataContrato || null,
+                  descricaoContrato: (op.detalhamentoPlano as string) || detalhamentoPlano.trim() || null,
+                  assinaturaCampos: op.camposAssinatura !== undefined ? !!op.camposAssinatura : camposAssinatura,
                 }, nomeUnidade)
                 const url = URL.createObjectURL(blob)
                 const a = document.createElement('a')
@@ -2301,6 +2326,39 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               <p className="text-[10px] text-[var(--surface-400)] mt-1">
                 {parseFloat(descontoPreVenda) || 0}% = R$ {(((parseFloat(valorPlano) || 0) * (parseFloat(descontoPreVenda) || 0)) / 100).toFixed(2)} de desconto
               </p>
+            )}
+
+            {/* Detalhamento do Plano — texto livre (EM e PV) */}
+            <div className="mt-3">
+              <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Detalhamento do Plano</label>
+              <textarea
+                value={detalhamentoPlano}
+                onChange={e => setDetalhamentoPlano(e.target.value)}
+                rows={2}
+                placeholder="Ex: Plano Gratidão, com molde da patinha e urna MDF inclusas"
+                className="input text-sm resize-none"
+              />
+              <p className="text-[10px] text-[var(--surface-400)] mt-1">Compõe a descrição do plano no PDF do contrato e vira observação no contrato criado</p>
+            </div>
+
+            {/* Campos para assinatura no PDF — só PV (default Não = aceite digital via "De Acordo") */}
+            {isPreventivo && (
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <div>
+                  <span className="text-xs font-semibold text-[var(--surface-600)]">Campos para assinatura no PDF</span>
+                  <p className="text-[10px] text-[var(--surface-400)]">Não = aceite digital (&quot;De Acordo&quot; pelo WhatsApp). Sim imprime as linhas de assinatura</p>
+                </div>
+                <div className="flex rounded-lg overflow-hidden border border-[var(--surface-200)] shrink-0">
+                  <button type="button" onClick={() => setCamposAssinatura(false)}
+                    className={`px-3 py-1 text-[10px] font-bold transition-colors ${!camposAssinatura ? 'bg-emerald-500 text-white' : 'text-[var(--surface-400)] hover:bg-[var(--surface-50)]'}`}>
+                    Não
+                  </button>
+                  <button type="button" onClick={() => setCamposAssinatura(true)}
+                    className={`px-3 py-1 text-[10px] font-bold transition-colors ${camposAssinatura ? 'bg-emerald-500 text-white' : 'text-[var(--surface-400)] hover:bg-[var(--surface-50)]'}`}>
+                    Sim
+                  </button>
+                </div>
+              </div>
             )}
 
             {/* Atendimento com Seguradora — só emergencial */}

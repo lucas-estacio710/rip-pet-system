@@ -456,6 +456,10 @@ export default function FichasPage() {
         acompanhamentoPresencial: ficha.acompanhamento?.includes('Presencial') || false,
         temDesconto: !!(op.descontoPreVenda && parseFloat(String(op.descontoPreVenda)) > 0),
         dataAcolhimento: op.semDataHora ? null : (op.dataHoraAcolhimento as string) || null,
+        tipoPlano: ficha.tipo_plano === 'preventivo' ? 'preventivo' : 'emergencial',
+        dataContrato: (op.dataContrato as string) || null,
+        descricaoContrato: (op.detalhamentoPlano as string) || null,
+        assinaturaCampos: !!op.camposAssinatura,
       }, nomeUnidade)
 
       const url = URL.createObjectURL(blob)
