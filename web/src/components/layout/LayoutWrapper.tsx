@@ -75,7 +75,11 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
         <MobileBottomNav />
 
         {/* Main content area — responsive margins */}
-        <main className={`theme-content pt-14 md:pt-0 md:ml-[72px] ${sidebarExpanded ? 'lg:ml-64' : 'lg:ml-[72px]'} min-h-screen overflow-x-hidden transition-all duration-200`}>
+        {/* overflow-x-CLIP (não hidden): hidden força overflow-y:auto e o main vira
+            scroll container — quebra os sticky top-14 das telas (toolbar do pipeline
+            deslocada 56px + primeiro card escondido atrás). clip corta o estouro
+            horizontal sem criar scroller. */}
+        <main className={`theme-content pt-14 md:pt-0 md:ml-[72px] ${sidebarExpanded ? 'lg:ml-64' : 'lg:ml-[72px]'} min-h-screen overflow-x-clip transition-all duration-200`}>
           {/* Banner de impersonação */}
           <ImpersonateBanner />
           {/* Top bar — unit selector + user menu */}
