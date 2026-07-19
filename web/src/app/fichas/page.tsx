@@ -502,8 +502,7 @@ export default function FichasPage() {
     let msg = `📄 *Contrato Preventivo${codigo ? ` — ${codigo}` : ''}*\n`
     msg += `*Pet:* ${ficha.nome_pet?.toUpperCase() || '-'}${ficha.cremacao ? ` | *Cremação:* ${ficha.cremacao}` : ''}\n\n`
     msg += `Por favor, confira com atenção os dados e as condições do contrato enviado acima.\n\n`
-    msg += `Estando tudo certo, responda com o seu *"DE ACORDO"* — em seguida enviaremos o link de pagamento para concluir a contratação. ✅\n\n`
-    msg += `_O aceite eletrônico ("De Acordo" + pagamento) tem validade de assinatura, conforme previsto no contrato._`
+    msg += `Estando tudo certo, nos responda com o seu *"De acordo"*`
     return msg
   }
 
