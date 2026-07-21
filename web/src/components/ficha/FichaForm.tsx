@@ -1163,6 +1163,16 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
                 <textarea className={`${inputClass('observacoes')} resize-none`} rows={3} value={form.observacoes} onChange={e => updateField('observacoes', e.target.value)} placeholder="Alguma informação adicional?" />
               </div>
 
+              {/* Aviso de desistência — só remoção (EM); respaldo contratual, o envio implica ciência */}
+              {!modoPreventivo && (
+                <div className="bg-amber-50 border border-amber-300 rounded-xl p-3">
+                  <p className="text-xs text-amber-900 leading-relaxed">
+                    <span className="font-bold">❗ Em caso de desistência dos serviços contratados após a remoção do pet, será cobrado o valor de 50% referente ao plano total.</span>{' '}
+                    A retirada do animal nas dependências do crematório será de responsabilidade do CONTRATANTE.
+                  </p>
+                </div>
+              )}
+
               <div className="flex gap-3">
                 <button type="button" onClick={prevStep} className="flex-1 py-3.5 border-2 border-slate-200 text-slate-600 rounded-xl text-base font-semibold hover:bg-slate-50 transition-colors">
                   ← Voltar
