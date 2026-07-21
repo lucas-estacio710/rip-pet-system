@@ -1165,10 +1165,15 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
 
               {/* Aviso de desistência — só remoção (EM); respaldo contratual, o envio implica ciência */}
               {!modoPreventivo && (
-                <div className="bg-amber-50 border border-amber-300 rounded-xl p-3">
-                  <p className="text-xs text-amber-900 leading-relaxed">
-                    <span className="font-bold">❗ Em caso de desistência dos serviços contratados após a remoção do pet, será cobrado o valor de 50% referente ao plano total.</span>{' '}
-                    A retirada do animal nas dependências do crematório será de responsabilidade do CONTRATANTE.
+                <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 flex items-start gap-2.5">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" aria-hidden="true">
+                    <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 20h16a2 2 0 0 0 1.73-2Z" />
+                    <path d="M12 9v4" />
+                    <path d="M12 17h.01" />
+                  </svg>
+                  <p className="text-xs text-amber-900 leading-relaxed text-justify">
+                    <span className="font-bold">Em caso de desistência dos serviços contratados após a remoção do pet, será cobrado o valor de 50% referente ao plano total.</span>{' '}
+                    A retirada do animal nas dependências das unidades ou do crematório será de responsabilidade do CONTRATANTE.
                   </p>
                 </div>
               )}
