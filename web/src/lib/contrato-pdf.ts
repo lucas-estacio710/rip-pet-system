@@ -319,13 +319,16 @@ export async function gerarContratoPDF(dados: DadosContrato, nomeUnidade: string
   // ── PLANO DE CREMAÇÃO (box grande ~100mm) ──
   const planoY = 96.8
 
-  // Tipo de cremação + descrição (texto livre sobrescreve o padrão; label fica fixo pelo tipo)
+  // Tipo de cremação + descrição. O detalhamento do plano (descricao_contrato)
+  // COMPLEMENTA a descrição padrão — não substitui (ajuste 20/07; antes sobrescrevia
+  // e o contrato perdia o texto institucional da cremação).
   const isInd = dados.tipoCremacao === 'individual'
   const planoLabel = isInd ? 'Cremação Individual: ' : 'Cremação Coletiva: '
   const planoDescPadrao = isInd
     ? 'O pet indicado é cremado individualmente no equipamento e as cinzas são entregues em uma urna escolhida previamente.'
     : 'O pet indicado é cremado em conjunto com outros dois pets de mesma modalidade coletiva e as cinzas são espalhadas no jardim do crematório.'
-  const planoDesc = (dados.descricaoContrato && dados.descricaoContrato.trim()) || planoDescPadrao
+  const planoDesc = planoDescPadrao +
+    (dados.descricaoContrato && dados.descricaoContrato.trim() ? ` ${dados.descricaoContrato.trim()}` : '')
 
   // Label bold (2mm pra esquerda + fonte menor pra caber descrições longas em 3+ linhas)
   txt(planoLabel, 12.5, planoY, 8, true)
@@ -336,21 +339,36 @@ export async function gerarContratoPDF(dados: DadosContrato, nomeUnidade: string
   const descMaxW1 = (130 - 12.5 - labelW) * mmToPt // primeira linha (ao lado do label)
   const descMaxW2 = (130 - 12.5) * mmToPt          // linhas seguintes (mesmo limite, full width sem labelW)
   const descWords = planoDesc.split(' ')
-  let descLine = '', descX = 12.5 + labelW, descY = planoY, isFirstLine = true
+  const descLines: string[] = []
+  let descLine = '', isFirstLine = true
   for (const w of descWords) {
     const test = descLine ? `${descLine} ${w}` : w
     const maxW = isFirstLine ? descMaxW1 : descMaxW2
     if (font.widthOfTextAtSize(test, 7) > maxW && descLine) {
-      txt(descLine, descX, descY, 7)
+      descLines.push(descLine)
       descLine = w
-      descY += 3.5
-      descX = 12.5
       isFirstLine = false
     } else {
       descLine = test
     }
   }
-  if (descLine) txt(descLine, descX, descY, 7)
+  if (descLine) descLines.push(descLine)
+  // O box do template comporta 3 linhas — acima disso trunca com reticências
+  // (defensivo: a tratativa já limita o detalhamento a 140 chars)
+  const MAX_LINHAS_PLANO = 3
+  if (descLines.length > MAX_LINHAS_PLANO) {
+    descLines.length = MAX_LINHAS_PLANO
+    let ult = descLines[MAX_LINHAS_PLANO - 1]
+    while (font.widthOfTextAtSize(ult + '...', 7) > descMaxW2 && ult.includes(' ')) {
+      ult = ult.slice(0, ult.lastIndexOf(' '))
+    }
+    descLines[MAX_LINHAS_PLANO - 1] = ult + '...'
+  }
+  let descY = planoY
+  descLines.forEach((l, i) => {
+    txt(l, i === 0 ? 12.5 + labelW : 12.5, descY, 7)
+    descY += 3.5
+  })
 
   // Barra vertical separadora
   page.drawLine({

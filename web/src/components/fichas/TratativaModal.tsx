@@ -2353,17 +2353,26 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               </p>
             )}
 
-            {/* Detalhamento do Plano — texto livre (EM e PV) */}
+            {/* Detalhamento do Plano — texto livre (EM e PV). Max 140 chars: o box do
+                PDF emergencial tem 3 linhas; padrão + detalhamento precisam caber. */}
             <div className="mt-3">
-              <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Detalhamento do Plano</label>
+              <div className="flex items-baseline justify-between">
+                <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Detalhamento do Plano</label>
+                <span className={`text-[10px] ${detalhamentoPlano.length >= 140 ? 'text-amber-400 font-semibold' : 'text-[var(--surface-400)]'}`}>
+                  {detalhamentoPlano.length}/140
+                </span>
+              </div>
               <textarea
                 value={detalhamentoPlano}
-                onChange={e => setDetalhamentoPlano(e.target.value)}
+                onChange={e => setDetalhamentoPlano(e.target.value.slice(0, 140))}
+                maxLength={140}
                 rows={2}
                 placeholder="Ex: Plano Gratidão, com molde da patinha e urna MDF inclusas"
                 className="input text-sm resize-none"
               />
-              <p className="text-[10px] text-[var(--surface-400)] mt-1">Compõe a descrição do plano no PDF do contrato e vira observação no contrato criado</p>
+              <p className="text-[10px] text-amber-400/90 mt-1">
+                ⚠️ Este texto sai IMPRESSO no contrato do cliente — complementa a descrição padrão da cremação (e vira observação no contrato criado). Escreva como o tutor deve ler.
+              </p>
             </div>
 
             {/* Campos para assinatura no PDF — só PV (default Não = aceite digital via "De Acordo") */}
