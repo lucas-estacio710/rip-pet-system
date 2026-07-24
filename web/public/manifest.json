@@ -4,7 +4,7 @@
   "description": "Sistema de gestão R.I.P. Pet Santos",
   "start_url": "/dashboard",
   "display": "standalone",
-  "background_color": "#1a1614",
+  "background_color": "#ffffff",
   "theme_color": "#1a1614",
   "orientation": "any",
   "icons": [
