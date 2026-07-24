@@ -327,6 +327,17 @@ export default function FichasPage() {
     return map[valor.toLowerCase()] || valor.charAt(0).toUpperCase() + valor.slice(1)
   }
 
+  // Disclaimer de desistência — vai APENAS na mensagem COPIADA (botão "Copiar
+  // informações"); o botão de WhatsApp direto envia sem (decisão 24/07). Só EM.
+  const DISCLAIMER_DESISTENCIA =
+    '❗ *Em caso de desistência dos serviços contratados após a remoção do pet, será cobrado o valor de 50% referente ao plano total.* A retirada do animal nas dependências das unidades ou do crematório será de responsabilidade do CONTRATANTE.'
+
+  function msgComDisclaimer(ficha: Ficha): string {
+    const msg = montarMsgWhatsApp(ficha)
+    if (ficha.tipo_plano === 'preventivo') return msg  // PV: sem remoção, sem disclaimer
+    return `${msg}\n\n${DISCLAIMER_DESISTENCIA}`
+  }
+
   function montarMsgWhatsApp(ficha: Ficha): string {
     const op = (ficha.op_dados || {}) as Record<string, unknown>
     const cremacao = formatarDisplay(ficha.cremacao)
@@ -871,7 +882,7 @@ export default function FichasPage() {
                         <button onClick={async (e) => {
                             e.stopPropagation()
                             const btn = e.currentTarget
-                            const msg = montarMsgWhatsApp(ficha)
+                            const msg = msgComDisclaimer(ficha)
                             await navigator.clipboard.writeText(msg)
                             btn.classList.add('text-emerald-400')
                             setTimeout(() => btn.classList.remove('text-emerald-400'), 1500)
@@ -918,7 +929,7 @@ export default function FichasPage() {
                         <button onClick={async (e) => {
                             e.stopPropagation()
                             const btn = e.currentTarget
-                            const msg = montarMsgWhatsApp(ficha)
+                            const msg = msgComDisclaimer(ficha)
                             await navigator.clipboard.writeText(msg)
                             btn.classList.add('text-emerald-400')
                             setTimeout(() => btn.classList.remove('text-emerald-400'), 1500)
