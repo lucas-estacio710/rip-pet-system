@@ -8,6 +8,7 @@ import { sanitizeBuscaPostgrest } from '@/lib/sanitize'
 import Link from 'next/link'
 import { useDebounce } from '@/hooks/useDebounce'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
+import { useUnit } from '@/contexts/UnitContext'
 import { computePagamento, TAG_STATE_STYLES, type ContratoTagData } from '@/lib/contrato-tags'
 import AtivarModal from '@/components/contratos/modals/AtivarModal'
 
@@ -138,6 +139,8 @@ const FONTE_ICONS: Record<string, { icon?: string; img?: string; style: React.CS
 export default function PreventivosPage() {
   const router = useRouter()
   const supabase = createClient()
+  // Escopo por unidade (RLS não filtra — padrão frontend do app; auditoria 2026/96)
+  const { currentUnit, isLoading: unitLoading } = useUnit()
   const { isVisible } = useFieldPermission()
 
   const [contratos, setContratos] = useState<Contrato[]>([])
@@ -159,10 +162,12 @@ export default function PreventivosPage() {
   }, [buscaDebounced])
 
   useEffect(() => {
+    if (!currentUnit) return
     carregarContratos()
-  }, [pagina, buscaDebounced])
+  }, [pagina, buscaDebounced, currentUnit?.id])
 
   async function carregarContratos() {
+    if (!currentUnit) return
     const minhaBuscaId = ++buscaIdRef.current
     setLoading(true)
 
@@ -170,6 +175,7 @@ export default function PreventivosPage() {
       .from('contratos')
       .select(SELECT_FIELDS, { count: 'exact' })
       .eq('status', 'preventivo')
+      .eq('unidade_id', currentUnit.id)
       .order('data_contrato', { ascending: false })
 
     if (buscaDebounced.trim()) {
@@ -197,7 +203,7 @@ export default function PreventivosPage() {
       setTotal(count || 0)
       // Quebra por tipo de cremação (respeita a busca)
       const countTipo = (tipo: 'individual' | 'coletiva') => {
-        let q = supabase.from('contratos').select('id', { count: 'exact', head: true }).eq('status', 'preventivo').eq('tipo_cremacao', tipo)
+        let q = supabase.from('contratos').select('id', { count: 'exact', head: true }).eq('status', 'preventivo').eq('unidade_id', currentUnit!.id).eq('tipo_cremacao', tipo)
         const t = sanitizeBuscaPostgrest(buscaDebounced)
         if (buscaDebounced.trim() && t) q = q.or(`codigo.ilike.%${t}%,pet_nome.ilike.%${t}%,tutor_nome.ilike.%${t}%`)
         return q
