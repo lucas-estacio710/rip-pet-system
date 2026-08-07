@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { X, Plus, Trash2, ArrowDown, ArrowRight } from 'lucide-react'
+import { tituloNome, primeiroNome } from '@/lib/nome-tutor'
 
 type ContratoMinimal = {
   id: string
@@ -37,30 +38,10 @@ type FormState = {
 
 // ─── Helpers ────────────────────────────────────────────────
 
-const PREFIXOS_NOME_COMPOSTO = [
-  'maria', 'ana', 'anna', 'rosa', 'joao', 'joão',
-  'jose', 'josé', 'pedro', 'luiz', 'luis', 'luís',
-  'carlos', 'marco',
-]
-
-function capitalizarNome(nome: string): string {
-  if (!nome) return ''
-  return nome.charAt(0).toUpperCase() + nome.slice(1).toLowerCase()
-}
-
-function getPrimeiroNome(nomeCompleto: string): string {
-  const partes = nomeCompleto.trim().split(/\s+/)
-  if (partes.length === 0) return ''
-
-  const primeiro = partes[0]
-  const primeiroLower = primeiro.toLowerCase()
-
-  if (partes.length > 1 && PREFIXOS_NOME_COMPOSTO.includes(primeiroLower)) {
-    return `${capitalizarNome(partes[0])} ${capitalizarNome(partes[1])}`
-  }
-
-  return capitalizarNome(primeiro)
-}
+// Title Case por PALAVRA — a versão antiga capitalizava só a primeira letra da string,
+// então pet com nome composto saía "Bob marley" na mensagem.
+const capitalizarNome = tituloNome
+const getPrimeiroNome = (nomeCompleto: string) => primeiroNome(nomeCompleto)
 
 const mesesCurtos = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 

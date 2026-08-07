@@ -1,5 +1,6 @@
 import { PDFDocument, rgb, PDFFont, PDFPage } from 'pdf-lib'
 import fontkit from '@pdf-lib/fontkit'
+import { tituloNome } from './nome-tutor'
 
 const MESES_PT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
 const ESPECIE_LABEL: Record<string, string> = { canina: 'Canina', felina: 'Felina', exotica: 'Exótica' }
@@ -14,24 +15,9 @@ export type DadosCertificado = {
   dataCremacao: string // YYYY-MM-DD ou ISO
 }
 
-// Conectivos que ficam em minúscula no meio de nomes próprios (não na primeira posição)
-const CONECTIVOS_NOME = new Set([
-  'de', 'do', 'da', 'dos', 'das', 'e',
-  'del', 'della', 'di', 'du', 'van', 'von', 'y', 'la', 'le', 'al',
-])
-
-// Title Case para nomes: capitaliza primeira letra de cada palavra,
-// mas mantém conectivos (de/do/da/dos/das/e/…) em minúscula quando não estão no início.
-// Também respeita hífen e apóstrofo (ex.: "Ana-Clara", "D'Arc").
-export function tituloNome(s: string | null | undefined): string {
-  if (!s) return ''
-  const trim = s.trim()
-  if (!trim) return ''
-  return trim.toLowerCase().split(/\s+/).map((palavra, i) => {
-    if (i > 0 && CONECTIVOS_NOME.has(palavra)) return palavra
-    return palavra.replace(/(^|[-'])(\p{L})/gu, (_, sep, ch) => sep + ch.toUpperCase())
-  }).join(' ')
-}
+// tituloNome mora em lib/nome-tutor.ts (sem pdf-lib) para poder ser usada nas telas
+// sem arrastar o bundle do PDF. Reexportada aqui por compatibilidade com quem já importava daqui.
+export { tituloNome }
 
 function formatarTutorBlock(nomes: string[]): string {
   if (nomes.length === 0) return 'Tutor(a) Senhor(a)'
