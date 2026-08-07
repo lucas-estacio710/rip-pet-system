@@ -17,6 +17,7 @@ export type Unidade = {
   cidade: string | null
   estado: string | null
   endereco: string | null
+  cep: string | null       // CEP da unidade (mig 102) — base da ordenação por proximidade no pipeline
   is_matriz: boolean
   modulos_ativos: string[]
   ativa: boolean

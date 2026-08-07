@@ -100,6 +100,7 @@ export const CAMPOS_BOTOES: ChildItemDef[] = [
   { key: 'btn_mensagens', tela: 'tela_pipeline', label: 'Mensagens Personalizadas', desc: '3-way: Pipeline ↔ Contrato. Pet Grato, Chegamos, Chegaram, Finalizadora', modo: 'toggle' },
   { key: 'btn_alteracao_fase', tela: 'tela_pipeline', label: 'Botões Alteração Fase', desc: '3-way: Pipeline ↔ Contrato. Ativar, Pinda, Marcar Entregue', modo: 'toggle' },
   { key: 'btn_fluxo_retorno', tela: 'tela_pipeline', label: 'Fluxo Retorno', desc: 'Indicador de complexidade de montagem', modo: 'toggle' },
+  { key: 'btn_ordenar_cep', tela: 'tela_pipeline', label: 'Ordenar por CEP (proximidade)', desc: 'Toggle 📏 CEP na barra de ordenação: ordena por |CEP do contrato − CEP da unidade| (mais perto primeiro). Exige unidades.cep preenchido (mig 102). Piloto Santos — hidden nas demais unidades via seed da mig 102.', modo: 'toggle' },
   { key: 'btn_bypass', tela: 'tela_pipeline', label: 'Bypass (B)', desc: 'Finalizar contrato pulando encaminhamento e GC. Temporário.', modo: 'toggle' },
 
   // --- PREVENTIVOS ---

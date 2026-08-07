@@ -33,6 +33,7 @@ import DocMenu from '@/components/contratos/DocMenu'
 import FichaRemocao, { type FichaContratoData } from '@/components/fichas/FichaRemocao'
 import { gerarFichaPDFA4Duplicada, nomeFicha } from '@/lib/ficha-generator'
 import { baixarContratoPDF } from '@/lib/contrato-pdf-download'
+import { tituloNome, primeiroNome, separarPrimeiroNome } from '@/lib/nome-tutor'
 import EditarContratoModal from '@/components/contratos/modals/EditarContratoModal'
 import EditarFichaModal from '@/components/contratos/modals/EditarFichaModal'
 
@@ -67,6 +68,7 @@ type Contrato = {
   tutor_telefone: string | null
   tutor_cidade: string | null
   tutor_bairro: string | null
+  tutor_cep: string | null
   local_coleta: string | null
   clinica_coleta: string | null
   tipo_cremacao: string
@@ -283,10 +285,24 @@ function ContratosContent() {
   // Importante: NÃO usar hasModule() — ele retorna true pra super_admin sempre. Aqui é
   // comportamento de fluxo, não visibilidade — checar modulos_ativos da unidade atual direto.
   const fluxoLocal = !!currentUnit?.modulos_ativos?.includes('cb_cremacao_local')
+
+  // Ordenação por proximidade de CEP (delta |CEP do contrato − CEP da unidade|).
+  // Heurística: CEPs numericamente próximos tendem a ser geograficamente próximos
+  // na mesma região. Precisa de unidades.cep (mig 102); sem CEP → botão nem aparece.
+  const cepUnidadeNum = (() => {
+    const d = (currentUnit?.cep || '').replace(/\D/g, '')
+    return d.length === 8 ? parseInt(d, 10) : null
+  })()
+  const deltaCep = (c: Contrato): number => {
+    if (cepUnidadeNum === null) return Number.MAX_SAFE_INTEGER
+    const d = (c.tutor_cep || '').replace(/\D/g, '')
+    if (d.length !== 8) return Number.MAX_SAFE_INTEGER  // sem CEP válido → fim da lista
+    return Math.abs(parseInt(d, 10) - cepUnidadeNum)
+  }
   const [pagina, setPagina] = useState(parseInt(searchParams.get('pagina') || '0', 10))
   const [total, setTotal] = useState(0)
   const [totalGeral, setTotalGeral] = useState(0)
-  const [ordenacao, setOrdenacao] = useState<'data' | 'nome'>((searchParams.get('ordenacao') as 'data' | 'nome') || 'data')
+  const [ordenacao, setOrdenacao] = useState<'data' | 'nome' | 'cep'>((searchParams.get('ordenacao') as 'data' | 'nome' | 'cep') || 'data')
   // Default: novo → antigo (descending) p/ data; A→Z (ascending) p/ nome
   const [ordemAsc, setOrdemAsc] = useState(searchParams.get('ordemAsc') === 'true')
   const [agruparCidade, setAgruparCidade] = useState(searchParams.get('cidade') === 'true')
@@ -956,7 +972,7 @@ function ContratosContent() {
 
     // SELECT principal — só dados base + embeds leves essenciais (tutor + supinda + pagamentos).
     // Embeds pesados (contrato_produtos, contrato_gc, fonte_conhecimento) carregam em paralelo após.
-    const SELECT_CONTRATO = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento_id, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id'
+    const SELECT_CONTRATO = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento_id, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id'
 
     // Helper para aplicar filtros comuns (unidade + status + compartilhados).
     // Tipo `any` aqui porque o builder do supabase-js encadeia tipos genéricos complexos
@@ -1077,7 +1093,7 @@ function ContratosContent() {
     const agruparPorSupinda = agruparSupinda && statusFiltro !== 'preventivo' && !fluxoLocal
 
     // Mesmo padrão da listagem: SELECT leve + enriquecimento paralelo
-    const SELECT_BUSCA = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento_id, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id'
+    const SELECT_BUSCA = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento_id, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id'
     // Sanitiza: escapa wildcards SQL (% _) e caracteres reservados PostgREST (, ( ) : * \)
     // + limita 80 chars. Protege contra termo malicioso quebrar o filtro `or`.
     const t = sanitizeBuscaPostgrest(termoBusca)
@@ -1460,18 +1476,8 @@ function ContratosContent() {
   // ==================== MODAL CHEGAMOS ====================
   const mesesCurtos = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 
-  // Prefixos que formam nome composto: se o primeiro nome é um desses, inclui o segundo nome
-  const PREFIXOS_NOME_COMPOSTO = [
-    'maria', 'ana', 'anna', 'rosa',
-    'joao', 'joão', 'jose', 'josé',
-    'pedro', 'luiz', 'luis', 'luís', 'carlos', 'marco',
-  ]
-
-  // Capitalizar cada palavra do nome
-  function capitalizarNome(nome: string): string {
-    if (!nome) return ''
-    return nome.split(/\s+/).map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(' ')
-  }
+  // Capitalizar cada palavra do nome (title case com conectivos minúsculos) — lib/nome-tutor
+  const capitalizarNome = tituloNome
 
   // Versão compacta dos badges GC (estilo da tela /gc mobile) — 2 quadradinhos com ícones
   function renderGCStatusCompacto(contrato: Contrato): React.ReactNode {
@@ -1627,28 +1633,9 @@ function ContratosContent() {
     ))
   }
 
-  // Pegar primeiro nome, preservando nomes compostos, com capitalização
-  function getPrimeiroNome(nomeCompleto: string | null | undefined): string {
-    if (!nomeCompleto) return ''
-    const { primeiro } = separarPrimeiroNome(nomeCompleto)
-    return capitalizarNome(primeiro)
-  }
-
-  // Separar primeiro nome (ou composto) do resto - retorna { primeiro, resto }
-  // Se o primeiro nome é um prefixo conhecido (Maria, Luis, José...), inclui o segundo nome
-  function separarPrimeiroNome(nomeCompleto: string | null | undefined): { primeiro: string; resto: string } {
-    if (!nomeCompleto) return { primeiro: '', resto: '' }
-    const partes = nomeCompleto.trim().split(/\s+/)
-    if (partes.length <= 1) return { primeiro: partes[0] || '', resto: '' }
-
-    const primeiroLower = partes[0].toLowerCase()
-    const qtd = (partes.length >= 2 && PREFIXOS_NOME_COMPOSTO.includes(primeiroLower)) ? 2 : 1
-
-    return {
-      primeiro: partes.slice(0, qtd).join(' '),
-      resto: partes.slice(qtd).join(' '),
-    }
-  }
+  // Nome de tratamento e sua separação vêm de lib/nome-tutor (fonte única):
+  // "Maria Aparecida" e "Maria da Conceição" contam como nome; "Maria da Silva" não.
+  const getPrimeiroNome = primeiroNome
 
   function getDiaPreset(diaSemana: 'sab' | 'dom', proximo: boolean): Date {
     const hoje = new Date()
@@ -3497,6 +3484,21 @@ ${petNome}`
             >
               {ordenacao === 'nome' && !ordemAsc ? 'Z→A' : 'A→Z'} {ordenacao === 'nome' && (ordemAsc ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
             </button>
+            {/* Toggle: ordenar por proximidade de CEP (FLS btn_ordenar_cep; exige unidades.cep — mig 102) */}
+            {isVisible(T, 'btn_ordenar_cep') && cepUnidadeNum !== null && (
+              <button
+                onClick={() => {
+                  if (ordenacao === 'cep') { setOrdenacao('data'); setOrdemAsc(false) } else { setOrdenacao('cep'); setOrdemAsc(true) }
+                  setPagina(0)
+                }}
+                className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+                  ordenacao === 'cep' ? 'bg-slate-700 text-purple-300' : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title={ordenacao === 'cep' ? 'Mais perto da unidade primeiro (clique p/ voltar à data)' : 'Ordenar por proximidade de CEP da unidade'}
+              >
+                📏 CEP {ordenacao === 'cep' && <ArrowUp className="h-3 w-3" />}
+              </button>
+            )}
           </div>
           {/* Toggle: agrupar por encaminhamento */}
           {statusFiltro !== 'preventivo' && (
@@ -3752,6 +3754,23 @@ ${petNome}`
             >
               {ordenacao === 'nome' && !ordemAsc ? 'Z→A' : 'A→Z'} {ordenacao === 'nome' && (ordemAsc ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
             </button>
+            {/* Toggle: ordenar por proximidade de CEP (FLS btn_ordenar_cep; exige unidades.cep — mig 102) */}
+            {isVisible(T, 'btn_ordenar_cep') && cepUnidadeNum !== null && (
+              <button
+                onClick={() => {
+                  if (ordenacao === 'cep') { setOrdenacao('data'); setOrdemAsc(false) } else { setOrdenacao('cep'); setOrdemAsc(true) }
+                  setPagina(0)
+                }}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  ordenacao === 'cep'
+                    ? 'bg-slate-700 text-purple-300 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title={ordenacao === 'cep' ? 'Mais perto da unidade primeiro (clique p/ voltar à data)' : 'Ordenar por proximidade de CEP da unidade'}
+              >
+                📏 CEP {ordenacao === 'cep' && <ArrowUp className="h-3 w-3" />}
+              </button>
+            )}
           </div>
 
           {/* Toggle: agrupar por encaminhamento — escondido em unidades com cb_cremacao_local
@@ -4024,7 +4043,12 @@ ${petNome}`
 
             function renderSupindaGroup(lista: Contrato[], renderFn: (c: Contrato) => React.ReactNode) {
               if (!deveAgruparSupinda) {
-                return <div className="space-y-2">{lista.map(renderFn)}</div>
+                // CEP é ordenação client-side (o servidor não calcula delta) —
+                // aplicar também no caminho SEM agrupamento por encaminhamento
+                const listaOrdenada = ordenacao === 'cep'
+                  ? [...lista].sort((a, b) => ordemAsc ? deltaCep(a) - deltaCep(b) : deltaCep(b) - deltaCep(a))
+                  : lista
+                return <div className="space-y-2">{listaOrdenada.map(renderFn)}</div>
               }
               // Agrupar por numero da supinda
               const grupos: { numero: string | null; contratos: Contrato[] }[] = []
@@ -4058,6 +4082,9 @@ ${petNome}`
                     const nb = (b.pet_nome || '').toLowerCase()
                     return ordemAsc ? na.localeCompare(nb) : nb.localeCompare(na)
                   })
+                } else if (ordenacao === 'cep') {
+                  // asc = mais perto da unidade primeiro; sem CEP válido vai pro fim
+                  g.contratos.sort((a, b) => ordemAsc ? deltaCep(a) - deltaCep(b) : deltaCep(b) - deltaCep(a))
                 }
               }
 
