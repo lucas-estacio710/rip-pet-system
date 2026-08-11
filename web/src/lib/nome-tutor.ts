@@ -3,11 +3,27 @@
 // unidade na chamada (afetuosa, completa). Caso o primeiro nome não esteja na lista, retorna só
 // o primeiro mesmo.
 
+// Comparações são feitas sem acento e em minúscula (o banco tem "JOSÉ", "Jose", "josé"...)
+function chave(s: string): string {
+  return s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+}
+
 const PREFIXOS_NOME_COMPOSTO = [
   'maria', 'ana', 'anna', 'rosa',
-  'joao', 'joão', 'jose', 'josé',
-  'pedro', 'luiz', 'luis', 'luís', 'carlos', 'marco',
+  'joao', 'jose',
+  'pedro', 'luiz', 'luis', 'carlos', 'marco',
 ]
+
+// Nomes que vêm DEPOIS de conectivo e ainda fazem parte do nome de tratamento
+// ("Maria da Conceição", "Maria de Fátima"). Serve para distinguir de sobrenome
+// ("Maria da Silva" → a pessoa é chamada de "Maria").
+const NOMES_APOS_CONECTIVO = new Set([
+  'conceicao', 'fatima', 'lourdes', 'gloria', 'graca', 'penha', 'luz', 'guia',
+  'piedade', 'socorro', 'carmo', 'rosario', 'natividade', 'assuncao', 'anunciacao',
+  'paz', 'ajuda', 'aparecida', 'neves', 'remedios', 'candelaria', 'salete',
+  'abadia', 'nazare', 'betania', 'sion', 'loreto', 'apresentacao', 'esperanca',
+  'deus', // "João de Deus"
+])
 
 // Conectivos que ficam em minúscula no meio de nomes próprios (não na primeira posição)
 export const CONECTIVOS_NOME = new Set([
@@ -29,15 +45,37 @@ export function tituloNome(s: string | null | undefined): string {
   }).join(' ')
 }
 
+/**
+ * Separa o nome de tratamento do resto. Retorna as partes CRUAS (sem capitalizar),
+ * para quem precisa exibir as duas metades com estilos diferentes (ex: pipeline).
+ *
+ *   MARIA APARECIDA DA SILVA   → { primeiro: 'MARIA APARECIDA',   resto: 'DA SILVA' }
+ *   MARIA DA CONCEICAO RIBEIRO → { primeiro: 'MARIA DA CONCEICAO', resto: 'RIBEIRO' }
+ *   MARIA DA SILVA             → { primeiro: 'MARIA',              resto: 'DA SILVA' }
+ */
+export function separarPrimeiroNome(nomeCompleto: string | null | undefined): { primeiro: string; resto: string } {
+  if (!nomeCompleto) return { primeiro: '', resto: '' }
+  const partes = nomeCompleto.trim().split(/\s+/).filter(Boolean)
+  if (partes.length <= 1) return { primeiro: partes[0] || '', resto: '' }
+
+  let qtd = 1
+  if (PREFIXOS_NOME_COMPOSTO.includes(chave(partes[0]))) {
+    if (CONECTIVOS_NOME.has(chave(partes[1]))) {
+      // "Maria da Conceição" sim; "Maria da Silva" não (Silva é sobrenome)
+      if (partes[2] && NOMES_APOS_CONECTIVO.has(chave(partes[2]))) qtd = 3
+    } else {
+      qtd = 2 // "Maria Aparecida", "Ana Clara", "José Carlos"
+    }
+  }
+
+  return {
+    primeiro: partes.slice(0, qtd).join(' '),
+    resto: partes.slice(qtd).join(' '),
+  }
+}
+
 /** Retorna o primeiro nome (capitalizado) — composto quando o prefixo costuma andar acompanhado. */
 export function primeiroNome(nomeCompleto: string | null | undefined): string {
   if (!nomeCompleto) return ''
-  const partes = nomeCompleto.trim().split(/\s+/)
-  if (partes.length === 0) return ''
-  if (partes.length === 1) return tituloNome(partes[0])
-  const primeiroLower = partes[0].toLowerCase()
-  // "Maria Aparecida" vira composto; "Maria da Silva" não (segunda palavra é conectivo)
-  const segundoEhConectivo = CONECTIVOS_NOME.has(partes[1].toLowerCase())
-  const qtd = PREFIXOS_NOME_COMPOSTO.includes(primeiroLower) && !segundoEhConectivo ? 2 : 1
-  return tituloNome(partes.slice(0, qtd).join(' '))
+  return tituloNome(separarPrimeiroNome(nomeCompleto).primeiro)
 }
