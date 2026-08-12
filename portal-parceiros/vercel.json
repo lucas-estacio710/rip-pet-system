@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/cron?tarefa=expirar-orcamentos",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron?tarefa=recalcular-categorias",
+      "schedule": "20 6 * * *"
+    },
+    {
+      "path": "/api/cron?tarefa=fechar-mes",
+      "schedule": "40 6 1 * *"
+    }
+  ]
+}

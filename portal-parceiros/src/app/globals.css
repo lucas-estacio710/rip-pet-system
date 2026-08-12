@@ -1,0 +1,95 @@
+@import "tailwindcss";
+
+/* ============================================
+   RIP Pet Parceiros — Design Tokens
+   Mesma linguagem do CRM ("Warm Minimalism"),
+   porém em tema CLARO: o parceiro usa isto na
+   frente do tutor, muitas vezes sob luz forte
+   de clínica, e o assunto pede leveza.
+   ============================================ */
+
+:root {
+  /* Brand — mesma paleta do CRM */
+  --brand-50: #f5f3ff;
+  --brand-100: #ede9fe;
+  --brand-200: #ddd6fe;
+  --brand-300: #c4b5fd;
+  --brand-400: #a78bfa;
+  --brand-500: #8b5cf6;
+  --brand-600: #7c3aed;
+  --brand-700: #6d28d9;
+
+  /* Superfícies quentes (claro) */
+  --surface-0: #ffffff;
+  --surface-50: #faf9f7;
+  --surface-100: #f4f2ef;
+  --surface-200: #e7e3dd;
+  --surface-300: #d6d1c9;
+  --surface-400: #a8a29a;
+  --surface-500: #78716a;
+  --surface-600: #57534d;
+  --surface-700: #3f3c37;
+  --surface-800: #292724;
+  --surface-900: #1c1a18;
+
+  /* Categorias do programa */
+  --cat-bronze: #b45309;
+  --cat-prata: #64748b;
+  --cat-ouro: #ca8a04;
+
+  /* Semânticos */
+  --ok: #059669;
+  --alerta: #d97706;
+  --erro: #dc2626;
+
+  --shadow-sm: 0 1px 3px rgba(28, 26, 24, 0.06), 0 1px 2px rgba(28, 26, 24, 0.04);
+  --shadow-md: 0 4px 6px -1px rgba(28, 26, 24, 0.07), 0 2px 4px -2px rgba(28, 26, 24, 0.04);
+  --shadow-lg: 0 10px 15px -3px rgba(28, 26, 24, 0.08), 0 4px 6px -4px rgba(28, 26, 24, 0.04);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 150ms;
+  --duration-normal: 250ms;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  max-width: 100vw;
+  /* O corpo nunca rola na horizontal — guarda global (lição da auditoria de layout
+     do CRM, demanda 2026/110). Conteúdo largo rola dentro do próprio container. */
+  overflow-x: hidden;
+}
+
+body {
+  margin: 0;
+  background: var(--surface-50);
+  color: var(--surface-800);
+  font-family: var(--font-dm-sans), system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  /* Safe areas do iPhone: o portal é PWA instalável */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Alvos de toque: o parceiro usa isso de pé, no celular, com o tutor do lado. */
+button,
+a[role='button'] {
+  min-height: 44px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

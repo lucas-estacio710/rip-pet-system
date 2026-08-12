@@ -18,6 +18,7 @@ export type FichaUnidadeConfig = {
   maxParcelas?: number     // Máximo de parcelas no crédito (default 12) — base/fallback
   maxParcelasEM?: number   // Máximo no crédito na ficha EMERGENCIAL (fallback: maxParcelas)
   maxParcelasPV?: number   // Máximo no crédito na contratação PREVENTIVA (fallback: maxParcelas)
+  comPlanos?: boolean      // habilita a escolha de plano pelo tutor (mig 098) — slug paralelo, ex: /ficha/santosp
 }
 
 // ============================================
@@ -54,6 +55,8 @@ type FormData = {
   localizacao: string
   localizacaoOutra: string
   cremacao: 'individual' | 'coletiva' | ''
+  planoId: string          // plano escolhido (mig 098) — '' = sem escolha; 'ajuda' = quer falar com atendimento
+  planoItensSel: Record<string, string>  // grupo → plano_item.id ('nenhum' = abriu mão do grupo opcional)
   pagamento: string
   parcelas: string
   velorio: string
@@ -72,7 +75,7 @@ const INITIAL_FORM: FormData = {
   nomeCompleto: '', outrosTutores: [], cpf: '', codigoPais: '55', codigoPaisCustom: '', telefone: '', email: '',
   cep: '', estado: '', cidade: '', bairro: '', endereco: '', numero: '', complemento: '',
   nomePet: '', idade: '', especie: '', genero: '', raca: '', cor: '', peso: '', pesoUnidade: 'kg',
-  localizacao: '', localizacaoOutra: '', cremacao: '', pagamento: '', parcelas: '',
+  localizacao: '', localizacaoOutra: '', cremacao: '', planoId: '', planoItensSel: {}, pagamento: '', parcelas: '',
   velorio: '', acompanhamento: '',
   comoConheceu: [], veterinarioEspecificar: '', outroEspecificar: '', observacoes: '',
 }
@@ -150,6 +153,96 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
   const autosaveTimer = useRef<NodeJS.Timeout | null>(null)
   const easterEggSeq = useRef<string[]>([])
   const easterEggTimer = useRef<NodeJS.Timeout | null>(null)
+
+  // Planos da unidade (mig 098) — se a unidade tem planos ativos, o tutor
+  // escolhe o plano direto na ficha (só EM por enquanto; PV segue sem).
+  type PlanoItemPublico = {
+    id: string
+    produto_id: string | null
+    modo: 'incluso' | 'desconto'
+    preco_desconto: number | null
+    nome: string
+    imagem_url: string | null
+    ordem: number
+  }
+  type PlanoGrupoPublico = {
+    id: string
+    nome: string
+    escolha_min: number
+    escolha_max: number
+    ordem: number
+    plano_itens: PlanoItemPublico[]
+  }
+  type PlanoPublico = {
+    id: string
+    nome: string
+    descricao: string | null
+    imagem_url: string | null
+    tipo_cremacao: 'individual' | 'coletiva'
+    preco: number
+    adicional_peso_kg: number
+    adicional_valor: number
+    plano_grupos: PlanoGrupoPublico[]
+  }
+  const [planos, setPlanos] = useState<PlanoPublico[]>([])
+  useEffect(() => {
+    if (modoPreventivo || !config.comPlanos) return
+    const supabase = createClient()
+    supabase
+      .from('planos')
+      .select('id, nome, descricao, imagem_url, tipo_cremacao, preco, adicional_peso_kg, adicional_valor, plano_grupos(*, plano_itens(*))')
+      .eq('unidade_id', config.unidade_id)
+      .eq('ativo', true)
+      .order('ordem')
+      .then(({ data }) => setPlanos((data || []) as PlanoPublico[]))
+  }, [config.unidade_id, config.comPlanos, modoPreventivo])
+
+  const pesoKg = form.peso
+    ? (form.pesoUnidade === 'g' ? parseInt(form.peso, 10) / 1000 : parseFloat(form.peso.replace(',', '.')))
+    : null
+  const planosDoTipo = form.cremacao ? planos.filter(p => p.tipo_cremacao === form.cremacao) : []
+  const mostraPlanos = !modoPreventivo && planosDoTipo.length > 0
+
+  /** Preço do plano pro pet: base + adicional de porte quando peso > limite. */
+  function precoDoPlano(p: PlanoPublico): number {
+    const acima = pesoKg != null && !isNaN(pesoKg) && pesoKg > p.adicional_peso_kg
+    return p.preco + (acima ? p.adicional_valor : 0)
+  }
+  const planoEscolhido = planosDoTipo.find(p => p.id === form.planoId) || null
+
+  // Grupos de escolha do plano (estilo iFood): min/max definidos no admin.
+  // planoItensSel guarda os ids escolhidos por grupo (CSV — o form state é Record<string,string>).
+  const gruposDoPlano: PlanoGrupoPublico[] = planoEscolhido
+    ? [...planoEscolhido.plano_grupos]
+        .sort((a, b) => a.ordem - b.ordem)
+        .map(g => ({ ...g, plano_itens: [...g.plano_itens].sort((a, b) => a.ordem - b.ordem) }))
+        .filter(g => g.plano_itens.length > 0)
+    : []
+
+  const selecaoDoGrupo = (grupoId: string): string[] =>
+    (form.planoItensSel[grupoId] || '').split(',').filter(Boolean)
+
+  function toggleItemGrupo(g: PlanoGrupoPublico, itemId: string) {
+    const atual = selecaoDoGrupo(g.id)
+    let nova: string[]
+    if (atual.includes(itemId)) {
+      nova = atual.filter(i => i !== itemId)
+    } else if (g.escolha_max === 1) {
+      nova = [itemId]                             // escolha única: substitui
+    } else if (atual.length < g.escolha_max) {
+      nova = [...atual, itemId]                   // múltipla: adiciona até o limite
+    } else {
+      return                                      // limite atingido — precisa desmarcar antes
+    }
+    updateField('planoItensSel', { ...form.planoItensSel, [g.id]: nova.join(',') })
+  }
+
+  /** Itens efetivamente escolhidos (com o nome do grupo) — vão pro payload. */
+  const itensEscolhidos: (PlanoItemPublico & { grupo: string })[] = gruposDoPlano.flatMap(g =>
+    g.plano_itens
+      .filter(i => selecaoDoGrupo(g.id).includes(i.id))
+      .map(i => ({ ...i, grupo: g.nome }))
+  )
 
   // Forçar tema claro nesta página pública
   useEffect(() => {
@@ -312,6 +405,8 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
       localizacao: pick(['Residência', 'Hospital/Clínica', 'Unidade Canal 6']),
       localizacaoOutra: '',
       cremacao,
+      planoId: '',
+      planoItensSel: {},
       pagamento,
       parcelas: pagamento === 'credito' ? pick(['2', '3', '4', '5']) : '',
       velorio,
@@ -371,7 +466,7 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
     nomePet: 'Nome do Pet', idade: 'Idade', especie: 'Espécie',
     genero: 'Gênero', raca: 'Raça', cor: 'Cor', peso: 'Peso',
     localizacao: 'Localização do Pet', localizacaoOutra: 'Especificar local',
-    cremacao: 'Cremação', pagamento: 'Forma de Pagamento', parcelas: 'Parcelas',
+    cremacao: 'Cremação', planoId: 'Plano', planoItens: 'Itens do plano', pagamento: 'Forma de Pagamento', parcelas: 'Parcelas',
     velorio: 'Velório', acompanhamento: 'Acompanhamento',
     comoConheceu: 'Como nos conheceu', veterinarioEspecificar: 'Veterinário(a)/Panfleto/Recepção',
     outroEspecificar: 'Outro (especificar)',
@@ -404,6 +499,20 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
       if (!form.cor.trim()) errs.cor = 'Obrigatório'
       if (!form.peso.trim()) errs.peso = 'Obrigatório'
       if (!form.cremacao) errs.cremacao = 'Selecione o tipo'
+      // Plano (mig 098): obrigatório escolher (ou "quero ajuda") quando a unidade oferece
+      if (mostraPlanos && !form.planoId) errs.planoId = 'Escolha um plano (ou "Quero ajuda para escolher")'
+      // Itens do plano: respeitar o mínimo de escolhas de cada grupo (definido no admin)
+      if (mostraPlanos && planoEscolhido) {
+        for (const g of gruposDoPlano) {
+          const n = selecaoDoGrupo(g.id).length
+          if (n < g.escolha_min) {
+            errs.planoItens = g.escolha_min === 1
+              ? `Escolha uma opção em "${g.nome}"`
+              : `Escolha pelo menos ${g.escolha_min} opções em "${g.nome}"`
+            break
+          }
+        }
+      }
       // Pagamento vale pra EM e PV (decisão 19/07: PV também escolhe forma + parcelas)
       if (!form.pagamento) errs.pagamento = 'Obrigatório'
       if (form.pagamento === 'credito' && !form.parcelas) errs.parcelas = 'Obrigatório'
@@ -509,6 +618,14 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
       veterinario_especificar: form.veterinarioEspecificar || null,
       outro_especificar: form.outroEspecificar || null,
       observacoes: form.observacoes || null,
+      // Plano escolhido pelo tutor (mig 098). "ajuda" = quer falar com o atendimento → sem valor.
+      // valor = SÓ o plano (base + adicional de porte); os itens vão detalhados em
+      // plano_itens pro concierge lançar como produtos no contrato.
+      plano_nome: planoEscolhido ? planoEscolhido.nome : (form.planoId === 'ajuda' ? 'Quero ajuda para escolher' : null),
+      valor: planoEscolhido ? precoDoPlano(planoEscolhido) : null,
+      plano_itens: itensEscolhidos.length
+        ? itensEscolhidos.map(i => ({ produto_id: i.produto_id, nome: i.nome, grupo: i.grupo, modo: i.modo, preco: i.modo === 'desconto' ? (i.preco_desconto ?? 0) : 0 }))
+        : null,
     }
 
     let supabaseOk = false
@@ -982,17 +1099,122 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
               <div>
                 <label className={labelClass}>Cremação <span className="text-red-400">*</span></label>
                 <div className="flex gap-2">
-                  <div onClick={() => updateField('cremacao', 'individual')} className={radioClass(form.cremacao === 'individual')}>
+                  <div onClick={() => { updateField('cremacao', 'individual'); updateField('planoId', ''); updateField('planoItensSel', {}) }} className={radioClass(form.cremacao === 'individual')}>
                     <div className="font-bold">Individual</div>
                     <div className="text-xs opacity-70 mt-0.5"><strong>Com</strong> retorno das cinzas</div>
                   </div>
-                  <div onClick={() => updateField('cremacao', 'coletiva')} className={radioClass(form.cremacao === 'coletiva')}>
+                  <div onClick={() => { updateField('cremacao', 'coletiva'); updateField('planoId', ''); updateField('planoItensSel', {}) }} className={radioClass(form.cremacao === 'coletiva')}>
                     <div className="font-bold">Coletiva</div>
                     <div className="text-xs opacity-70 mt-0.5"><strong>Sem</strong> retorno das cinzas</div>
                   </div>
                 </div>
                 {errors.cremacao && <p className={errorClass}>{errors.cremacao}</p>}
               </div>
+
+              {/* Escolha do plano (mig 098) — só se a unidade tem planos ativos do tipo escolhido */}
+              {mostraPlanos && (
+                <div>
+                  <label className={labelClass}>Escolha seu plano <span className="text-red-400">*</span></label>
+                  <div className="space-y-2">
+                    {planosDoTipo.map(p => {
+                      const preco = precoDoPlano(p)
+                      const temAdicional = pesoKg != null && !isNaN(pesoKg) && pesoKg > p.adicional_peso_kg && p.adicional_valor > 0
+                      const selecionado = form.planoId === p.id
+                      return (
+                        <div
+                          key={p.id}
+                          onClick={() => { updateField('planoId', p.id); updateField('planoItensSel', {}) }}
+                          className={`rounded-xl border-2 cursor-pointer transition-colors overflow-hidden ${
+                            selecionado ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white hover:border-slate-300'
+                          }`}
+                        >
+                          {p.imagem_url && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={p.imagem_url} alt={p.nome} className="w-full h-28 object-cover" />
+                          )}
+                          <div className="p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-bold text-slate-800">{p.nome}</span>
+                            <span className={`font-bold text-sm whitespace-nowrap ${selecionado ? 'text-blue-600' : 'text-slate-700'}`}>
+                              {preco.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 })}
+                            </span>
+                          </div>
+                          {p.descricao && <p className="text-xs text-slate-500 mt-1">{p.descricao}</p>}
+                          {temAdicional && (
+                            <p className="text-[11px] text-slate-400 mt-1">Inclui adicional de porte (acima de {p.adicional_peso_kg}kg)</p>
+                          )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                    {/* Escape: tutor em dúvida não trava o envio */}
+                    <div
+                      onClick={() => { updateField('planoId', 'ajuda'); updateField('planoItensSel', {}) }}
+                      className={`p-3 rounded-xl border-2 cursor-pointer transition-colors text-center ${
+                        form.planoId === 'ajuda' ? 'border-blue-500 bg-blue-50' : 'border-dashed border-slate-300 bg-white hover:border-slate-400'
+                      }`}
+                    >
+                      <span className="text-sm font-medium text-slate-600">Quero ajuda para escolher</span>
+                      <p className="text-[11px] text-slate-400 mt-0.5">Nossa equipe entra em contato com você</p>
+                    </div>
+                  </div>
+                  {errors.planoId && <p className={errorClass}>{errors.planoId}</p>}
+
+                  {/* Grupos de escolha do plano (estilo iFood: min/max por grupo) */}
+                  {planoEscolhido && gruposDoPlano.map(g => {
+                    const nSel = selecaoDoGrupo(g.id).length
+                    const regra = g.escolha_min === 0
+                      ? (g.escolha_max === 1 ? 'opcional' : `opcional, até ${g.escolha_max}`)
+                      : g.escolha_min === g.escolha_max
+                        ? (g.escolha_max === 1 ? 'escolha 1' : `escolha ${g.escolha_max}`)
+                        : `escolha ${g.escolha_min} a ${g.escolha_max}`
+                    return (
+                      <div key={g.id} className="mt-3">
+                        <div className="flex items-baseline justify-between">
+                          <label className={labelClass}>
+                            {g.nome} {g.escolha_min > 0 && <span className="text-red-400">*</span>}
+                            <span className="text-xs text-slate-400 font-normal ml-1.5">({regra})</span>
+                          </label>
+                          {g.escolha_max > 1 && (
+                            <span className={`text-[11px] font-semibold ${nSel >= g.escolha_max ? 'text-blue-600' : 'text-slate-400'}`}>
+                              {nSel}/{g.escolha_max}
+                            </span>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          {g.plano_itens.map(it => {
+                            const sel = selecaoDoGrupo(g.id).includes(it.id)
+                            const preco = it.modo === 'desconto' ? (it.preco_desconto ?? 0) : 0
+                            return (
+                              <div
+                                key={it.id}
+                                onClick={() => toggleItemGrupo(g, it.id)}
+                                className={`rounded-xl border-2 cursor-pointer transition-colors overflow-hidden ${
+                                  sel ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white hover:border-slate-300'
+                                }`}
+                              >
+                                {it.imagem_url && (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={it.imagem_url} alt={it.nome} className="w-full h-24 object-cover" />
+                                )}
+                                <div className="p-2">
+                                  <p className="text-xs font-semibold text-slate-800 leading-tight">{it.nome}</p>
+                                  <p className={`text-[11px] font-bold mt-0.5 ${it.modo === 'incluso' ? 'text-emerald-600' : 'text-blue-600'}`}>
+                                    {it.modo === 'incluso'
+                                      ? 'Incluso no plano'
+                                      : `+ ${preco.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 })}`}
+                                  </p>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })}
+                  {errors.planoItens && <p className={errorClass}>{errors.planoItens}</p>}
+                </div>
+              )}
 
               {/* Pagamento — EM e PV (PV também escolhe forma + parcelas) */}
               <div>
@@ -1107,6 +1329,18 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
                   <p className="text-sm"><span className="font-medium text-slate-600">Peso:</span> <span className="text-slate-800">{form.peso} {form.pesoUnidade}</span></p>
                   {!modoPreventivo && <p className="text-sm"><span className="font-medium text-slate-600">Local:</span> <span className="text-slate-800">{form.localizacao}{form.localizacaoOutra ? ` (${form.localizacaoOutra})` : ''}</span></p>}
                   <p className="text-sm"><span className="font-medium text-slate-600">Cremação:</span> <span className="text-slate-800 capitalize">{form.cremacao}</span></p>
+                  {mostraPlanos && form.planoId && (
+                    <p className="text-sm"><span className="font-medium text-slate-600">Plano:</span> <span className="text-slate-800">
+                      {planoEscolhido
+                        ? `${planoEscolhido.nome} — ${precoDoPlano(planoEscolhido).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 })}`
+                        : 'Quero ajuda para escolher'}
+                    </span></p>
+                  )}
+                  {itensEscolhidos.map(it => (
+                    <p key={it.id} className="text-sm"><span className="font-medium text-slate-600">{it.grupo}:</span> <span className="text-slate-800">
+                      {it.nome} — {it.modo === 'incluso' ? 'Incluso' : (it.preco_desconto ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 })}
+                    </span></p>
+                  ))}
                   <p className="text-sm"><span className="font-medium text-slate-600">Pagamento:</span> <span className="text-slate-800">{form.pagamento === 'pix' ? 'Pix' : form.pagamento === 'dinheiro' ? 'Dinheiro' : form.pagamento === 'debito' ? 'Cartão de Débito' : `Cartão de Crédito ${form.parcelas}`}</span></p>
                   {!modoPreventivo && <p className="text-sm"><span className="font-medium text-slate-600">Velório:</span> <span className="text-slate-800">{form.velorio}</span></p>}
                   {!modoPreventivo && <p className="text-sm"><span className="font-medium text-slate-600">Acompanhamento:</span> <span className="text-slate-800">{form.acompanhamento}</span></p>}

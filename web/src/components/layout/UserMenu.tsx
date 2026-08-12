@@ -7,7 +7,7 @@ import { useUnit } from '@/contexts/UnitContext'
 import { createClient } from '@/lib/supabase/client'
 import {
   User, ChevronDown, LogOut, Eye, Users, Settings, Crown, Shield,
-  Palette, Moon, Sun, UserCheck, Tag, ListTodo, Printer, Wrench
+  Palette, Moon, Sun, UserCheck, Tag, ListTodo, Printer, Wrench, Layers, Handshake
 } from 'lucide-react'
 import { useTheme } from '@/hooks/useTheme'
 import { THEMES, THEME_META, type Theme } from '@/lib/theme'
@@ -141,6 +141,28 @@ export function UserMenu() {
               >
                 <Tag className="h-4 w-4" style={{ color: '#f59e0b' }} />
                 <span className="text-sm">Catálogo</span>
+              </Link>
+              <Link
+                href="/admin/planos"
+                onClick={() => setIsOpen(false)}
+                className="flex items-center gap-3 px-4 py-2.5 transition-colors"
+                style={{ color: '#e2e8f0' }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                <Layers className="h-4 w-4" style={{ color: '#10b981' }} />
+                <span className="text-sm">Planos</span>
+              </Link>
+              <Link
+                href="/admin/parceiros"
+                onClick={() => setIsOpen(false)}
+                className="flex items-center gap-3 px-4 py-2.5 transition-colors"
+                style={{ color: '#e2e8f0' }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                <Handshake className="h-4 w-4" style={{ color: '#06b6d4' }} />
+                <span className="text-sm">Parceiros</span>
               </Link>
               <Link
                 href="/admin/demandas"

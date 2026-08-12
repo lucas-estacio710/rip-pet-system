@@ -10,6 +10,7 @@ import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
 import { gerarContratoPDF, contratoFilename } from '@/lib/contrato-pdf'
 import { hojeLocal } from '@/lib/date-local'
+import { tituloNome, primeiroNome } from '@/lib/nome-tutor'
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ⚠️  MODAIS GÊMEOS — TratativaModal (este)  ⇄  AtivarModal
@@ -61,6 +62,8 @@ type Ficha = {
   peso: string | null
   cremacao: string
   tipo_plano?: 'emergencial' | 'preventivo'
+  plano_nome?: string | null
+  plano_itens?: { produto_id: string | null; nome: string; grupo: string; modo: string; preco: number }[] | null
   valor: number | null
   pagamento: string
   parcelas: string | null
@@ -69,6 +72,10 @@ type Ficha = {
   localizacao: string
   localizacao_outra: string | null
   como_conheceu: string[] | null
+  // Portal de Parceiros (mig 100/101): quando a ficha nasce de um orçamento, quem
+  // indicou vem por FK e não por texto — a comissão não depende de acertar o nome.
+  contato_id?: string | null
+  parceiro_orcamento_id?: string | null
   veterinario_especificar: string | null
   outro_especificar: string | null
   observacoes: string | null
@@ -94,13 +101,6 @@ type Props = {
   somenteLeitura?: boolean
 }
 
-// Nomes compostos: se o primeiro nome é um desses prefixos, inclui o segundo nome
-const PREFIXOS_NOME_COMPOSTO = [
-  'maria', 'ana', 'anna', 'rosa',
-  'joao', 'joão', 'jose', 'josé',
-  'pedro', 'luiz', 'luis', 'luís', 'carlos', 'marco',
-]
-
 // Detecta CPF vs CNPJ pelo número de dígitos
 function labelDocumento(valor: string | null | undefined): string {
   if (!valor) return 'CPF'
@@ -115,19 +115,9 @@ function maskDocumento(v: string): string {
   return d.slice(0, 11).replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2')
 }
 
-function capitalizarNome(nome: string): string {
-  if (!nome) return ''
-  return nome.split(/\s+/).map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(' ')
-}
-
-function getPrimeiroNome(nomeCompleto: string | null | undefined): string {
-  if (!nomeCompleto) return ''
-  const partes = nomeCompleto.trim().split(/\s+/)
-  if (partes.length <= 1) return capitalizarNome(partes[0] || '')
-  const primeiroLower = partes[0].toLowerCase()
-  const qtd = PREFIXOS_NOME_COMPOSTO.includes(primeiroLower) ? 2 : 1
-  return capitalizarNome(partes.slice(0, qtd).join(' '))
-}
+// Nome de tratamento e title case vêm de lib/nome-tutor (fonte única)
+const capitalizarNome = tituloNome
+const getPrimeiroNome = primeiroNome
 
 // ============================================
 // Component
@@ -424,6 +414,11 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
     if (!isOpen || !ficha) return
     if (ficha.valor != null) {
       setValorPlano(String(ficha.valor))
+    }
+    // Plano escolhido pelo tutor na ficha pública (mig 098) → sugere o Detalhamento
+    // do Plano. Reidratação do op_dados roda depois e prevalece se o concierge já editou.
+    if (ficha.plano_nome && ficha.plano_nome !== 'Quero ajuda para escolher') {
+      setDetalhamentoPlano(prev => prev || ficha.plano_nome!)
     }
   }, [isOpen, ficha])
 
@@ -845,7 +840,9 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
 
       // Step 3: Resolve estabelecimento + contato
       let resolvedEstabId: string | null = estabId
-      let resolvedContatoId: string | null = indicId
+      // Ficha vinda do Portal de Parceiros já traz o indicador por FK — ele vence a
+      // resolução por texto/busca, que é justamente o ponto frágil que o portal remove.
+      let resolvedContatoId: string | null = f.contato_id || indicId
       let clinicaColetaNome: string | null = null
 
       if (temPadronizacaoClinicas) {
@@ -964,6 +961,23 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         .single() as { data: { id: string } | null; error: { message: string } | null }
       if (errContrato) throw new Error(`Erro ao criar contrato: ${errContrato.message}`)
 
+      // Portal de Parceiros: calcula a comissão pela categoria do parceiro e emite o
+      // bilhete do sorteio. Roda em segundo plano de propósito — se a rota falhar, o
+      // contrato já está criado e o concierge não pode ficar travado por causa disso.
+      // A rota é idempotente, então dá pra reprocessar depois sem duplicar nada.
+      if (resolvedContatoId) {
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          fetch('/api/parceiros/indicacao', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${session?.access_token}`,
+            },
+            body: JSON.stringify({ contrato_id: contrato!.id }),
+          }).catch(e => console.error('[parceiros] falha ao calcular comissão:', e))
+        })
+      }
+
       // Vincular contrato à ficha + marcar como processada (se ainda não estava).
       // Reconcilia op_dados com o que foi de fato usado pra criar o contrato — garante
       // que PDF da ficha, badges de pendência e o "desfazer ficha" (que preserva op_dados)
@@ -979,6 +993,9 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         dataHoraAcolhimento: dataHoraAcolhimento || opPrev.dataHoraAcolhimento,
         semLacre: lacre.trim() ? false : semLacre,
         lacre: lacre.trim() || opPrev.lacre,
+        // Itens do plano escolhidos pelo tutor (mig 098) — registrados no op_dados
+        // (sobrevivem ao "desfazer ficha") e lançados em contrato_produtos abaixo.
+        planoItens: ficha.plano_itens || opPrev.planoItens || null,
       }
       const { error: errLink } = await supabase.from('fichas').update({
         contrato_id: contrato!.id,
@@ -987,6 +1004,31 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         op_dados: opReconciliado,
       } as never).eq('id', ficha.id)
       if (errLink) throw new Error(`Erro ao vincular ficha ao contrato: ${errLink.message}`)
+
+      // Produtos escolhidos pelo tutor na ficha (mig 098) → contrato_produtos + baixa
+      // de estoque (mesmo padrão da venda manual: 1 linha = 1 unidade física; incluso
+      // no plano = valor 0). O trigger 074 recalcula valor_acessorios sozinho.
+      const itensPlano = (ficha.plano_itens || []).filter(it => it.produto_id)
+      if (itensPlano.length > 0) {
+        const rowsItens = itensPlano.map(it => ({
+          contrato_id: contrato!.id,
+          produto_id: it.produto_id,
+          valor: it.modo === 'desconto' ? (it.preco || 0) : 0,
+          desconto: 0,
+        }))
+        const { error: errItens } = await supabase.from('contrato_produtos').insert(rowsItens as never)
+        if (errItens) {
+          toast(`Contrato criado, mas falhou ao lançar os itens do plano: ${errItens.message}`, 'error')
+        } else {
+          for (const it of itensPlano) {
+            await (supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ error: { message: string } | null }>)('ajustar_estoque_unidade', {
+              p_produto_id: it.produto_id,
+              p_unidade_id: f.unidade_id,
+              p_delta: -1,
+            })
+          }
+        }
+      }
 
       // Migrar observações da ficha pra tarefas (se houver)
       if (f.observacoes) {
@@ -1832,6 +1874,12 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               <Flame className="h-4 w-4" />Serviço
             </div>
             <InfoRow label="Cremação" value={getFichaValue('cremacao')} editKey="cremacao" edited={!!fichaEdits.cremacao} onEdit={startEdit} />
+            {ficha?.plano_nome && (
+              <InfoRow label="Plano escolhido" value={`${ficha.plano_nome}${ficha.valor != null && ficha.plano_nome !== 'Quero ajuda para escolher' ? ` (R$ ${ficha.valor})` : ''}`} />
+            )}
+            {(ficha?.plano_itens || []).map((it, i) => (
+              <InfoRow key={i} label={it.grupo} value={`${it.nome} — ${it.modo === 'incluso' ? 'Incluso' : `R$ ${it.preco}`} (entra no contrato automaticamente)`} />
+            ))}
             <InfoRow label="Pagamento" value={getFichaValue('pagamento')} editKey="pagamento" edited={!!fichaEdits.pagamento} onEdit={startEdit} />
             {getFichaValue('pagamento') === 'Cartão Crédito' && (
               <InfoRow label="Parcelas" value={getFichaValue('parcelas') || '—'} editKey="parcelas" edited={!!fichaEdits.parcelas} onEdit={startEdit} />

@@ -9,6 +9,14 @@ export const FICHA_UNIDADES: Record<string, FichaUnidadeConfig> = {
     codigo: 'ST', nome: 'Santos', cidade: 'Santos', estado: 'SP',
     label: 'Unidade Santos', unidadeCompleta: 'Santos - SP', maxParcelas: 12,
   },
+  // POC escolha de plano pelo tutor (mig 098): slug PARALELO de Santos — o /ficha/santos
+  // oficial segue sem a seção de planos; este habilita via comPlanos.
+  santosp: {
+    unidade_id: '94278414-ad10-4463-ba49-274474adb271',
+    codigo: 'ST', nome: 'Santos', cidade: 'Santos', estado: 'SP',
+    label: 'Unidade Santos', unidadeCompleta: 'Santos - SP', maxParcelas: 12,
+    comPlanos: true,
+  },
   'sao-paulo': {
     unidade_id: 'd2a2b491-036a-4091-a5b5-e3d31f103337',
     codigo: 'SP', nome: 'São Paulo', cidade: 'São Paulo', estado: 'SP',
