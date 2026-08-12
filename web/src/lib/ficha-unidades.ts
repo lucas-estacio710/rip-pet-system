@@ -17,7 +17,8 @@ export const FICHA_UNIDADES: Record<string, FichaUnidadeConfig> = {
   campinas: {
     unidade_id: '4c737cfd-6ee6-4919-af54-7bbbd4ded38d',
     codigo: 'CP', nome: 'Campinas', cidade: 'Campinas', estado: 'SP',
-    label: 'Unidade Campinas', unidadeCompleta: 'Campinas - SP', maxParcelas: 8,
+    // Campinas pediu (11/08): EM até 7x, PV até 10x (maxParcelas base fica de fallback)
+    label: 'Unidade Campinas', unidadeCompleta: 'Campinas - SP', maxParcelas: 8, maxParcelasEM: 7, maxParcelasPV: 10,
   },
   sjc: {
     unidade_id: '883bcc04-7885-4c46-93ee-696f452cc07c',

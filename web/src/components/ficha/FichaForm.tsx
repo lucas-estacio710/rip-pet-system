@@ -15,7 +15,9 @@ export type FichaUnidadeConfig = {
   estado: string           // 'SP'
   label: string            // 'Unidade Santos'
   unidadeCompleta: string  // 'Santos - SP'
-  maxParcelas?: number     // Máximo de parcelas no crédito (default 12)
+  maxParcelas?: number     // Máximo de parcelas no crédito (default 12) — base/fallback
+  maxParcelasEM?: number   // Máximo no crédito na ficha EMERGENCIAL (fallback: maxParcelas)
+  maxParcelasPV?: number   // Máximo no crédito na contratação PREVENTIVA (fallback: maxParcelas)
 }
 
 // ============================================
@@ -1013,7 +1015,7 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
                     <select className={inputClass('parcelas')} value={form.parcelas} onChange={e => updateField('parcelas', e.target.value)}>
                       <option value="">Parcelas...</option>
                       <option value="1x">À vista</option>
-                      {Array.from({length: (config.maxParcelas || 12) - 1}, (_, i) => i + 2).map(n => <option key={n} value={`${n}x`}>{n}x</option>)}
+                      {Array.from({length: ((modoPreventivo ? (config.maxParcelasPV ?? config.maxParcelas) : (config.maxParcelasEM ?? config.maxParcelas)) || 12) - 1}, (_, i) => i + 2).map(n => <option key={n} value={`${n}x`}>{n}x</option>)}
                     </select>
                     {errors.parcelas && <p className={errorClass}>{errors.parcelas}</p>}
                   </div>
