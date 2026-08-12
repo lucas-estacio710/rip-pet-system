@@ -193,9 +193,10 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
   const [obsAberto, setObsAberto] = useState(false)
   const [obsCount, setObsCount] = useState(0)
   const [obsTemImportante, setObsTemImportante] = useState(false)
-  // Confirmação de data/hora ao avançar etapas (Contato / Receber / Cremar / Finalizar).
-  // Quando aberto, troca o botão de ação por um mini-form com datetime-local pré-preenchido.
-  const [confirmando, setConfirmando] = useState<null | 'contato' | 'recebido' | 'cremado' | 'disponivel'>(null)
+  // Confirmação de data/hora — hoje só na finalização ("Marcar como Finalizada").
+  // Contato / Recebimento / Cremação carimbam now() num clique só: digitar data e hora
+  // em toda etapa era excessivo pra operação, e o horário do clique é o horário real do fato.
+  const [confirmando, setConfirmando] = useState<null | 'disponivel'>(null)
   const [confirmData, setConfirmData] = useState<string>('')
 
   useEffect(() => {
@@ -237,22 +238,14 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
     disponivel: gc.data_disponivel,
   }
 
-  function abrirConfirmacao(qual: 'contato' | 'recebido' | 'cremado' | 'disponivel') {
+  function abrirConfirmacao(qual: 'disponivel') {
     setConfirmando(qual)
-    // Cremação: sugere a data/hora do agendamento (cenário mais comum). Demais: now().
-    const sugestao = qual === 'cremado' && gc.data_agendamento
-      ? new Date(gc.data_agendamento)
-      : new Date()
-    setConfirmData(isoParaInputLocal(sugestao.toISOString()))
+    setConfirmData(isoParaInputLocal(new Date().toISOString()))
   }
 
   function confirmarTransicao() {
     if (!confirmData) return
-    const iso = new Date(confirmData).toISOString()
-    if (confirmando === 'contato') mudar({ contato_status: 'contatado', contato_tutor_em: iso })
-    else if (confirmando === 'recebido') mudar({ etapa: 'recebido', data_recebimento: iso })
-    else if (confirmando === 'cremado') mudar({ etapa: 'cremado', data_cremacao: iso })
-    else if (confirmando === 'disponivel') mudar({ etapa: 'disponivel', data_disponivel: iso })
+    mudar({ etapa: 'disponivel', data_disponivel: new Date(confirmData).toISOString() })
     setConfirmando(null)
   }
 
@@ -452,20 +445,16 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
             </div>
           </div>
 
-          {/* Ação: Contatar */}
+          {/* Ação: Contatar — 1 clique, carimba agora */}
           {podeContatar && (
-            confirmando === 'contato'
-              ? renderConfirmacao('border-amber-500/30', 'bg-amber-600 hover:bg-amber-700', 'Quando o contato foi feito?')
-              : (
-                <button onClick={() => abrirConfirmacao('contato')} disabled={salvando}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-amber-500/30 hover:bg-amber-900/10 transition-colors disabled:opacity-50">
-                  <Phone className="h-5 w-5 text-amber-400" />
-                  <div className="text-left">
-                    <p className="text-sm font-semibold text-[var(--shell-text)]">Registrar Contato</p>
-                    <p className="text-[10px] text-[var(--surface-400)]">Saudação já enviada para o tutor. Aguardar agendamento</p>
-                  </div>
-                </button>
-              )
+            <button onClick={() => mudar({ contato_status: 'contatado', contato_tutor_em: new Date().toISOString() })} disabled={salvando}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-amber-500/30 hover:bg-amber-900/10 transition-colors disabled:opacity-50">
+              <Phone className="h-5 w-5 text-amber-400" />
+              <div className="text-left">
+                <p className="text-sm font-semibold text-[var(--shell-text)]">Registrar Contato</p>
+                <p className="text-[10px] text-[var(--surface-400)]">Saudação já enviada para o tutor. Aguardar agendamento</p>
+              </div>
+            </button>
           )}
 
           {/* Ação: Agendar (colapsável) */}
@@ -630,34 +619,34 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
             </p>
           )}
           {podeReceber && (
-            confirmando === 'recebido'
-              ? renderConfirmacao('border-purple-500/30', 'bg-purple-600 hover:bg-purple-700', 'Quando o pet chegou em Pinda?')
-              : (
-                <button onClick={() => abrirConfirmacao('recebido')} disabled={salvando}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-purple-500/30 hover:bg-purple-900/10 transition-colors disabled:opacity-50">
-                  <Check className="h-5 w-5 text-purple-400" />
-                  <div className="text-left">
-                    <p className="text-sm font-semibold text-[var(--shell-text)]">Confirmar Recebimento</p>
-                    <p className="text-[10px] text-[var(--surface-400)]">Pet chegou em Pinda</p>
-                  </div>
-                </button>
-              )
+            <button onClick={() => mudar({ etapa: 'recebido', data_recebimento: new Date().toISOString() })} disabled={salvando}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-purple-500/30 hover:bg-purple-900/10 transition-colors disabled:opacity-50">
+              <Check className="h-5 w-5 text-purple-400" />
+              <div className="text-left">
+                <p className="text-sm font-semibold text-[var(--shell-text)]">Confirmar Recebimento</p>
+                <p className="text-[10px] text-[var(--surface-400)]">Pet chegou em Pinda</p>
+              </div>
+            </button>
           )}
 
           {/* Ação: Cremar */}
           {podeCremar && (
-            confirmando === 'cremado'
-              ? renderConfirmacao('border-red-500/30', 'bg-red-600 hover:bg-red-700', 'Quando a cremação foi realizada?')
-              : (
-                <button onClick={() => abrirConfirmacao('cremado')} disabled={salvando}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-red-500/30 hover:bg-red-900/10 transition-colors disabled:opacity-50">
-                  <Flame className="h-5 w-5 text-red-400" />
-                  <div className="text-left">
-                    <p className="text-sm font-semibold text-[var(--shell-text)]">Registrar Cremação</p>
-                    <p className="text-[10px] text-[var(--surface-400)]">Cremação foi realizada</p>
-                  </div>
-                </button>
-              )
+            <button
+              /* A cremação acontece na hora que foi agendada com o tutor — o carimbo herda
+                 `data_agendamento`, não o instante do clique (que costuma ser depois). */
+              onClick={() => mudar({ etapa: 'cremado', data_cremacao: gc.data_agendamento || new Date().toISOString() })}
+              disabled={salvando}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-red-500/30 hover:bg-red-900/10 transition-colors disabled:opacity-50">
+              <Flame className="h-5 w-5 text-red-400" />
+              <div className="text-left">
+                <p className="text-sm font-semibold text-[var(--shell-text)]">Registrar Cremação</p>
+                <p className="text-[10px] text-[var(--surface-400)]">
+                  {gc.data_agendamento
+                    ? `Registra a data do agendamento — ${fmtDataTrilha(gc.data_agendamento)}`
+                    : 'Cremação foi realizada'}
+                </p>
+              </div>
+            </button>
           )}
 
           {/* Info bloqueio */}
