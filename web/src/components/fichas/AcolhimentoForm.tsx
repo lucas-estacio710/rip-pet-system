@@ -97,6 +97,44 @@ function abrirWhatsApp(tel: string | null | undefined) {
   window.open(`https://wa.me/${numero}`, '_blank', 'noopener,noreferrer')
 }
 
+// ── Telefone do 2º contato: helpers puros (refactory 04/08) ────────────────
+// O parser antigo deduzia o DDI por PREFIXO dos dígitos crus, com '1' na lista:
+// qualquer número começando com 1 (DDDs 11–19 = SP/Campinas/Santos/Vale!) virava
+// DDI +1 (EUA), comendo o 1º dígito. Aqui o DDI só é afirmado com segurança.
+const DDIS_CONHECIDOS = ['55', '1', '351', '54']
+const soDigitos = (s: string) => (s || '').replace(/\D/g, '')
+
+// Máscara BR de exibição (parcial enquanto digita): (XX) XXXXX-XXXX / (XX) XXXX-XXXX
+function mascararBR(dig: string): string {
+  const d = soDigitos(dig).slice(0, 11)
+  if (d.length <= 2) return d
+  if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`
+  if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`
+}
+
+/**
+ * Separa DDI do número local de um telefone colado/digitado.
+ *  1. "+DDI ..." explícito  → usa o DDI conhecido (55/1/351/54).
+ *  2. Sem "+": deduz por COMPRIMENTO (nunca por prefixo):
+ *       12–13 díg começando com 55 → tem DDI 55 (55 + DDD + 8/9 díg)
+ *       10–11 díg (ou qualquer outro) → número LOCAL, DDI indefinido (ddi=null)
+ *  ddi=null significa "não mexer no DDI atual do dropdown" (default +55).
+ */
+function parseTelefone(texto: string): { ddi: string | null; local: string } {
+  const dig = soDigitos(texto)
+  if (/^\s*\+/.test(texto)) {
+    for (const c of ['351', '55', '54', '1']) {  // mais longo primeiro
+      if (dig.startsWith(c)) return { ddi: c, local: dig.slice(c.length) }
+    }
+    return { ddi: null, local: dig }  // DDI desconhecido → usuário ajusta no dropdown
+  }
+  if (dig.length >= 12 && dig.length <= 13 && dig.startsWith('55')) {
+    return { ddi: '55', local: dig.slice(2) }
+  }
+  return { ddi: null, local: dig }  // 10–11 díg (DDD 1X inclusive) = local BR, sem +1
+}
+
 export default function AcolhimentoForm({
   value,
   onChange,
@@ -138,14 +176,11 @@ export default function AcolhimentoForm({
   useEffect(() => {
     if (tel2Init.current || !value.telefone2) return
     tel2Init.current = true
-    const d = value.telefone2.replace(/\D/g, '')
-    let ddi = '55'
-    let resto = d
-    for (const c of ['55', '351', '54', '1']) {
-      if (d.startsWith(c)) { ddi = c; resto = d.slice(c.length); break }
-    }
-    setTelefone2DDI(['55', '1', '351', '54'].includes(ddi) ? ddi : 'outro')
-    setTelefone2Raw(resto.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15))
+    // O value salvo é sempre DDI+dígitos (com "+" implícito) → parseia como colagem
+    const { ddi, local } = parseTelefone('+' + soDigitos(value.telefone2))
+    const ddiFinal = ddi ?? '55'
+    setTelefone2DDI(DDIS_CONHECIDOS.includes(ddiFinal) ? ddiFinal : 'outro')
+    setTelefone2Raw(ddiFinal === '55' ? mascararBR(local) : local)
   }, [value.telefone2])
 
   // Click fora do dropdown do autocomplete fecha
@@ -158,44 +193,43 @@ export default function AcolhimentoForm({
     return () => document.removeEventListener('mousedown', handle)
   }, [estabAberto])
 
-  function getTelefone2Completo(raw: string, ddiSel: string, ddiCustom: string): string {
-    const num = raw.replace(/\D/g, '')
-    if (!num) return ''
-    const ddi = ddiSel === 'outro' ? ddiCustom : ddiSel
-    return ddi + num
+  // Valor salvo = DDI (dropdown/custom) + dígitos locais. Fonte única da verdade.
+  function montarTelefone2(local: string, ddiSel: string, ddiCustom: string): string {
+    const dig = soDigitos(local)
+    if (!dig) return ''
+    const ddi = ddiSel === 'outro' ? soDigitos(ddiCustom) : ddiSel
+    return ddi + dig
   }
 
-  // Smart input pro tel2 — detecta DDI inicial colado do WhatsApp (+55, +1, +351, +54)
-  function aplicarTelefone2(raw: string) {
-    const d = raw.replace(/\D/g, '')
-    if (!d) {
-      setTelefone2Raw('')
-      set({ telefone2: '' })
-      return
-    }
-    const ddiCandidatos = ['55', '351', '54', '1']
-    for (const ddi of ddiCandidatos) {
-      if (d.startsWith(ddi)) {
-        const resto = d.slice(ddi.length)
-        if (ddi === '55' && (resto.length === 10 || resto.length === 11)) {
-          const masked = resto.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15)
-          setTelefone2DDI('55')
-          setTelefone2Raw(masked)
-          set({ telefone2: getTelefone2Completo(masked, '55', telefone2DDICustom) })
-          return
-        }
-        if (ddi !== '55' && resto.length >= 7 && resto.length <= 11) {
-          const masked = resto.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15)
-          setTelefone2DDI(ddi)
-          setTelefone2Raw(masked)
-          set({ telefone2: getTelefone2Completo(masked, ddi, telefone2DDICustom) })
-          return
-        }
-      }
-    }
-    const masked = d.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15)
-    setTelefone2Raw(masked)
-    set({ telefone2: getTelefone2Completo(masked, telefone2DDI, telefone2DDICustom) })
+  // COLAGEM (caminho feliz do WhatsApp): extrai DDI e já formata bonito.
+  function onPasteTel2(textoColado: string) {
+    const { ddi, local } = parseTelefone(textoColado)
+    const ddiFinal = ddi ?? telefone2DDI
+    if (ddi) setTelefone2DDI(DDIS_CONHECIDOS.includes(ddi) ? ddi : 'outro')
+    setTelefone2Raw(ddiFinal === '55' ? mascararBR(local) : local)
+    set({ telefone2: montarTelefone2(local, ddiFinal, telefone2DDICustom) })
+  }
+
+  // DIGITAÇÃO/EDIÇÃO: livre, sem re-mascarar (editar no meio funciona). Só deriva o
+  // valor salvo. Se o usuário digitar um "+DDI", é tratado como colagem parcial.
+  function onChangeTel2(texto: string) {
+    if (/^\s*\+/.test(texto)) { onPasteTel2(texto); return }
+    const local = soDigitos(texto)
+    setTelefone2Raw(texto)  // mostra exatamente o que ele digitou (cursor estável)
+    set({ telefone2: montarTelefone2(local, telefone2DDI, telefone2DDICustom) })
+  }
+
+  // BLUR: formata o que tiver (só BR) — deixa bonito ao sair do campo.
+  function onBlurTel2() {
+    if (telefone2DDI === '55') setTelefone2Raw(mascararBR(telefone2Raw))
+  }
+
+  // Troca de DDI no dropdown: revaloriza o telefone2 com os dígitos atuais.
+  function onChangeDDI2(novoDDI: string, novoCustom?: string) {
+    if (novoDDI === 'outro') setTelefone2DDICustom(novoCustom ?? telefone2DDICustom)
+    setTelefone2DDI(novoDDI)
+    const custom = novoDDI === 'outro' ? (novoCustom ?? telefone2DDICustom) : telefone2DDICustom
+    set({ telefone2: montarTelefone2(telefone2Raw, novoDDI, custom) })
   }
 
   const estabsFiltrados = value.estabBusca.trim()
@@ -274,11 +308,11 @@ export default function AcolhimentoForm({
               {telefone2DDI === 'outro' ? (
                 <div className="flex gap-1 items-center">
                   <span className="text-[var(--surface-400)] text-xs">+</span>
-                  <input value={telefone2DDICustom} onChange={e => { const v = e.target.value.replace(/\D/g, '').slice(0, 4); setTelefone2DDICustom(v); set({ telefone2: getTelefone2Completo(telefone2Raw, 'outro', v) }) }} className="input text-sm text-mono w-14 text-center" placeholder="DDI" inputMode="numeric" />
-                  <button type="button" onClick={() => { setTelefone2DDI('55'); set({ telefone2: getTelefone2Completo(telefone2Raw, '55', telefone2DDICustom) }) }} className="text-[10px] text-[var(--surface-400)]">x</button>
+                  <input value={telefone2DDICustom} onChange={e => onChangeDDI2('outro', e.target.value.replace(/\D/g, '').slice(0, 4))} className="input text-sm text-mono w-14 text-center" placeholder="DDI" inputMode="numeric" />
+                  <button type="button" onClick={() => onChangeDDI2('55')} className="text-[10px] text-[var(--surface-400)]">x</button>
                 </div>
               ) : (
-                <select value={telefone2DDI} onChange={e => { setTelefone2DDI(e.target.value); set({ telefone2: getTelefone2Completo(telefone2Raw, e.target.value, telefone2DDICustom) }) }} className="input text-sm w-24">
+                <select value={telefone2DDI} onChange={e => onChangeDDI2(e.target.value)} className="input text-sm w-24">
                   <option value="55">+55</option>
                   <option value="1">+1</option>
                   <option value="351">+351</option>
@@ -286,7 +320,7 @@ export default function AcolhimentoForm({
                   <option value="outro">Outro</option>
                 </select>
               )}
-              <input type="text" inputMode="tel" value={telefone2Raw} onChange={e => aplicarTelefone2(e.target.value)} placeholder="(00) 00000-0000 — cole com +55, ele detecta" maxLength={20} className="input text-sm text-mono flex-1" />
+              <input type="text" inputMode="tel" value={telefone2Raw} onChange={e => onChangeTel2(e.target.value)} onPaste={e => { e.preventDefault(); onPasteTel2(e.clipboardData.getData('text')) }} onBlur={onBlurTel2} placeholder="(11) 95130-9000 — pode colar do WhatsApp" maxLength={22} className="input text-sm text-mono flex-1" />
             </div>
             <label className="text-[10px] text-amber-400 font-medium block mt-1">Nome e relação com o titular <span className="text-red-400">*</span></label>
             <input
