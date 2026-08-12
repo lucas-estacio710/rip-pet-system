@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { X } from 'lucide-react'
+import { tituloNome, primeiroNome } from '@/lib/nome-tutor'
 
 type ContratoMinimal = {
   id: string
@@ -55,40 +56,9 @@ type FormState = {
   itensPendentes: ItemPendente[]
 }
 
-// Compound first name prefixes - when the first name is one of these,
-// include the second word as part of the name (e.g. "Maria Clara", "Joao Pedro")
-const COMPOUND_PREFIXES = [
-  'maria', 'ana', 'joao', 'jose', 'jose', 'pedro',
-  'luiz', 'luis', 'luis', 'carlos', 'marco',
-]
-
-function capitalize(str: string): string {
-  if (!str) return ''
-  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase()
-}
-
-function getPrimeiroNome(nomeCompleto: string): string {
-  const partes = nomeCompleto.trim().split(/\s+/)
-  if (partes.length === 0) return ''
-
-  const primeiro = partes[0]
-  const primeiroLower = primeiro.toLowerCase()
-
-  if (partes.length > 1 && COMPOUND_PREFIXES.includes(primeiroLower)) {
-    return `${capitalize(partes[0])} ${capitalize(partes[1])}`
-  }
-
-  return capitalize(primeiro)
-}
-
-function capitalizarNome(nome: string): string {
-  if (!nome) return ''
-  return nome
-    .trim()
-    .split(/\s+/)
-    .map(p => capitalize(p))
-    .join(' ')
-}
+// Nome de tratamento e title case vêm de lib/nome-tutor (fonte única)
+const capitalizarNome = tituloNome
+const getPrimeiroNome = (nomeCompleto: string) => primeiroNome(nomeCompleto)
 
 function formatPhone(phone: string): string {
   const digits = phone.replace(/\D/g, '')

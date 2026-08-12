@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { X } from 'lucide-react'
+import { primeiroNome } from '@/lib/nome-tutor'
 
 type ContratoMinimal = {
   id: string
@@ -27,32 +28,8 @@ type FormState = {
   comAvaliacao: boolean
 }
 
-// Compound first name prefixes - when the first name is one of these,
-// include the second word as part of the name (e.g. "Maria Clara", "João Pedro")
-const COMPOUND_PREFIXES = [
-  'maria', 'ana', 'joão', 'jose', 'josé', 'pedro',
-  'luiz', 'luis', 'luís', 'carlos', 'marco',
-]
-
-function getPrimeiroNome(nomeCompleto: string): string {
-  const partes = nomeCompleto.trim().split(/\s+/)
-  if (partes.length === 0) return ''
-
-  const primeiro = partes[0]
-  const primeiroLower = primeiro.toLowerCase()
-
-  if (partes.length > 1 && COMPOUND_PREFIXES.includes(primeiroLower)) {
-    const composto = `${capitalize(partes[0])} ${capitalize(partes[1])}`
-    return composto
-  }
-
-  return capitalize(primeiro)
-}
-
-function capitalize(str: string): string {
-  if (!str) return ''
-  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase()
-}
+// Nome de tratamento vem de lib/nome-tutor (fonte única)
+const getPrimeiroNome = (nomeCompleto: string) => primeiroNome(nomeCompleto)
 
 function formatPhone(phone: string): string {
   const digits = phone.replace(/\D/g, '')

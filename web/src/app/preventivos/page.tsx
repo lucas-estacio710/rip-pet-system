@@ -10,6 +10,7 @@ import { useDebounce } from '@/hooks/useDebounce'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
 import { useUnit } from '@/contexts/UnitContext'
 import { computePagamento, TAG_STATE_STYLES, type ContratoTagData } from '@/lib/contrato-tags'
+import { separarPrimeiroNome } from '@/lib/nome-tutor'
 import AtivarModal from '@/components/contratos/modals/AtivarModal'
 
 // ============================================
@@ -91,15 +92,7 @@ function formatarTelefone(tel: string | null): string {
   return tel
 }
 
-// Nome do tutor: primeiro nome destacado (igual ao pipeline)
-const PREFIXOS_NOME_COMPOSTO = ['maria', 'ana', 'anna', 'rosa', 'joao', 'joão', 'jose', 'josé', 'pedro', 'luiz', 'luis', 'luís', 'carlos', 'marco']
-function separarPrimeiroNome(nomeCompleto: string | null | undefined): { primeiro: string; resto: string } {
-  if (!nomeCompleto) return { primeiro: '', resto: '' }
-  const partes = nomeCompleto.trim().split(/\s+/)
-  if (partes.length <= 1) return { primeiro: partes[0] || '', resto: '' }
-  const qtd = (partes.length >= 2 && PREFIXOS_NOME_COMPOSTO.includes(partes[0].toLowerCase())) ? 2 : 1
-  return { primeiro: partes.slice(0, qtd).join(' '), resto: partes.slice(qtd).join(' ') }
-}
+// Nome do tutor: primeiro nome destacado (igual ao pipeline) — separarPrimeiroNome vem de lib/nome-tutor
 
 // Porte pelo peso (igual ao pipeline)
 function getPetPorte(peso: number | null): string | null {

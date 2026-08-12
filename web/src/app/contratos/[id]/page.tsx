@@ -33,7 +33,7 @@ import RecontratacaoButton from '@/components/contratos/RecontratacaoButton'
 import AlterarDadosEnviadosModal from '@/components/contratos/modals/AlterarDadosEnviadosModal'
 import { ordenarCategoriasUrnas } from '@/lib/categorias'
 import { hojeLocal } from '@/lib/date-local'
-import { tituloNome, CONECTIVOS_NOME } from '@/lib/nome-tutor'
+import { tituloNome, primeiroNome } from '@/lib/nome-tutor'
 import ProdutosFilterBar from '@/components/ui/ProdutosFilterBar'
 
 function PixIcon({ className = "h-5 w-5" }: { className?: string }) {
@@ -1815,39 +1815,10 @@ export default function ContratoDetalhe() {
     return tel
   }
 
-  // Prefixos que formam nome composto: se o primeiro nome é um desses, inclui o segundo nome
-  const PREFIXOS_NOME_COMPOSTO = [
-    'maria', 'ana', 'anna', 'rosa',
-    'joao', 'joão', 'jose', 'josé',
-    'pedro', 'luiz', 'luis', 'luís', 'carlos', 'marco',
-  ]
-
-  // Title Case por PALAVRA (tituloNome) — capitalizar só a primeira letra da string
-  // quebrava nome composto: "MARIA APARECIDA" virava "Maria aparecida".
-  function capitalizarNome(nome: string): string {
-    return tituloNome(nome)
-  }
-
-  function separarPrimeiroNome(nomeCompleto: string | null | undefined): { primeiro: string; resto: string } {
-    if (!nomeCompleto) return { primeiro: '', resto: '' }
-    const partes = nomeCompleto.trim().split(/\s+/)
-    if (partes.length <= 1) return { primeiro: partes[0] || '', resto: '' }
-
-    const primeiroLower = partes[0].toLowerCase()
-    const segundoEhConectivo = CONECTIVOS_NOME.has(partes[1].toLowerCase())
-    const qtd = (PREFIXOS_NOME_COMPOSTO.includes(primeiroLower) && !segundoEhConectivo) ? 2 : 1
-
-    return {
-      primeiro: partes.slice(0, qtd).join(' '),
-      resto: partes.slice(qtd).join(' '),
-    }
-  }
-
-  function getPrimeiroNome(nomeCompleto: string | null | undefined): string {
-    if (!nomeCompleto) return ''
-    const { primeiro } = separarPrimeiroNome(nomeCompleto)
-    return capitalizarNome(primeiro)
-  }
+  // Nome de tratamento, separação e title case vêm de lib/nome-tutor (fonte única):
+  // "Maria Aparecida" e "Maria da Conceição" contam como nome; "Maria da Silva" não.
+  const capitalizarNome = tituloNome
+  const getPrimeiroNome = primeiroNome
 
   function formatarMoeda(valor: number | null) {
     if (!valor) return 'R$ 0,00'
