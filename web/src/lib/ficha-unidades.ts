@@ -23,12 +23,14 @@ export const FICHA_UNIDADES: Record<string, FichaUnidadeConfig> = {
   sjc: {
     unidade_id: '883bcc04-7885-4c46-93ee-696f452cc07c',
     codigo: 'SJ', nome: 'São José dos Campos', cidade: 'São José dos Campos', estado: 'SP',
-    label: 'Unidade São José dos Campos', unidadeCompleta: 'São José dos Campos - SP', maxParcelas: 8,
+    // SJC/Pinda (mesmo dono) pediram (13/08): PV até 10x. EM segue em 8 pelo maxParcelas base.
+    label: 'Unidade São José dos Campos', unidadeCompleta: 'São José dos Campos - SP', maxParcelas: 8, maxParcelasPV: 10,
   },
   pinda: {
     unidade_id: '69c5ed84-0aaa-424b-90c5-34221774e47b',
     codigo: 'PI', nome: 'Pindamonhangaba', cidade: 'Pindamonhangaba', estado: 'SP',
-    label: 'Unidade Pindamonhangaba', unidadeCompleta: 'Pindamonhangaba - SP', maxParcelas: 8,
+    // SJC/Pinda (mesmo dono) pediram (13/08): PV até 10x. EM segue em 8 pelo maxParcelas base.
+    label: 'Unidade Pindamonhangaba', unidadeCompleta: 'Pindamonhangaba - SP', maxParcelas: 8, maxParcelasPV: 10,
   },
   'pouso-alegre': {
     unidade_id: '0064285f-82f1-4146-971a-2a60b1350605',
