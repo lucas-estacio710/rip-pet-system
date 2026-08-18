@@ -248,30 +248,34 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
     window.open(`https://wa.me/${numero}`, '_blank', 'noopener,noreferrer')
   }
 
-  // Smart input pro tel2 — detecta DDI inicial colado do WhatsApp (+55, +1, +351, +54)
+  // Smart input pro tel2 — detecta DDI colado do WhatsApp (+55, +1, +351, +54).
+  // NUNCA por prefixo bruto dos dígitos: DDD 11-19 (SP/Campinas/Santos/Vale) começa
+  // com "1" e colidia com o DDI dos EUA, comendo o 1º dígito (mesmo bug do AcolhimentoForm,
+  // corrigido lá no commit 7adf6fe mas deixado aqui por ser markup/estado próprio — ver
+  // comentário no topo do arquivo). DDI só é afirmado com segurança: "+DDI" explícito
+  // (candidatos do mais longo pro mais curto, pra 351 não perder pra 1), ou 12-13 dígitos
+  // começando com 55. O resto é número local, sem mexer no dropdown.
   function aplicarTelefone2(raw: string) {
     const d = raw.replace(/\D/g, '')
     if (!d) { setTelefone2(''); return }
-    // Detectar DDI conhecido no início (só se o resto sobrar 10-11 dígitos pra BR ou 7+ pra estrangeiro)
-    const ddiCandidatos = ['55', '351', '54', '1']
-    for (const ddi of ddiCandidatos) {
-      if (d.startsWith(ddi)) {
-        const resto = d.slice(ddi.length)
-        // BR: 10 ou 11 dígitos após o 55
-        if (ddi === '55' && (resto.length === 10 || resto.length === 11)) {
-          setTelefone2DDI('55')
-          setTelefone2(resto.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15))
-          return
-        }
-        // Outros DDIs: aceita 7-11 dígitos no resto
-        if (ddi !== '55' && resto.length >= 7 && resto.length <= 11) {
+    if (/^\s*\+/.test(raw)) {
+      for (const ddi of ['351', '55', '54', '1']) {
+        if (d.startsWith(ddi)) {
+          const resto = d.slice(ddi.length)
           setTelefone2DDI(ddi)
-          setTelefone2(resto.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15))
+          setTelefone2(ddi === '55'
+            ? resto.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15)
+            : resto.slice(0, 15))
           return
         }
       }
     }
-    // Sem DDI detectado — aplicar máscara padrão limitada a 15 chars
+    if (d.length >= 12 && d.length <= 13 && d.startsWith('55')) {
+      setTelefone2DDI('55')
+      setTelefone2(d.slice(2).replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15))
+      return
+    }
+    // 10-11 dígitos (DDD 1X inclusive) = número local BR, sem +1. Não mexe no DDI do dropdown.
     setTelefone2(d.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2').slice(0, 15))
   }
 
