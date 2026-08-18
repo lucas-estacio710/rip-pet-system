@@ -295,7 +295,7 @@ export default function ProtocoloEntrega({ data, blank, print }: { data?: Protoc
       {/* Header */}
       <div style={styles.header}>
         <img src="/rippet_logo_horizontal.png" style={styles.headerLogo} alt="R.I.P. Pet" />
-        <span>PROTOCOLO DE ENTREGA</span>
+        <span style={{ whiteSpace: 'nowrap' as const }}>PROTOCOLO DE ENTREGA</span>
       </div>
 
       {/* Info do contrato — .pr-fluid: no PDF (foreignObject) a altura clonada é
@@ -451,8 +451,8 @@ export default function ProtocoloEntrega({ data, blank, print }: { data?: Protoc
           última linha da tabela quando o cabeçalho crescia). A folga vertical do
           card vai pro spacer antes da assinatura. */}
       <div style={styles.totais}>
-        <div>Total: {formatarValor(data.totalAPagar)}</div>
-        <div style={{ color: temSaldo ? '#dc2626' : '#16a34a' }}>
+        <div style={{ whiteSpace: 'nowrap' as const }}>Total: {formatarValor(data.totalAPagar)}</div>
+        <div style={{ color: temSaldo ? '#dc2626' : '#16a34a', whiteSpace: 'nowrap' as const }}>
           Saldo: {temSaldo ? formatarValor(saldoProtocolo) : 'Pago'}
         </div>
       </div>
@@ -546,7 +546,7 @@ function ProtocoloEmBranco({ print }: { print?: boolean }) {
       {/* Header */}
       <div style={styles.header}>
         <img src="/rippet_logo_horizontal.png" style={styles.headerLogo} alt="R.I.P. Pet" />
-        <span>PROTOCOLO DE ENTREGA</span>
+        <span style={{ whiteSpace: 'nowrap' as const }}>PROTOCOLO DE ENTREGA</span>
       </div>
 
       {/* Campos em branco — mesmo padding (8px) da versão preenchida pra alinhar */}
@@ -589,8 +589,8 @@ function ProtocoloEmBranco({ print }: { print?: boolean }) {
 
       {/* Totais em branco */}
       <div style={styles.totais}>
-        <div>Total: ____________</div>
-        <div>Saldo: ____________</div>
+        <div style={{ whiteSpace: 'nowrap' as const }}>Total: ____________</div>
+        <div style={{ whiteSpace: 'nowrap' as const }}>Saldo: ____________</div>
       </div>
 
       {/* Checklist de entrega */}
