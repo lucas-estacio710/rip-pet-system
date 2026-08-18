@@ -2344,7 +2344,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               }
               return (
                 <div className="mb-2 p-2.5 rounded-lg border border-[var(--surface-200)] bg-[var(--surface-50)] space-y-2">
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="flex flex-wrap justify-center gap-1.5">
                     {planosDoTipo.map(p => (
                       <button key={p.nome} type="button"
                         onClick={() => { setPlanoRapido(p.nome); aplicar(p.nome, formaRapida, ajusteRapido) }}
@@ -2356,7 +2356,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                     ))}
                   </div>
                   {planoAtivo && (
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap justify-center gap-1.5">
                       {FORMAS_PLANO.map(f => (
                         <button key={f.key} type="button"
                           onClick={() => { setFormaRapida(f.key); aplicar(planoRapido, f.key, ajusteRapido) }}
@@ -2369,7 +2369,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                     </div>
                   )}
                   {planoAtivo && formaRapida && (
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center justify-center gap-1.5">
                       <span className="text-[10px] text-[var(--surface-400)]">Ajuste:</span>
                       {[-100, 0, 100].map(d => (
                         <button key={d} type="button"
