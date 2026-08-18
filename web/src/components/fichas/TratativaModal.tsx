@@ -130,6 +130,33 @@ function getPrimeiroNome(nomeCompleto: string | null | undefined): string {
 }
 
 // ============================================
+// Árvore de valores rápidos — plano → forma de pagamento → ajuste ±100
+// CHUMBADO por enquanto (fase futura: puxar de /admin/planos). FLS: sel_valor_plano_arvore
+// (tela_fichas). Preços passados pelo Lucas em 18/08/2026.
+// ============================================
+type FormaPagPlano = 'vista' | '6x' | '12x'
+const FORMAS_PLANO: { key: FormaPagPlano; label: string }[] = [
+  { key: 'vista', label: 'Pix/Dinheiro' },
+  { key: '6x', label: 'Até 6x' },
+  { key: '12x', label: 'Até 12x' },
+]
+type PlanoRapidoDef = { nome: string; tipo: 'individual' | 'coletiva'; precos: Record<FormaPagPlano, number>; obs?: string }
+const PLANOS_RAPIDOS: PlanoRapidoDef[] = [
+  // Individual
+  { nome: 'Homenagem', tipo: 'individual', precos: { vista: 1290, '6x': 1330, '12x': 1380 } },
+  { nome: 'Gratidão', tipo: 'individual', precos: { vista: 1360, '6x': 1400, '12x': 1450 } },
+  { nome: 'Memórias', tipo: 'individual', precos: { vista: 1460, '6x': 1500, '12x': 1550 } },
+  { nome: 'Raízes', tipo: 'individual', precos: { vista: 1510, '6x': 1560, '12x': 1620 } },
+  { nome: 'Clássico', tipo: 'individual', precos: { vista: 1550, '6x': 1600, '12x': 1660 } },
+  { nome: 'Tributo', tipo: 'individual', precos: { vista: 1690, '6x': 1740, '12x': 1800 } },
+  { nome: 'Eternidade', tipo: 'individual', precos: { vista: 9900, '6x': 10450, '12x': 11000 }, obs: '50% na contratação + 50% na entrega' },
+  // Coletiva
+  { nome: 'Descanse em Paz', tipo: 'coletiva', precos: { vista: 890, '6x': 920, '12x': 960 } },
+  { nome: 'Lembranças', tipo: 'coletiva', precos: { vista: 960, '6x': 990, '12x': 1030 } },
+  { nome: 'Saudades', tipo: 'coletiva', precos: { vista: 1070, '6x': 1100, '12x': 1140 } },
+]
+
+// ============================================
 // Component
 // ============================================
 export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRetornarPendente, onReprocessar, onAtualizar, somenteLeitura }: Props) {
@@ -338,6 +365,10 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   const [codigo, setCodigo] = useState('')
   const [codigoManual, setCodigoManual] = useState(false)
   const [valorPlano, setValorPlano] = useState('')
+  // Árvore de valores rápidos (FLS sel_valor_plano_arvore) — plano → forma de pagamento → ajuste ±100
+  const [planoRapido, setPlanoRapido] = useState<string | null>(null)
+  const [formaRapida, setFormaRapida] = useState<FormaPagPlano | null>(null)
+  const [ajusteRapido, setAjusteRapido] = useState<number>(0)
   const [descontoPreVenda, setDescontoPreVenda] = useState('')
   const [descontoTipo, setDescontoTipo] = useState<'valor' | 'percentual'>('valor')
   const [detalhamentoPlano, setDetalhamentoPlano] = useState('')
@@ -464,6 +495,9 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       setCodigo('')
       setCodigoManual(false)
       setValorPlano('')
+      setPlanoRapido(null)
+      setFormaRapida(null)
+      setAjusteRapido(0)
       setLacre('')
       setSemLacre(false)
       setDataContrato(hojeLocal())
@@ -2299,18 +2333,76 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
           {/* Valor + Desconto */}
           <div>
             <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Valor do Plano (R$) <span className="text-red-400">*</span></label>
-            <div className="grid grid-cols-7 gap-1.5 mb-2">
-              {[990, 1090, 1190, 1390, 1490, 1590, 1690].map(v => (
-                <button key={v} type="button" onClick={() => setValorPlano(String(v))}
-                  className={`py-1.5 rounded-lg text-xs font-bold transition-all text-center ${
-                    valorPlano === String(v)
-                      ? 'bg-emerald-500 text-white'
-                      : 'bg-[var(--surface-100)] text-[var(--surface-500)] hover:bg-[var(--surface-200)]'
-                  }`}>
-                  {v.toLocaleString('pt-BR')}
-                </button>
-              ))}
-            </div>
+            {isVisible('tela_fichas', 'sel_valor_plano_arvore') ? (() => {
+              const tipoFicha: 'individual' | 'coletiva' = ficha?.cremacao?.toLowerCase() === 'coletiva' ? 'coletiva' : 'individual'
+              const planosDoTipo = PLANOS_RAPIDOS.filter(p => p.tipo === tipoFicha)
+              const planoAtivo = planosDoTipo.find(p => p.nome === planoRapido) || null
+              function aplicar(plano: string | null, forma: FormaPagPlano | null, ajuste: number) {
+                const p = planosDoTipo.find(x => x.nome === plano)
+                if (!p || !forma) return
+                setValorPlano(String(p.precos[forma] + ajuste))
+              }
+              return (
+                <div className="mb-2 p-2.5 rounded-lg border border-[var(--surface-200)] bg-[var(--surface-50)] space-y-2">
+                  <div className="flex flex-wrap gap-1.5">
+                    {planosDoTipo.map(p => (
+                      <button key={p.nome} type="button"
+                        onClick={() => { setPlanoRapido(p.nome); aplicar(p.nome, formaRapida, ajusteRapido) }}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                          planoRapido === p.nome ? 'bg-blue-500 text-white' : 'bg-[var(--surface-100)] text-[var(--surface-500)] hover:bg-[var(--surface-200)]'
+                        }`}>
+                        {p.nome}
+                      </button>
+                    ))}
+                  </div>
+                  {planoAtivo && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {FORMAS_PLANO.map(f => (
+                        <button key={f.key} type="button"
+                          onClick={() => { setFormaRapida(f.key); aplicar(planoRapido, f.key, ajusteRapido) }}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                            formaRapida === f.key ? 'bg-emerald-500 text-white' : 'bg-[var(--surface-100)] text-[var(--surface-500)] hover:bg-[var(--surface-200)]'
+                          }`}>
+                          {f.label} · R$ {planoAtivo.precos[f.key].toLocaleString('pt-BR')}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {planoAtivo && formaRapida && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-[var(--surface-400)]">Ajuste:</span>
+                      {[-100, 0, 100].map(d => (
+                        <button key={d} type="button"
+                          onClick={() => { setAjusteRapido(d); aplicar(planoRapido, formaRapida, d) }}
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${
+                            ajusteRapido === d ? 'bg-purple-500 text-white' : 'bg-[var(--surface-100)] text-[var(--surface-500)] hover:bg-[var(--surface-200)]'
+                          }`}>
+                          {d === 0 ? 'Padrão' : d > 0 ? `+${d}` : String(d)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {planoAtivo?.obs && formaRapida && (
+                    <p className="text-[10px] text-amber-500 leading-snug">
+                      ⚱️ {planoAtivo.obs} — R$ {((planoAtivo.precos[formaRapida] + ajusteRapido) / 2).toLocaleString('pt-BR', { minimumFractionDigits: 0 })} cada
+                    </p>
+                  )}
+                </div>
+              )
+            })() : (
+              <div className="grid grid-cols-7 gap-1.5 mb-2">
+                {[990, 1090, 1190, 1390, 1490, 1590, 1690].map(v => (
+                  <button key={v} type="button" onClick={() => setValorPlano(String(v))}
+                    className={`py-1.5 rounded-lg text-xs font-bold transition-all text-center ${
+                      valorPlano === String(v)
+                        ? 'bg-emerald-500 text-white'
+                        : 'bg-[var(--surface-100)] text-[var(--surface-500)] hover:bg-[var(--surface-200)]'
+                    }`}>
+                    {v.toLocaleString('pt-BR')}
+                  </button>
+                ))}
+              </div>
+            )}
             <input type="text" inputMode="decimal" value={valorPlano} onChange={e => setValorPlano(e.target.value.replace(/[^\d.,]/g, '').replace(',', '.'))} placeholder="0.00" className="input text-mono text-sm mb-2" />
 
             <p className="text-[10px] text-[var(--surface-400)] -mt-1 mb-1">Desconto Pré-Venda: Por Meio de Pagamento ou Parcerias</p>

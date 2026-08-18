@@ -67,6 +67,7 @@ export const TELAS: ItemDef[] = [
   { key: 'tela_ads_shield', label: 'RIP Shield', desc: 'Detecção de fraude em cliques Google Ads' },
   { key: 'tela_dashboard', label: 'Dashboard (Admin)', desc: 'Painel interno do super_admin — uso/adoção dos usuários' },
   { key: 'tela_dashboards', label: 'Dashboards', desc: 'Estatísticas dos contratos para os usuários da unidade' },
+  { key: 'tela_repasses', label: 'Repasse de Cremações', desc: 'A "planilha do dia 20": a Matriz cobra de cada unidade os pets acolhidos no mês, com deflator por pet. Hoje gated por isSuperAdmin em código (mig 104)' },
   { key: 'nav_bottom', label: 'Barra inferior (mobile)', desc: 'Atalhos no rodapé em telas <768px: Fichas, Pipeline, Encaminhamentos, Estoque, Painéis. Oculto = barra some (sidebar/drawer continuam). Cada atalho ainda respeita a visibilidade da própria tela.' },
 ]
 
@@ -127,6 +128,7 @@ export const CAMPOS_BOTOES: ChildItemDef[] = [
   { key: 'btn_pdf_ficha', tela: 'tela_fichas', label: 'Gerar PDF', desc: 'Botão azul de gerar PDF do contrato no card da ficha', modo: 'toggle' },
   { key: 'btn_iniciar_fluxo', tela: 'tela_fichas', label: 'Iniciar Fluxo', desc: 'Botão para gerar contrato a partir da ficha processada', modo: 'toggle' },
   { key: 'btn_disclaimer_zap', tela: 'tela_fichas', label: 'Disclaimer de Desistência (WhatsApp)', desc: 'Anexa o aviso de desistência (50% do plano) na mensagem enviada pelo botão verde de WhatsApp no card da ficha (EM). Oculto = manda sem o aviso. Sem efeito no botão "Copiar informações" (sempre com aviso) nem no PV (nunca tem).', modo: 'toggle' },
+  { key: 'sel_valor_plano_arvore', tela: 'tela_fichas', label: 'Árvore de Valores Rápidos', desc: 'Na Tratativa, troca a grade fixa de 7 valores por um seletor plano → forma de pagamento (Pix/Dinheiro, 6x, 12x) → ajuste ±100, que preenche "Valor do Plano" (ainda editável na mão). Preços chumbados no código por enquanto — fase futura conecta em /admin/planos. Oculto = mantém a grade antiga.', modo: 'toggle' },
 
   // --- SUPINDAS (somente leitura — sem campos/botões) ---
 
