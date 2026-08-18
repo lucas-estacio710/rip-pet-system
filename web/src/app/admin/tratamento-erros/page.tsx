@@ -4,11 +4,12 @@
 // operacoes humanas erradas. Sidebar lateral com a lista de tipos; conteudo
 // muda conforme tipo selecionado. Por enquanto: "Desfazer ficha processada".
 import { useState } from 'react'
-import { Wrench, Shield, RotateCcw, ArrowLeftRight } from 'lucide-react'
+import { Wrench, Shield, RotateCcw, ArrowLeftRight, AlertTriangle } from 'lucide-react'
 import { useUnit } from '@/contexts/UnitContext'
 import EmptyState from '@/components/ui/EmptyState'
 import DesfazerFichaPanel from '@/components/admin/tratamento-erros/DesfazerFichaPanel'
 import MoverFichaPanel from '@/components/admin/tratamento-erros/MoverFichaPanel'
+import AnomaliasPanel from '@/components/admin/tratamento-erros/AnomaliasPanel'
 
 type Tratativa = {
   id: string
@@ -18,6 +19,7 @@ type Tratativa = {
 }
 
 const TRATATIVAS: Tratativa[] = [
+  { id: 'anomalias', label: 'Inputs de Anomalias', icon: AlertTriangle, iconColor: 'text-red-400' },
   { id: 'desfazer-ficha', label: 'Desfazer ficha processada', icon: RotateCcw, iconColor: 'text-amber-400' },
   { id: 'mover-ficha', label: 'Mover ficha de unidade', icon: ArrowLeftRight, iconColor: 'text-blue-400' },
 ]
@@ -70,6 +72,7 @@ export default function TratamentoErrosPage() {
 
         {/* Content */}
         <section className="min-w-0">
+          {selected === 'anomalias' && <AnomaliasPanel />}
           {selected === 'desfazer-ficha' && <DesfazerFichaPanel />}
           {selected === 'mover-ficha' && <MoverFichaPanel />}
         </section>
