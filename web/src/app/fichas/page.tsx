@@ -327,8 +327,10 @@ export default function FichasPage() {
     return map[valor.toLowerCase()] || valor.charAt(0).toUpperCase() + valor.slice(1)
   }
 
-  // Disclaimer de desistência — vai APENAS na mensagem COPIADA (botão "Copiar
-  // informações"); o botão de WhatsApp direto envia sem (decisão 24/07). Só EM.
+  // Disclaimer de desistência — sempre na mensagem COPIADA (botão "Copiar informações").
+  // No botão de WhatsApp direto é opcional por unidade via FLS (btn_disclaimer_zap,
+  // decisão 18/08 — antes era sempre sem, decisão 24/07). Nunca no "Enviar Confirmação"
+  // do modal de Tratativa (mensagem própria, fora de escopo deste toggle). Só EM.
   const DISCLAIMER_DESISTENCIA =
     '❗ *Em caso de desistência dos serviços contratados após a remoção do pet, será cobrado o valor de 50% referente ao plano total.* A retirada do animal nas dependências das unidades ou do crematório será de responsabilidade do CONTRATANTE.'
 
@@ -501,7 +503,8 @@ export default function FichasPage() {
 
   function abrirWhatsAppComMsg(ficha: Ficha) {
     const tel = getTelefoneAtuante(ficha)
-    const msg = encodeURIComponent(montarMsgWhatsApp(ficha))
+    const texto = isVisible('tela_fichas', 'btn_disclaimer_zap') ? msgComDisclaimer(ficha) : montarMsgWhatsApp(ficha)
+    const msg = encodeURIComponent(texto)
     window.open(`https://wa.me/${tel}?text=${msg}`, '_blank')
   }
 

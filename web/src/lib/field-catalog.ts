@@ -126,6 +126,7 @@ export const CAMPOS_BOTOES: ChildItemDef[] = [
   // --- FICHAS ---
   { key: 'btn_pdf_ficha', tela: 'tela_fichas', label: 'Gerar PDF', desc: 'Botão azul de gerar PDF do contrato no card da ficha', modo: 'toggle' },
   { key: 'btn_iniciar_fluxo', tela: 'tela_fichas', label: 'Iniciar Fluxo', desc: 'Botão para gerar contrato a partir da ficha processada', modo: 'toggle' },
+  { key: 'btn_disclaimer_zap', tela: 'tela_fichas', label: 'Disclaimer de Desistência (WhatsApp)', desc: 'Anexa o aviso de desistência (50% do plano) na mensagem enviada pelo botão verde de WhatsApp no card da ficha (EM). Oculto = manda sem o aviso. Sem efeito no botão "Copiar informações" (sempre com aviso) nem no PV (nunca tem).', modo: 'toggle' },
 
   // --- SUPINDAS (somente leitura — sem campos/botões) ---
 
