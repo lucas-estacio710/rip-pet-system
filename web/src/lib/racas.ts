@@ -55,7 +55,7 @@ export const RACAS_CANINAS: string[] = [
   'Shar Pei', 'Shiba Inu', 'Shih Tzu', 'Shihtzu',
   'Silky Terrier', 'Skye Terrier', 'Sloughi', 'Soft Coated Wheaten Terrier',
   'Spinone Italiano',
-  'Lulu da Pomerânia', 'Spitz Alemão Gigante', 'Spitz Alemão Médio', 'Spitz Alemão Toy',
+  'Lulu da Pomerânia', 'Spitz Alemão', 'Spitz Alemão Gigante', 'Spitz Alemão Médio', 'Spitz Alemão Toy',
   'Springer Spaniel Inglês',
   'Staffordshire Bull Terrier',
   'São Bernardo', 'Sussex Spaniel',
