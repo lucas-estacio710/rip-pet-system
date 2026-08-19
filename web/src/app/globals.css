@@ -733,3 +733,16 @@ body {
     display: none !important;
   }
 }
+
+/* Campos numéricos sem as setinhas de incremento.
+   Aqui número é dinheiro, peso, quantidade — ninguém ajusta valor de 0,1 em 0,1
+   clicando em seta, e o spinner ainda rouba espaço e dispara scroll acidental. */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}

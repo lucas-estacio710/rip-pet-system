@@ -20,7 +20,8 @@ import {
   Crown,
   Shield,
   Calendar,
-  Stethoscope
+  Stethoscope,
+  Receipt
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
@@ -43,6 +44,7 @@ const navItems: NavItem[] = [
   { href: '/encaminhamentos', label: 'Encaminhamentos', icon: Route, countKey: null, module: 'tela_entregas', iconColor: '#bef264' },
   { href: '/estoque', label: 'Estoque', icon: ShelvingUnit, countKey: null, module: 'tela_estoque', iconColor: '#a0522d' },
   { href: '/gc', label: 'GC', icon: Church, countKey: null, module: 'tela_gc', iconColor: '#60a5fa' },
+  { href: '/admin/repasses', label: 'Repasse', icon: Receipt, countKey: null, module: 'tela_repasses', iconColor: '#10b981' },
   { href: '/agenda', label: 'Agenda', icon: Calendar, countKey: null, module: 'tela_agenda', iconColor: '#f97316' },
   { href: '/clinicas', label: 'Clínicas', icon: Stethoscope, countKey: null, module: 'tela_clinicas', iconColor: '#06b6d4' },
   { href: '/tutores', label: 'Tutores', icon: Users, countKey: null, module: 'tela_tutores', iconColor: '#c4b5fd' },
