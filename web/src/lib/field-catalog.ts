@@ -67,7 +67,7 @@ export const TELAS: ItemDef[] = [
   { key: 'tela_ads_shield', label: 'RIP Shield', desc: 'Detecção de fraude em cliques Google Ads' },
   { key: 'tela_dashboard', label: 'Dashboard (Admin)', desc: 'Painel interno do super_admin — uso/adoção dos usuários' },
   { key: 'tela_dashboards', label: 'Dashboards', desc: 'Estatísticas dos contratos para os usuários da unidade' },
-  { key: 'tela_repasses', label: 'Repasse de Cremações', desc: 'A "planilha do dia 20": a Matriz cobra de cada unidade os pets acolhidos no mês, com deflator por pet. Hoje gated por isSuperAdmin em código (mig 104)' },
+  { key: 'tela_financeiro', label: 'Financeiro', desc: 'Módulo financeiro em 3 abas: Lançamentos, Repasse e DRE (migs 103–111). Conta contábil, opex/capex e as duas datas são derivados — não aparecem na tela. Vendido por unidade: hoje ST, SJ, CP, PI e Matriz (mig 112)' },
   { key: 'nav_bottom', label: 'Barra inferior (mobile)', desc: 'Atalhos no rodapé em telas <768px: Fichas, Pipeline, Encaminhamentos, Estoque, Painéis. Oculto = barra some (sidebar/drawer continuam). Cada atalho ainda respeita a visibilidade da própria tela.' },
 ]
 
@@ -90,6 +90,9 @@ export const OBJETOS: ChildItemDef[] = [
   { key: 'obj_dash_financeiro', tela: 'tela_dashboards', label: 'Financeiro', desc: 'Receita, custo cremação, ticket médio, pendentes, NFS-e' },
   { key: 'obj_dash_comercial', tela: 'tela_dashboards', label: 'Comercial / Indicadores', desc: 'Ranking clínicas, indicações, conversão de leads' },
   { key: 'obj_dash_marketing', tela: 'tela_dashboards', label: 'Marketing / Ads', desc: 'UTM, leads, conversão, RIP Shield, ROAS' },
+  { key: 'obj_fin_lancamentos', tela: 'tela_financeiro', label: 'Lançamentos', desc: 'Aba de lançar despesa: categoria + valor + como pagou + comprovante' },
+  { key: 'obj_fin_repasse', tela: 'tela_financeiro', label: 'Repasse', desc: 'Aba da "planilha do dia 20": os pets acolhidos no mês que a Matriz cobra da unidade' },
+  { key: 'obj_fin_dre', tela: 'tela_financeiro', label: 'DRE', desc: 'Aba do resultado do mês: receita, custo, despesas e investimentos (mig 111)' },
 ]
 
 // ============================================
@@ -138,6 +141,12 @@ export const CAMPOS_BOTOES: ChildItemDef[] = [
   // --- RIP SHIELD ---
   { key: 'btn_exportar_ips', tela: 'tela_ads_shield', label: 'Exportar IPs', desc: 'Gerar arquivo .txt para exclusão no Google Ads' },
   { key: 'btn_whitelist', tela: 'tela_ads_shield', label: 'Marcar como Seguro', desc: 'Adicionar IP à whitelist' },
+
+  // --- FINANCEIRO ---
+  // 'read' aqui = a unidade CONSULTA a própria cobrança, mas não mexe: deflator,
+  // acertos, ajuste em lote, fechar e marcar pago somem. Cobrar é ato da Matriz.
+  // Sem row = edit, então a Matriz não precisa de configuração nenhuma.
+  { key: 'btn_repasse_editar', tela: 'tela_financeiro', label: 'Editar repasse', desc: 'Aplicar deflator, lançar acertos, fechar o repasse e marcar enviado/pago. Só a Matriz — as unidades ficam em leitura (mig 112)' },
 ]
 
 // ============================================
