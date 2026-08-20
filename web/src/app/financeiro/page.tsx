@@ -16,7 +16,7 @@
 // (deflator, acertos, fechar, marcar pago) é a Matriz.
 
 import { useMemo, useState } from 'react'
-import { Wallet, Receipt, BarChart3, Shield, type LucideIcon } from 'lucide-react'
+import { Wallet, Receipt, ArrowLeftRight, BarChart3, Shield, type LucideIcon } from 'lucide-react'
 import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
 import EmptyState from '@/components/ui/EmptyState'
@@ -30,7 +30,7 @@ type TabDef = { key: string; obj: string; label: string; icon: LucideIcon }
 
 const TABS: TabDef[] = [
   { key: 'lancamentos', obj: 'obj_fin_lancamentos', label: 'Lançamentos', icon: Wallet },
-  { key: 'repasse',     obj: 'obj_fin_repasse',     label: 'Repasse',     icon: Receipt },
+  { key: 'repasse',     obj: 'obj_fin_repasse',     label: 'Repasse',     icon: ArrowLeftRight },
   { key: 'dre',         obj: 'obj_fin_dre',         label: 'DRE',         icon: BarChart3 },
 ]
 
@@ -59,7 +59,7 @@ export default function FinanceiroPage() {
   return (
     <div className="animate-fade-in space-y-3">
       <div className="flex flex-wrap items-center gap-3">
-        <Wallet className="h-5 w-5 text-emerald-500 shrink-0" />
+        <Receipt className="h-5 w-5 text-emerald-500 shrink-0" />
         <h1 className="text-title text-[var(--shell-text)]">Financeiro</h1>
 
         {visibleTabs.length > 1 && (
