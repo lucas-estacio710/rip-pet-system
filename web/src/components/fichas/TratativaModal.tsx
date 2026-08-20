@@ -79,7 +79,6 @@ type Ficha = {
 }
 
 type Estabelecimento = { id: string; nome: string; tipo: string | null; cidade: string | null }
-type Contato = { id: string; nome: string; cargo: string | null; estabelecimento_id: string | null }
 type Funcionario = { id: string; nome: string }
 type TutorExistente = { id: string; nome: string } | null
 
@@ -175,7 +174,6 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
 
   // Lookups
   const [estabelecimentos, setEstabelecimentos] = useState<Estabelecimento[]>([])
-  const [contatos, setContatos] = useState<Contato[]>([])
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([])
   const [tutorExistente, setTutorExistente] = useState<TutorExistente>(null)
   const [tutorChecked, setTutorChecked] = useState(false)
@@ -332,21 +330,6 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   const [autonomo, setAutonomo] = useState(false)
   const estabRef = useRef<HTMLDivElement>(null)
 
-  // Contato (pessoa que indicou) autocomplete
-  const [indicBusca, setIndicBusca] = useState('')
-  const [indicAberto, setIndicAberto] = useState(false)
-  const [indicId, setIndicId] = useState<string | null>(null)
-  const [indicNome, setIndicNome] = useState('')
-  const [indicCargo, setIndicCargo] = useState('')
-  const indicRef = useRef<HTMLDivElement>(null)
-
-  // Estabelecimento da indicação (separado do acolhimento)
-  const [indicEstabBusca, setIndicEstabBusca] = useState('')
-  const [indicEstabAberto, setIndicEstabAberto] = useState(false)
-  const [indicEstabId, setIndicEstabId] = useState<string | null>(null)
-  const [indicEstabNome, setIndicEstabNome] = useState('')
-  const indicEstabRef = useRef<HTMLDivElement>(null)
-
   // Form fields
   // Deriva da ficha (mig 097): preventivo → contrato nasce status/tipo_plano 'preventivo'.
   const tipoPlano: 'emergencial' | 'preventivo' = ficha?.tipo_plano === 'preventivo' ? 'preventivo' : 'emergencial'
@@ -384,14 +367,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   const [semDataHora, setSemDataHora] = useState(false)
   const [lacre, setLacre] = useState('')
   const [semLacre, setSemLacre] = useState(false)
-  // Bloco Indicação
-  const [mostrarIndicacao, setMostrarIndicacao] = useState(false)
-  const [indicacaoDeClinica, setIndicacaoDeClinica] = useState(false) // true = veio de vet/clínica, abre campos direto
-  const [teveIndicacao, setTeveIndicacao] = useState(false) // toggle manual pra indicações não-clínica
-  const [indicNomeQuemIndicou, setIndicNomeQuemIndicou] = useState('')
-  const [indicNomeAtivo, setIndicNomeAtivo] = useState(false)
-  const [indicHospClinica, setIndicHospClinica] = useState('')
-  const [indicHospAtivo, setIndicHospAtivo] = useState(false)
+  // Normalização "Como conheceu = Outro/Seguradora" (indicação de hospital/clínica
+  // saiu daqui — agora é feita depois, no farol 🩺 do Pipeline/Contrato)
   const [outroNormalizado, setOutroNormalizado] = useState('')
   // Legado (manter pra padronização com busca)
   const [clinicaTextoLivre, setClinicaTextoLivre] = useState('')
@@ -411,13 +388,11 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   useEffect(() => {
     if (!isOpen || !ficha) return
     async function loadData() {
-      const [{ data: estabs }, { data: conts }, { data: funcs }] = await Promise.all([
+      const [{ data: estabs }, { data: funcs }] = await Promise.all([
         supabase.from('estabelecimentos').select('id, nome, tipo, cidade').eq('unidade_id', ficha!.unidade_id).order('nome'),
-        supabase.from('contatos').select('id, nome, cargo, estabelecimento_id').eq('ativo', true).eq('unidade_id', ficha!.unidade_id).order('nome'),
         supabase.from('funcionarios').select('id, nome').eq('ativo', true).eq('unidade_id', ficha!.unidade_id).order('nome'),
       ])
       if (estabs) setEstabelecimentos(estabs as Estabelecimento[])
-      if (conts) setContatos(conts as Contato[])
       if (funcs) setFuncionarios(funcs as Funcionario[])
     }
     loadData()
@@ -487,10 +462,6 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       setEstabNome('')
       setEstabBusca('')
       setAutonomo(false)
-      setIndicId(null)
-      setIndicNome('')
-      setIndicBusca('')
-      setIndicCargo('')
       setFuncionarioId('')
       setCodigo('')
       setCodigoManual(false)
@@ -524,18 +495,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       setSemResponsavel(false)
       setDataHoraAcolhimento('')
       setSemDataHora(false)
-      setMostrarIndicacao(false)
-      setIndicacaoDeClinica(false)
-      setTeveIndicacao(false)
-      setIndicNomeQuemIndicou('')
-      setIndicNomeAtivo(false)
-      setIndicHospClinica('')
-      setIndicHospAtivo(false)
       setOutroNormalizado('')
-      setIndicEstabBusca('')
-      setIndicEstabAberto(false)
-      setIndicEstabId(null)
-      setIndicEstabNome('')
     }
   }, [isOpen])
 
@@ -560,24 +520,6 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
     } else if (loc === 'Outro') {
       setLocalColeta('outro')
       if (ficha.localizacao_outra) setEnderecoOutro(ficha.localizacao_outra)
-    }
-
-    // Pré-setar indicação
-    const conheceu = ficha.como_conheceu || []
-    const veioDeClinica = !!(ficha.veterinario_especificar ||
-      conheceu.some(c => c.includes('Veterinário') || c.includes('Indicação em Clínica')))
-    const temAlgumaFonte = conheceu.length > 0 || !!ficha.veterinario_especificar || !!ficha.outro_especificar
-
-    setMostrarIndicacao(temAlgumaFonte)
-    setIndicacaoDeClinica(veioDeClinica)
-    setTeveIndicacao(veioDeClinica) // se veio de clínica, já abre os campos
-
-    // Pré-carrega o texto do tutor mas NÃO marca o checkbox automaticamente —
-    // concierge decide se vai ativar e pode editar/buscar contato existente
-    if (ficha.veterinario_especificar) {
-      setIndicNomeQuemIndicou(ficha.veterinario_especificar)
-      setIndicBusca(ficha.veterinario_especificar)
-      setIndicNome(ficha.veterinario_especificar)
     }
 
     // Se ficha já processada, carregar op_dados do operador
@@ -609,17 +551,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       if (op.temSeguradora) setTemSeguradora(true)
       if (op.seguradoraNome) setSeguradoraNome(String(op.seguradoraNome))
       if (op.dataContrato) setDataContrato(String(op.dataContrato))
-      if (op.teveIndicacao) { setTeveIndicacao(true); setMostrarIndicacao(true) }
-      if (op.indicNomeQuemIndicou) setIndicNomeQuemIndicou(String(op.indicNomeQuemIndicou))
-      if (op.indicNomeAtivo) setIndicNomeAtivo(true)
-      if (op.indicHospClinica) setIndicHospClinica(String(op.indicHospClinica))
-      if (op.indicHospAtivo) setIndicHospAtivo(true)
       if (op.outroNormalizado) setOutroNormalizado(String(op.outroNormalizado))
-      if (op.indicEstabId) { setIndicEstabId(String(op.indicEstabId)); setIndicEstabNome(String(op.indicEstabNome || '')); setIndicEstabBusca(String(op.indicEstabNome || '')) }
-      if (op.indicEstabNome && !op.indicEstabId) setIndicEstabNome(String(op.indicEstabNome))
-      if (op.indicId) setIndicId(String(op.indicId))
-      if (op.indicNome) { setIndicNome(String(op.indicNome)); setIndicBusca(String(op.indicNome)) }
-      if (op.indicCargo) setIndicCargo(String(op.indicCargo))
       if (op.telefoneConfirmado) setTelefoneConfirmado(true)
       if (op.telefone1Nome) setTelefone1Nome(String(op.telefone1Nome))
       if (op.mostrarTelefone2) setMostrarTelefone2(true)
@@ -642,8 +574,6 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (estabRef.current && !estabRef.current.contains(e.target as Node)) setEstabAberto(false)
-      if (indicRef.current && !indicRef.current.contains(e.target as Node)) setIndicAberto(false)
-      if (indicEstabRef.current && !indicEstabRef.current.contains(e.target as Node)) setIndicEstabAberto(false)
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
@@ -655,22 +585,6 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   const estabsFiltrados = estabBusca.trim()
     ? estabelecimentos.filter(e => e.nome.toLowerCase().includes(estabBusca.toLowerCase())).slice(0, 15)
     : estabelecimentos.slice(0, 15)
-
-  // Contatos da indicação: filtra por nome se houver busca; quando há clínica selecionada, prioriza contatos dessa clínica + contatos sem estab cadastrado (legado).
-  const contatosFiltrados = (() => {
-    const termo = indicBusca.trim().toLowerCase()
-    let lista = contatos
-    // 1. Filtro por nome (sempre que houver texto)
-    if (termo) lista = lista.filter(c => c.nome.toLowerCase().includes(termo))
-    // 2. Quando há clínica selecionada: prioriza os dessa clínica + sem-estab no topo
-    if (indicEstabId) {
-      const desseEstab = lista.filter(c => c.estabelecimento_id === indicEstabId)
-      const semEstab = lista.filter(c => !c.estabelecimento_id)
-      const outros = lista.filter(c => c.estabelecimento_id && c.estabelecimento_id !== indicEstabId)
-      lista = [...desseEstab, ...semEstab, ...outros]
-    }
-    return lista.slice(0, 10)
-  })()
 
   // ============================================
   // processarFicha — salva dados do operador e marca como processada (NÃO cria contrato)
@@ -705,45 +619,6 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         if (errEdits) throw new Error(`Erro ao salvar edições: ${errEdits.message}`)
       }
 
-      // Resolver estabelecimento + contato da INDICAÇÃO — cria no banco se digitou novo
-      let resolvedIndicEstabId: string | null = indicEstabId
-      let resolvedIndicContatoId: string | null = indicId
-      if (teveIndicacao && temPadronizacaoClinicas) {
-        // Estabelecimento da indicação
-        if (!resolvedIndicEstabId && indicEstabNome.trim()) {
-          // endereco é NOT NULL sem default — precisa ir como '' senão o insert falha
-          const { data: novoEstab, error: errEstab } = await supabase
-            .from('estabelecimentos')
-            .insert({ nome: indicEstabNome.trim(), tipo: 'clinica', unidade_id: ficha.unidade_id, endereco: '' } as never)
-            .select('id').single() as { data: { id: string } | null; error: { message: string } | null }
-          if (errEstab) throw new Error(`Erro ao criar estabelecimento: ${errEstab.message}`)
-          if (novoEstab) {
-            resolvedIndicEstabId = novoEstab.id
-            setIndicEstabId(novoEstab.id)
-          }
-        }
-        // Contato indicador (busca existente primeiro, senão cria)
-        if (!resolvedIndicContatoId && indicNome.trim()) {
-          let q = supabase.from('contatos').select('id').ilike('nome', indicNome.trim()).limit(1)
-          if (resolvedIndicEstabId) q = q.eq('estabelecimento_id', resolvedIndicEstabId)
-          const { data: contatoExist } = await q.maybeSingle() as { data: { id: string } | null }
-          if (contatoExist) {
-            resolvedIndicContatoId = contatoExist.id
-            setIndicId(contatoExist.id)
-          } else {
-            const { data: novoContato, error: errContato } = await supabase
-              .from('contatos')
-              .insert({ nome: indicNome.trim(), cargo: indicCargo.trim() || null, estabelecimento_id: resolvedIndicEstabId, unidade_id: ficha.unidade_id } as never)
-              .select('id').single() as { data: { id: string } | null; error: { message: string } | null }
-            if (errContato) throw new Error(`Erro ao criar contato: ${errContato.message}`)
-            if (novoContato) {
-              resolvedIndicContatoId = novoContato.id
-              setIndicId(novoContato.id)
-            }
-          }
-        }
-      }
-
       // Montar op_dados com tudo que o operador preencheu
       const opDados = {
         codigo: codigo.trim(),
@@ -770,18 +645,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         temSeguradora,
         seguradoraNome: seguradoraNome.trim() || null,
         dataContrato,
-        // Indicação
-        teveIndicacao,
-        indicNomeQuemIndicou: indicNomeQuemIndicou || null,
-        indicNomeAtivo,
-        indicHospClinica: indicHospClinica || null,
-        indicHospAtivo,
-        indicEstabId: resolvedIndicEstabId,
-        indicEstabNome: indicEstabNome || null,
         outroNormalizado: outroNormalizado || null,
-        indicId: resolvedIndicContatoId,
-        indicNome: indicNome || null,
-        indicCargo: indicCargo || null,
         // Telefone
         telefoneConfirmado,
         telefone1Nome: telefone1Nome.trim() || null,
@@ -881,9 +745,10 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         }
       }
 
-      // Step 3: Resolve estabelecimento + contato
+      // Step 3: Resolve estabelecimento (local de coleta)
       let resolvedEstabId: string | null = estabId
-      let resolvedContatoId: string | null = indicId
+      // contato_id (quem indicou) nasce null — normalizado depois via farol 🩺 no Pipeline/Contrato
+      const resolvedContatoId: string | null = null
       let clinicaColetaNome: string | null = null
 
       if (temPadronizacaoClinicas) {
@@ -897,8 +762,6 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
             if (novoEstab) resolvedEstabId = novoEstab.id
           }
         }
-        // Nota: o contato indicador é resolvido por processarFicha (rehidratado via op_dados).
-        // O fallback que existia aqui vinculava o contato ao estab de COLETA — semanticamente errado.
       } else {
         clinicaColetaNome = clinicaTextoLivre.trim() || null
       }
@@ -951,9 +814,6 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         fonte_conhecimento_id: fonteConhecimentoId,
         fonte_conhecimento_ids: fonteConhecimentoIds.length > 0 ? fonteConhecimentoIds : null,
         fonte_outro_especificar: f.como_conheceu?.includes('Outro') ? (f.outro_especificar?.trim() || null) : null,
-        estabelecimento_indicacao_id: teveIndicacao && temPadronizacaoClinicas ? (indicEstabId || null) : null,
-        indicacao_clinica: teveIndicacao ? (temPadronizacaoClinicas ? (indicEstabNome.trim() || null) : (indicHospClinica.trim() || null)) : null,
-        indicacao_contato: teveIndicacao ? (indicNomeQuemIndicou.trim() || null) : null,
         data_contrato: dataContrato,
         data_acolhimento: dataHoraAcolhimento ? new Date(dataHoraAcolhimento).toISOString() : null,
         pelinho_quer: true, pelinho_feito: false, pelinho_quantidade: 1,
@@ -1091,9 +951,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         valorPlano: valorPlano || null, descontoPreVenda: descontoPreVenda || null, descontoTipo,
         temSeguradora, seguradoraNome: seguradoraNome.trim() || null,
         dataContrato,
-        teveIndicacao, indicNomeQuemIndicou: indicNomeQuemIndicou || null, indicNomeAtivo,
-        indicHospClinica: indicHospClinica || null, indicHospAtivo, indicEstabId, indicEstabNome: indicEstabNome || null,
-        indicId, indicNome: indicNome || null, indicCargo: indicCargo || null,
+        outroNormalizado: outroNormalizado || null,
         telefoneConfirmado, telefone2: getTelefone2Completo() || null, telefone2Nome: telefone2Nome.trim() || null, telefone2DDI, telefone2DDICustom, mostrarTelefone2, usarTelefone2ComoPrincipal,
       }
       await supabase.from('fichas').update({ op_dados: opDados } as never).eq('id', ficha.id)
@@ -1410,9 +1268,6 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               {ficha?.como_conheceu && ficha.como_conheceu.length > 0 && (
                 <p className="text-xs text-[var(--surface-600)]"><strong>Como conheceu:</strong> {ficha.como_conheceu.join(', ')}{ficha.veterinario_especificar ? ` (${ficha.veterinario_especificar})` : ''}{ficha.outro_especificar ? ` (${ficha.outro_especificar})` : ''}</p>
               )}
-              {!somenteLeitura && teveIndicacao && (indicNomeQuemIndicou || indicEstabNome || indicHospClinica) && (
-                <p className="text-xs text-[var(--surface-600)]"><strong>Indicação normalizada:</strong> {[indicNomeQuemIndicou, indicEstabNome || indicHospClinica].filter(Boolean).join(' - ')}</p>
-              )}
             </div>
           </div>
             </>
@@ -1508,11 +1363,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                 msg += `*Acompanhamento da Cremação:* ${ficha.acompanhamento}\n`
               }
               if (ficha.como_conheceu && ficha.como_conheceu.length > 0) {
-                const indNome = indicNomeQuemIndicou || ficha.veterinario_especificar
-                const indClinica = indicEstabNome || indicHospClinica
-                const indParts = [indNome, indClinica].filter(Boolean)
-                if (indParts.length > 0) {
-                  msg += `\n*Como nos Conheceu:* ${indParts.join(' - ')}`
+                if (ficha.veterinario_especificar) {
+                  msg += `\n*Como nos Conheceu:* ${ficha.veterinario_especificar}`
                 } else {
                   msg += `\n*Como nos Conheceu:* ${ficha.como_conheceu.join(', ')}`
                   if (ficha.outro_especificar) msg += ` (${ficha.outro_especificar})`
@@ -2181,150 +2033,17 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
 
           </div>
 
-          {/* ═══════ BLOCO: INDICAÇÃO ═══════ */}
-          <div className="p-3 rounded-xl border border-[var(--surface-200)] space-y-3">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold text-[var(--surface-600)] uppercase tracking-wider">Indicação</h4>
-              <button type="button" onClick={() => setTeveIndicacao(!teveIndicacao)} className="flex items-center gap-2">
-                <span className="text-[10px] text-[var(--surface-400)]">{teveIndicacao ? 'Sim' : 'Não'}</span>
-                <div className={`relative rounded-full transition-colors ${teveIndicacao ? 'bg-purple-500' : 'bg-[var(--surface-300)]'}`} style={{ width: 36, height: 20 }}>
-                  <div className={`absolute top-[3px] rounded-full bg-white shadow transition-all`} style={{ width: 14, height: 14, left: teveIndicacao ? 19 : 3 }} />
-                </div>
-              </button>
-            </div>
-
-            {/* Contexto: o que o tutor informou */}
-            {mostrarIndicacao && (ficha.como_conheceu || ficha.veterinario_especificar || ficha.outro_especificar) && (
-              <div className="px-3 py-2 rounded-lg bg-purple-900/20 border border-purple-700 text-xs">
-                <span className="text-purple-400 font-medium">Tutor informou:</span>{' '}
-                <span className="text-purple-300">
-                  &quot;{ficha.veterinario_especificar || ficha.outro_especificar || (ficha.como_conheceu || []).join(', ')}&quot;
-                </span>
-              </div>
-            )}
-
-            {/* Campo normalização "outro" — quando tutor escreveu algo genérico */}
-            {(ficha.outro_especificar || (ficha.como_conheceu || []).some(c => c === 'Outro' || c === 'Seguradora' || c === 'Seguro')) && (
+          {/* Normalização "Como conheceu = Outro/Seguradora" — indicação de hospital/clínica
+              saiu daqui, agora é feita depois via farol 🩺 no Pipeline/Contrato */}
+          {(ficha.outro_especificar || (ficha.como_conheceu || []).some(c => c === 'Outro' || c === 'Seguradora' || c === 'Seguro')) && (
+            <div className="p-3 rounded-xl border border-[var(--surface-200)] space-y-2">
+              <h4 className="text-xs font-bold text-[var(--surface-600)] uppercase tracking-wider">Normalizar &quot;Como conheceu&quot;</h4>
               <div>
-                <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Normalizar "Como conheceu"</label>
                 <p className="text-[9px] text-[var(--surface-400)] mb-1">Tutor escreveu: "{ficha.outro_especificar || (ficha.como_conheceu || []).join(', ')}"</p>
                 <input type="text" value={outroNormalizado} onChange={e => setOutroNormalizado(e.target.value)} placeholder="Ex: Seguradora Porto Seguro, Rádio Cultura, etc." className="input text-sm" />
               </div>
-            )}
-
-            {teveIndicacao && (
-              <div className="space-y-3">
-                {/* Hospital / Clínica */}
-                <div>
-                  <label className="flex items-center gap-2 cursor-pointer mb-1.5">
-                    <input type="checkbox" checked={indicHospAtivo} onChange={e => setIndicHospAtivo(e.target.checked)} className="h-3.5 w-3.5 rounded accent-purple-500" />
-                    <span className="text-xs font-medium text-[var(--surface-600)]">Hospital / Clínica</span>
-                  </label>
-                  {indicHospAtivo && (
-                    temPadronizacaoClinicas ? (
-                      <div ref={indicEstabRef} className="relative">
-                        <div className="relative">
-                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--surface-400)]" />
-                          <input type="text" value={indicEstabBusca} onChange={e => { setIndicEstabBusca(e.target.value); setIndicEstabNome(e.target.value); setIndicEstabId(null); setIndicEstabAberto(true) }} onFocus={() => setIndicEstabAberto(true)} placeholder="Buscar clínica da indicação..." className="input pl-9 text-sm" />
-                        </div>
-                        {indicEstabAberto && (estabelecimentos.filter(e => e.nome.toLowerCase().includes(indicEstabBusca.toLowerCase())).length > 0 || indicEstabBusca.trim()) && (
-                          <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-[var(--surface-0)] border border-[var(--surface-200)] rounded-lg shadow-lg">
-                            {estabelecimentos.filter(e => e.nome.toLowerCase().includes(indicEstabBusca.toLowerCase())).slice(0, 15).map(e => (
-                              <button key={e.id} type="button" onClick={() => { setIndicEstabId(e.id); setIndicEstabNome(e.nome); setIndicEstabBusca(e.nome); setIndicEstabAberto(false) }}
-                                className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-50)] transition-colors flex items-center justify-between gap-2 ${indicEstabId === e.id ? 'bg-[var(--surface-50)] font-medium' : 'text-[var(--surface-600)]'}`}>
-                                <span>{e.nome}</span>
-                                {e.cidade && <span className="text-xs text-[var(--surface-400)] shrink-0">{e.cidade}</span>}
-                              </button>
-                            ))}
-                            {indicEstabBusca.trim() && !estabelecimentos.some(e => e.nome.toLowerCase() === indicEstabBusca.toLowerCase()) && (
-                              <button type="button" onClick={() => { setIndicEstabId(null); setIndicEstabNome(indicEstabBusca.trim()); setIndicEstabAberto(false) }}
-                                className="w-full text-left px-3 py-2 text-sm text-amber-500 hover:bg-amber-900/10 flex items-center gap-2 border-t border-[var(--surface-100)]">
-                                <Plus className="h-3.5 w-3.5" />Criar &quot;{indicEstabBusca.trim()}&quot;
-                              </button>
-                            )}
-                          </div>
-                        )}
-                        {indicEstabId && (
-                          <div className="mt-1 flex items-center justify-between gap-2">
-                            <p className="text-xs text-green-500 flex items-center gap-1"><Check className="h-3 w-3" />Selecionado: {indicEstabNome}</p>
-                            <button type="button" onClick={() => { setIndicEstabId(null); setIndicEstabBusca(''); setIndicEstabNome('') }} className="text-[10px] text-[var(--surface-500)] hover:text-amber-500 underline">
-                              trocar
-                            </button>
-                          </div>
-                        )}
-                        {!indicEstabId && indicEstabNome.trim() && !indicEstabAberto && <p className="mt-1 text-xs text-amber-500">Novo estabelecimento será criado</p>}
-                      </div>
-                    ) : (
-                      <input type="text" value={indicHospClinica} onChange={e => setIndicHospClinica(e.target.value)} placeholder="Nome do hospital ou clínica" className="input text-sm" />
-                    )
-                  )}
-                </div>
-
-                {/* Nome de quem indicou */}
-                <div>
-                  <label className="flex items-center gap-2 cursor-pointer mb-1.5">
-                    <input type="checkbox" checked={indicNomeAtivo} onChange={e => setIndicNomeAtivo(e.target.checked)} className="h-3.5 w-3.5 rounded accent-purple-500" />
-                    <span className="text-xs font-medium text-[var(--surface-600)]">Nome de quem indicou</span>
-                  </label>
-                  {indicNomeAtivo && (
-                    temPadronizacaoClinicas ? (
-                      <div ref={indicRef} className="relative">
-                        <div className="relative">
-                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--surface-400)]" />
-                          <input type="text" value={indicBusca} onChange={e => { setIndicBusca(e.target.value); setIndicNome(e.target.value); setIndicNomeQuemIndicou(e.target.value); setIndicId(null); setIndicAberto(true) }} onFocus={() => setIndicAberto(true)} placeholder="ex: Dra. Maria ou Recep. João" className="input pl-9 text-sm" />
-                        </div>
-                        {indicAberto && (contatosFiltrados.length > 0 || indicBusca.trim()) && (
-                          <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-[var(--surface-0)] border border-[var(--surface-200)] rounded-lg shadow-lg">
-                            {contatosFiltrados.map(c => (
-                              <button key={c.id} type="button" onClick={() => {
-                                setIndicId(c.id); setIndicNome(c.nome); setIndicBusca(c.nome); setIndicNomeQuemIndicou(c.nome); setIndicCargo(c.cargo || ''); setIndicAberto(false)
-                                // Se o contato pertence a uma clínica e ainda não selecionei nenhuma, puxa automático
-                                if (c.estabelecimento_id && !indicEstabId) {
-                                  const estab = estabelecimentos.find(e => e.id === c.estabelecimento_id)
-                                  if (estab) { setIndicEstabId(estab.id); setIndicEstabNome(estab.nome); setIndicEstabBusca(estab.nome); setIndicHospAtivo(true) }
-                                }
-                              }}
-                                className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-50)] transition-colors flex flex-col ${indicId === c.id ? 'bg-[var(--surface-50)] font-medium' : 'text-[var(--surface-600)]'}`}>
-                                <span>{c.nome}</span>
-                                {(() => {
-                                  const cl = c.estabelecimento_id ? estabelecimentos.find(es => es.id === c.estabelecimento_id)?.nome : null
-                                  const sub = [c.cargo, cl].filter(Boolean).join(' · ')
-                                  return sub ? <span className="text-[11px] text-[var(--surface-400)]">{sub}</span> : null
-                                })()}
-                              </button>
-                            ))}
-                            {indicBusca.trim() && !contatosFiltrados.some(c => c.nome.toLowerCase() === indicBusca.toLowerCase()) && (
-                              <button type="button" onClick={() => { setIndicId(null); setIndicNome(indicBusca.trim()); setIndicNomeQuemIndicou(indicBusca.trim()); setIndicAberto(false) }}
-                                className="w-full text-left px-3 py-2 text-sm text-amber-500 hover:bg-amber-900/10 flex items-center gap-2 border-t border-[var(--surface-100)]">
-                                <Plus className="h-3.5 w-3.5" />Criar &quot;{indicBusca.trim()}&quot;
-                              </button>
-                            )}
-                          </div>
-                        )}
-                        {indicId && <p className="mt-1 text-xs text-green-500 flex items-center gap-1"><Check className="h-3 w-3" />Selecionado</p>}
-                        {!indicId && indicNome.trim() && !indicAberto && (
-                          <>
-                            <p className="mt-1 text-xs text-amber-500">Novo contato será criado</p>
-                            {/* Cargo: value canônico do CHECK contatos_cargo_check (veterinario/recepcionista/gerente/proprietario/outro); label amigável */}
-                            <select value={indicCargo} onChange={e => setIndicCargo(e.target.value)} className="input mt-1 text-sm">
-                              <option value="">Cargo (opcional)...</option>
-                              <option value="veterinario">Veterinário(a)</option>
-                              <option value="recepcionista">Recepcionista</option>
-                              <option value="gerente">Gerente</option>
-                              <option value="proprietario">Proprietário(a) / Sócio(a)</option>
-                              <option value="outro">Outro</option>
-                            </select>
-                          </>
-                        )}
-                      </div>
-                    ) : (
-                      <input type="text" value={indicNomeQuemIndicou} onChange={e => setIndicNomeQuemIndicou(e.target.value)} placeholder="ex: Dra. Maria ou Recep. João" className="input text-sm" />
-                    )
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* ═══════ CAMPOS FINAIS ═══════ */}
 

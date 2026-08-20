@@ -39,6 +39,14 @@ export type ContratoTagData = {
   pagamentos?: { tipo: string; valor: number }[]
   // Protocolo
   protocolo_data: unknown | null
+  // Indicação (quem indicou — hospital/clínica + contato)
+  contato_id: string | null
+  estabelecimento_indicacao_id: string | null
+  indicacao_clinica: string | null
+  indicacao_contato: string | null
+  fonte_conhecimento_ids: string[] | null
+  /** id de `fontes_conhecimento` p/ 'Indicação em Clínica' — resolvido 1x por tela, não por contrato */
+  indicacaoFonteId: string | null
   // Produtos
   contrato_produtos?: {
     foto_recebida: boolean
@@ -230,6 +238,22 @@ export function computeRescaldo(c: ContratoTagData): ComputedTag {
   return { id: 'rescaldo', emoji: '💎', state: 'in_progress', label: 'Rescaldo', tooltip: `Rescaldos: ${pendentes} pendente(s)`, count: pendentes, sublabel: `${pendentes}⏳` }
 }
 
+export function computeIndicacao(c: ContratoTagData): ComputedTag {
+  // Só relevante pra contrato que nasceu de indicação de vet/clínica (fonte
+  // 'Indicação em Clínica', gravada na criação — ver TratativaModal.tsx Step 2).
+  if (!c.indicacaoFonteId || !c.fonte_conhecimento_ids?.includes(c.indicacaoFonteId)) {
+    return { id: 'indicacao', emoji: '🩺', state: 'hidden', label: 'Indicação', tooltip: '' }
+  }
+
+  const resolvido = !!(c.contato_id || c.estabelecimento_indicacao_id || c.indicacao_clinica?.trim() || c.indicacao_contato?.trim())
+
+  if (resolvido) {
+    return { id: 'indicacao', emoji: '🩺', state: 'completed', label: 'Indicação', tooltip: 'Indicação: normalizada' }
+  }
+
+  return { id: 'indicacao', emoji: '🩺', state: 'pending', label: 'Indicação', tooltip: 'Indicação: Clique para normalizar', sublabel: '❓' }
+}
+
 // --- Main computation ---
 
 const ALL_COMPUTE_FNS = [
@@ -240,6 +264,7 @@ const ALL_COMPUTE_FNS = [
   computePagamento,
   computeProtocolo,
   computeRescaldo,
+  computeIndicacao,
 ]
 
 export function computeAllTags(contrato: ContratoTagData): ComputedTag[] {

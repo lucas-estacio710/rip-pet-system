@@ -23,6 +23,7 @@ import { useFieldPermission } from '@/hooks/useFieldPermission'
 import PelinhoModal from '@/components/contratos/modals/PelinhoModal'
 import RescaldoModal from '@/components/contratos/modals/RescaldoModal'
 import CertificadoModal from '@/components/contratos/modals/CertificadoModal'
+import IndicacaoModal from '@/components/contratos/modals/IndicacaoModal'
 import AtivarModal from '@/components/contratos/modals/AtivarModal'
 import FinalizadoraModal from '@/components/contratos/modals/FinalizadoraModal'
 import ChegamosModal from '@/components/contratos/modals/ChegamosModal'
@@ -78,8 +79,14 @@ type Contrato = {
   data_acolhimento: string | null
   numero_lacre: string | null
   fonte_conhecimento: { nome: string } | null
+  fonte_conhecimento_ids: string[] | null
   fonte_outro_especificar: string | null
   seguradora: string | null
+  // Indicação (quem indicou) — FK ou fallback texto. Ver FLOW §3.6.
+  contato_id: string | null
+  estabelecimento_indicacao_id: string | null
+  indicacao_clinica: string | null
+  indicacao_contato: string | null
   // Nomes para certificado
   certificado_nome_1: string | null
   certificado_nome_2: string | null
@@ -616,8 +623,19 @@ function ContratosContent() {
   const [salvandoRescaldo, setSalvandoRescaldo] = useState(false)
   const [produtosRescaldo, setProdutosRescaldo] = useState<Array<{ id: string; codigo: string; nome: string; tipo: string; rescaldo_tipo: string; preco: number | null; imagem_url: string | null }>>([])
 
+  // Modal Indicação
+  const [indicacaoModal, setIndicacaoModal] = useState(false)
+  const [indicacaoContrato, setIndicacaoContrato] = useState<Contrato | null>(null)
+  // id de fontes_conhecimento p/ 'Indicação em Clínica' — resolvido 1x, alimenta o farol de Indicação
+  const [indicacaoFonteId, setIndicacaoFonteId] = useState<string | null>(null)
+
   const POR_PAGINA = 30
   const supabase = createClient()
+
+  useEffect(() => {
+    supabase.from('fontes_conhecimento').select('id').eq('nome', 'Indicação em Clínica').maybeSingle()
+      .then(({ data }) => { if (data) setIndicacaoFonteId((data as { id: string }).id) })
+  }, [])
 
   // Salva número do lacre inline (apenas inserção; não permite edição daqui)
   async function salvarLacreInline() {
@@ -972,7 +990,7 @@ function ContratosContent() {
 
     // SELECT principal — só dados base + embeds leves essenciais (tutor + supinda + pagamentos).
     // Embeds pesados (contrato_produtos, contrato_gc, fonte_conhecimento) carregam em paralelo após.
-    const SELECT_CONTRATO = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento_id, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id'
+    const SELECT_CONTRATO = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
 
     // Helper para aplicar filtros comuns (unidade + status + compartilhados).
     // Tipo `any` aqui porque o builder do supabase-js encadeia tipos genéricos complexos
@@ -1093,7 +1111,7 @@ function ContratosContent() {
     const agruparPorSupinda = agruparSupinda && statusFiltro !== 'preventivo' && !fluxoLocal
 
     // Mesmo padrão da listagem: SELECT leve + enriquecimento paralelo
-    const SELECT_BUSCA = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento_id, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id'
+    const SELECT_BUSCA = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
     // Sanitiza: escapa wildcards SQL (% _) e caracteres reservados PostgREST (, ( ) : * \)
     // + limita 80 chars. Protege contra termo malicioso quebrar o filtro `or`.
     const t = sanitizeBuscaPostgrest(termoBusca)
@@ -3303,6 +3321,12 @@ ${petNome}`
     setRescaldoModal(true)
   }
 
+  function abrirIndicacaoModal(contrato: Contrato) {
+    highlightContrato(contrato.id)
+    setIndicacaoContrato(contrato)
+    setIndicacaoModal(true)
+  }
+
   async function adicionarProdutoRescaldo(produto: typeof produtosRescaldo[0]) {
     if (!rescaldoContrato) return
     setSalvandoRescaldo(true)
@@ -4265,12 +4289,13 @@ ${petNome}`
 
                     {/* === TAGS VERDES (à esquerda das infos) === */}
                     <InteractiveTags
-                      contrato={contrato}
+                      contrato={{ ...contrato, indicacaoFonteId }}
                       handlers={{
                         pelinho: () => abrirPelinhoModal(contrato),
                         urna: () => abrirUrnaModal(contrato),
                         certificado: () => abrirCertificadoModal(contrato),
                         rescaldo: () => abrirRescaldoModal(contrato),
+                        indicacao: () => abrirIndicacaoModal(contrato),
                       }}
                       layout="pipeline-desktop-green"
                     />
@@ -4313,7 +4338,7 @@ ${petNome}`
 
                     {/* === TAGS PENDENTES (à direita das infos) === */}
                     <InteractiveTags
-                      contrato={contrato}
+                      contrato={{ ...contrato, indicacaoFonteId }}
                       handlers={{
                         pelinho: () => abrirPelinhoModal(contrato),
                         urna: () => abrirUrnaModal(contrato),
@@ -4321,6 +4346,7 @@ ${petNome}`
                         foto: () => abrirFotoModal(contrato),
                         pagamento: () => abrirMegaPagamentoModal(contrato),
                         rescaldo: () => abrirRescaldoModal(contrato),
+                        indicacao: () => abrirIndicacaoModal(contrato),
                       }}
                       layout="pipeline-desktop-pending"
                     />
@@ -4586,12 +4612,13 @@ ${petNome}`
 
                     {/* Linha 3: Tags finalizadas — boxes grandes centralizados */}
                     <InteractiveTags
-                      contrato={contrato}
+                      contrato={{ ...contrato, indicacaoFonteId }}
                       handlers={{
                         pelinho: () => abrirPelinhoModal(contrato),
                         urna: () => abrirUrnaModal(contrato),
                         certificado: () => abrirCertificadoModal(contrato),
                         rescaldo: () => abrirRescaldoModal(contrato),
+                        indicacao: () => abrirIndicacaoModal(contrato),
                       }}
                       layout="pipeline-mobile-green"
                     />
@@ -4599,7 +4626,7 @@ ${petNome}`
                     {/* Linha 4: Tags pendentes + status + expand — boxes grandes (+30%) */}
                     <div className="flex items-center gap-1.5">
                       <InteractiveTags
-                        contrato={contrato}
+                        contrato={{ ...contrato, indicacaoFonteId }}
                         handlers={{
                           pelinho: () => abrirPelinhoModal(contrato),
                           urna: () => abrirUrnaModal(contrato),
@@ -4607,6 +4634,7 @@ ${petNome}`
                           foto: () => abrirFotoModal(contrato),
                           pagamento: () => abrirMegaPagamentoModal(contrato),
                           rescaldo: () => abrirRescaldoModal(contrato),
+                          indicacao: () => abrirIndicacaoModal(contrato),
                         }}
                         layout="pipeline-mobile-pending"
                       />
@@ -5944,6 +5972,19 @@ ${petNome}`
             setContratos(prev => prev.map(c =>
               c.id === updated.id ? { ...c, ...rest } : c
             ))
+          }}
+        />
+      )}
+
+      {indicacaoModal && indicacaoContrato && (
+        <IndicacaoModal
+          contrato={indicacaoContrato}
+          onClose={() => { setIndicacaoModal(false); unhighlightContrato(); }}
+          onSuccess={(updated) => {
+            const idAtualizado = indicacaoContrato.id
+            setContratos(prev => prev.map(c => c.id === idAtualizado ? { ...c, ...updated } : c))
+            setIndicacaoModal(false)
+            unhighlightContrato()
           }}
         />
       )}

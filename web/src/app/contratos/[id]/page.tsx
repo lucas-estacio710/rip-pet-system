@@ -20,11 +20,13 @@ import { useFieldPermission } from '@/hooks/useFieldPermission'
 import PelinhoModal from '@/components/contratos/modals/PelinhoModal'
 import RescaldoModal from '@/components/contratos/modals/RescaldoModal'
 import CertificadoModal from '@/components/contratos/modals/CertificadoModal'
+import IndicacaoModal from '@/components/contratos/modals/IndicacaoModal'
 import AtivarModal from '@/components/contratos/modals/AtivarModal'
 import FinalizadoraModal from '@/components/contratos/modals/FinalizadoraModal'
 import ChegamosModal from '@/components/contratos/modals/ChegamosModal'
 import ChegaramModal from '@/components/contratos/modals/ChegaramModal'
 import ObservacoesCard from '@/components/contratos/ObservacoesCard'
+import IndicacaoCard from '@/components/contratos/IndicacaoCard'
 import DocMenu from '@/components/contratos/DocMenu'
 import EditarContratoModal from '@/components/contratos/modals/EditarContratoModal'
 import { baixarContratoPDF } from '@/lib/contrato-pdf-download'
@@ -211,10 +213,13 @@ type Contrato = {
   estabelecimento_coleta?: { nome: string } | null
   clinica_coleta: string | null
   // Indicação (quem indicou) — FK ou fallback texto. Ver FLOW §3.6.
+  contato_id: string | null
   contato?: { nome: string; cargo: string | null } | null
+  estabelecimento_indicacao_id: string | null
   estabelecimento_indicacao?: { nome: string } | null
   indicacao_clinica: string | null
   indicacao_contato: string | null
+  fonte_conhecimento_ids: string[] | null
   data_leva_pinda: string | null
   data_cremacao: string | null
   data_retorno: string | null
@@ -522,6 +527,9 @@ export default function ContratoDetalhe() {
   const [entregaModalOpen, setEntregaModalOpen] = useState(false)
   const [pelinhoModalOpen, setPelinhoModalOpen] = useState(false)
   const [certificadoModalOpen, setCertificadoModalOpen] = useState(false)
+  const [indicacaoModalOpen, setIndicacaoModalOpen] = useState(false)
+  // id de fontes_conhecimento p/ 'Indicação em Clínica' — resolvido 1x, alimenta o farol de Indicação
+  const [indicacaoFonteId, setIndicacaoFonteId] = useState<string | null>(null)
 
   // Modal Compartilhar
   const [compartilharModal, setCompartilharModal] = useState(false)
@@ -1667,6 +1675,11 @@ export default function ContratoDetalhe() {
     carregarProdutosRescaldo()
   }, [params.id])
 
+  useEffect(() => {
+    supabase.from('fontes_conhecimento').select('id').eq('nome', 'Indicação em Clínica').maybeSingle()
+      .then(({ data }) => { if (data) setIndicacaoFonteId((data as { id: string }).id) })
+  }, [])
+
   async function carregarContrato() {
     setLoading(true)
     const contratoId = params.id as string
@@ -2537,6 +2550,7 @@ ${petNome}`
                   } : null,
                 })),
                 pagamentos: pagamentos.map(p => ({ tipo: p.tipo, valor: p.valor })),
+                indicacaoFonteId,
               }}
               handlers={{
                 pelinho: () => setPelinhoModalOpen(true),
@@ -2544,6 +2558,7 @@ ${petNome}`
                 certificado: () => setCertificadoModalOpen(true),
                 foto: () => setFotoModal(true),
                 pagamento: () => abrirMegaPagamento(0, 0),
+                indicacao: () => setIndicacaoModalOpen(true),
                 protocolo: () => {
                   if (contrato.protocolo_data) {
                     setProtocoloEdit(normalizarProtocoloData(contrato.protocolo_data))
@@ -3591,6 +3606,12 @@ ${petNome}`
             />
           </div>
         )}
+
+        {/* Card Indicação — só aparece se a ficha de origem veio de Veterinário/Clínica */}
+        <IndicacaoCard
+          contrato={contrato}
+          onUpdate={(updated) => setContrato(prev => prev ? { ...prev, ...updated } : prev)}
+        />
 
         {/* Card Observações */}
         <ObservacoesCard contratoId={contrato.id} observacoesFicha={contrato.observacoes} />
@@ -5096,6 +5117,17 @@ ${petNome}`
               setContrato(prev => prev ? { ...prev, ...rest } : prev)
             }}
           />
+
+          {indicacaoModalOpen && contrato && (
+            <IndicacaoModal
+              contrato={contrato}
+              onClose={() => setIndicacaoModalOpen(false)}
+              onSuccess={(updated) => {
+                setContrato(prev => prev ? { ...prev, ...updated } : prev)
+                setIndicacaoModalOpen(false)
+              }}
+            />
+          )}
 
           {/* Modal: Editar Contrato (via DocMenu no Hero Card) */}
           <EditarContratoModal
