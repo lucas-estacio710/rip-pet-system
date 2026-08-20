@@ -42,7 +42,7 @@ type Resumo = {
   outras_despesas: number; investimentos: number
   margem_bruta: number; resultado: number
 }
-type LinhaConta = { grupo_dre: string; conta_nome: string; valor: number; entra_no_resultado: boolean }
+type LinhaConta = { grupo_dre: string; conta_nome: string; valor: number; entra_no_resultado: boolean; sinal: number }
 
 const ZERO: Resumo = {
   receita_bruta: 0, outras_receitas: 0, deducoes: 0, custo_servico: 0,
@@ -95,12 +95,12 @@ export default function DRETab() {
     const [r, p, m] = await Promise.all([
       supabase.from('vw_dre_resumo').select('*').eq('unidade_id', currentUnit.id).eq('mes', ref).maybeSingle(),
       supabase.from('vw_dre_resumo').select('*').eq('unidade_id', currentUnit.id).eq('mes', refAntes).maybeSingle(),
-      supabase.from('vw_dre_mensal').select('grupo_dre, conta_nome, valor, entra_no_resultado')
+      supabase.from('vw_dre_mensal').select('grupo_dre, conta_nome, valor, entra_no_resultado, sinal')
         .eq('unidade_id', currentUnit.id).eq('mes', ref),
     ])
     setResumo((r.data as Resumo) || ZERO)
     setAntes((p.data as Resumo) || ZERO)
-    setContas(((m.data as LinhaConta[]) || []).sort((a, b) => b.valor - a.valor))
+    setContas(((m.data as LinhaConta[]) || []).sort((a, b) => b.valor * b.sinal - a.valor * a.sinal))
     setCarregando(false)
   }, [supabase, currentUnit?.id, mes])
 
@@ -291,8 +291,12 @@ export default function DRETab() {
 
                       {expandido && grupoContas.map((x, k) => (
                         <tr key={`${i}-${k}`} className="bg-[var(--surface-50)] text-xs">
-                          <td className="pl-10 pr-3 py-1 text-[var(--surface-500)]">{x.conta_nome}</td>
-                          <td className="px-3 py-1 text-right text-mono tabular-nums text-[var(--surface-600)]">{num(x.valor)}</td>
+                          <td className="pl-10 pr-3 py-1 text-[var(--surface-500)]">
+                            {x.sinal < 0 && !l.negativo ? '(−) ' : ''}{x.conta_nome}
+                          </td>
+                          <td className="px-3 py-1 text-right text-mono tabular-nums text-[var(--surface-600)]">
+                            {x.sinal < 0 && !l.negativo ? '−' : ''}{num(x.valor)}
+                          </td>
                           <td className="px-2 py-1 text-right text-[var(--surface-300)] tabular-nums">{av(x.valor)}</td>
                           <td />
                         </tr>
