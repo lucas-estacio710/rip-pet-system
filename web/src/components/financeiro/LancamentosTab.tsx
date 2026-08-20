@@ -52,11 +52,11 @@ type Lancamento = {
   fin_categorias?: { nome: string; icone: string | null } | null
 }
 
-/** Custo de cremação provisionado na competência (mig 114). Não é digitado. */
+/** Custo de cremação do mês (mig 114). Nasce do acolhimento, não é digitado. */
 type CustoAuto = {
   tipo_cremacao: 'individual' | 'coletiva'
   qtd_pets: number
-  qtd_cobrados: number
+  preco_unitario: number
   valor: number
 }
 
@@ -174,7 +174,7 @@ export default function LancamentosTab() {
     // A Matriz e a unidade que crema no próprio local (PI) não têm linha aqui.
     const { data: auto } = await supabase
       .from('vw_custo_cremacao_competencia')
-      .select('tipo_cremacao, qtd_pets, qtd_cobrados, valor')
+      .select('tipo_cremacao, qtd_pets, preco_unitario, valor')
       .eq('unidade_id', currentUnit.id)
       .eq('mes', `${mes}-01`)
     setCustosAuto(((auto as unknown as CustoAuto[]) || []))
@@ -328,15 +328,14 @@ export default function LancamentosTab() {
       {/* CUSTOS AUTOMÁTICOS — fixos no topo, não se digita.
           A cremação é custo do mês em que o pet foi ACOLHIDO, não do mês em que
           a Matriz cobra (dia 20 do mês seguinte) nem do mês em que a unidade
-          paga. Enquanto o repasse não fecha, entra a preço de tabela; depois,
-          pelo valor realmente cobrado, já com o deflator. Ver mig 114. */}
+          paga: ter pago ou não NÃO altera este número. Ver FLOW §9.4.1. */}
       {custosAuto.length > 0 && (
         <div className="card p-3 space-y-2">
           <div className="flex items-center gap-2">
             <h3 className="text-xs font-semibold text-[var(--surface-600)] uppercase tracking-wide">
               Custos automáticos
             </h3>
-            <span className="text-[10px] text-[var(--surface-400)]">não precisa lançar</span>
+            <span className="text-[10px] text-[var(--surface-400)]">pelos pets acolhidos no mês</span>
             <span className="ml-auto text-mono text-sm text-[var(--surface-700)]">{fmtBRL(totalAuto)}</span>
           </div>
 
@@ -345,9 +344,6 @@ export default function LancamentosTab() {
               const c = custosAuto.find(x => x.tipo_cremacao === t)
               if (!c || !c.qtd_pets) return null
               const ind = t === 'individual'
-              // Parcialmente cobrado ainda conta como estimado: o valor pode mudar
-              // quando o resto entrar no repasse.
-              const fechado = c.qtd_cobrados >= c.qtd_pets
               return (
                 <div key={t} className="flex items-center gap-3 py-2">
                   <div
@@ -361,23 +357,10 @@ export default function LancamentosTab() {
                       Cremações {ind ? 'individuais' : 'coletivas'}
                     </p>
                     <p className="text-xs text-[var(--surface-500)]">
-                      {c.qtd_pets} {c.qtd_pets === 1 ? 'pet acolhido' : 'pets acolhidos'} ·{' '}
-                      {fechado
-                        ? 'valor cobrado pela Matriz'
-                        : c.qtd_cobrados > 0
-                          ? `${c.qtd_cobrados} já cobrados, o resto a preço de tabela`
-                          : 'a preço de tabela até a Matriz fechar o mês'}
+                      {c.qtd_pets} {c.qtd_pets === 1 ? 'pet acolhido' : 'pets acolhidos'}
+                      {' × '}{fmtBRL(c.preco_unitario)}
                     </p>
                   </div>
-                  <span
-                    className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
-                    style={{
-                      background: fechado ? 'rgba(16,185,129,0.14)' : 'var(--surface-100)',
-                      color: fechado ? '#10b981' : 'var(--surface-500)',
-                    }}
-                  >
-                    {fechado ? 'cobrado' : 'estimado'}
-                  </span>
                   <span className="text-mono text-sm text-[var(--surface-800)] shrink-0">{fmtBRL(c.valor)}</span>
                 </div>
               )
