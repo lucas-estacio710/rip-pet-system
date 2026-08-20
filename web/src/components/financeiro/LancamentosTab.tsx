@@ -14,7 +14,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import * as Icons from 'lucide-react'
-import { Plus, Loader2, Camera, X, Check, Trash2 } from 'lucide-react'
+import { Plus, Loader2, Camera, X, Check, Trash2, Flame } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import Modal from '@/components/ui/Modal'
@@ -52,6 +52,14 @@ type Lancamento = {
   fin_categorias?: { nome: string; icone: string | null } | null
 }
 
+/** Custo de cremação provisionado na competência (mig 114). Não é digitado. */
+type CustoAuto = {
+  tipo_cremacao: 'individual' | 'coletiva'
+  qtd_pets: number
+  qtd_cobrados: number
+  valor: number
+}
+
 const mesAtual = () => new Date().toISOString().slice(0, 7)
 
 /** Ícone do lucide pelo nome salvo na categoria (fallback: etiqueta). */
@@ -70,6 +78,7 @@ export default function LancamentosTab() {
   const [mes, setMes] = useState(mesAtual())
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([])
+  const [custosAuto, setCustosAuto] = useState<CustoAuto[]>([])
   const [carregando, setCarregando] = useState(false)
 
   // formulário — o mesmo modal serve pra criar e pra editar. `editandoId` decide:
@@ -160,6 +169,16 @@ export default function LancamentosTab() {
       .lte('data_competencia', fim)
       .order('data_competencia', { ascending: false })
     setLancamentos(((data as unknown as Lancamento[]) || []))
+
+    // Custo de cremação: nasce do acolhimento, não de digitação (mig 114).
+    // A Matriz e a unidade que crema no próprio local (PI) não têm linha aqui.
+    const { data: auto } = await supabase
+      .from('vw_custo_cremacao_competencia')
+      .select('tipo_cremacao, qtd_pets, qtd_cobrados, valor')
+      .eq('unidade_id', currentUnit.id)
+      .eq('mes', `${mes}-01`)
+    setCustosAuto(((auto as unknown as CustoAuto[]) || []))
+
     setCarregando(false)
   }, [supabase, currentUnit?.id, mes])
 
@@ -283,7 +302,9 @@ export default function LancamentosTab() {
     window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
   }
 
-  const total = lancamentos.reduce((s, l) => s + Number(l.valor || 0), 0)
+  const totalDigitado = lancamentos.reduce((s, l) => s + Number(l.valor || 0), 0)
+  const totalAuto = custosAuto.reduce((s, c) => s + Number(c.valor || 0), 0)
+  const total = totalDigitado + totalAuto
 
   return (
     <div className="animate-fade-in space-y-3">
@@ -296,12 +317,74 @@ export default function LancamentosTab() {
         <span className="text-xs text-[var(--surface-500)]">
           <span className="text-mono text-[var(--surface-700)]">{fmtBRL(total)}</span>
           {' · '}{lancamentos.length} {lancamentos.length === 1 ? 'lançamento' : 'lançamentos'}
+          {totalAuto > 0 && ' + cremações'}
         </span>
         {carregando && <Loader2 className="h-4 w-4 animate-spin text-[var(--surface-400)]" />}
         <button onClick={() => setAberto(true)} className="btn-primary text-sm ml-auto">
           <Plus className="h-4 w-4" /> Novo lançamento
         </button>
       </div>
+
+      {/* CUSTOS AUTOMÁTICOS — fixos no topo, não se digita.
+          A cremação é custo do mês em que o pet foi ACOLHIDO, não do mês em que
+          a Matriz cobra (dia 20 do mês seguinte) nem do mês em que a unidade
+          paga. Enquanto o repasse não fecha, entra a preço de tabela; depois,
+          pelo valor realmente cobrado, já com o deflator. Ver mig 114. */}
+      {custosAuto.length > 0 && (
+        <div className="card p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <h3 className="text-xs font-semibold text-[var(--surface-600)] uppercase tracking-wide">
+              Custos automáticos
+            </h3>
+            <span className="text-[10px] text-[var(--surface-400)]">não precisa lançar</span>
+            <span className="ml-auto text-mono text-sm text-[var(--surface-700)]">{fmtBRL(totalAuto)}</span>
+          </div>
+
+          <div className="divide-y divide-[var(--surface-200)]">
+            {['individual', 'coletiva'].map(t => {
+              const c = custosAuto.find(x => x.tipo_cremacao === t)
+              if (!c || !c.qtd_pets) return null
+              const ind = t === 'individual'
+              // Parcialmente cobrado ainda conta como estimado: o valor pode mudar
+              // quando o resto entrar no repasse.
+              const fechado = c.qtd_cobrados >= c.qtd_pets
+              return (
+                <div key={t} className="flex items-center gap-3 py-2">
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+                    style={{ background: ind ? 'rgba(16,185,129,0.14)' : 'rgba(139,92,246,0.14)' }}
+                  >
+                    <Flame className="h-4 w-4" style={{ color: ind ? '#10b981' : '#8b5cf6' }} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-[var(--surface-800)]">
+                      Cremações {ind ? 'individuais' : 'coletivas'}
+                    </p>
+                    <p className="text-xs text-[var(--surface-500)]">
+                      {c.qtd_pets} {c.qtd_pets === 1 ? 'pet acolhido' : 'pets acolhidos'} ·{' '}
+                      {fechado
+                        ? 'valor cobrado pela Matriz'
+                        : c.qtd_cobrados > 0
+                          ? `${c.qtd_cobrados} já cobrados, o resto a preço de tabela`
+                          : 'a preço de tabela até a Matriz fechar o mês'}
+                    </p>
+                  </div>
+                  <span
+                    className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
+                    style={{
+                      background: fechado ? 'rgba(16,185,129,0.14)' : 'var(--surface-100)',
+                      color: fechado ? '#10b981' : 'var(--surface-500)',
+                    }}
+                  >
+                    {fechado ? 'cobrado' : 'estimado'}
+                  </span>
+                  <span className="text-mono text-sm text-[var(--surface-800)] shrink-0">{fmtBRL(c.valor)}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Lista do mês — o espelho que dá confiança no que foi digitado */}
       <div className="card p-3 space-y-2">
