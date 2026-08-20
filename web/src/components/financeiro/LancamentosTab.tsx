@@ -47,6 +47,8 @@ type Lancamento = {
   status: string
   fornecedor_nome: string | null
   categoria_id: string | null
+  natureza: string | null        // opex/capex — reabre o form fiel ao gravado
+  rateio_meses: number | null    // idem, pro checkbox "cobre mais de um mês"
   fin_categorias?: { nome: string; icone: string | null } | null
 }
 
@@ -70,8 +72,12 @@ export default function LancamentosTab() {
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([])
   const [carregando, setCarregando] = useState(false)
 
-  // formulário
+  // formulário — o mesmo modal serve pra criar e pra editar. `editandoId` decide:
+  // null = insert, preenchido = update. Errar valor ou categoria e nao poder
+  // corrigir obrigaria a excluir e relancar, perdendo o comprovante ja enviado.
   const [aberto, setAberto] = useState(false)
+  const [editandoId, setEditandoId] = useState<string | null>(null)
+  const [anexoAtual, setAnexoAtual] = useState<string | null>(null)
   const [catId, setCatId] = useState('')
   const [busca, setBusca] = useState('')
   // Drill-down em colunas: escolhe a categoria → abre as subcategorias → abre os tipos
@@ -148,7 +154,7 @@ export default function LancamentosTab() {
     const { ini, fim } = limitesDoMes(mes)
     const { data } = await supabase
       .from('fin_lancamentos')
-      .select('id, descricao, valor, data_competencia, data_caixa, metodo_pagamento, anexo_url, status, fornecedor_nome, categoria_id, fin_categorias(nome, icone)')
+      .select('id, descricao, valor, data_competencia, data_caixa, metodo_pagamento, anexo_url, status, fornecedor_nome, categoria_id, natureza, rateio_meses, fin_categorias(nome, icone)')
       .eq('unidade_id', currentUnit.id)
       .gte('data_competencia', ini)
       .lte('data_competencia', fim)
@@ -170,6 +176,27 @@ export default function LancamentosTab() {
     setRateado(false); setMeses('12')
     setBusca(''); setNivel1(null); setNivel2(null)
     escolherArquivo(null); setAberto(false)
+    setEditandoId(null); setAnexoAtual(null)
+  }
+
+  /** Abre o modal com o lançamento carregado. */
+  function editar(l: Lancamento) {
+    setEditandoId(l.id)
+    setCatId(l.categoria_id || '')
+    setValor(String(l.valor ?? ''))
+    setData((l.data_competencia || '').slice(0, 10))
+    setMetodo((l.metodo_pagamento as MetodoPagamento) || '')
+    setFornecedor(l.fornecedor_nome || '')
+    setDescricao(l.descricao || '')
+    // capex só é pergunta em alguns itens; fora deles `duravel` fica null e o
+    // salvar cai na natureza da conta, como no lançamento novo.
+    setDuravel(l.natureza === 'capex' ? true : (l.natureza === 'opex' ? false : null))
+    const r = Number(l.rateio_meses || 1)
+    setRateado(r > 1); setMeses(String(r > 1 ? r : 12))
+    setAnexoAtual(l.anexo_url || null)
+    escolherArquivo(null)
+    setBusca(''); setNivel1(null); setNivel2(null)
+    setAberto(true)
   }
 
   async function salvar() {
@@ -185,22 +212,23 @@ export default function LancamentosTab() {
     setSalvando(true)
     try {
       // Comprovante primeiro — bucket PRIVADO, guardamos só o caminho.
-      let anexo: string | null = null
+      // Na edição sem arquivo novo, mantém o que já estava.
+      let anexo: string | null = anexoAtual
       if (arquivo) {
         const path = caminhoComprovante(currentUnit.codigo, arquivo)
         const { error } = await supabase.storage.from('financeiro').upload(path, arquivo, {
           cacheControl: '3600', upsert: false,
         })
         if (error) throw new Error('Falha ao enviar o comprovante: ' + error.message)
+        // Trocou o comprovante: o antigo vira lixo no bucket privado.
+        if (anexoAtual) await supabase.storage.from('financeiro').remove([anexoAtual])
         anexo = path
       }
 
       const { data_competencia, data_caixa } = derivarDatas(data, metodo)
       const conta = catSelecionada?.fin_contas
 
-      const { error } = await supabase.from('fin_lancamentos').insert({
-        unidade_id: currentUnit.id,
-        empresa_id: null,                     // definido depois, no fechamento
+      const campos = {
         categoria_id: catId,
         conta_id: catSelecionada?.fin_conta_id || null,
         conta_codigo: conta?.codigo || null,  // SNAPSHOT: congela a DRE histórica
@@ -210,17 +238,28 @@ export default function LancamentosTab() {
         valor: v,
         data_competencia,
         data_caixa,
-        status: 'pendente',
-        origem: 'manual',
+        // `status` e `origem` NÃO entram aqui: são de criação. No update,
+        // reescrevê-los rebaixaria um lançamento já aprovado de volta pra
+        // pendente e apagaria a origem de um que veio por OCR/QR.
         fornecedor_nome: fornecedor.trim() || null,
         metodo_pagamento: metodo,
         rateio_meses: rateado ? Math.max(1, Math.min(120, Number(meses) || 1)) : 1,
         anexo_url: anexo,
-        criado_por_nome: userName || null,
-      })
+      }
+
+      const { error } = editandoId
+        ? await supabase.from('fin_lancamentos').update(campos).eq('id', editandoId)
+        : await supabase.from('fin_lancamentos').insert({
+            ...campos,
+            unidade_id: currentUnit.id,
+            empresa_id: null,                 // definido depois, no fechamento
+            status: 'pendente',
+            origem: 'manual',
+            criado_por_nome: userName || null,
+          })
       if (error) throw new Error(error.message)
 
-      toast(`Lançado ${fmtBRL(v)}`, 'success')
+      toast(editandoId ? `Lançamento atualizado — ${fmtBRL(v)}` : `Lançado ${fmtBRL(v)}`, 'success')
       limpar()
       void carregar()
     } catch (e) {
@@ -278,7 +317,12 @@ export default function LancamentosTab() {
 
         <div className="divide-y divide-[var(--surface-200)]">
           {lancamentos.map(l => (
-            <div key={l.id} className="flex items-center gap-3 py-2">
+            <div
+              key={l.id}
+              onClick={() => editar(l)}
+              className="flex items-center gap-3 py-2 -mx-1 px-1 rounded-[var(--radius-sm)] cursor-pointer hover:bg-[var(--surface-50)] transition-colors"
+              title="Editar lançamento"
+            >
               <div className="w-8 h-8 rounded-full bg-[var(--surface-100)] flex items-center justify-center shrink-0">
                 <IconeCat nome={l.fin_categorias?.icone} className="h-4 w-4 text-[var(--surface-500)]" />
               </div>
@@ -294,7 +338,7 @@ export default function LancamentosTab() {
               </div>
               {l.anexo_url && (
                 <button
-                  onClick={() => void verComprovante(l.anexo_url!)}
+                  onClick={e => { e.stopPropagation(); void verComprovante(l.anexo_url!) }}
                   title="Ver comprovante"
                   className="text-[var(--surface-400)] hover:text-[var(--brand-500)] shrink-0"
                 >
@@ -303,7 +347,7 @@ export default function LancamentosTab() {
               )}
               <span className="text-mono text-sm text-[var(--surface-800)] shrink-0">{fmtBRL(l.valor)}</span>
               <button
-                onClick={() => void excluir(l.id)}
+                onClick={e => { e.stopPropagation(); void excluir(l.id) }}
                 title="Excluir"
                 className="text-[var(--surface-400)] hover:text-red-400 shrink-0"
               >
@@ -318,12 +362,14 @@ export default function LancamentosTab() {
       <Modal
         isOpen={aberto}
         onClose={limpar}
-        title="Novo lançamento"
+        title={editandoId ? 'Editar lançamento' : 'Novo lançamento'}
         footer={
           <div className="flex justify-end gap-2">
             <button onClick={limpar} className="btn-secondary text-sm">Cancelar</button>
             <button onClick={() => void salvar()} disabled={salvando} className="btn-primary text-sm">
-              {salvando ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvando…</> : <><Check className="h-4 w-4" /> Lançar</>}
+              {salvando
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvando…</>
+                : <><Check className="h-4 w-4" /> {editandoId ? 'Salvar' : 'Lançar'}</>}
             </button>
           </div>
         }
@@ -571,6 +617,14 @@ export default function LancamentosTab() {
           {/* Comprovante */}
           <div>
             <label className="text-xs text-[var(--surface-500)] block mb-1.5">Comprovante</label>
+            {anexoAtual && !previa && (
+              <button
+                onClick={() => void verComprovante(anexoAtual)}
+                className="text-xs text-[var(--brand-500)] underline mb-1.5 block"
+              >
+                ver o comprovante já anexado
+              </button>
+            )}
             {previa ? (
               <div className="flex items-center gap-3">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -583,7 +637,7 @@ export default function LancamentosTab() {
               <label className="flex items-center gap-2 px-3 py-2 rounded-[var(--radius-md)] border border-dashed cursor-pointer text-sm text-[var(--surface-500)] hover:text-[var(--surface-700)]"
                      style={{ borderColor: 'var(--surface-300)' }}>
                 <Camera className="h-4 w-4" />
-                Anexar
+                {anexoAtual ? 'Trocar comprovante' : 'Anexar'}
                 <input
                   type="file" accept="image/*" capture="environment" className="hidden"
                   onChange={e => {
