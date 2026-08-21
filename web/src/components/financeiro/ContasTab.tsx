@@ -150,7 +150,7 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
             value={nova}
             onChange={e => setNova(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') void criar() }}
-            placeholder="Nome da conta — ex.: Inter, Granito, Caixa da loja"
+            placeholder="Nome da conta, como vocês chamam no dia a dia"
             className="input text-sm flex-1 min-w-0"
           />
           <button

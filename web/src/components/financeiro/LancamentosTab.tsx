@@ -61,7 +61,8 @@ type CustoAuto = {
   valor: number
 }
 
-/** Conta de onde o dinheiro sai (Inter, Granito, Dinheiro…). Tabela `contas`. */
+/** Conta de onde o dinheiro sai. Tabela `contas`, escopada por unidade —
+ *  cada unidade tem os SEUS bancos, não há conta comum ao grupo. */
 type ContaBancaria = { id: string; nome: string; empresa_id: string | null }
 
 const mesAtual = () => new Date().toISOString().slice(0, 7)
@@ -194,7 +195,7 @@ export default function LancamentosTab() {
 
   useEffect(() => { void carregar() }, [carregar])
 
-  // Contas da unidade (Inter, Granito, Dinheiro…). Fora de `carregar` porque não
+  // Contas DESTA unidade. Fora de `carregar` porque não
   // dependem do mês.
   const carregarContas = useCallback(async () => {
     if (!currentUnit?.id) return
