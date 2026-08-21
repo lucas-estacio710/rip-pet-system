@@ -68,6 +68,12 @@ export type Permuta = {
   descricao: string
   valor: number
   direcao: 'abate' | 'acresce'
+  // As DUAS PERNAS contábeis (mig 106). Um encontro de contas é receita de um
+  // lado e despesa do outro; enquanto estes ids forem nulos, o acerto ajusta o
+  // total cobrado mas NÃO aparece na DRE de ninguém. Preenchidos = já gerado, e
+  // é o que impede gerar duas vezes.
+  lancamento_receita_id?: string | null
+  lancamento_despesa_id?: string | null
 }
 
 /** Cremações − o que abate + o que acresce. É o valor que a unidade paga de fato. */

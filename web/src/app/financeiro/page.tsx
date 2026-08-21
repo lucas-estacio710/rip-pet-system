@@ -16,7 +16,7 @@
 // (deflator, acertos, fechar, marcar pago) é a Matriz.
 
 import { useMemo, useState } from 'react'
-import { Wallet, Receipt, ArrowLeftRight, BarChart3, Landmark, Shield, type LucideIcon } from 'lucide-react'
+import { Wallet, Receipt, ArrowLeftRight, BarChart3, Landmark, Banknote, Shield, type LucideIcon } from 'lucide-react'
 import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
 import EmptyState from '@/components/ui/EmptyState'
@@ -24,6 +24,7 @@ import LancamentosTab from '@/components/financeiro/LancamentosTab'
 import RepasseTab from '@/components/financeiro/RepasseTab'
 import DRETab from '@/components/financeiro/DRETab'
 import ContasTab from '@/components/financeiro/ContasTab'
+import CaixaTab from '@/components/financeiro/CaixaTab'
 
 const TELA = 'tela_financeiro'
 
@@ -32,6 +33,7 @@ type TabDef = { key: string; obj: string; label: string; icon: LucideIcon }
 const TABS: TabDef[] = [
   { key: 'lancamentos', obj: 'obj_fin_lancamentos', label: 'Lançamentos', icon: Wallet },
   { key: 'repasse',     obj: 'obj_fin_repasse',     label: 'Repasse',     icon: ArrowLeftRight },
+  { key: 'caixa',       obj: 'obj_fin_caixa',       label: 'Caixa',       icon: Banknote },
   { key: 'dre',         obj: 'obj_fin_dre',         label: 'DRE',         icon: BarChart3 },
   { key: 'contas',      obj: 'obj_fin_contas',      label: 'Contas',      icon: Landmark },
 ]
@@ -93,6 +95,8 @@ export default function FinanceiroPage() {
         <LancamentosTab />
       ) : activeTab?.key === 'repasse' ? (
         <RepasseTab somenteLeitura={repasseSomenteLeitura} />
+      ) : activeTab?.key === 'caixa' ? (
+        <CaixaTab somenteLeitura={!canEdit(TELA, 'btn_caixa_editar')} />
       ) : activeTab?.key === 'dre' ? (
         <DRETab />
       ) : activeTab?.key === 'contas' ? (

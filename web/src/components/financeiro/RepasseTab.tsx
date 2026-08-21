@@ -67,6 +67,7 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
   // então o client tipado infere `never`. Client destipado só para elas.
   const supabase = supabaseTipado as unknown as SupabaseClient
   const { toast } = useToast()
+  const { userName } = useUnit()
 
   const [unidadeId, setUnidadeId] = useState('')
   const [mes, setMes] = useState(mesAtual())
@@ -93,6 +94,8 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
   // Por isso a lista vem direto do banco, e SÓ nesta tela (não mexer no contexto
   // global, senão vaza unidade em telas que devem continuar escopadas).
   const [unidadesPagantes, setUnidadesPagantes] = useState<UnidadePagante[]>([])
+  // A Matriz é a contraparte de todo acerto — é ela que recebe ou deve.
+  const [matrizId, setMatrizId] = useState('')
   const nomeUnidade = unidadesPagantes.find(u => u.id === unidadeId)?.nome || ''
 
   useEffect(() => {
@@ -104,6 +107,7 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
       .order('nome')
       .then(({ data }) => {
         type U = { id: string; nome: string; codigo: string; is_matriz: boolean; modulos_ativos: string[] | null }
+        setMatrizId(((data as U[]) || []).find(u => u.is_matriz)?.id || '')
         setUnidadesPagantes(
           ((data as U[]) || [])
             // Matriz não cobra de si mesma.
@@ -189,7 +193,7 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
 
       const { data: perms } = await supabase
         .from('fin_repasse_permutas')
-        .select('id, descricao, valor, direcao')
+        .select('id, descricao, valor, direcao, lancamento_receita_id, lancamento_despesa_id')
         .eq('repasse_id', (jaTem as RepasseSalvo).id)
         .order('created_at')
       setPermutas(((perms as Permuta[]) || []))
@@ -402,6 +406,58 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
     descRef.current?.focus()   // pronto pro próximo, sem tirar a mão do teclado
     void carregarResumo()   // a aba precisa refletir o acerto na hora
     toast('Acerto lançado', 'success')
+  }
+
+  /**
+   * TRANSFORMA O ACERTO EM LANÇAMENTO — as duas pernas.
+   *
+   * Um encontro de contas entre as duas empresas é DESPESA de um lado e RECEITA
+   * do outro. Enquanto isso não é gerado, o acerto só mexe no total cobrado e o
+   * valor não existe na DRE de ninguém — some do resultado do grupo.
+   *
+   *   abate   → a Matriz DEVE à unidade: despesa na Matriz, receita na unidade
+   *   acresce → a unidade deve mais:     despesa na unidade, receita na Matriz
+   *
+   * Os ids gravados são a trava contra gerar duas vezes.
+   */
+  async function gerarLancamentos(p: Permuta) {
+    if (!p.id || p.id.startsWith('tmp-')) return toast('Salve o repasse antes', 'error')
+    if (p.lancamento_receita_id && p.lancamento_despesa_id) return toast('Já foi gerado', 'error')
+    if (!matrizId) return toast('Matriz não encontrada', 'error')
+
+    // 'abate' = a Matriz deve à unidade, então a despesa é da Matriz.
+    const abate = p.direcao === 'abate'
+    const unidadeDespesa = abate ? matrizId : unidadeId
+    const unidadeReceita = abate ? unidadeId : matrizId
+    const quando = mesParaData(mes)
+    const texto = `Acerto ${rotuloMes(quando)} · ${p.descricao}`
+
+    const base = {
+      valor: Number(p.valor),
+      data_competencia: quando,
+      data_caixa: null,          // o dinheiro anda no encontro de contas, não agora
+      status: 'pendente',
+      origem: 'sistema',
+      descricao: texto,
+      criado_por_nome: userName || null,
+    }
+
+    const { data, error } = await supabase.from('fin_lancamentos').insert([
+      { ...base, unidade_id: unidadeDespesa, conta_nome: 'Acerto de repasse (despesa)' },
+      { ...base, unidade_id: unidadeReceita, conta_nome: 'Acerto de repasse (receita)' },
+    ]).select('id')
+    if (error) return toast(error.message, 'error')
+
+    const ids = (data as { id: string }[]) || []
+    const { error: e2 } = await supabase.from('fin_repasse_permutas').update({
+      lancamento_despesa_id: ids[0]?.id || null,
+      lancamento_receita_id: ids[1]?.id || null,
+    }).eq('id', p.id)
+    if (e2) return toast(e2.message, 'error')
+
+    setPermutas(ps => ps.map(x => x.id === p.id
+      ? { ...x, lancamento_despesa_id: ids[0]?.id, lancamento_receita_id: ids[1]?.id } : x))
+    toast('Acerto virou lançamento nas duas empresas', 'success')
   }
 
   async function removerPermuta(id?: string) {
@@ -639,6 +695,26 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
                       </span>
                       <span className="text-mono text-sm text-[var(--surface-700)]">{fmtBRL(p.valor)}</span>
                       {!somenteLeitura && (
+                        p.lancamento_receita_id && p.lancamento_despesa_id ? (
+                          <span
+                            className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
+                            style={{ background: 'rgba(16,185,129,0.14)', color: '#10b981' }}
+                            title="Já virou despesa numa empresa e receita na outra"
+                          >
+                            lançado
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => void gerarLancamentos(p)}
+                            title="Gera a despesa numa empresa e a receita na outra — sem isso o valor não entra em DRE nenhuma"
+                            className="text-[10px] px-1.5 py-0.5 rounded-full border shrink-0 text-[var(--brand-500)]"
+                            style={{ borderColor: 'var(--surface-300)' }}
+                          >
+                            gerar lançamento
+                          </button>
+                        )
+                      )}
+                      {!somenteLeitura && !p.lancamento_receita_id && (
                         <button onClick={() => void removerPermuta(p.id)} className="text-[var(--surface-400)] hover:text-red-400 text-xs px-1">
                           remover
                         </button>
