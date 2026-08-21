@@ -61,6 +61,43 @@ export function explicarCaixa(metodo: MetodoPagamento | ''): string | null {
   return null
 }
 
+/**
+ * ESCOLHA DA CONTA POR MÉTODO (mig 122).
+ *
+ * A conta declara o que recebe (`entradas`) e o que paga (`saidas`). Antes disso,
+ * o acerto pré-selecionava `contas[0]` — a primeira em ordem alfabética — e o
+ * mega pagamento do pipeline tinha **UUID de conta de Santos chumbado no
+ * código**, o que fazia toda outra unidade gravar o recebimento na conta errada.
+ *
+ * ⚠️ LISTA VAZIA = SEM RESTRIÇÃO. Conta que ninguém configurou continua servindo
+ * pra tudo, senão a migration deixaria as telas sem nenhuma conta selecionável.
+ */
+export type ContaEscolhivel = {
+  id: string
+  entradas?: string[] | null
+  saidas?: string[] | null
+  preferencial_recebimento?: boolean | null
+}
+
+/** Contas que aceitam este método no lado indicado. */
+export function contasQueAceitam<T extends ContaEscolhivel>(
+  contas: T[], metodo: string, lado: 'entradas' | 'saidas' = 'entradas'
+): T[] {
+  return contas.filter(c => {
+    const lista = c[lado] || []
+    return lista.length === 0 || lista.includes(metodo)
+  })
+}
+
+/**
+ * Qual conta já vem escolhida. A preferencial só DESEMPATA — se ela não recebe
+ * o método em questão, perde pra quem recebe. Sem candidata, devolve ''.
+ */
+export function contaPadraoPara<T extends ContaEscolhivel>(contas: T[], metodo: string): string {
+  const aceitam = contasQueAceitam(contas, metodo, 'entradas')
+  return (aceitam.find(c => c.preferencial_recebimento) || aceitam[0])?.id || ''
+}
+
 export const fmtBRL = (v?: number | null) =>
   Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 

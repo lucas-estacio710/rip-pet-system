@@ -9,6 +9,7 @@ import Link from 'next/link'
 import { useDebounce } from '@/hooks/useDebounce'
 import { ProtocoloData, montarProtocoloData, normalizarProtocoloData } from '@/components/protocolo/protocolo-utils'
 import { computeAllTags, getPagamentoPendente, TAG_STATE_STYLES, type ComputedTag } from '@/lib/contrato-tags'
+import { contaPadraoPara, type ContaEscolhivel } from '@/lib/financeiro'
 import ProtocoloEditorModal from '@/components/protocolo/ProtocoloEditorModal'
 import { printProtocolos } from '@/components/protocolo/ProtocoloPrint'
 import InteractiveTags from '@/components/contratos/InteractiveTags'
@@ -467,6 +468,9 @@ function ContratosContent() {
   const [megaPagamentoModal, setMegaPagamentoModal] = useState(false)
   const [megaPagamentoContrato, setMegaPagamentoContrato] = useState<Contrato | null>(null)
   const [taxasCartao, setTaxasCartao] = useState<Array<{ id: string; tipo: string; nome: string; percentual: number; ordem: number }>>([])
+  // Contas DESTA unidade, com o que cada uma recebe (mig 122). Substitui os UUIDs
+  // que estavam chumbados aqui — ver comentário em `processarMegaPagamento`.
+  const [contasUnidade, setContasUnidade] = useState<ContaEscolhivel[]>([])
   const [megaPagamentoForm, setMegaPagamentoForm] = useState({
     valorPlano: '',
     descontoPlano: '',
@@ -2244,8 +2248,21 @@ Gratidão eterna!
     if (data) setTaxasCartao(data)
   }
 
+  /** Contas da unidade logada — a escolha do mega pagamento sai daqui. */
+  async function carregarContasUnidade() {
+    if (!currentUnit?.id) return
+    const { data } = await supabase
+      .from('contas')
+      .select('id, entradas, preferencial_recebimento')
+      .eq('ativo', true)
+      .eq('unidade_id', currentUnit.id)
+      .order('nome')
+    if (data) setContasUnidade(data as unknown as ContaEscolhivel[])
+  }
+
   async function abrirMegaPagamentoModal(contrato: Contrato) {
     highlightContrato(contrato.id)
+    void carregarContasUnidade()
     const { planoPendente, acessoriosPendente } = getPagamentoPendente(contrato)
     const saldoPlano = planoPendente
       ? (contrato.valor_plano || 0) - (contrato.desconto_plano_unificado || 0) - (contrato.pagamentos?.filter(p => p.tipo === 'plano').reduce((acc, p) => acc + (p.valor || 0), 0) || 0)
@@ -2305,12 +2322,6 @@ Gratidão eterna!
 
     const mesCompetencia = dataPagamento ? `${dataPagamento.slice(0, 4)}/${dataPagamento.slice(5, 7)}` : null
 
-    const CONTAS = {
-      pix: '1124d3d0-f525-450c-92d7-739e70a42cb0',
-      cartao: 'c102eed4-5318-492a-a6c5-f794483f9639',
-      dinheiro: 'e4b0636c-2241-4911-b444-359e83e39674',
-    }
-    const contaId = CONTAS[megaPagamentoForm.metodo as keyof typeof CONTAS] || null
 
     const tipoTaxa = megaPagamentoForm.bandeira && megaPagamentoForm.parcelas
       ? `${megaPagamentoForm.bandeira}_${megaPagamentoForm.parcelas}`
@@ -2330,6 +2341,12 @@ Gratidão eterna!
     const metodoBanco = megaPagamentoForm.metodo === 'cartao'
       ? (megaPagamentoForm.parcelas === 'debito' ? 'debito' : 'credito')
       : megaPagamentoForm.metodo
+
+    // 🐛 Aqui havia TRÊS UUIDs de conta chumbados no código — e eram contas de
+    // SANTOS. Toda outra unidade gravava o recebimento na conta de outra filial,
+    // silenciosamente. Agora sai do cadastro: a conta declara o que recebe e
+    // qual é a preferencial (mig 122), e a escolha respeita a unidade logada.
+    const contaId = contaPadraoPara(contasUnidade, metodoBanco) || null
 
     // Valores
     const valorPlano = megaPagamentoForm.valorPlano ? parseFloat(megaPagamentoForm.valorPlano) : 0

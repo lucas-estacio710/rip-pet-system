@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
+import { contaPadraoPara, contasQueAceitam } from '@/lib/financeiro'
 import FichaRemocao from '@/components/fichas/FichaRemocao'
 import { captureElementAsBlob, fichaFilename, gerarFichaPDFA4Duplicada, nomeFicha } from '@/lib/ficha-generator'
 import EditarFichaModal from '@/components/contratos/modals/EditarFichaModal'
@@ -122,6 +123,8 @@ type ContratoProduto = {
 type Conta = {
   id: string
   nome: string
+  entradas: string[] | null                  // métodos que esta conta recebe (mig 122)
+  preferencial_recebimento: boolean | null   // já vem escolhida no acerto
 }
 
 type TaxaCartao = {
@@ -938,13 +941,19 @@ export default function ContratoDetalhe() {
   }
 
   async function carregarContas() {
+    // ⚠️ Faltava o filtro por unidade. Enquanto só Santos tinha conta isso passou
+    // batido; depois da mig 120 (uma "Dinheiro" por unidade) o seletor listaria
+    // oito "Dinheiro" iguais, e daria pra gravar recebimento na conta de outra
+    // filial. O RLS não escopa por unidade — o filtro é aqui (ver FLOW §4).
+    if (!currentUnit?.id) return
     const { data } = await supabase
       .from('contas')
-      .select('id, nome')
+      .select('id, nome, entradas, preferencial_recebimento')
       .eq('ativo', true)
+      .eq('unidade_id', currentUnit.id)
       .order('nome')
 
-    if (data) setContas(data)
+    if (data) setContas(data as unknown as Conta[])
   }
 
   async function carregarTaxasCartao() {
@@ -975,7 +984,7 @@ export default function ContratoDetalhe() {
       setPagamentoForm({
         tipo: 'plano',
         metodo: 'pix',
-        conta_id: contas[0]?.id || '',
+        conta_id: contaPadraoPara(contas, 'pix'),
         valor: '',
         desconto: '',
         parcelas: 1,
@@ -4164,7 +4173,13 @@ ${petNome}`
                     <button
                       key={metodo}
                       type="button"
-                      onClick={() => setPagamentoForm({ ...pagamentoForm, metodo })}
+                      onClick={() => setPagamentoForm({
+                        ...pagamentoForm,
+                        metodo,
+                        // a conta acompanha o método: pix e maquininha caem em
+                        // contas diferentes, e quem sabe disso é o cadastro
+                        conta_id: contaPadraoPara(contas, metodo),
+                      })}
                       className={`py-2 px-2 rounded-lg text-xs font-medium transition-colors ${
                         pagamentoForm.metodo === metodo
                           ? 'bg-green-600 text-white'
@@ -4190,7 +4205,9 @@ ${petNome}`
                     className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
                   >
                     <option value="">Selecione...</option>
-                    {contas.map((conta) => (
+                    {/* Só as contas que RECEBEM este método (mig 122). Conta sem
+                        `entradas` configurado continua aparecendo em todas. */}
+                    {contasQueAceitam(contas, pagamentoForm.metodo).map((conta) => (
                       <option key={conta.id} value={conta.id}>{conta.nome}</option>
                     ))}
                   </select>

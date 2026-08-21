@@ -63,7 +63,7 @@ type CustoAuto = {
 
 /** Conta de onde o dinheiro sai. Tabela `contas`, escopada por unidade —
  *  cada unidade tem os SEUS bancos, não há conta comum ao grupo. */
-type ContaBancaria = { id: string; nome: string; empresa_id: string | null }
+type ContaBancaria = { id: string; nome: string; saidas: string[] }
 
 const mesAtual = () => new Date().toISOString().slice(0, 7)
 
@@ -200,7 +200,7 @@ export default function LancamentosTab() {
   const carregarContas = useCallback(async () => {
     if (!currentUnit?.id) return
     const { data } = await supabase
-      .from('contas').select('id, nome, empresa_id')
+      .from('contas').select('id, nome, saidas')
       .eq('unidade_id', currentUnit.id).eq('ativo', true).order('nome')
     setContas(((data as unknown as ContaBancaria[]) || []))
   }, [supabase, currentUnit?.id])
@@ -215,7 +215,7 @@ export default function LancamentosTab() {
     if (existe) { setContaId(existe.id); setNovaConta(null); return }
     const { data, error } = await supabase
       .from('contas').insert({ nome: limpo, unidade_id: currentUnit.id, ativo: true })
-      .select('id, nome, empresa_id').single()
+      .select('id, nome, saidas').single()
     if (error) return toast(error.message, 'error')
     const nova = data as unknown as ContaBancaria
     setContas(cs => [...cs, nova].sort((a, b) => a.nome.localeCompare(b.nome)))
@@ -288,12 +288,10 @@ export default function LancamentosTab() {
         anexo = path
       }
 
-      // Competência = quando o gasto aconteceu. Caixa = quando debitou (o campo
-      // nasce igual e o operador só muda no crédito). O CNPJ NÃO é perguntado:
-      // sai da conta, porque conta bancária pertence a uma empresa (mig 121).
+      // Competência = quando o gasto aconteceu. Caixa = quando debitou — o campo
+      // nasce igual e o operador só muda no crédito (vencimento da fatura).
       const data_competencia = data
       const data_caixa = dataCaixa || null
-      const empresa_id = contas.find(c => c.id === contaId)?.empresa_id || null
       const conta = catSelecionada?.fin_contas
 
       const campos = {
@@ -311,7 +309,6 @@ export default function LancamentosTab() {
         // pendente e apagaria a origem de um que veio por OCR/QR.
         fornecedor_nome: fornecedor.trim() || null,
         conta_pagamento_id: contaId || null,
-        empresa_id,                           // derivado da conta, nunca escolhido
         rateio_meses: rateado ? Math.max(1, Math.min(120, Number(meses) || 1)) : 1,
         anexo_url: anexo,
       }
