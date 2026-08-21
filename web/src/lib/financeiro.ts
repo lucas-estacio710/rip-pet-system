@@ -34,6 +34,26 @@ export function derivarDatas(dataGasto: string, metodo: MetodoPagamento | ''): {
   return { data_competencia: dataGasto, data_caixa: aVista ? dataGasto : null }
 }
 
+/**
+ * O CAIXA, perguntado sem dizer "caixa".
+ *
+ * O operador vê um campo de data e uma conta — não vê que está alimentando o
+ * fluxo de caixa. O rótulo muda conforme o método, e é o rótulo que ENSINA:
+ * no crédito ele lê "Vence a fatura em" e entende sozinho por que a data é
+ * outra. Ninguém precisa explicar regime de caixa.
+ */
+export function rotuloCaixa(metodo: MetodoPagamento | ''): { label: string; dica: string | null } {
+  if (metodo === 'credito') return {
+    label: 'Vence a fatura em',
+    dica: 'A compra é de hoje, mas o dinheiro só sai quando a fatura vencer.',
+  }
+  if (metodo === 'boleto') return {
+    label: 'Vence em',
+    dica: 'O dinheiro sai na data de vencimento do boleto.',
+  }
+  return { label: 'Saiu da conta em', dica: null }
+}
+
 /** Rótulo curto do porquê da data de caixa — usado só em tela de conferência. */
 export function explicarCaixa(metodo: MetodoPagamento | ''): string | null {
   if (metodo === 'credito') return 'sai na fatura'

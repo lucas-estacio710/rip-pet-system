@@ -68,6 +68,7 @@ export const TELAS: ItemDef[] = [
   { key: 'tela_dashboard', label: 'Dashboard (Admin)', desc: 'Painel interno do super_admin — uso/adoção dos usuários' },
   { key: 'tela_dashboards', label: 'Dashboards', desc: 'Estatísticas dos contratos para os usuários da unidade' },
   { key: 'tela_financeiro', label: 'Financeiro', desc: 'Módulo financeiro em 3 abas: Lançamentos, Repasse e DRE (migs 103–111). Conta contábil, opex/capex e as duas datas são derivados — não aparecem na tela. Vendido por unidade: hoje ST, SJ, CP, PI e Matriz (mig 112)' },
+  { key: 'tela_tarefas', label: 'Tarefas', desc: 'Fila de trabalho do perfil Operacional (remoção, entrega, molde, carimbo, pelo extra) — módulo pago cb_operacional (migs 113-114). Perfil Operacional sempre vê (gate em código, não FLS); pra gerente/concierge, controla se a aba "Atribuir" aparece na sidebar.' },
   { key: 'nav_bottom', label: 'Barra inferior (mobile)', desc: 'Atalhos no rodapé em telas <768px: Fichas, Pipeline, Encaminhamentos, Estoque, Painéis. Oculto = barra some (sidebar/drawer continuam). Cada atalho ainda respeita a visibilidade da própria tela.' },
 ]
 
@@ -85,7 +86,11 @@ export const OBJETOS: ChildItemDef[] = [
   // Pipeline — comportamentos opcionais por unidade
   { key: 'cb_cremacao_local', tela: 'tela_pipeline', label: 'Cremação Local (sem encaminhamento)', desc: 'Unidade co-localizada com o crematório (ex: PI). Contratos nascem direto em status=pinda; GC criado automático; auto-retorno quando GC vira disponível. Sem supinda. Ver FLOW.md §7.1.' },
 
+  // Tarefas — módulo pago (não vendido de graça, decisão 18/08/2026)
+  { key: 'cb_operacional', tela: 'tela_tarefas', label: 'Operacional/Motorista (pago)', desc: 'Libera promover funcionário a usuário Operacional (/admin/funcionarios), o campo Responsável da Tratativa mostrar Operacionais como opção, e a aba "Atribuir" da tela Tarefas. Sem o módulo, trava tudo — unidade continua 100% no fluxo manual de hoje.' },
+
   // Dashboards (usuários)
+  { key: 'obj_dash_evolucao', tela: 'tela_dashboards', label: 'Evolução', desc: 'Série mensal de volume e receita — tendência ao longo do tempo' },
   { key: 'obj_dash_operacional', tela: 'tela_dashboards', label: 'Operacional', desc: 'Volume, fluxo, supindas, entregas, rescaldos' },
   { key: 'obj_dash_financeiro', tela: 'tela_dashboards', label: 'Financeiro', desc: 'Receita, custo cremação, ticket médio, pendentes, NFS-e' },
   { key: 'obj_dash_comercial', tela: 'tela_dashboards', label: 'Comercial / Indicadores', desc: 'Ranking clínicas, indicações, conversão de leads' },
@@ -93,6 +98,7 @@ export const OBJETOS: ChildItemDef[] = [
   { key: 'obj_fin_lancamentos', tela: 'tela_financeiro', label: 'Lançamentos', desc: 'Aba de lançar despesa: categoria + valor + como pagou + comprovante' },
   { key: 'obj_fin_repasse', tela: 'tela_financeiro', label: 'Repasse', desc: 'Aba da "planilha do dia 20": os pets acolhidos no mês que a Matriz cobra da unidade' },
   { key: 'obj_fin_dre', tela: 'tela_financeiro', label: 'DRE', desc: 'Aba do resultado do mês: receita, custo, despesas e investimentos (mig 111)' },
+  { key: 'obj_fin_contas', tela: 'tela_financeiro', label: 'Contas', desc: 'Aba de cadastro das contas de onde o dinheiro sai/entra (Inter, Granito, Dinheiro). Escopo por unidade' },
 ]
 
 // ============================================
@@ -146,6 +152,7 @@ export const CAMPOS_BOTOES: ChildItemDef[] = [
   // 'read' aqui = a unidade CONSULTA a própria cobrança, mas não mexe: deflator,
   // acertos, ajuste em lote, fechar e marcar pago somem. Cobrar é ato da Matriz.
   // Sem row = edit, então a Matriz não precisa de configuração nenhuma.
+  { key: 'btn_contas_editar', tela: 'tela_financeiro', label: 'Editar contas', desc: 'Criar, renomear, desativar e excluir conta. Em leitura, a aba só lista' },
   { key: 'btn_repasse_editar', tela: 'tela_financeiro', label: 'Editar repasse', desc: 'Aplicar deflator, lançar acertos, fechar o repasse e marcar enviado/pago. Só a Matriz — as unidades ficam em leitura (mig 112)' },
 ]
 

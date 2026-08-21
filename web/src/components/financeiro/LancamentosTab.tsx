@@ -20,7 +20,7 @@ import { useUnit } from '@/contexts/UnitContext'
 import Modal from '@/components/ui/Modal'
 import EmptyState from '@/components/ui/EmptyState'
 import {
-  METODOS, derivarDatas, explicarCaixa, fmtBRL, fmtData, hojeISO, limitesDoMes,
+  METODOS, derivarDatas, rotuloCaixa, fmtBRL, fmtData, hojeISO, limitesDoMes,
   caminhoComprovante, type MetodoPagamento,
 } from '@/lib/financeiro'
 
@@ -47,6 +47,7 @@ type Lancamento = {
   status: string
   fornecedor_nome: string | null
   categoria_id: string | null
+  conta_pagamento_id: string | null   // de qual conta saiu — alimenta o caixa
   natureza: string | null        // opex/capex — reabre o form fiel ao gravado
   rateio_meses: number | null    // idem, pro checkbox "cobre mais de um mês"
   fin_categorias?: { nome: string; icone: string | null } | null
@@ -59,6 +60,9 @@ type CustoAuto = {
   preco_unitario: number
   valor: number
 }
+
+/** Conta de onde o dinheiro sai (Inter, Granito, Dinheiro…). Tabela `contas`. */
+type ContaBancaria = { id: string; nome: string }
 
 const mesAtual = () => new Date().toISOString().slice(0, 7)
 
@@ -95,6 +99,13 @@ export default function LancamentosTab() {
   const [valor, setValor] = useState('')
   const [data, setData] = useState(hojeISO())
   const [metodo, setMetodo] = useState<MetodoPagamento | ''>('')
+  // O CAIXA, coletado sem anunciar: quando o dinheiro sai e de qual conta.
+  // Vem preenchido por `derivarDatas` e o operador só corrige quando é o caso
+  // (tipicamente no crédito, informando o vencimento da fatura).
+  const [dataCaixa, setDataCaixa] = useState('')
+  const [contaId, setContaId] = useState('')
+  const [contas, setContas] = useState<ContaBancaria[]>([])
+  const [novaConta, setNovaConta] = useState<string | null>(null)
   const [fornecedor, setFornecedor] = useState('')
   const [descricao, setDescricao] = useState('')
   const [duravel, setDuravel] = useState<boolean | null>(null)   // vira opex/capex
@@ -163,7 +174,7 @@ export default function LancamentosTab() {
     const { ini, fim } = limitesDoMes(mes)
     const { data } = await supabase
       .from('fin_lancamentos')
-      .select('id, descricao, valor, data_competencia, data_caixa, metodo_pagamento, anexo_url, status, fornecedor_nome, categoria_id, natureza, rateio_meses, fin_categorias(nome, icone)')
+      .select('id, descricao, valor, data_competencia, data_caixa, metodo_pagamento, conta_pagamento_id, anexo_url, status, fornecedor_nome, categoria_id, natureza, rateio_meses, fin_categorias(nome, icone)')
       .eq('unidade_id', currentUnit.id)
       .gte('data_competencia', ini)
       .lte('data_competencia', fim)
@@ -184,6 +195,40 @@ export default function LancamentosTab() {
 
   useEffect(() => { void carregar() }, [carregar])
 
+  // Contas da unidade (Inter, Granito, Dinheiro…). Fora de `carregar` porque não
+  // dependem do mês.
+  const carregarContas = useCallback(async () => {
+    if (!currentUnit?.id) return
+    const { data } = await supabase
+      .from('contas').select('id, nome')
+      .eq('unidade_id', currentUnit.id).eq('ativo', true).order('nome')
+    setContas(((data as unknown as ContaBancaria[]) || []))
+  }, [supabase, currentUnit?.id])
+
+  useEffect(() => { void carregarContas() }, [carregarContas])
+
+  /** Cria a conta na hora — sem isso a unidade fica travada esperando cadastro. */
+  async function criarConta(nome: string) {
+    const limpo = nome.trim()
+    if (!limpo || !currentUnit?.id) return
+    const existe = contas.find(c => c.nome.toLowerCase() === limpo.toLowerCase())
+    if (existe) { setContaId(existe.id); setNovaConta(null); return }
+    const { data, error } = await supabase
+      .from('contas').insert({ nome: limpo, unidade_id: currentUnit.id, ativo: true })
+      .select('id, nome').single()
+    if (error) return toast(error.message, 'error')
+    const nova = data as unknown as ContaBancaria
+    setContas(cs => [...cs, nova].sort((a, b) => a.nome.localeCompare(b.nome)))
+    setContaId(nova.id)
+    setNovaConta(null)
+  }
+
+  // Trocar o método reposiciona a data de caixa: à vista volta pro dia do gasto,
+  // crédito/boleto esvazia — é o vencimento que importa, e só o operador sabe.
+  useEffect(() => {
+    setDataCaixa(derivarDatas(data, metodo).data_caixa || '')
+  }, [metodo, data])
+
   function escolherArquivo(f: File | null) {
     setArquivo(f)
     setPrevia(f ? URL.createObjectURL(f) : null)
@@ -193,6 +238,7 @@ export default function LancamentosTab() {
     setCatId(''); setValor(''); setData(hojeISO()); setMetodo('')
     setFornecedor(''); setDescricao(''); setDuravel(null)
     setRateado(false); setMeses('12')
+    setDataCaixa(''); setContaId(''); setNovaConta(null)
     setBusca(''); setNivel1(null); setNivel2(null)
     escolherArquivo(null); setAberto(false)
     setEditandoId(null); setAnexoAtual(null)
@@ -212,6 +258,8 @@ export default function LancamentosTab() {
     setDuravel(l.natureza === 'capex' ? true : (l.natureza === 'opex' ? false : null))
     const r = Number(l.rateio_meses || 1)
     setRateado(r > 1); setMeses(String(r > 1 ? r : 12))
+    setDataCaixa((l.data_caixa || '').slice(0, 10))
+    setContaId(l.conta_pagamento_id || '')
     setAnexoAtual(l.anexo_url || null)
     escolherArquivo(null)
     setBusca(''); setNivel1(null); setNivel2(null)
@@ -244,7 +292,10 @@ export default function LancamentosTab() {
         anexo = path
       }
 
-      const { data_competencia, data_caixa } = derivarDatas(data, metodo)
+      // A competência continua derivada; o CAIXA agora vem do que o operador
+      // informou (o campo já nasce preenchido, ele só corrige quando é o caso).
+      const { data_competencia } = derivarDatas(data, metodo)
+      const data_caixa = dataCaixa || null
       const conta = catSelecionada?.fin_contas
 
       const campos = {
@@ -262,6 +313,7 @@ export default function LancamentosTab() {
         // pendente e apagaria a origem de um que veio por OCR/QR.
         fornecedor_nome: fornecedor.trim() || null,
         metodo_pagamento: metodo,
+        conta_pagamento_id: contaId || null,
         rateio_meses: rateado ? Math.max(1, Math.min(120, Number(meses) || 1)) : 1,
         anexo_url: anexo,
       }
@@ -600,10 +652,64 @@ export default function LancamentosTab() {
                 )
               })}
             </div>
-            {explicarCaixa(metodo) && (
-              <p className="text-[11px] text-[var(--surface-400)] mt-1.5">{explicarCaixa(metodo)}</p>
-            )}
           </div>
+
+          {/* O CAIXA — o operador vê "quando saiu" e "de qual conta"; não vê que
+              está alimentando o fluxo de caixa. O rótulo é o que ensina: no
+              crédito ele lê "Vence a fatura em" e entende sozinho por que a data
+              é outra. Nenhum dos dois é obrigatório: travar o lançamento por
+              causa disso mataria a adoção, que é o gargalo real. */}
+          {metodo && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-[var(--surface-500)] block mb-1">
+                  {rotuloCaixa(metodo).label}
+                </label>
+                <input
+                  type="date" value={dataCaixa} onChange={e => setDataCaixa(e.target.value)}
+                  className="input text-sm w-full"
+                />
+                {rotuloCaixa(metodo).dica && (
+                  <p className="text-[11px] text-[var(--surface-400)] mt-1">{rotuloCaixa(metodo).dica}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="text-xs text-[var(--surface-500)] block mb-1">Conta</label>
+                {novaConta !== null ? (
+                  <div className="flex gap-1">
+                    <input
+                      autoFocus
+                      value={novaConta}
+                      onChange={e => setNovaConta(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') { e.preventDefault(); void criarConta(novaConta) }
+                        if (e.key === 'Escape') setNovaConta(null)
+                      }}
+                      placeholder="Nome da conta"
+                      className="input text-sm flex-1 min-w-0"
+                    />
+                    <button
+                      type="button" onClick={() => void criarConta(novaConta)}
+                      className="btn-secondary text-xs px-2 shrink-0"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <select
+                    value={contaId}
+                    onChange={e => (e.target.value === '__nova' ? setNovaConta('') : setContaId(e.target.value))}
+                    className="input text-sm w-full"
+                  >
+                    <option value="">Escolher…</option>
+                    {contas.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                    <option value="__nova">+ nova conta</option>
+                  </select>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Rateio: o gasto cobre mais de um mês? (seguro anual, anuidade…) */}
           <div>
