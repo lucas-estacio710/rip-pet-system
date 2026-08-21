@@ -45,8 +45,10 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
   const [empresas, setEmpresas] = useState<Empresa[]>([])
   const [carregando, setCarregando] = useState(false)
   const [nova, setNova] = useState('')
+  const [novaEmpresa, setNovaEmpresa] = useState('')
   const [editando, setEditando] = useState<string | null>(null)
   const [rascunho, setRascunho] = useState('')
+  const [rascunhoEmpresa, setRascunhoEmpresa] = useState('')
   const [salvando, setSalvando] = useState(false)
 
   const carregar = useCallback(async () => {
@@ -80,13 +82,6 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
       .then(({ data }) => setEmpresas(((data as unknown as Empresa[]) || [])))
   }, [supabase])
 
-  async function definirEmpresa(c: Conta, empresaId: string) {
-    const { error } = await supabase.from('contas')
-      .update({ empresa_id: empresaId || null }).eq('id', c.id)
-    if (error) return toast(error.message, 'error')
-    setContas(cs => cs.map(x => x.id === c.id ? { ...x, empresa_id: empresaId || null } : x))
-  }
-
   /** Nome repetido na MESMA unidade vira dois destinos pro mesmo dinheiro. */
   function duplicada(nome: string, exceto?: string) {
     const n = nome.trim().toLowerCase()
@@ -99,23 +94,30 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
     if (duplicada(nome)) return toast(`Já existe uma conta "${nome}" nesta unidade`, 'error')
     setSalvando(true)
     const { error } = await supabase.from('contas')
-      .insert({ nome, unidade_id: currentUnit.id, ativo: true })
+      .insert({ nome, unidade_id: currentUnit.id, ativo: true, empresa_id: novaEmpresa || null })
     setSalvando(false)
     if (error) return toast(error.message, 'error')
-    setNova('')
+    setNova(''); setNovaEmpresa('')
     toast(`Conta "${nome}" criada`, 'success')
     void carregar()
   }
 
-  async function renomear(c: Conta) {
+  /** Nome e CNPJ são o cadastro da conta — salvam juntos. */
+  async function salvarConta(c: Conta) {
     const nome = rascunho.trim()
-    if (!nome || nome === c.nome) { setEditando(null); return }
+    if (!nome) return toast('A conta precisa de um nome', 'error')
     if (duplicada(nome, c.id)) return toast(`Já existe uma conta "${nome}"`, 'error')
-    const { error } = await supabase.from('contas').update({ nome }).eq('id', c.id)
+    if (nome === c.nome && (rascunhoEmpresa || null) === c.empresa_id) { setEditando(null); return }
+    const { error } = await supabase.from('contas')
+      .update({ nome, empresa_id: rascunhoEmpresa || null }).eq('id', c.id)
     if (error) return toast(error.message, 'error')
     setEditando(null)
-    toast('Conta renomeada', 'success')
+    toast('Conta atualizada', 'success')
     void carregar()
+  }
+
+  function abrirEdicao(c: Conta) {
+    setEditando(c.id); setRascunho(c.nome); setRascunhoEmpresa(c.empresa_id || '')
   }
 
   async function alternarAtivo(c: Conta) {
@@ -145,14 +147,25 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
       </div>
 
       {!somenteLeitura && (
-        <div className="card p-3 flex gap-2">
+        <div className="card p-3 flex flex-wrap gap-2">
           <input
             value={nova}
             onChange={e => setNova(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') void criar() }}
             placeholder="Nome da conta, como vocês chamam no dia a dia"
-            className="input text-sm flex-1 min-w-0"
+            className="input text-sm flex-1 min-w-[180px]"
           />
+          {/* O CNPJ é parte do CADASTRO da conta, não uma escolha que se repete:
+              uma conta bancária pertence a uma empresa e não muda de dono. */}
+          <select
+            value={novaEmpresa}
+            onChange={e => setNovaEmpresa(e.target.value)}
+            className="input text-sm w-36 shrink-0"
+            title="De qual CNPJ é esta conta"
+          >
+            <option value="">CNPJ…</option>
+            {empresas.map(e => <option key={e.id} value={e.id}>{e.apelido}</option>)}
+          </select>
           <button
             onClick={() => void criar()}
             disabled={!nova.trim() || salvando}
@@ -181,17 +194,25 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
 
               <div className="min-w-0 flex-1">
                 {editando === c.id ? (
-                  <div className="flex gap-1">
+                  <div className="flex flex-wrap gap-1">
                     <input
                       autoFocus value={rascunho}
                       onChange={e => setRascunho(e.target.value)}
                       onKeyDown={e => {
-                        if (e.key === 'Enter') void renomear(c)
+                        if (e.key === 'Enter') void salvarConta(c)
                         if (e.key === 'Escape') setEditando(null)
                       }}
-                      className="input text-sm flex-1 min-w-0 py-1"
+                      className="input text-sm flex-1 min-w-[120px] py-1"
                     />
-                    <button onClick={() => void renomear(c)} className="btn-secondary text-xs px-2 shrink-0">
+                    <select
+                      value={rascunhoEmpresa}
+                      onChange={e => setRascunhoEmpresa(e.target.value)}
+                      className="input text-xs w-28 py-1 shrink-0"
+                    >
+                      <option value="">CNPJ…</option>
+                      {empresas.map(e => <option key={e.id} value={e.id}>{e.apelido}</option>)}
+                    </select>
+                    <button onClick={() => void salvarConta(c)} className="btn-secondary text-xs px-2 shrink-0">
                       <Check className="h-3.5 w-3.5" />
                     </button>
                     <button onClick={() => setEditando(null)} className="btn-secondary text-xs px-2 shrink-0">
@@ -202,6 +223,9 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
                   <>
                     <p className="text-sm text-[var(--surface-800)] truncate">
                       {c.nome}
+                      {c.empresa_id
+                        ? <span className="text-xs text-[var(--surface-500)]"> · {empresas.find(e => e.id === c.empresa_id)?.apelido}</span>
+                        : <span className="text-xs text-amber-500"> · sem CNPJ</span>}
                       {!c.ativo && <span className="text-xs text-[var(--surface-400)]"> · desativada</span>}
                     </p>
                     <p className="text-xs text-[var(--surface-500)]">
@@ -213,24 +237,11 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
                 )}
               </div>
 
-              {editando !== c.id && (
-                <select
-                  value={c.empresa_id || ''}
-                  onChange={e => void definirEmpresa(c, e.target.value)}
-                  disabled={somenteLeitura}
-                  title="CNPJ dono da conta — define de qual empresa é a movimentação"
-                  className="input text-xs w-28 py-1 shrink-0 disabled:opacity-70"
-                >
-                  <option value="">CNPJ…</option>
-                  {empresas.map(e => <option key={e.id} value={e.id}>{e.apelido}</option>)}
-                </select>
-              )}
-
               {!somenteLeitura && editando !== c.id && (
                 <div className="flex items-center gap-1 shrink-0">
                   <button
-                    onClick={() => { setEditando(c.id); setRascunho(c.nome) }}
-                    title="Renomear"
+                    onClick={() => abrirEdicao(c)}
+                    title="Editar nome e CNPJ"
                     className="text-[var(--surface-400)] hover:text-[var(--brand-500)] p-1"
                   >
                     <Pencil className="h-3.5 w-3.5" />
@@ -260,9 +271,9 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
 
       <p className="text-xs text-[var(--surface-500)]">
         A conta aparece no lançamento (de onde a despesa saiu) e no recebimento do contrato
-        (onde o dinheiro do tutor entrou). O <strong className="font-medium">CNPJ</strong> definido
-        aqui é o que separa a movimentação de cada empresa — ninguém escolhe CNPJ ao lançar, ele
-        vem da conta. Conta com movimento não pode ser excluída: desative, que ela some do seletor
+        (onde o dinheiro do tutor entrou). O <strong className="font-medium">CNPJ</strong> faz parte
+        do cadastro da conta — ela pertence a uma empresa e não muda de dono. É ele que separa a
+        movimentação de cada CNPJ, sem que ninguém escolha empresa ao lançar. Conta com movimento não pode ser excluída: desative, que ela some do seletor
         e continua respondendo pelo histórico.
       </p>
     </div>
