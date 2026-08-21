@@ -20,8 +20,8 @@ import { useUnit } from '@/contexts/UnitContext'
 import Modal from '@/components/ui/Modal'
 import EmptyState from '@/components/ui/EmptyState'
 import {
-  METODOS, derivarDatas, rotuloCaixa, fmtBRL, fmtData, hojeISO, limitesDoMes,
-  caminhoComprovante, type MetodoPagamento,
+  fmtBRL, fmtData, hojeISO, limitesDoMes,
+  caminhoComprovante,
 } from '@/lib/financeiro'
 
 type Categoria = {
@@ -62,7 +62,7 @@ type CustoAuto = {
 }
 
 /** Conta de onde o dinheiro sai (Inter, Granito, Dinheiro…). Tabela `contas`. */
-type ContaBancaria = { id: string; nome: string }
+type ContaBancaria = { id: string; nome: string; empresa_id: string | null }
 
 const mesAtual = () => new Date().toISOString().slice(0, 7)
 
@@ -98,7 +98,6 @@ export default function LancamentosTab() {
   const [nivel2, setNivel2] = useState<string | null>(null)
   const [valor, setValor] = useState('')
   const [data, setData] = useState(hojeISO())
-  const [metodo, setMetodo] = useState<MetodoPagamento | ''>('')
   // O CAIXA, coletado sem anunciar: quando o dinheiro sai e de qual conta.
   // Vem preenchido por `derivarDatas` e o operador só corrige quando é o caso
   // (tipicamente no crédito, informando o vencimento da fatura).
@@ -200,7 +199,7 @@ export default function LancamentosTab() {
   const carregarContas = useCallback(async () => {
     if (!currentUnit?.id) return
     const { data } = await supabase
-      .from('contas').select('id, nome')
+      .from('contas').select('id, nome, empresa_id')
       .eq('unidade_id', currentUnit.id).eq('ativo', true).order('nome')
     setContas(((data as unknown as ContaBancaria[]) || []))
   }, [supabase, currentUnit?.id])
@@ -215,7 +214,7 @@ export default function LancamentosTab() {
     if (existe) { setContaId(existe.id); setNovaConta(null); return }
     const { data, error } = await supabase
       .from('contas').insert({ nome: limpo, unidade_id: currentUnit.id, ativo: true })
-      .select('id, nome').single()
+      .select('id, nome, empresa_id').single()
     if (error) return toast(error.message, 'error')
     const nova = data as unknown as ContaBancaria
     setContas(cs => [...cs, nova].sort((a, b) => a.nome.localeCompare(b.nome)))
@@ -223,11 +222,9 @@ export default function LancamentosTab() {
     setNovaConta(null)
   }
 
-  // Trocar o método reposiciona a data de caixa: à vista volta pro dia do gasto,
-  // crédito/boleto esvazia — é o vencimento que importa, e só o operador sabe.
-  useEffect(() => {
-    setDataCaixa(derivarDatas(data, metodo).data_caixa || '')
-  }, [metodo, data])
+  // A data do débito acompanha a data do gasto por padrão — que é o caso da
+  // esmagadora maioria. Quem paga no crédito muda pro vencimento da fatura.
+  useEffect(() => { setDataCaixa(d => d || data) }, [data])
 
   function escolherArquivo(f: File | null) {
     setArquivo(f)
@@ -235,7 +232,7 @@ export default function LancamentosTab() {
   }
 
   function limpar() {
-    setCatId(''); setValor(''); setData(hojeISO()); setMetodo('')
+    setCatId(''); setValor(''); setData(hojeISO())
     setFornecedor(''); setDescricao(''); setDuravel(null)
     setRateado(false); setMeses('12')
     setDataCaixa(''); setContaId(''); setNovaConta(null)
@@ -250,7 +247,6 @@ export default function LancamentosTab() {
     setCatId(l.categoria_id || '')
     setValor(String(l.valor ?? ''))
     setData((l.data_competencia || '').slice(0, 10))
-    setMetodo((l.metodo_pagamento as MetodoPagamento) || '')
     setFornecedor(l.fornecedor_nome || '')
     setDescricao(l.descricao || '')
     // capex só é pergunta em alguns itens; fora deles `duravel` fica null e o
@@ -271,7 +267,6 @@ export default function LancamentosTab() {
     const v = Number(valor)
     if (!catId) return toast('Escolha a categoria', 'error')
     if (!v || v <= 0) return toast('Informe o valor', 'error')
-    if (!metodo) return toast('Informe como foi pago', 'error')
     if (catSelecionada?.pergunta_capex && duravel === null) {
       return toast('Responda se vai durar mais de um ano', 'error')
     }
@@ -292,10 +287,12 @@ export default function LancamentosTab() {
         anexo = path
       }
 
-      // A competência continua derivada; o CAIXA agora vem do que o operador
-      // informou (o campo já nasce preenchido, ele só corrige quando é o caso).
-      const { data_competencia } = derivarDatas(data, metodo)
+      // Competência = quando o gasto aconteceu. Caixa = quando debitou (o campo
+      // nasce igual e o operador só muda no crédito). O CNPJ NÃO é perguntado:
+      // sai da conta, porque conta bancária pertence a uma empresa (mig 121).
+      const data_competencia = data
       const data_caixa = dataCaixa || null
+      const empresa_id = contas.find(c => c.id === contaId)?.empresa_id || null
       const conta = catSelecionada?.fin_contas
 
       const campos = {
@@ -312,8 +309,8 @@ export default function LancamentosTab() {
         // reescrevê-los rebaixaria um lançamento já aprovado de volta pra
         // pendente e apagaria a origem de um que veio por OCR/QR.
         fornecedor_nome: fornecedor.trim() || null,
-        metodo_pagamento: metodo,
         conta_pagamento_id: contaId || null,
+        empresa_id,                           // derivado da conta, nunca escolhido
         rateio_meses: rateado ? Math.max(1, Math.min(120, Number(meses) || 1)) : 1,
         anexo_url: anexo,
       }
@@ -323,7 +320,6 @@ export default function LancamentosTab() {
         : await supabase.from('fin_lancamentos').insert({
             ...campos,
             unidade_id: currentUnit.id,
-            empresa_id: null,                 // definido depois, no fechamento
             status: 'pendente',
             origem: 'manual',
             criado_por_nome: userName || null,
@@ -629,49 +625,21 @@ export default function LancamentosTab() {
             </div>
           </div>
 
-          {/* Como pagou — define a data de caixa por trás */}
-          <div>
-            <label className="text-xs text-[var(--surface-500)] block mb-1.5">Pagamento</label>
-            <div className="flex flex-wrap gap-1.5">
-              {METODOS.map(m => {
-                const on = metodo === m.valor
-                return (
-                  <button
-                    key={m.valor}
-                    type="button"
-                    onClick={() => setMetodo(m.valor)}
-                    className="text-xs px-2.5 py-1.5 rounded-[var(--radius-md)] border transition-colors"
-                    style={{
-                      background: on ? 'rgba(16,185,129,0.12)' : 'transparent',
-                      borderColor: on ? '#10b981' : 'var(--surface-200)',
-                      color: on ? '#10b981' : 'var(--surface-600)',
-                    }}
-                  >
-                    {m.label}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* O CAIXA — o operador vê "quando saiu" e "de qual conta"; não vê que
-              está alimentando o fluxo de caixa. O rótulo é o que ensina: no
-              crédito ele lê "Vence a fatura em" e entende sozinho por que a data
-              é outra. Nenhum dos dois é obrigatório: travar o lançamento por
-              causa disso mataria a adoção, que é o gargalo real. */}
-          {metodo && (
-            <div className="grid grid-cols-2 gap-3">
+          {/* O CAIXA — só duas perguntas: de qual CONTA saiu e QUANDO debitou.
+              O CNPJ que movimentou sai da conta (mig 121), não se pergunta.
+              A data nasce igual à do gasto; quem paga no crédito troca pela do
+              vencimento da fatura. Nenhum dos dois é obrigatório: travar o
+              lançamento mataria a adoção, que é o gargalo real. */}
+          <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs text-[var(--surface-500)] block mb-1">
-                  {rotuloCaixa(metodo).label}
-                </label>
+                <label className="text-xs text-[var(--surface-500)] block mb-1">Debitou em</label>
                 <input
                   type="date" value={dataCaixa} onChange={e => setDataCaixa(e.target.value)}
                   className="input text-sm w-full"
                 />
-                {rotuloCaixa(metodo).dica && (
-                  <p className="text-[11px] text-[var(--surface-400)] mt-1">{rotuloCaixa(metodo).dica}</p>
-                )}
+                <p className="text-[11px] text-[var(--surface-400)] mt-1">
+                  No crédito, use a data de vencimento da fatura.
+                </p>
               </div>
 
               <div>
@@ -708,8 +676,7 @@ export default function LancamentosTab() {
                   </select>
                 )}
               </div>
-            </div>
-          )}
+          </div>
 
           {/* Rateio: o gasto cobre mais de um mês? (seguro anual, anuidade…) */}
           <div>

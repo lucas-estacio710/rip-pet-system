@@ -24,10 +24,13 @@ import { Plus, Loader2, Check, X, Pencil, Trash2, Landmark, EyeOff, Eye } from '
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 
+type Empresa = { id: string; apelido: string; cnpj: string }
+
 type Conta = {
   id: string
   nome: string
   ativo: boolean
+  empresa_id: string | null   // de qual CNPJ é a conta (mig 121)
   entradas: number   // pagamentos que caíram nela
   saidas: number     // lançamentos pagos por ela
 }
@@ -39,6 +42,7 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
   const { currentUnit } = useUnit()
 
   const [contas, setContas] = useState<Conta[]>([])
+  const [empresas, setEmpresas] = useState<Empresa[]>([])
   const [carregando, setCarregando] = useState(false)
   const [nova, setNova] = useState('')
   const [editando, setEditando] = useState<string | null>(null)
@@ -49,10 +53,10 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
     if (!currentUnit?.id) return
     setCarregando(true)
     const { data } = await supabase
-      .from('contas').select('id, nome, ativo')
+      .from('contas').select('id, nome, ativo, empresa_id')
       .eq('unidade_id', currentUnit.id)
       .order('ativo', { ascending: false }).order('nome')
-    const base = ((data as unknown as { id: string; nome: string; ativo: boolean }[]) || [])
+    const base = ((data as unknown as Omit<Conta, 'entradas' | 'saidas'>[]) || [])
 
     // Uso de cada conta — `head: true` traz só o count, sem puxar as linhas
     // (pagamentos tem quase 4 mil registros).
@@ -68,6 +72,20 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
   }, [supabase, currentUnit?.id])
 
   useEffect(() => { void carregar() }, [carregar])
+
+  // Os CNPJs do grupo — a conta pertence a um deles, e é daí que sai o
+  // `empresa_id` de cada lançamento (mig 121). Global, não por unidade.
+  useEffect(() => {
+    supabase.from('fin_empresas').select('id, apelido, cnpj').eq('ativa', true).order('ordem')
+      .then(({ data }) => setEmpresas(((data as unknown as Empresa[]) || [])))
+  }, [supabase])
+
+  async function definirEmpresa(c: Conta, empresaId: string) {
+    const { error } = await supabase.from('contas')
+      .update({ empresa_id: empresaId || null }).eq('id', c.id)
+    if (error) return toast(error.message, 'error')
+    setContas(cs => cs.map(x => x.id === c.id ? { ...x, empresa_id: empresaId || null } : x))
+  }
 
   /** Nome repetido na MESMA unidade vira dois destinos pro mesmo dinheiro. */
   function duplicada(nome: string, exceto?: string) {
@@ -195,6 +213,19 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
                 )}
               </div>
 
+              {editando !== c.id && (
+                <select
+                  value={c.empresa_id || ''}
+                  onChange={e => void definirEmpresa(c, e.target.value)}
+                  disabled={somenteLeitura}
+                  title="CNPJ dono da conta — define de qual empresa é a movimentação"
+                  className="input text-xs w-28 py-1 shrink-0 disabled:opacity-70"
+                >
+                  <option value="">CNPJ…</option>
+                  {empresas.map(e => <option key={e.id} value={e.id}>{e.apelido}</option>)}
+                </select>
+              )}
+
               {!somenteLeitura && editando !== c.id && (
                 <div className="flex items-center gap-1 shrink-0">
                   <button
@@ -229,8 +260,10 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
 
       <p className="text-xs text-[var(--surface-500)]">
         A conta aparece no lançamento (de onde a despesa saiu) e no recebimento do contrato
-        (onde o dinheiro do tutor entrou). Conta com movimento não pode ser excluída — desative,
-        que ela some do seletor e continua respondendo pelo histórico.
+        (onde o dinheiro do tutor entrou). O <strong className="font-medium">CNPJ</strong> definido
+        aqui é o que separa a movimentação de cada empresa — ninguém escolhe CNPJ ao lançar, ele
+        vem da conta. Conta com movimento não pode ser excluída: desative, que ela some do seletor
+        e continua respondendo pelo histórico.
       </p>
     </div>
   )
