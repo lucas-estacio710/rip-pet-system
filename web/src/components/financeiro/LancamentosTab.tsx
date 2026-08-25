@@ -14,14 +14,13 @@ import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import * as Icons from 'lucide-react'
-import { Plus, Loader2, Camera, X, Check, Trash2, Flame } from 'lucide-react'
+import { Plus, Loader2, X, Check, Trash2, Flame } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import Modal from '@/components/ui/Modal'
 import EmptyState from '@/components/ui/EmptyState'
 import {
-  fmtBRL, fmtData, hojeISO, limitesDoMes,
-  caminhoComprovante,
+  fmtBRL, fmtData, hojeISO, limitesDoMes
 } from '@/lib/financeiro'
 
 type Categoria = {
@@ -43,7 +42,6 @@ type Lancamento = {
   data_competencia: string
   data_caixa: string | null
   metodo_pagamento: string | null
-  anexo_url: string | null
   status: string
   fornecedor_nome: string | null
   categoria_id: string | null
@@ -73,6 +71,12 @@ function IconeCat({ nome, className }: { nome?: string | null; className?: strin
   return <C className={className} />
 }
 
+// ⚠️ ANEXAR COMPROVANTE foi REMOVIDO da tela em 25/08/2026, a pedido do Lucas
+// ("por enquanto"). Não foi esquecimento nem bug: a coluna `fin_lancamentos.
+// anexo_url` e o bucket privado `financeiro` continuam de pé, e nenhum
+// lançamento tinha anexo quando isso saiu (conferido: 0). Pra voltar, é
+// reconstruir o input de arquivo + o upload em `salvar()` e reusar
+// `caminhoComprovante()`, que segue em lib/financeiro.ts.
 export default function LancamentosTab() {
   const supabaseTipado = createClient()
   // Tabelas fin_* ainda não estão em types/database.ts
@@ -88,10 +92,9 @@ export default function LancamentosTab() {
 
   // formulário — o mesmo modal serve pra criar e pra editar. `editandoId` decide:
   // null = insert, preenchido = update. Errar valor ou categoria e nao poder
-  // corrigir obrigaria a excluir e relancar, perdendo o comprovante ja enviado.
+  // corrigir obrigaria a excluir e relancar do zero.
   const [aberto, setAberto] = useState(false)
   const [editandoId, setEditandoId] = useState<string | null>(null)
-  const [anexoAtual, setAnexoAtual] = useState<string | null>(null)
   const [catId, setCatId] = useState('')
   const [busca, setBusca] = useState('')
   // Drill-down em colunas: escolhe a categoria → abre as subcategorias → abre os tipos
@@ -113,8 +116,6 @@ export default function LancamentosTab() {
   // na COMPETÊNCIA — o caixa sai inteiro quando saiu.
   const [rateado, setRateado] = useState(false)
   const [meses, setMeses] = useState('12')
-  const [arquivo, setArquivo] = useState<File | null>(null)
-  const [previa, setPrevia] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
 
   const catSelecionada = categorias.find(c => c.id === catId)
@@ -174,7 +175,7 @@ export default function LancamentosTab() {
     const { ini, fim } = limitesDoMes(mes)
     const { data } = await supabase
       .from('fin_lancamentos')
-      .select('id, descricao, valor, data_competencia, data_caixa, metodo_pagamento, conta_pagamento_id, anexo_url, status, fornecedor_nome, categoria_id, natureza, rateio_meses, fin_categorias(nome, icone)')
+      .select('id, descricao, valor, data_competencia, data_caixa, metodo_pagamento, conta_pagamento_id, status, fornecedor_nome, categoria_id, natureza, rateio_meses, fin_categorias(nome, icone)')
       .eq('unidade_id', currentUnit.id)
       .gte('data_competencia', ini)
       .lte('data_competencia', fim)
@@ -227,19 +228,14 @@ export default function LancamentosTab() {
   // esmagadora maioria. Quem paga no crédito muda pro vencimento da fatura.
   useEffect(() => { setDataCaixa(d => d || data) }, [data])
 
-  function escolherArquivo(f: File | null) {
-    setArquivo(f)
-    setPrevia(f ? URL.createObjectURL(f) : null)
-  }
-
   function limpar() {
     setCatId(''); setValor(''); setData(hojeISO())
     setFornecedor(''); setDescricao(''); setDuravel(null)
     setRateado(false); setMeses('12')
     setDataCaixa(''); setContaId(''); setNovaConta(null)
     setBusca(''); setNivel1(null); setNivel2(null)
-    escolherArquivo(null); setAberto(false)
-    setEditandoId(null); setAnexoAtual(null)
+    setAberto(false)
+    setEditandoId(null)
   }
 
   /** Abre o modal com o lançamento carregado. */
@@ -257,8 +253,6 @@ export default function LancamentosTab() {
     setRateado(r > 1); setMeses(String(r > 1 ? r : 12))
     setDataCaixa((l.data_caixa || '').slice(0, 10))
     setContaId(l.conta_pagamento_id || '')
-    setAnexoAtual(l.anexo_url || null)
-    escolherArquivo(null)
     setBusca(''); setNivel1(null); setNivel2(null)
     setAberto(true)
   }
@@ -274,20 +268,6 @@ export default function LancamentosTab() {
 
     setSalvando(true)
     try {
-      // Comprovante primeiro — bucket PRIVADO, guardamos só o caminho.
-      // Na edição sem arquivo novo, mantém o que já estava.
-      let anexo: string | null = anexoAtual
-      if (arquivo) {
-        const path = caminhoComprovante(currentUnit.codigo, arquivo)
-        const { error } = await supabase.storage.from('financeiro').upload(path, arquivo, {
-          cacheControl: '3600', upsert: false,
-        })
-        if (error) throw new Error('Falha ao enviar o comprovante: ' + error.message)
-        // Trocou o comprovante: o antigo vira lixo no bucket privado.
-        if (anexoAtual) await supabase.storage.from('financeiro').remove([anexoAtual])
-        anexo = path
-      }
-
       // Competência = quando o gasto aconteceu. Caixa = quando debitou — o campo
       // nasce igual e o operador só muda no crédito (vencimento da fatura).
       const data_competencia = data
@@ -310,7 +290,6 @@ export default function LancamentosTab() {
         fornecedor_nome: fornecedor.trim() || null,
         conta_pagamento_id: contaId || null,
         rateio_meses: rateado ? Math.max(1, Math.min(120, Number(meses) || 1)) : 1,
-        anexo_url: anexo,
       }
 
       const { error } = editandoId
@@ -339,13 +318,6 @@ export default function LancamentosTab() {
     if (error) return toast(error.message, 'error')
     setLancamentos(l => l.filter(x => x.id !== id))
     toast('Lançamento excluído', 'success')
-  }
-
-  /** Comprovante fica em bucket privado — abre por URL assinada. */
-  async function verComprovante(path: string) {
-    const { data, error } = await supabase.storage.from('financeiro').createSignedUrl(path, 60)
-    if (error || !data) return toast('Não consegui abrir o comprovante', 'error')
-    window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
   }
 
   const totalDigitado = lancamentos.reduce((s, l) => s + Number(l.valor || 0), 0)
@@ -448,15 +420,6 @@ export default function LancamentosTab() {
                   {l.descricao && ` · ${l.descricao}`}
                 </p>
               </div>
-              {l.anexo_url && (
-                <button
-                  onClick={e => { e.stopPropagation(); void verComprovante(l.anexo_url!) }}
-                  title="Ver comprovante"
-                  className="text-[var(--surface-400)] hover:text-[var(--brand-500)] shrink-0"
-                >
-                  <Camera className="h-4 w-4" />
-                </button>
-              )}
               <span className="text-mono text-sm text-[var(--surface-800)] shrink-0">{fmtBRL(l.valor)}</span>
               <button
                 onClick={e => { e.stopPropagation(); void excluir(l.id) }}
@@ -751,41 +714,6 @@ export default function LancamentosTab() {
             </div>
           </div>
 
-          {/* Comprovante */}
-          <div>
-            <label className="text-xs text-[var(--surface-500)] block mb-1.5">Comprovante</label>
-            {anexoAtual && !previa && (
-              <button
-                onClick={() => void verComprovante(anexoAtual)}
-                className="text-xs text-[var(--brand-500)] underline mb-1.5 block"
-              >
-                ver o comprovante já anexado
-              </button>
-            )}
-            {previa ? (
-              <div className="flex items-center gap-3">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={previa} alt="comprovante" className="h-20 w-20 object-cover rounded-[var(--radius-md)] border border-[var(--surface-200)]" />
-                <button onClick={() => escolherArquivo(null)} className="btn-secondary text-xs">
-                  <X className="h-3.5 w-3.5" /> Remover
-                </button>
-              </div>
-            ) : (
-              <label className="flex items-center gap-2 px-3 py-2 rounded-[var(--radius-md)] border border-dashed cursor-pointer text-sm text-[var(--surface-500)] hover:text-[var(--surface-700)]"
-                     style={{ borderColor: 'var(--surface-300)' }}>
-                <Camera className="h-4 w-4" />
-                {anexoAtual ? 'Trocar comprovante' : 'Anexar'}
-                <input
-                  type="file" accept="image/*" capture="environment" className="hidden"
-                  onChange={e => {
-                    const f = e.target.files?.[0]
-                    if (f && f.size > 8 * 1024 * 1024) return toast('Imagem muito grande (máx. 8 MB)', 'error')
-                    escolherArquivo(f || null)
-                  }}
-                />
-              </label>
-            )}
-          </div>
         </div>
       </Modal>
     </div>
