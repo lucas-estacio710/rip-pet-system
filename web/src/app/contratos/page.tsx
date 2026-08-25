@@ -500,11 +500,9 @@ function ContratosContent() {
     responsavel: '',
   })
 
-  // Modal Marcar Entregue (retorno/pendente → finalizado)
+  // Modal Marcar Entregue (retorno/pendente → finalizado) — persistência é o <EntregaModal> real
   const [entregaModal, setEntregaModal] = useState(false)
   const [entregaContrato, setEntregaContrato] = useState<Contrato | null>(null)
-  const [entregaForm, setEntregaForm] = useState({ dataHoje: true, data_entrega: '' })
-  const [salvandoEntrega, setSalvandoEntrega] = useState(false)
 
   // Toggle mostrar compartilhados
   const [mostrarCompartilhados, setMostrarCompartilhados] = useState(false)
@@ -565,6 +563,15 @@ function ContratosContent() {
       }
       if (bypassDataEntrega) updates.data_entrega = bypassDataEntrega
       await supabase.from('contratos').update(updates as never).eq('id', c.id)
+
+      // Se tinha tarefa de Entrega pendente pro Operacional nesse contrato, marca concluída —
+      // senão fica órfã em /tarefas pra sempre (o bypass já finalizou o contrato, pulando a
+      // etapa). Mesma classe de bug do EntregaModal/RescaldoModal (ver CHANGELOG 25/08/2026).
+      await supabase.from('tarefas_operacionais').update({
+        status: 'concluida',
+        concluido_em: new Date().toISOString(),
+        anotacao_conclusao: 'Contrato finalizado via bypass no pipeline (fora do app do Operacional).',
+      } as never).eq('contrato_id', c.id).eq('tipo', 'entrega').eq('status', 'pendente')
 
       setBypassContrato(null)
       setBypassDataCremacao('')
@@ -2256,6 +2263,7 @@ Gratidão eterna!
       .select('id, entradas, preferencial_recebimento')
       .eq('ativo', true)
       .eq('unidade_id', currentUnit.id)
+      .eq('legado', false)          // conta de legado não recebe pagamento novo
       .order('nome')
     if (data) setContasUnidade(data as unknown as ContaEscolhivel[])
   }
@@ -2818,7 +2826,6 @@ ${petNome}`
   // Marcar Entregue - abre modal
   function abrirEntregaModal(contrato: Contrato) {
     setEntregaContrato(contrato)
-    setEntregaForm({ dataHoje: true, data_entrega: '' })
     setEntregaModal(true)
   }
 
@@ -2861,6 +2868,14 @@ ${petNome}`
         .in('id', ids)
       if (error) throw error
 
+      // Mesma limpeza do EntregaModal/executarBypass — senão cada contrato dessa leva que
+      // tinha tarefa de Entrega pendente pro Operacional fica órfão em /tarefas.
+      await supabase.from('tarefas_operacionais').update({
+        status: 'concluida',
+        concluido_em: new Date().toISOString(),
+        anotacao_conclusao: 'Contrato finalizado via entrega em lote no pipeline (fora do app do Operacional).',
+      } as never).in('contrato_id', ids).eq('tipo', 'entrega').eq('status', 'pendente')
+
       // Atualiza lista local + contadores
       const countByStatus: Record<string, number> = {}
       contSelecionados.forEach(c => { countByStatus[c.status] = (countByStatus[c.status] || 0) + 1 })
@@ -2890,63 +2905,6 @@ ${petNome}`
       alert('Erro ao registrar entrega em lote.')
     } finally {
       setEntregaBatchLoading(false)
-    }
-  }
-
-  // Marcar Entregue - salva e muda status para finalizado
-  async function marcarEntregue() {
-    if (!entregaContrato) return
-
-    const dataEntrega = entregaForm.dataHoje
-      ? hojeLocal()
-      : entregaForm.data_entrega
-
-    if (!dataEntrega) {
-      alert('Selecione a data de entrega')
-      return
-    }
-
-    setSalvandoEntrega(true)
-
-    try {
-      const { error } = await supabase
-        .from('contratos')
-        .update({
-          status: 'finalizado',
-          data_entrega: dataEntrega,
-        } as never)
-        .eq('id', entregaContrato.id)
-
-      if (error) throw error
-
-      // Atualiza lista local
-      const statusAnterior = entregaContrato.status
-      if (statusFiltro && statusFiltro !== 'finalizado') {
-        // Remove da lista porque não pertence mais a este filtro
-        setContratos(prev => prev.filter(c => c.id !== entregaContrato.id))
-        setTotal(prev => Math.max(0, prev - 1))
-      } else {
-        // Sem filtro ou filtro finalizado: atualiza in-place
-        setContratos(prev => prev.map(c =>
-          c.id === entregaContrato.id
-            ? { ...c, status: 'finalizado', data_entrega: dataEntrega }
-            : c
-        ))
-      }
-
-      // Atualiza contadores
-      setStatusCounts(prev => ({
-        ...prev,
-        [statusAnterior]: Math.max(0, (prev[statusAnterior] || 0) - 1),
-        finalizado: (prev.finalizado || 0) + 1,
-      }))
-
-      setEntregaModal(false)
-    } catch (err) {
-      console.error('Erro ao marcar entregue:', err)
-      alert('Erro ao marcar entregue')
-    } finally {
-      setSalvandoEntrega(false)
     }
   }
 
@@ -3400,6 +3358,29 @@ ${petNome}`
         if (!prev) return prev
         return { ...prev, contrato_produtos: atualizarProdutos(prev.contrato_produtos) }
       })
+      // Se tinha tarefa pendente pro Operacional nesse mesmo item (molde/carimbo/pelo extra),
+      // marca concluída — senão fica órfã em /tarefas pra sempre (o rescaldo já foi feito por
+      // aqui, direto no pipeline, não pelo app). Mesma classe de bug do cancelamento de ficha
+      // órfão (ver CHANGELOG 23/08/2026).
+      if (novoValor) {
+        const { data: { user } } = await supabase.auth.getUser()
+        await supabase.from('tarefas_operacionais').update({
+          status: 'concluida',
+          concluido_em: new Date().toISOString(),
+          anotacao_conclusao: 'Marcado como feito direto no pipeline (fora do app do Operacional).',
+        } as never).eq('contrato_produto_id', cpId).eq('status', 'pendente')
+        await supabase.from('historico_alteracoes').insert({
+          entidade: 'contrato_produtos',
+          entidade_id: cpId,
+          entidade_nome: rescaldoContrato.pet_nome || '—',
+          campo: 'rescaldo_feito',
+          campo_label: 'Rescaldo marcado como feito',
+          valor_novo: 'Feito direto no pipeline — tarefa do Operacional (se havia) foi concluída junto',
+          tipo: 'conclusao',
+          alterado_por: user?.id ?? null,
+          alterado_por_email: user?.email ?? null,
+        } as never)
+      }
     }
   }
 

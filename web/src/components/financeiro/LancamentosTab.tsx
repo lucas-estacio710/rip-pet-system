@@ -202,7 +202,9 @@ export default function LancamentosTab() {
     if (!currentUnit?.id) return
     const { data } = await supabase
       .from('contas').select('id, nome, saidas')
-      .eq('unidade_id', currentUnit.id).eq('ativo', true).order('nome')
+      .eq('unidade_id', currentUnit.id).eq('ativo', true)
+      .eq('legado', false)          // conta de legado é histórico: não se lança nela
+      .order('nome')
     setContas(((data as unknown as ContaBancaria[]) || []))
   }, [supabase, currentUnit?.id])
 

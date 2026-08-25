@@ -29,7 +29,7 @@ import { useUnit } from '@/contexts/UnitContext'
 import { fmtBRL, fmtData, hojeISO, limitesDoMes } from '@/lib/financeiro'
 
 type Saldo = {
-  conta_id: string; nome: string; tipo: string
+  conta_id: string; nome: string; tipo: string; legado: boolean
   entradas: number; saidas: number; saldo: number
 }
 type Linha = {
@@ -212,6 +212,15 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
               <div className="flex items-center gap-1.5">
                 <IconeConta tipo={s.tipo} />
                 <span className="text-xs text-[var(--surface-600)] truncate">{s.nome}</span>
+                {s.legado && (
+                  <span
+                    className="text-[9px] px-1 py-0.5 rounded-full shrink-0"
+                    style={{ background: 'var(--surface-100)', color: 'var(--surface-500)' }}
+                    title="Histórico: entrou antes de haver controle de conta por unidade. Não recebe lançamento novo."
+                  >
+                    histórico
+                  </span>
+                )}
               </div>
               <p
                 className="text-mono text-lg tabular-nums truncate"

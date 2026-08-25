@@ -212,6 +212,7 @@ type Contrato = {
   data_acolhimento: string | null
   funcionario_id: string | null
   funcionario?: { nome: string } | null
+  responsavel_user_id: string | null
   estabelecimento_id: string | null
   estabelecimento_coleta?: { nome: string } | null
   clinica_coleta: string | null
@@ -422,6 +423,9 @@ export default function ContratoDetalhe() {
   const [acolhHoraInput, setAcolhHoraInput] = useState('')
   const [acolhFuncIdInput, setAcolhFuncIdInput] = useState<string>('')
   const [acolhFuncionariosLista, setAcolhFuncionariosLista] = useState<{ id: string; nome: string }[]>([])
+  // cb_operacional: Responsável vem de quem já loga na unidade, não de funcionarios.
+  const [acolhResponsavelUserIdInput, setAcolhResponsavelUserIdInput] = useState<string>('')
+  const [acolhAtribuiveisLista, setAcolhAtribuiveisLista] = useState<{ user_id: string; nome: string | null; role: string }[]>([])
   const [acolhSaving, setAcolhSaving] = useState(false)
 
   // Editor inline de valor_plano
@@ -542,7 +546,10 @@ export default function ContratoDetalhe() {
   const [todasUnidades, setTodasUnidades] = useState<{ id: string; codigo: string; nome: string }[]>([])
 
   const supabase = createClient()
-  const { hasModule, currentUnit, currentRole, isSuperAdmin } = useUnit()
+  const { hasModule, currentUnit, currentRole, isSuperAdmin, allUnidades } = useUnit()
+  // cb_operacional: Responsável do acolhimento vem de perfis, não de funcionarios.
+  const temOperacionalContrato = !!allUnidades.find(u => u.id === contrato?.unidade_id)?.modulos_ativos?.includes('cb_operacional')
+  const [responsavelNomeResolvido, setResponsavelNomeResolvido] = useState<string | null>(null)
   const podeAlterarDados = isSuperAdmin || currentRole === 'gerente'
   const { canEdit, isVisible } = useFieldPermission()
   const T = 'tela_contrato' // tela FLS (detalhe do contrato)
@@ -599,6 +606,7 @@ export default function ContratoDetalhe() {
 
     // Pré-preenche funcionário atual e carrega lista (ativos da unidade do contrato)
     setAcolhFuncIdInput(contrato.funcionario_id || '')
+    setAcolhResponsavelUserIdInput(contrato.responsavel_user_id || '')
     if (acolhFuncionariosLista.length === 0) {
       const { data: funcs } = await supabase
         .from('funcionarios')
@@ -607,6 +615,11 @@ export default function ContratoDetalhe() {
         .eq('unidade_id', contrato.unidade_id)
         .order('nome')
       if (funcs) setAcolhFuncionariosLista(funcs as { id: string; nome: string }[])
+    }
+    // cb_operacional: Responsável vem de quem já loga na unidade, não de funcionarios.
+    if (temOperacionalContrato && acolhAtribuiveisLista.length === 0) {
+      const { data: atrib } = await supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: contrato.unidade_id } as never) as { data: { user_id: string; nome: string | null; role: string }[] | null }
+      if (atrib) setAcolhAtribuiveisLista(atrib)
     }
 
     // 1. Já tem no contrato? edita o existente
@@ -663,9 +676,12 @@ export default function ContratoDetalhe() {
       const valorNovo = dataHora.toISOString()
       const funcAnterior = contrato.funcionario_id || null
       const funcNovo = acolhFuncIdInput || null
+      const respAnterior = contrato.responsavel_user_id || null
+      const respNovo = acolhResponsavelUserIdInput || null
 
       const update: Record<string, unknown> = { data_acolhimento: valorNovo }
       if (funcNovo !== funcAnterior) update.funcionario_id = funcNovo
+      if (respNovo !== respAnterior) update.responsavel_user_id = respNovo
 
       const { error } = await supabase
         .from('contratos')
@@ -706,11 +722,32 @@ export default function ContratoDetalhe() {
         } as never)
       }
 
-      const nomeNovo = acolhFuncionariosLista.find(f => f.id === funcNovo)?.nome || null
+      // Log auditoria — responsável via login (só se mudou)
+      if (respNovo !== respAnterior) {
+        const nomeAnterior = acolhAtribuiveisLista.find(a => a.user_id === respAnterior)?.nome || null
+        const nomeNovo = acolhAtribuiveisLista.find(a => a.user_id === respNovo)?.nome || null
+        await supabase.from('historico_alteracoes').insert({
+          entidade: 'contratos',
+          entidade_id: contrato.id,
+          entidade_nome: contrato.codigo,
+          campo: 'responsavel_user_id',
+          campo_label: 'Responsável pelo Acolhimento',
+          valor_anterior: nomeAnterior,
+          valor_novo: nomeNovo,
+          tipo: 'edicao',
+          alterado_por: user?.id ?? null,
+          alterado_por_email: user?.email ?? null,
+        } as never)
+      }
+
+      const nomeNovo = temOperacionalContrato
+        ? (acolhAtribuiveisLista.find(a => a.user_id === respNovo)?.nome || null)
+        : (acolhFuncionariosLista.find(f => f.id === funcNovo)?.nome || null)
       setContrato(prev => prev ? {
         ...prev,
         data_acolhimento: valorNovo,
         funcionario_id: funcNovo,
+        responsavel_user_id: respNovo,
         funcionario: funcNovo ? { nome: nomeNovo || prev.funcionario?.nome || '' } : null,
       } as typeof prev : prev)
       setAcolhEditing(false)
@@ -951,6 +988,7 @@ export default function ContratoDetalhe() {
       .select('id, nome, entradas, preferencial_recebimento')
       .eq('ativo', true)
       .eq('unidade_id', currentUnit.id)
+      .eq('legado', false)          // conta de legado não recebe pagamento novo
       .order('nome')
 
     if (data) setContas(data as unknown as Conta[])
@@ -1698,7 +1736,18 @@ export default function ContratoDetalhe() {
       .eq('id', contratoId)
       .single()
 
-    if (!error) setContrato(data as Contrato)
+    if (!error) {
+      const c = data as Contrato
+      setContrato(c)
+      // Responsável via login (cb_operacional) não vem embutido no select acima — resolve o
+      // nome à parte (perfis.user_id não tem FK direta pra contratos.responsavel_user_id).
+      if (c.responsavel_user_id) {
+        const { data: perfil } = await supabase.from('perfis').select('nome').eq('user_id', c.responsavel_user_id).eq('unidade_id', c.unidade_id).maybeSingle() as { data: { nome: string | null } | null }
+        setResponsavelNomeResolvido(perfil?.nome || null)
+      } else {
+        setResponsavelNomeResolvido(null)
+      }
+    }
     setLoading(false)
   }
 
@@ -1759,6 +1808,30 @@ export default function ContratoDetalhe() {
 
     if (!error) {
       setContratoProdutos(prev => prev.map(cp => cp.id === cpId ? { ...cp, rescaldo_feito: novoValor } : cp))
+      // Se tinha tarefa pendente pro Operacional nesse mesmo item (molde/carimbo/pelo extra),
+      // marca concluída — senão fica órfã em /tarefas pra sempre (o rescaldo já foi feito por
+      // aqui, direto no contrato, não pelo app). Mesma classe de bug do cancelamento de ficha
+      // órfão (ver CHANGELOG 23/08/2026) — achado pelo Lucas ao perguntar "e se alguém marcar
+      // direto no pipeline?".
+      if (novoValor) {
+        const { data: { user } } = await supabase.auth.getUser()
+        await supabase.from('tarefas_operacionais').update({
+          status: 'concluida',
+          concluido_em: new Date().toISOString(),
+          anotacao_conclusao: 'Marcado como feito direto no contrato (fora do app do Operacional).',
+        } as never).eq('contrato_produto_id', cpId).eq('status', 'pendente')
+        await supabase.from('historico_alteracoes').insert({
+          entidade: 'contrato_produtos',
+          entidade_id: cpId,
+          entidade_nome: contrato?.pet_nome || '—',
+          campo: 'rescaldo_feito',
+          campo_label: 'Rescaldo marcado como feito',
+          valor_novo: 'Feito direto no contrato — tarefa do Operacional (se havia) foi concluída junto',
+          tipo: 'conclusao',
+          alterado_por: user?.id ?? null,
+          alterado_por_email: user?.email ?? null,
+        } as never)
+      }
     }
   }
 
@@ -2439,18 +2512,33 @@ ${petNome}`
                   disabled={acolhSaving}
                   className="text-xs px-2 py-0.5 rounded border border-[var(--surface-300)] bg-[var(--surface-0)] text-[var(--surface-800)]"
                 />
-                <select
-                  value={acolhFuncIdInput}
-                  onChange={e => setAcolhFuncIdInput(e.target.value)}
-                  disabled={acolhSaving}
-                  className="text-xs px-2 py-0.5 rounded border border-[var(--surface-300)] bg-[var(--surface-0)] text-[var(--surface-800)] max-w-[12rem]"
-                  title="Responsável pelo acolhimento"
-                >
-                  <option value="">— sem responsável —</option>
-                  {acolhFuncionariosLista.map(f => (
-                    <option key={f.id} value={f.id}>{f.nome}</option>
-                  ))}
-                </select>
+                {temOperacionalContrato ? (
+                  <select
+                    value={acolhResponsavelUserIdInput}
+                    onChange={e => setAcolhResponsavelUserIdInput(e.target.value)}
+                    disabled={acolhSaving}
+                    className="text-xs px-2 py-0.5 rounded border border-[var(--surface-300)] bg-[var(--surface-0)] text-[var(--surface-800)] max-w-[12rem]"
+                    title="Responsável pelo acolhimento"
+                  >
+                    <option value="">— sem responsável —</option>
+                    {acolhAtribuiveisLista.map(a => (
+                      <option key={a.user_id} value={a.user_id}>{a.nome}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <select
+                    value={acolhFuncIdInput}
+                    onChange={e => setAcolhFuncIdInput(e.target.value)}
+                    disabled={acolhSaving}
+                    className="text-xs px-2 py-0.5 rounded border border-[var(--surface-300)] bg-[var(--surface-0)] text-[var(--surface-800)] max-w-[12rem]"
+                    title="Responsável pelo acolhimento"
+                  >
+                    <option value="">— sem responsável —</option>
+                    {acolhFuncionariosLista.map(f => (
+                      <option key={f.id} value={f.id}>{f.nome}</option>
+                    ))}
+                  </select>
+                )}
                 <button
                   onClick={salvarAcolhimento}
                   disabled={acolhSaving || !acolhDataInput || !acolhHoraInput}
@@ -2504,10 +2592,10 @@ ${petNome}`
                 </button>
               </>
             )}
-              {contrato.funcionario?.nome && (
+              {(contrato.funcionario?.nome || responsavelNomeResolvido) && (
                 <>
                   <span className="text-[var(--surface-300)]">·</span>
-                  <span>por <span className="font-semibold text-[var(--surface-600)]">{contrato.funcionario.nome}</span></span>
+                  <span>por <span className="font-semibold text-[var(--surface-600)]">{contrato.funcionario?.nome || responsavelNomeResolvido}</span></span>
                 </>
               )}
               {contrato.local_coleta && (() => {
@@ -5042,7 +5130,7 @@ ${petNome}`
                   ...contrato,
                   // Resolvendo campos derivados para o novo layout da ficha.
                   // Clínica: prioridade estabelecimento padronizado (FK) > texto livre do tutor (geralmente "lixo").
-                  colaborador_responsavel: contrato.funcionario?.nome || null,
+                  colaborador_responsavel: contrato.funcionario?.nome || responsavelNomeResolvido || null,
                   clinica_veterinaria:
                     (contrato as unknown as { estabelecimento?: { nome?: string | null } | null }).estabelecimento?.nome
                     || contrato.clinica_coleta
@@ -5170,7 +5258,7 @@ ${petNome}`
                 ref={fichaImprimirRef}
                 contrato={{
                   ...contrato,
-                  colaborador_responsavel: contrato.funcionario?.nome || null,
+                  colaborador_responsavel: contrato.funcionario?.nome || responsavelNomeResolvido || null,
                   clinica_veterinaria:
                     (contrato as unknown as { estabelecimento?: { nome?: string | null } | null }).estabelecimento?.nome
                     || contrato.clinica_coleta
