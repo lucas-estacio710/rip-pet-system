@@ -35,6 +35,7 @@ type Saldo = {
 type Linha = {
   conta_id: string; data: string; tipo: string
   descricao: string | null; valor: number; origem: string; origem_id: string
+  unidade_origem: string | null   // de qual unidade é o CONTRATO (mig 126)
 }
 
 const mesAtual = () => new Date().toISOString().slice(0, 7)
@@ -64,6 +65,11 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
   const [linhas, setLinhas] = useState<Linha[]>([])
   const [carregando, setCarregando] = useState(false)
   const [conta, setConta] = useState('')          // filtro do extrato
+  // 24% dos recebimentos históricos caíram em conta de outra unidade (bug dos
+  // UUIDs chumbados, mig 126). O dinheiro ENTROU aqui — então o saldo conta —
+  // mas o extrato fica ilegível com pets de outras filiais no meio.
+  const [soDaqui, setSoDaqui] = useState(true)
+  const [unidades, setUnidades] = useState<Record<string, string>>({})
 
   // formulário de movimento
   const [aberto, setAberto] = useState(false)
@@ -93,6 +99,15 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
   }, [supabase, currentUnit?.id, mes])
 
   useEffect(() => { void carregar() }, [carregar])
+
+  // Código das unidades, pro selo de origem no extrato.
+  useEffect(() => {
+    supabase.from('unidades').select('id, codigo').then(({ data }) => {
+      const m: Record<string, string> = {}
+      for (const u of ((data as { id: string; codigo: string }[]) || [])) m[u.id] = u.codigo
+      setUnidades(m)
+    })
+  }, [supabase])
 
   const defTipo = TIPOS.find(t => t.v === tipo)!
   const contasCorrente = saldos.filter(s => s.tipo !== 'cartao')
@@ -139,7 +154,11 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
     void carregar()
   }
 
-  const visiveis = conta ? linhas.filter(l => l.conta_id === conta) : linhas
+  const daqui = (l: Linha) => !l.unidade_origem || l.unidade_origem === currentUnit?.id
+  const deFora = linhas.filter(l => !daqui(l))
+  const visiveis = linhas
+    .filter(l => (conta ? l.conta_id === conta : true))
+    .filter(l => (soDaqui ? daqui(l) : true))
   const totalDisponivel = saldos.filter(s => s.tipo !== 'cartao').reduce((a, s) => a + Number(s.saldo || 0), 0)
   const totalFaturas = cartoes.reduce((a, s) => a + Math.min(Number(s.saldo || 0), 0), 0)
 
@@ -157,6 +176,20 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
           )}
         </span>
         {carregando && <Loader2 className="h-4 w-4 animate-spin text-[var(--surface-400)]" />}
+        {deFora.length > 0 && (
+          <label
+            className="flex items-center gap-1.5 text-xs text-[var(--surface-500)] cursor-pointer"
+            title="Recebimentos de contratos de outra filial que caíram nesta conta. O saldo conta sempre — isto filtra só a lista."
+          >
+            <input
+              type="checkbox" checked={soDaqui}
+              onChange={e => setSoDaqui(e.target.checked)}
+              className="h-3.5 w-3.5 accent-[var(--brand-500)]"
+            />
+            só desta unidade
+            <span className="text-[var(--surface-400)]">({deFora.length} de outras)</span>
+          </label>
+        )}
         {!somenteLeitura && (
           <button onClick={() => setAberto(true)} className="btn-primary text-sm ml-auto">
             <Plus className="h-4 w-4" /> Movimento
@@ -225,7 +258,18 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
             <div key={`${l.origem_id}-${i}`} className="flex items-center gap-3 px-3 py-2">
               <Icon className="h-4 w-4 shrink-0" style={{ color: cor }} />
               <div className="min-w-0 flex-1">
-                <p className="text-sm text-[var(--surface-800)] truncate">{l.descricao || l.tipo}</p>
+                <p className="text-sm text-[var(--surface-800)] truncate flex items-center gap-1.5">
+                  <span className="truncate">{l.descricao || l.tipo}</span>
+                  {!daqui(l) && (
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
+                      style={{ background: 'rgba(245,158,11,0.16)', color: '#f59e0b' }}
+                      title="Contrato de outra unidade que caiu nesta conta"
+                    >
+                      {unidades[l.unidade_origem || ''] || 'outra'}
+                    </span>
+                  )}
+                </p>
                 <p className="text-xs text-[var(--surface-500)]">
                   {fmtData(l.data)} · {saldos.find(s => s.conta_id === l.conta_id)?.nome || '—'}
                 </p>
@@ -239,6 +283,13 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
       </div>
 
       <p className="text-xs text-[var(--surface-500)]">
+        {deFora.length > 0 && (
+          <>
+            <strong className="font-medium">O saldo conta tudo que entrou na conta</strong>, inclusive
+            recebimentos de contratos de outras filiais — o dinheiro está lá de verdade, e tirá-lo faria
+            o saldo parar de bater com o extrato do banco. O filtro acima limpa só a lista.{' '}
+          </>
+        )}
         Recebimentos entram pelo valor líquido, já sem a taxa da maquininha. Despesa comprada no
         cartão <strong className="font-medium">não sai daqui quando é lançada</strong> — ela acumula
         na fatura e sai quando alguém paga. Transferência, aporte e empréstimo movem dinheiro e não
