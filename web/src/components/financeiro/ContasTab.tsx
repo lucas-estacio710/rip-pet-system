@@ -26,7 +26,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { Plus, Loader2, Check, X, Pencil, Trash2, Landmark, EyeOff, Eye, Star } from 'lucide-react'
+import { Plus, Loader2, Check, X, Pencil, Trash2, Landmark, CreditCard, Wallet, EyeOff, Eye, Star, ChevronRight } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 
@@ -47,9 +47,17 @@ const SAIDAS = [
   { v: 'dinheiro', label: 'Dinheiro' },
 ]
 
+/** Como o dinheiro sai da conta (mig 124) — decide o comportamento no Caixa. */
+const TIPOS = [
+  { v: 'corrente', label: 'Conta corrente', ajuda: 'A despesa sai na data que debitou.' },
+  { v: 'dinheiro', label: 'Dinheiro', ajuda: 'Caixa físico. A despesa sai na hora.' },
+  { v: 'cartao', label: 'Cartão de crédito', ajuda: 'A despesa acumula e só sai do caixa quando a fatura é paga.' },
+]
+
 type Conta = {
   id: string
   nome: string
+  tipo: string
   ativo: boolean
   entradas: string[]
   saidas: string[]
@@ -74,12 +82,15 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
   // aparecer toda vez que alguém só queria marcar um método.
   const [renomeando, setRenomeando] = useState<string | null>(null)
   const [rascunho, setRascunho] = useState('')
+  // Qual lado está aberto no painel. Mostrar os dois de uma vez são 10 chips na
+  // cara; quase toda conta é forte num lado só, então abre-se o que se vai mexer.
+  const [lado, setLado] = useState<'entradas' | 'saidas' | null>(null)
 
   const carregar = useCallback(async () => {
     if (!currentUnit?.id) return
     setCarregando(true)
     const { data } = await supabase
-      .from('contas').select('id, nome, ativo, entradas, saidas, preferencial_recebimento')
+      .from('contas').select('id, nome, tipo, ativo, entradas, saidas, preferencial_recebimento')
       .eq('unidade_id', currentUnit.id)
       .order('ativo', { ascending: false }).order('nome')
     const base = ((data as unknown as Omit<Conta, 'entradasUso' | 'saidasUso'>[]) || [])
@@ -172,8 +183,11 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
     const nome = (v: string) => (ENTRADAS.concat(SAIDAS).find(x => x.v === v)?.label || v).toLowerCase()
     const e = (c.entradas || []).length ? `recebe ${c.entradas.map(nome).join(', ')}` : ''
     const s = (c.saidas || []).length ? `paga ${c.saidas.map(nome).join(', ')}` : ''
-    if (!e && !s) return 'serve pra tudo'
-    return [e, s].filter(Boolean).join(' · ')
+    // O tipo aparece só quando NÃO é conta corrente: corrente é o padrão e
+    // repetir "conta corrente" em toda linha é ruído.
+    const t = c.tipo === 'cartao' ? 'cartão' : c.tipo === 'dinheiro' ? 'dinheiro' : ''
+    const partes = [t, e, s].filter(Boolean)
+    return partes.length ? partes.join(' · ') : 'serve pra tudo'
   }
 
   function Chip({ on, label, onClick }: { on: boolean; label: string; onClick: () => void }) {
@@ -236,10 +250,14 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
                 className={`group flex items-center gap-3 px-3 py-2 transition-colors ${
                   editandoNome ? '' : 'cursor-pointer hover:bg-[var(--surface-50)]'
                 }`}
-                onClick={() => { if (!editandoNome) setAberta(aberto ? null : c.id) }}
+                onClick={() => { if (!editandoNome) { setAberta(aberto ? null : c.id); setLado(null) } }}
               >
                 <div className="w-8 h-8 rounded-full bg-[var(--surface-100)] flex items-center justify-center shrink-0">
-                  <Landmark className="h-4 w-4 text-[var(--surface-500)]" />
+                  {c.tipo === 'cartao'
+                    ? <CreditCard className="h-4 w-4 text-[var(--surface-500)]" />
+                    : c.tipo === 'dinheiro'
+                      ? <Wallet className="h-4 w-4 text-[var(--surface-500)]" />
+                      : <Landmark className="h-4 w-4 text-[var(--surface-500)]" />}
                 </div>
 
                 <div className="min-w-0 flex-1">
@@ -320,29 +338,80 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
                         </button>
                       </div>
 
+                      {/* O TIPO decide o comportamento no Caixa — em cartão a
+                          despesa acumula e só sai quando a fatura é paga. */}
                       <div>
-                        <p className="text-[11px] text-[var(--surface-500)] mb-1">Recebe do cliente</p>
+                        <p className="text-[11px] text-[var(--surface-500)] mb-1.5">Tipo</p>
                         <div className="flex flex-wrap gap-1.5">
-                          {ENTRADAS.map(m => (
+                          {TIPOS.map(t => (
                             <Chip
-                              key={m.v} label={m.label}
-                              on={(c.entradas || []).includes(m.v)}
-                              onClick={() => alternar(c, 'entradas', m.v)}
+                              key={t.v} label={t.label}
+                              on={c.tipo === t.v}
+                              onClick={() => void patch(c, { tipo: t.v })}
                             />
                           ))}
                         </div>
+                        <p className="text-[11px] text-[var(--surface-400)] mt-1">
+                          {TIPOS.find(t => t.v === c.tipo)?.ajuda}
+                        </p>
                       </div>
 
+                      {/* Conta de: → Receber / Pagar → os métodos daquele lado */}
                       <div>
-                        <p className="text-[11px] text-[var(--surface-500)] mb-1">Paga despesas em</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {SAIDAS.map(m => (
-                            <Chip
-                              key={m.v} label={m.label}
-                              on={(c.saidas || []).includes(m.v)}
-                              onClick={() => alternar(c, 'saidas', m.v)}
-                            />
-                          ))}
+                        <p className="text-[11px] text-[var(--surface-500)] mb-1.5">Conta de:</p>
+                        <div className="space-y-1">
+                          {([
+                            { k: 'entradas' as const, label: 'Receber', metodos: ENTRADAS },
+                            { k: 'saidas' as const, label: 'Pagar', metodos: SAIDAS },
+                          // Cartão de crédito não recebe do cliente: ele só paga.
+                          ]).filter(l => !(c.tipo === 'cartao' && l.k === 'entradas')).map(l => {
+                            const marcados = c[l.k] || []
+                            const on = lado === l.k
+                            return (
+                              <div key={l.k}>
+                                <button
+                                  type="button"
+                                  onClick={() => setLado(on ? null : l.k)}
+                                  className="flex items-center gap-1.5 w-full text-left py-1"
+                                >
+                                  <ChevronRight
+                                    className="h-3 w-3 shrink-0 transition-transform text-[var(--surface-400)]"
+                                    style={{ transform: on ? 'rotate(90deg)' : undefined }}
+                                  />
+                                  <span
+                                    className="text-xs"
+                                    style={{ color: marcados.length ? '#10b981' : 'var(--surface-600)' }}
+                                  >
+                                    {l.label}
+                                  </span>
+                                  {!on && (
+                                    <span className="text-[11px] text-[var(--surface-400)] truncate">
+                                      {marcados.length
+                                        ? marcados.map(m => l.metodos.find(x => x.v === m)?.label || m).join(', ')
+                                        : 'qualquer forma'}
+                                    </span>
+                                  )}
+                                </button>
+
+                                {on && (
+                                  <div className="flex flex-wrap gap-1.5 pl-[18px] pb-1.5">
+                                    {l.metodos.map(m => (
+                                      <Chip
+                                        key={m.v} label={m.label}
+                                        on={marcados.includes(m.v)}
+                                        onClick={() => alternar(c, l.k, m.v)}
+                                      />
+                                    ))}
+                                    {marcados.length === 0 && (
+                                      <span className="text-[11px] text-[var(--surface-400)] self-center">
+                                        nada marcado = serve pra qualquer forma
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
                         </div>
                       </div>
 
