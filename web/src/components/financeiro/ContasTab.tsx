@@ -26,7 +26,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { Plus, Loader2, Check, Trash2, Landmark, EyeOff, Eye, Star } from 'lucide-react'
+import { Plus, Loader2, Check, X, Pencil, Trash2, Landmark, EyeOff, Eye, Star } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 
@@ -69,6 +69,10 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
   const [nova, setNova] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [aberta, setAberta] = useState<string | null>(null)   // conta expandida
+  // Renomear é sobre a IDENTIDADE da conta e vive na própria linha; o painel
+  // expandido é sobre o que ela FAZ. Misturar os dois fazia o campo de nome
+  // aparecer toda vez que alguém só queria marcar um método.
+  const [renomeando, setRenomeando] = useState<string | null>(null)
   const [rascunho, setRascunho] = useState('')
 
   const carregar = useCallback(async () => {
@@ -138,12 +142,19 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
     void carregar()
   }
 
+  function abrirRename(c: Conta) {
+    setRenomeando(c.id)
+    setRascunho(c.nome)
+  }
+
   async function renomear(c: Conta) {
     const nome = rascunho.trim()
-    if (!nome || nome === c.nome) { setRascunho(''); return }
+    if (!nome) { setRenomeando(null); return }              // vazio = desistiu
+    if (nome === c.nome) { setRenomeando(null); return }
     if (duplicada(nome, c.id)) return toast(`Já existe uma conta "${nome}"`, 'error')
     await patch(c, { nome })
-    setRascunho('')
+    setRenomeando(null)
+    toast(`Agora é "${nome}"`, 'success')
   }
 
   async function excluir(c: Conta) {
@@ -218,24 +229,68 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
         {contas.map(c => {
           const emUso = c.entradasUso + c.saidasUso
           const aberto = aberta === c.id
+          const editandoNome = renomeando === c.id
           return (
             <div key={c.id} style={{ opacity: c.ativo ? 1 : 0.55 }}>
               <div
-                className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-[var(--surface-50)] transition-colors"
-                onClick={() => { setAberta(aberto ? null : c.id); setRascunho('') }}
+                className={`group flex items-center gap-3 px-3 py-2 transition-colors ${
+                  editandoNome ? '' : 'cursor-pointer hover:bg-[var(--surface-50)]'
+                }`}
+                onClick={() => { if (!editandoNome) setAberta(aberto ? null : c.id) }}
               >
                 <div className="w-8 h-8 rounded-full bg-[var(--surface-100)] flex items-center justify-center shrink-0">
                   <Landmark className="h-4 w-4 text-[var(--surface-500)]" />
                 </div>
 
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm text-[var(--surface-800)] truncate flex items-center gap-1.5">
-                    {c.nome}
-                    {c.preferencial_recebimento && (
-                      <Star className="h-3 w-3 shrink-0" style={{ color: '#f59e0b', fill: '#f59e0b' }} />
-                    )}
-                    {!c.ativo && <span className="text-xs text-[var(--surface-400)]">· desativada</span>}
-                  </p>
+                  {editandoNome ? (
+                    // Edita no LUGAR do nome, com a mesma tipografia — a linha não
+                    // "pula" e fica claro que é aquele texto que está mudando.
+                    <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                      <input
+                        autoFocus
+                        value={rascunho}
+                        onChange={e => setRascunho(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') void renomear(c)
+                          if (e.key === 'Escape') setRenomeando(null)
+                        }}
+                        className="text-sm bg-transparent border-0 border-b outline-none py-0.5 flex-1 min-w-0 text-[var(--surface-800)]"
+                        style={{ borderColor: 'var(--brand-500)' }}
+                      />
+                      <button
+                        onClick={() => void renomear(c)}
+                        title="Salvar (Enter)"
+                        className="text-[var(--brand-500)] p-0.5 shrink-0"
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setRenomeando(null)}
+                        title="Cancelar (Esc)"
+                        className="text-[var(--surface-400)] p-0.5 shrink-0"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-[var(--surface-800)] truncate flex items-center gap-1.5">
+                      {c.nome}
+                      {c.preferencial_recebimento && (
+                        <Star className="h-3 w-3 shrink-0" style={{ color: '#f59e0b', fill: '#f59e0b' }} />
+                      )}
+                      {!c.ativo && <span className="text-xs text-[var(--surface-400)]">· desativada</span>}
+                      {!somenteLeitura && (
+                        <button
+                          onClick={e => { e.stopPropagation(); abrirRename(c) }}
+                          title="Renomear"
+                          className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity text-[var(--surface-400)] hover:text-[var(--brand-500)] shrink-0"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                      )}
+                    </p>
+                  )}
                   <p className="text-xs text-[var(--surface-500)] truncate">{resumo(c)}</p>
                 </div>
 
@@ -251,13 +306,6 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
                   ) : (
                     <>
                       <div className="flex flex-wrap items-center gap-2 pt-2">
-                        <input
-                          value={rascunho || c.nome}
-                          onChange={e => setRascunho(e.target.value)}
-                          onKeyDown={e => { if (e.key === 'Enter') void renomear(c) }}
-                          onBlur={() => void renomear(c)}
-                          className="input text-sm py-1 flex-1 min-w-[140px]"
-                        />
                         <button
                           onClick={() => void tornarPreferencial(c)}
                           className="text-[11px] px-2 py-1 rounded-full border transition-colors inline-flex items-center gap-1"
