@@ -11,17 +11,26 @@
 //   2. `fin_lancamentos` → a despesa, na `data_caixa` — exceto a de conta CARTÃO
 //   3. `fin_movimentos`  → transferência, fatura, aporte: move dinheiro e não é DRE
 //
-// ⚠️ CONTA CARTÃO tem saldo NEGATIVO enquanto a fatura está aberta — é dívida, não
-// dinheiro disponível. A despesa comprada no crédito não sai do caixa quando é
-// lançada; sai quando alguém paga a fatura. Sem essa separação o dinheiro sairia
-// duas vezes (item a item + fatura).
+// ⚠️ TRÊS ESTADOS DO DINHEIRO, e só um deles é dinheiro de verdade:
+//
+//   DISPONÍVEL   conta corrente e dinheiro — dá pra gastar hoje
+//   A RECEBER    MAQUININHA: vendeu no cartão, o adquirente ainda não liquidou
+//   FATURA       CARTÃO DE CRÉDITO: gastou, ainda não pagou (dívida)
+//
+// As duas pontas são espelhadas, e pelo mesmo motivo — o dinheiro ainda não se
+// moveu de verdade:
+//   cartão      → a despesa NÃO sai do caixa; sai quando a fatura é paga
+//   maquininha  → a receita NÃO entra no caixa; entra quando o adquirente liquida
+//
+// Somar maquininha no disponível superestima o caixa de quem vende no crédito,
+// que é o caso aqui. A liquidação é uma transferência `Maquininha → corrente`.
 
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   Loader2, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, CreditCard,
-  Landmark, Wallet, Plus, Check,
+  Landmark, Wallet, Smartphone, Plus, Check,
 } from 'lucide-react'
 import Modal from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
@@ -33,6 +42,8 @@ type Saldo = {
   entradas: number; saidas: number; saldo: number
   unidade_id: string
   unidades_extras: string[] | null   // outras unidades que usam a conta (mig 128)
+  produto: string | null             // maquininha / cartao_credito / … (mig 130)
+  liquidacao_dias: number | null
 }
 type Linha = {
   conta_id: string; data: string; tipo: string
@@ -51,10 +62,17 @@ const TIPOS = [
   { v: 'ajuste',        label: 'Ajuste',        destino: false, ajuda: 'Acerto de saldo contra o extrato.' },
 ]
 
-function IconeConta({ tipo }: { tipo: string }) {
-  const C = tipo === 'cartao' ? CreditCard : tipo === 'dinheiro' ? Wallet : Landmark
+function IconeConta({ tipo, produto }: { tipo: string; produto?: string | null }) {
+  const C = produto === 'maquininha' ? Smartphone
+    : tipo === 'cartao' ? CreditCard
+    : tipo === 'dinheiro' ? Wallet
+    : Landmark
   return <C className="h-4 w-4 text-[var(--surface-500)]" />
 }
+
+/** Maquininha guarda dinheiro que ainda não é seu; cartão guarda dívida. */
+const ehMaquininha = (x: { produto?: string | null }) => x.produto === 'maquininha'
+const ehCartao = (x: { tipo: string }) => x.tipo === 'cartao'
 
 export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: boolean }) {
   const supabaseTipado = createClient()
@@ -123,8 +141,12 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
   }, [supabase])
 
   const defTipo = TIPOS.find(t => t.v === tipo)!
-  const contasCorrente = saldos.filter(s => s.tipo !== 'cartao')
-  const cartoes = saldos.filter(s => s.tipo === 'cartao')
+  // Conta de legado (mig 127) é histórico: não entra em movimento novo.
+  const operaveis = saldos.filter(s => !s.legado)
+  // Destino de fatura e de liquidação: só o que é dinheiro de verdade.
+  const contasCorrente = operaveis.filter(s => !ehCartao(s) && !ehMaquininha(s))
+  const cartoes = operaveis.filter(ehCartao)
+  const maquininhas = operaveis.filter(ehMaquininha)
 
   function abrirPagarFatura(cartao: Saldo) {
     setTipo('fatura_cartao')
@@ -133,6 +155,17 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
     setValor(String(Math.abs(cartao.saldo).toFixed(2)))
     setData(hojeISO())
     setDescricao(`Fatura ${cartao.nome}`)
+    setAberto(true)
+  }
+
+  /** Espelho do "pagar fatura": o adquirente manda o dinheiro pra conta. */
+  function abrirLiquidar(maq: Saldo) {
+    setTipo('transferencia')
+    setOrigem(maq.conta_id)
+    setDestino(contasCorrente[0]?.conta_id || '')
+    setValor(String(Math.abs(maq.saldo).toFixed(2)))
+    setData(hojeISO())
+    setDescricao(`Liquidação ${maq.nome}`)
     setAberto(true)
   }
 
@@ -172,7 +205,11 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
   const visiveis = linhas
     .filter(l => (conta ? l.conta_id === conta : true))
     .filter(l => (soDaqui ? daqui(l) : true))
-  const totalDisponivel = saldos.filter(s => s.tipo !== 'cartao').reduce((a, s) => a + Number(s.saldo || 0), 0)
+  // DISPONÍVEL exclui maquininha (ainda não liquidou) e cartão (é dívida).
+  const totalDisponivel = saldos
+    .filter(s => !ehCartao(s) && !ehMaquininha(s))
+    .reduce((a, s) => a + Number(s.saldo || 0), 0)
+  const totalAReceber = maquininhas.reduce((a, s) => a + Math.max(Number(s.saldo || 0), 0), 0)
   const totalFaturas = cartoes.reduce((a, s) => a + Math.min(Number(s.saldo || 0), 0), 0)
 
   return (
@@ -184,8 +221,11 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
         />
         <span className="text-xs text-[var(--surface-500)]">
           disponível <span className="text-mono text-[var(--surface-800)]">{fmtBRL(totalDisponivel)}</span>
+          {totalAReceber > 0 && (
+            <> · a receber <span className="text-mono text-sky-500">{fmtBRL(totalAReceber)}</span></>
+          )}
           {totalFaturas < 0 && (
-            <> · fatura em aberto <span className="text-mono text-amber-500">{fmtBRL(-totalFaturas)}</span></>
+            <> · fatura <span className="text-mono text-amber-500">{fmtBRL(-totalFaturas)}</span></>
           )}
         </span>
         {carregando && <Loader2 className="h-4 w-4 animate-spin text-[var(--surface-400)]" />}
@@ -213,7 +253,8 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
       {/* Saldo por conta — clicar filtra o extrato */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
         {saldos.map(s => {
-          const cartao = s.tipo === 'cartao'
+          const cartao = ehCartao(s)
+          const maq = ehMaquininha(s)
           const ativo = conta === s.conta_id
           return (
             <button
@@ -223,7 +264,7 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
               style={{ borderColor: ativo ? 'var(--brand-500)' : undefined }}
             >
               <div className="flex items-center gap-1.5">
-                <IconeConta tipo={s.tipo} />
+                <IconeConta tipo={s.tipo} produto={s.produto} />
                 <span className="text-xs text-[var(--surface-600)] truncate">{s.nome}</span>
                 {(s.unidades_extras || []).length > 0 && (
                   <span
@@ -246,7 +287,11 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
               </div>
               <p
                 className="text-mono text-lg tabular-nums truncate"
-                style={{ color: cartao ? '#f59e0b' : Number(s.saldo) < 0 ? '#ef4444' : 'var(--surface-800)' }}
+                style={{
+                  color: cartao ? '#f59e0b'
+                    : maq ? '#0ea5e9'
+                    : Number(s.saldo) < 0 ? '#ef4444' : 'var(--surface-800)',
+                }}
               >
                 {fmtBRL(cartao ? Math.abs(Number(s.saldo)) : Number(s.saldo))}
               </p>
@@ -261,6 +306,22 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
                       className="text-[10px] text-[var(--brand-500)] underline cursor-pointer"
                     >
                       pagar
+                    </span>
+                  )}
+                </div>
+              ) : maq ? (
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-[10px] text-[var(--surface-400)]">
+                    {Number(s.saldo) > 0
+                      ? `a receber${s.liquidacao_dias ? ` · D+${s.liquidacao_dias}` : ''}`
+                      : 'nada a receber'}
+                  </span>
+                  {!somenteLeitura && Number(s.saldo) > 0 && (
+                    <span
+                      onClick={e => { e.stopPropagation(); abrirLiquidar(s) }}
+                      className="text-[10px] text-[var(--brand-500)] underline cursor-pointer"
+                    >
+                      liquidar
                     </span>
                   )}
                 </div>
@@ -321,9 +382,11 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
             de verdade. O filtro acima limpa só a lista.{' '}
           </>
         )}
-        Recebimentos entram pelo valor líquido, já sem a taxa da maquininha. Despesa comprada no
-        cartão <strong className="font-medium">não sai daqui quando é lançada</strong> — ela acumula
-        na fatura e sai quando alguém paga. Transferência, aporte e empréstimo movem dinheiro e não
+        Recebimentos entram pelo valor líquido, já sem a taxa. Venda na{' '}
+        <strong className="font-medium">maquininha não entra no disponível</strong>: fica em
+        &quot;a receber&quot; até o adquirente liquidar. Do mesmo jeito, despesa no{' '}
+        <strong className="font-medium">cartão não sai</strong> até a fatura ser paga — nos dois
+        casos o dinheiro ainda não se moveu de verdade. Transferência, aporte e empréstimo movem dinheiro e não
         aparecem na DRE, porque não mudam o resultado.
       </p>
 
@@ -369,7 +432,7 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
               </label>
               <select value={origem} onChange={e => setOrigem(e.target.value)} className="input text-sm w-full">
                 <option value="">Escolher…</option>
-                {(tipo === 'fatura_cartao' ? contasCorrente : saldos).map(s => (
+                {(tipo === 'fatura_cartao' ? contasCorrente : operaveis).map(s => (
                   <option key={s.conta_id} value={s.conta_id}>{s.nome}</option>
                 ))}
               </select>
@@ -381,7 +444,7 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
                 </label>
                 <select value={destino} onChange={e => setDestino(e.target.value)} className="input text-sm w-full">
                   <option value="">Escolher…</option>
-                  {(tipo === 'fatura_cartao' ? cartoes : saldos).map(s => (
+                  {(tipo === 'fatura_cartao' ? cartoes : operaveis).map(s => (
                     <option key={s.conta_id} value={s.conta_id}>{s.nome}</option>
                   ))}
                 </select>

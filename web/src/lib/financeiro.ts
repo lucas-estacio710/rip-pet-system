@@ -98,6 +98,85 @@ export function contaPadraoPara<T extends ContaEscolhivel>(contas: T[], metodo: 
   return (aceitam.find(c => c.preferencial_recebimento) || aceitam[0])?.id || ''
 }
 
+/**
+ * PRODUTO DA CONTA (mig 130) — o que ela é define o que ela faz.
+ *
+ * Antes, cadastrar conta era marcar 10 chips na mão: o que recebe, o que paga,
+ * se é cartão. Tudo isso o produto já determina. Aqui fica a tabela de verdade,
+ * e a tela só pergunta "o que vocês têm nesta instituição?".
+ */
+export type ProdutoConta = 'conta_corrente' | 'conta_pagamento' | 'maquininha' | 'cartao_credito' | 'dinheiro'
+
+export const PRODUTOS: {
+  v: ProdutoConta
+  label: string
+  desc: string
+  tipo: 'corrente' | 'dinheiro' | 'cartao'
+  entradas: string[]
+  saidas: string[]
+  liquidacao?: number      // dias até o dinheiro cair (informativo por ora)
+  varios?: boolean         // faz sentido ter mais de um
+}[] = [
+  {
+    v: 'conta_corrente', label: 'Conta corrente',
+    desc: 'Recebe e paga de tudo.',
+    tipo: 'corrente',
+    entradas: ['pix', 'dinheiro'], saidas: ['pix', 'boleto', 'transferencia', 'debito'],
+  },
+  {
+    v: 'conta_pagamento', label: 'Conta de pagamento',
+    desc: 'Tipo Nubank PJ ou PicPay: pix entra e sai, boleto sai.',
+    tipo: 'corrente',
+    entradas: ['pix'], saidas: ['pix', 'boleto'],
+  },
+  {
+    v: 'maquininha', label: 'Maquininha',
+    desc: 'Recebe crédito e débito. O dinheiro cai depois, já sem a taxa.',
+    tipo: 'corrente',
+    entradas: ['credito', 'debito'], saidas: [],
+    liquidacao: 30, varios: true,
+  },
+  {
+    v: 'cartao_credito', label: 'Cartão corporativo',
+    desc: 'Só paga. A despesa acumula e sai quando a fatura é paga.',
+    tipo: 'cartao',
+    entradas: [], saidas: ['credito'],
+    varios: true,
+  },
+  {
+    v: 'dinheiro', label: 'Dinheiro',
+    desc: 'Caixa físico da unidade.',
+    tipo: 'dinheiro',
+    entradas: ['dinheiro'], saidas: ['dinheiro'],
+  },
+]
+
+/** Instituições que aparecem como sugestão — a lista é aberta, dá pra digitar. */
+export const INSTITUICOES = [
+  'Itaú', 'Bradesco', 'Banco do Brasil', 'Santander', 'Caixa', 'Sicoob', 'Sicredi',
+  'Inter', 'Nubank', 'C6', 'PagBank', 'Mercado Pago',
+  'Stone', 'Cielo', 'Rede', 'GetNet', 'InfinitePay', 'SumUp',
+]
+
+/** O que gravar quando o produto é escolhido — o comportamento sai daqui. */
+export function camposDoProduto(p: ProdutoConta) {
+  const d = PRODUTOS.find(x => x.v === p)!
+  return {
+    produto: p,
+    tipo: d.tipo,
+    entradas: d.entradas,
+    saidas: d.saidas,
+    liquidacao_dias: d.liquidacao ?? null,
+  }
+}
+
+/** Nome que a conta ganha: "Itaú · Cartão corporativo 2". */
+export function nomeDaConta(instituicao: string, p: ProdutoConta, indice?: number): string {
+  const d = PRODUTOS.find(x => x.v === p)!
+  const base = `${instituicao.trim()} · ${d.label}`
+  return indice && indice > 1 ? `${base} ${indice}` : base
+}
+
 export const fmtBRL = (v?: number | null) =>
   Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 

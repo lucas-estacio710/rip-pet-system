@@ -29,6 +29,9 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { Plus, Loader2, Check, X, Pencil, Trash2, Landmark, CreditCard, Wallet, EyeOff, Eye, Star, ChevronRight } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
+import {
+  PRODUTOS, INSTITUICOES, camposDoProduto, nomeDaConta, type ProdutoConta,
+} from '@/lib/financeiro'
 
 /** Métodos que uma conta pode RECEBER — espelha o ENUM `metodo_pagamento`. */
 const ENTRADAS = [
@@ -59,6 +62,10 @@ type Conta = {
   nome: string
   tipo: string
   ativo: boolean
+  legado: boolean             // histórico (mig 127) — não se lança nela
+  instituicao: string | null
+  produto: string | null      // null = cadastrada antes da mig 130
+  unidades_extras: string[] | null
   entradas: string[]
   saidas: string[]
   preferencial_recebimento: boolean
@@ -74,7 +81,10 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
 
   const [contas, setContas] = useState<Conta[]>([])
   const [carregando, setCarregando] = useState(false)
-  const [nova, setNova] = useState('')
+  // Cadastro por INSTITUIÇÃO + PRODUTOS (mig 130): em vez de digitar um nome e
+  // marcar 10 chips, você diz ONDE é e O QUE tem lá — o resto é derivado.
+  const [inst, setInst] = useState('')
+  const [qtd, setQtd] = useState<Record<string, number>>({})
   const [salvando, setSalvando] = useState(false)
   const [aberta, setAberta] = useState<string | null>(null)   // conta expandida
   // Renomear é sobre a IDENTIDADE da conta e vive na própria linha; o painel
@@ -90,7 +100,7 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
     if (!currentUnit?.id) return
     setCarregando(true)
     const { data } = await supabase
-      .from('contas').select('id, nome, tipo, ativo, entradas, saidas, preferencial_recebimento')
+      .from('contas').select('id, nome, tipo, ativo, legado, instituicao, produto, unidades_extras, entradas, saidas, preferencial_recebimento')
       .eq('unidade_id', currentUnit.id)
       .order('ativo', { ascending: false }).order('nome')
     const base = ((data as unknown as Omit<Conta, 'entradasUso' | 'saidasUso'>[]) || [])
@@ -140,17 +150,40 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
   }
 
   async function criar() {
-    const nome = nova.trim()
-    if (!nome || !currentUnit?.id) return
-    if (duplicada(nome)) return toast(`Já existe uma conta "${nome}" nesta unidade`, 'error')
+    const instituicao = inst.trim()
+    if (!instituicao || !currentUnit?.id) return
+    const escolhidos = Object.entries(qtd).filter(([, n]) => n > 0)
+    if (!escolhidos.length) return toast('Escolha o que vocês têm nesta instituição', 'error')
+
+    // Uma linha por unidade do produto: 3 cartões viram 3 contas, porque cada um
+    // tem fatura e limite próprios — juntar impediria fechar um sem o outro.
+    const novas: Record<string, unknown>[] = []
+    for (const [prod, n] of escolhidos) {
+      const pr = prod as ProdutoConta
+      for (let i = 1; i <= n; i++) {
+        const nome = nomeDaConta(instituicao, pr, n > 1 ? i : undefined)
+        if (duplicada(nome)) continue          // já existe: não duplica em silêncio
+        novas.push({
+          nome, instituicao, unidade_id: currentUnit.id, ativo: true,
+          ...camposDoProduto(pr),
+        })
+      }
+    }
+    if (!novas.length) return toast('Essas contas já existem', 'error')
+
     setSalvando(true)
-    const { error } = await supabase.from('contas')
-      .insert({ nome, unidade_id: currentUnit.id, ativo: true })
+    const { error } = await supabase.from('contas').insert(novas)
     setSalvando(false)
     if (error) return toast(error.message, 'error')
-    setNova('')
-    toast(`Conta "${nome}" criada`, 'success')
+    setInst(''); setQtd({})
+    toast(novas.length === 1 ? 'Conta criada' : `${novas.length} contas criadas`, 'success')
     void carregar()
+  }
+
+  /** Classifica uma conta antiga (produto nulo) — um clique resolve. */
+  async function classificar(c: Conta, pr: ProdutoConta) {
+    await patch(c, camposDoProduto(pr) as Partial<Conta>)
+    toast('Conta classificada', 'success')
   }
 
   function abrirRename(c: Conta) {
@@ -180,14 +213,16 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
 
   /** O que a conta faz, em uma linha — é o que se lê sem abrir. */
   function resumo(c: Conta): string {
+    if (c.legado) return 'histórico — não recebe lançamento novo'
+    // O PRODUTO é a informação principal: quem sabe que é maquininha já sabe
+    // que recebe crédito e débito. Os métodos viram detalhe.
+    const prod = PRODUTOS.find(x => x.v === c.produto)
+    if (prod) return prod.desc
     const nome = (v: string) => (ENTRADAS.concat(SAIDAS).find(x => x.v === v)?.label || v).toLowerCase()
     const e = (c.entradas || []).length ? `recebe ${c.entradas.map(nome).join(', ')}` : ''
-    const s = (c.saidas || []).length ? `paga ${c.saidas.map(nome).join(', ')}` : ''
-    // O tipo aparece só quando NÃO é conta corrente: corrente é o padrão e
-    // repetir "conta corrente" em toda linha é ruído.
-    const t = c.tipo === 'cartao' ? 'cartão' : c.tipo === 'dinheiro' ? 'dinheiro' : ''
-    const partes = [t, e, s].filter(Boolean)
-    return partes.length ? partes.join(' · ') : 'serve pra tudo'
+    const sd = (c.saidas || []).length ? `paga ${c.saidas.map(nome).join(', ')}` : ''
+    const partes = [e, sd].filter(Boolean)
+    return partes.length ? partes.join(' · ') : 'não classificada'
   }
 
   function Chip({ on, label, onClick }: { on: boolean; label: string; onClick: () => void }) {
@@ -218,18 +253,74 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
       </div>
 
       {!somenteLeitura && (
-        <div className="card p-3 flex gap-2">
-          <input
-            value={nova}
-            onChange={e => setNova(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') void criar() }}
-            placeholder="Nome da conta, como vocês chamam no dia a dia"
-            className="input text-sm flex-1 min-w-0"
-          />
-          <button onClick={() => void criar()} disabled={!nova.trim() || salvando} className="btn-primary text-sm shrink-0">
-            {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-            Adicionar
-          </button>
+        <div className="card p-3 space-y-3">
+          <div>
+            <label className="text-xs text-[var(--surface-500)] block mb-1">Instituição</label>
+            <input
+              list="instituicoes"
+              value={inst}
+              onChange={e => setInst(e.target.value)}
+              placeholder="Itaú, Stone, Nubank…"
+              className="input text-sm w-full max-w-xs"
+            />
+            <datalist id="instituicoes">
+              {INSTITUICOES.map(i => <option key={i} value={i} />)}
+            </datalist>
+          </div>
+
+          {inst.trim() && (
+            <>
+              <div>
+                <p className="text-xs text-[var(--surface-500)] mb-1.5">
+                  O que vocês têm {inst.trim() ? `no ${inst.trim()}` : 'aqui'}?
+                </p>
+                <div className="space-y-1">
+                  {PRODUTOS.map(pr => {
+                    const n = qtd[pr.v] || 0
+                    return (
+                      <div key={pr.v} className="flex items-center gap-2 py-1">
+                        <input
+                          type="checkbox"
+                          checked={n > 0}
+                          onChange={e => setQtd(q => ({ ...q, [pr.v]: e.target.checked ? 1 : 0 }))}
+                          className="h-4 w-4 accent-emerald-500 shrink-0"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm text-[var(--surface-800)]">{pr.label}</p>
+                          <p className="text-[11px] text-[var(--surface-400)]">{pr.desc}</p>
+                        </div>
+                        {/* Quantidade só onde faz sentido ter vários: 3 cartões,
+                            2 maquininhas. Ninguém tem duas contas correntes iguais
+                            na mesma instituição. */}
+                        {pr.varios && n > 0 && (
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              onClick={() => setQtd(q => ({ ...q, [pr.v]: Math.max(1, n - 1) }))}
+                              className="btn-secondary text-xs px-2 py-0.5"
+                            >−</button>
+                            <span className="text-mono text-sm w-5 text-center">{n}</span>
+                            <button
+                              onClick={() => setQtd(q => ({ ...q, [pr.v]: Math.min(20, n + 1) }))}
+                              className="btn-secondary text-xs px-2 py-0.5"
+                            >+</button>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <button
+                onClick={() => void criar()}
+                disabled={salvando || !Object.values(qtd).some(n => n > 0)}
+                className="btn-primary text-sm"
+              >
+                {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                Adicionar
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -298,6 +389,15 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
                         <Star className="h-3 w-3 shrink-0" style={{ color: '#f59e0b', fill: '#f59e0b' }} />
                       )}
                       {!c.ativo && <span className="text-xs text-[var(--surface-400)]">· desativada</span>}
+                      {!c.produto && !c.legado && (
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
+                          style={{ background: 'rgba(245,158,11,0.16)', color: '#f59e0b' }}
+                          title="Cadastrada antes do modelo de produtos. Abra e diga o que ela é."
+                        >
+                          classificar
+                        </span>
+                      )}
                       {!somenteLeitura && (
                         <button
                           onClick={e => { e.stopPropagation(); abrirRename(c) }}
@@ -338,21 +438,24 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
                         </button>
                       </div>
 
-                      {/* O TIPO decide o comportamento no Caixa — em cartão a
-                          despesa acumula e só sai quando a fatura é paga. */}
+                      {/* O PRODUTO define tudo: tipo, o que recebe, o que paga.
+                          Escolher aqui reescreve os três de uma vez (mig 130). */}
                       <div>
-                        <p className="text-[11px] text-[var(--surface-500)] mb-1.5">Tipo</p>
+                        <p className="text-[11px] text-[var(--surface-500)] mb-1.5">
+                          O que é esta conta{c.instituicao ? ` no ${c.instituicao}` : ''}?
+                        </p>
                         <div className="flex flex-wrap gap-1.5">
-                          {TIPOS.map(t => (
+                          {PRODUTOS.map(pr => (
                             <Chip
-                              key={t.v} label={t.label}
-                              on={c.tipo === t.v}
-                              onClick={() => void patch(c, { tipo: t.v })}
+                              key={pr.v} label={pr.label}
+                              on={c.produto === pr.v}
+                              onClick={() => void classificar(c, pr.v)}
                             />
                           ))}
                         </div>
                         <p className="text-[11px] text-[var(--surface-400)] mt-1">
-                          {TIPOS.find(t => t.v === c.tipo)?.ajuda}
+                          {PRODUTOS.find(pr => pr.v === c.produto)?.desc
+                            || 'Escolha o produto e o comportamento vem junto.'}
                         </p>
                       </div>
 
