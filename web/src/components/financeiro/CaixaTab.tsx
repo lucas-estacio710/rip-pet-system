@@ -31,6 +31,8 @@ import { fmtBRL, fmtData, hojeISO, limitesDoMes } from '@/lib/financeiro'
 type Saldo = {
   conta_id: string; nome: string; tipo: string; legado: boolean
   entradas: number; saidas: number; saldo: number
+  unidade_id: string
+  unidades_extras: string[] | null   // outras unidades que usam a conta (mig 128)
 }
 type Linha = {
   conta_id: string; data: string; tipo: string
@@ -65,9 +67,13 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
   const [linhas, setLinhas] = useState<Linha[]>([])
   const [carregando, setCarregando] = useState(false)
   const [conta, setConta] = useState('')          // filtro do extrato
-  // 24% dos recebimentos históricos caíram em conta de outra unidade (bug dos
-  // UUIDs chumbados, mig 126). O dinheiro ENTROU aqui — então o saldo conta —
-  // mas o extrato fica ilegível com pets de outras filiais no meio.
+  // O extrato pode ter linha de outra unidade por DOIS motivos, os dois legítimos
+  // de mostrar e os dois ruins de ler misturados:
+  //   1. cicatriz do bug dos UUIDs chumbados (mig 126/127)
+  //   2. CONTA COMPARTILHADA (mig 128): a Pinda divide as contas Itaú com a
+  //      Matriz, então vê os repasses que a Matriz recebeu ali — e isso é útil,
+  //      porque ela ajuda a cobrar as unidades.
+  // O saldo conta tudo; o filtro é só de leitura.
   const [soDaqui, setSoDaqui] = useState(true)
   const [unidades, setUnidades] = useState<Record<string, string>>({})
 
@@ -85,16 +91,23 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
     if (!currentUnit?.id) return
     setCarregando(true)
     const { ini, fim } = limitesDoMes(mes)
-    const [s, k] = await Promise.all([
-      // Saldo é ACUMULADO — não filtra por mês, senão não é saldo.
-      supabase.from('vw_caixa_saldo').select('*').eq('unidade_id', currentUnit.id),
-      supabase.from('vw_caixa').select('*')
-        .eq('unidade_id', currentUnit.id)
-        .gte('data', ini).lte('data', fim)
-        .order('data', { ascending: false }),
-    ])
-    setSaldos(((s.data as Saldo[]) || []).sort((a, b) => a.nome.localeCompare(b.nome)))
-    setLinhas(((k.data as Linha[]) || []))
+    // As contas que ESTA unidade enxerga: as dela + as compartilhadas com ela
+    // (mig 128 — Matriz e Pinda dividem as contas Itaú). Saldo é ACUMULADO, por
+    // isso não filtra por mês: senão não é saldo.
+    const { data: sd } = await supabase.from('vw_caixa_saldo').select('*')
+      .or(`unidade_id.eq.${currentUnit.id},unidades_extras.cs.{${currentUnit.id}}`)
+    const visiveisContas = ((sd as Saldo[]) || []).sort((a, b) => a.nome.localeCompare(b.nome))
+    setSaldos(visiveisContas)
+
+    // O extrato segue as CONTAS visíveis, não a unidade da conta — senão a Pinda
+    // não veria nada da conta Itaú, que pertence à Matriz.
+    const ids = visiveisContas.map(c => c.conta_id)
+    if (!ids.length) { setLinhas([]); setCarregando(false); return }
+    const { data: kd } = await supabase.from('vw_caixa').select('*')
+      .in('conta_id', ids)
+      .gte('data', ini).lte('data', fim)
+      .order('data', { ascending: false })
+    setLinhas(((kd as Linha[]) || []))
     setCarregando(false)
   }, [supabase, currentUnit?.id, mes])
 
@@ -179,7 +192,7 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
         {deFora.length > 0 && (
           <label
             className="flex items-center gap-1.5 text-xs text-[var(--surface-500)] cursor-pointer"
-            title="Recebimentos de contratos de outra filial que caíram nesta conta. O saldo conta sempre — isto filtra só a lista."
+            title="Movimento de outra unidade nesta conta — conta compartilhada ou histórico antigo. O saldo conta sempre; isto filtra só a lista."
           >
             <input
               type="checkbox" checked={soDaqui}
@@ -212,6 +225,15 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
               <div className="flex items-center gap-1.5">
                 <IconeConta tipo={s.tipo} />
                 <span className="text-xs text-[var(--surface-600)] truncate">{s.nome}</span>
+                {(s.unidades_extras || []).length > 0 && (
+                  <span
+                    className="text-[9px] px-1 py-0.5 rounded-full shrink-0"
+                    style={{ background: 'rgba(99,102,241,0.16)', color: '#6366f1' }}
+                    title="Conta compartilhada entre unidades — o saldo é um só. Num consolidado, contar uma vez."
+                  >
+                    compartilhada
+                  </span>
+                )}
                 {s.legado && (
                   <span
                     className="text-[9px] px-1 py-0.5 rounded-full shrink-0"
@@ -294,9 +316,9 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
       <p className="text-xs text-[var(--surface-500)]">
         {deFora.length > 0 && (
           <>
-            <strong className="font-medium">O saldo conta tudo que entrou na conta</strong>, inclusive
-            recebimentos de contratos de outras filiais — o dinheiro está lá de verdade, e tirá-lo faria
-            o saldo parar de bater com o extrato do banco. O filtro acima limpa só a lista.{' '}
+            <strong className="font-medium">O saldo conta tudo que passou na conta</strong>, inclusive
+            movimento de outra unidade — em conta compartilhada isso é o esperado, e o dinheiro está lá
+            de verdade. O filtro acima limpa só a lista.{' '}
           </>
         )}
         Recebimentos entram pelo valor líquido, já sem a taxa da maquininha. Despesa comprada no
