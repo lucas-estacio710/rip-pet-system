@@ -81,10 +81,6 @@ export type Database = {
           observacoes: string | null
           latitude: number | null
           longitude: number | null
-          // Campos do pelinho (rescaldo padrão)
-          pelinho_quer: boolean | null  // null=não definido, true=quer, false=não quer
-          pelinho_feito: boolean
-          pelinho_quantidade: number
           created_at: string
           updated_at: string
         }

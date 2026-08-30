@@ -101,6 +101,7 @@ export default function MoverFichaPanel() {
       if (json.codigoDepois && json.codigoAntes !== json.codigoDepois) msg += ` · código ${json.codigoDepois}`
       toast(msg, 'success')
       if (json.funcAviso) toast(json.funcAviso, 'info')
+      if (json.responsavelAviso) toast(json.responsavelAviso, 'info')
       // Reset
       setAnalise(null); setFichaSelecionada(null); setDestinoId('')
       setBusca(''); setResultados([])

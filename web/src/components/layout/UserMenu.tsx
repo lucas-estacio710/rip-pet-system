@@ -22,6 +22,7 @@ const ROLE_LABELS = {
   super_admin: 'Super Admin',
   gerente: 'Gerente',
   operador: 'Concierge',
+  operacional: 'Operacional',
 }
 
 export function UserMenu() {
@@ -51,6 +52,9 @@ export function UserMenu() {
 
   const displayName = userName || userEmail?.split('@')[0] || 'Usuário'
   const initials = displayName.slice(0, 2).toUpperCase()
+  // Operacional só vê Tema/Minha Conta/Sair aqui — "Gestão"/"Administração" já ficam ocultos
+  // pelas checagens de role abaixo; "Impressão de Documentos" era o único item sem gate.
+  const isOperacional = currentRole === 'operacional'
 
   return (
     <div ref={ref} className="relative">
@@ -226,6 +230,7 @@ export function UserMenu() {
           )}
 
           {/* Impressão de Documentos */}
+          {!isOperacional && (
           <div style={{ borderBottom: '1px solid #334155' }}>
             <Link
               href="/impressao-documentos"
@@ -239,6 +244,7 @@ export function UserMenu() {
               <span className="text-sm">Impressão de Documentos</span>
             </Link>
           </div>
+          )}
 
           {/* Minha Conta */}
           <div style={{ borderBottom: '1px solid #334155' }}>

@@ -249,10 +249,6 @@ type Contrato = {
   unidade_remocao: { id: string; codigo: string; nome: string } | null
   unidade_entrega_id: string | null
   unidade_entrega: { id: string; codigo: string; nome: string } | null
-  // Pelinho (rescaldo padrão)
-  pelinho_quer: boolean | null
-  pelinho_feito: boolean
-  pelinho_quantidade: number
   // Certificado
   certificado_nome_1: string | null
   certificado_nome_2: string | null
@@ -1144,34 +1140,6 @@ export default function ContratoDetalhe() {
     return { status: 'ok', color: 'bg-green-500', label: 'OK' }
   }
 
-  // Sincroniza pelinho_quantidade/quer/feito baseado nos contrato_produtos reais
-  async function sincronizarPelinho() {
-    if (!params.id || !contrato) return
-
-    const { data: pelinhos } = await supabase
-      .from('contrato_produtos')
-      .select('rescaldo_feito, produto:produtos(codigo)')
-      .eq('contrato_id', params.id)
-
-    // Pelinho é identificado pelo produto código 0004 (mesma fonte do PelinhoModal)
-    const items = (pelinhos || []).filter((cp: { produto: { codigo: string | null } | null }) => cp.produto?.codigo === '0004')
-    const qtd = items.length
-    const todoFeitos = qtd > 0 && items.every((cp: { rescaldo_feito: boolean }) => cp.rescaldo_feito)
-
-    const updates: Record<string, unknown> = {
-      pelinho_quantidade: qtd,
-      pelinho_quer: qtd > 0,
-      pelinho_feito: todoFeitos,
-    }
-
-    await supabase
-      .from('contratos')
-      .update(updates as never)
-      .eq('id', params.id as string)
-
-    setContrato(prev => prev ? { ...prev, ...updates } as typeof prev : prev)
-  }
-
   function selecionarProdutoParaAdicionar(produto: Produto) {
     setProdutoParaAdicionar(produto)
     setAddProdutoForm({ quantidade: 1, precoCustom: '', descontoTipo: 'percent', descontoPercent: '', descontoValor: '' })
@@ -1212,10 +1180,9 @@ export default function ContratoDetalhe() {
         produtoParaAdicionar.estoque_infinito,
       )
 
-      // Se adicionou pelinho (0004) pelo card, reconcilia os campos pelinho_* do contrato
-      if (produtoParaAdicionar.codigo === '0004') await sincronizarPelinho()
-
       // Trigger SQL atualizou valor_acessorios e desconto_acessorios → só sincroniza local
+      // (carregarProdutosContrato já recarrega contrato_produtos — o farol de pelinho lê dali
+      // direto, reflete sozinho, sem sincronização manual)
       await carregarProdutosContrato()
       await recarregarValoresContrato()
       setProdutoParaAdicionar(null)
@@ -1277,11 +1244,6 @@ export default function ContratoDetalhe() {
           +(produtoRemovido.quantidade || 1),
           produtoRemovido.produto.estoque_infinito,
         )
-      }
-
-      // Sincronizar pelinho se removeu um (produto 0004)
-      if (produtoRemovido?.produto?.codigo === '0004') {
-        await sincronizarPelinho()
       }
 
       // Trigger SQL atualizou valor_acessorios e desconto_acessorios → só sincroniza local
@@ -1752,10 +1714,13 @@ export default function ContratoDetalhe() {
   }
 
   async function carregarProdutosRescaldo() {
+    // Pelinho tem popup dedicado (PelinhoModal) — não entra na lista genérica do RescaldoModal,
+    // senão vira um 3º caminho concorrente pra adicionar o mesmo produto.
     const { data } = await supabase
       .from('produtos')
       .select('id, codigo, nome, tipo, rescaldo_tipo, preco, imagem_url')
       .not('rescaldo_tipo', 'is', null)
+      .neq('rescaldo_tipo', 'pelinho')
       .eq('ativo', true)
       .order('nome')
     if (data) setProdutosRescaldo(data as typeof produtosRescaldo)
@@ -1847,11 +1812,6 @@ export default function ContratoDetalhe() {
     if (!error) {
       await ajustarEstoque(produtoId, 1, cpRemovido?.produto?.estoque_infinito)
       setContratoProdutos(prev => prev.filter(cp => cp.id !== cpId))
-
-      // Sincronizar pelinho se removeu um
-      if (cpRemovido?.produto?.rescaldo_tipo === 'pelinho') {
-        await sincronizarPelinho()
-      }
 
       // Trigger SQL atualizou valor_acessorios e desconto_acessorios → só sincroniza local
       await recarregarValoresContrato()
@@ -5206,9 +5166,8 @@ ${petNome}`
             isOpen={pelinhoModalOpen}
             onClose={() => setPelinhoModalOpen(false)}
             contrato={contrato}
-            onSuccess={(updated) => {
-              setContrato(prev => prev ? { ...prev, ...updated } : prev)
-            }}
+            quantidadeAtual={contratoProdutos.filter(cp => cp.produto?.rescaldo_tipo === 'pelinho').length}
+            onSuccess={carregarProdutosContrato}
           />
           <CertificadoModal
             isOpen={certificadoModalOpen}

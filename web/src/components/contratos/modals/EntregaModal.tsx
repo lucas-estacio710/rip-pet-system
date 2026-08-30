@@ -52,6 +52,28 @@ export default function EntregaModal({ isOpen, onClose, contrato, onSuccess }: P
 
       if (error) throw error
 
+      // Se tinha tarefa de Entrega pendente pro Operacional nesse contrato, marca concluída —
+      // senão fica órfã em /tarefas pra sempre (a entrega já foi confirmada por aqui, direto
+      // no pipeline/detalhe, não pelo app). Mesma classe de bug do cancelamento de ficha órfão
+      // (ver CHANGELOG 23/08/2026).
+      const { data: { user } } = await supabase.auth.getUser()
+      await supabase.from('tarefas_operacionais').update({
+        status: 'concluida',
+        concluido_em: new Date().toISOString(),
+        anotacao_conclusao: 'Marcado como entregue direto no contrato (fora do app do Operacional).',
+      } as never).eq('contrato_id', contrato.id).eq('tipo', 'entrega').eq('status', 'pendente')
+      await supabase.from('historico_alteracoes').insert({
+        entidade: 'contratos',
+        entidade_id: contrato.id,
+        entidade_nome: contrato.pet_nome,
+        campo: 'status',
+        campo_label: 'Entrega confirmada',
+        valor_novo: 'Feito direto no contrato — tarefa do Operacional (se havia) foi concluída junto',
+        tipo: 'conclusao',
+        alterado_por: user?.id ?? null,
+        alterado_por_email: user?.email ?? null,
+      } as never)
+
       onSuccess?.({ id: contrato.id, status: 'finalizado', data_entrega: dataEntrega })
       onClose()
     } catch (err) {

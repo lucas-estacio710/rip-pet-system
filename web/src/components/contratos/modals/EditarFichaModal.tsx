@@ -48,15 +48,17 @@ type ContratoEdit = {
   estabelecimento_id: string | null
   estabelecimento?: { nome: string | null } | null
   funcionario_id: string | null
+  responsavel_user_id: string | null
   observacoes: string | null
   unidade_id: string | null
 }
 
 type Funcionario = { id: string; nome: string }
+type Atribuivel = { user_id: string; nome: string | null; role: string }
 
 export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClose, onSaved }: Props) {
   const supabase = createClient()
-  const { isSuperAdmin, currentRole } = useUnit()
+  const { isSuperAdmin, currentRole, allUnidades } = useUnit()
   // Modo sensível só pra gerente ou super_admin — operador não vê o toggle nem o bloco
   const podeEditarSensivel = isSuperAdmin || currentRole === 'gerente'
 
@@ -64,6 +66,7 @@ export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClos
   const [saving, setSaving] = useState(false)
   const [contrato, setContrato] = useState<ContratoEdit | null>(null)
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([])
+  const [atribuiveis, setAtribuiveis] = useState<Atribuivel[]>([])
   const [modoSensivel, setModoSensivel] = useState(false)
 
   // ===== Form: editáveis no modo padrão =====
@@ -81,7 +84,9 @@ export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClos
   const [petPeso, setPetPeso] = useState('')
   const [petGenero, setPetGenero] = useState('')
   const [funcionarioId, setFuncionarioId] = useState('')
+  const [responsavelUserId, setResponsavelUserId] = useState('')
   const [certs, setCerts] = useState<string[]>(['', '', '', '', '', '', ''])
+  const temOperacional = !!allUnidades.find(u => u.id === (contrato?.unidade_id || unidadeId))?.modulos_ativos?.includes('cb_operacional')
 
   // Carregar contrato + funcionários da unidade
   useEffect(() => {
@@ -92,7 +97,7 @@ export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClos
     ;(async () => {
       const { data: c } = await supabase
         .from('contratos')
-        .select('id, codigo, pet_nome, numero_lacre, data_acolhimento, tipo_cremacao, pet_especie, pet_raca, pet_cor, pet_idade_anos, pet_peso, pet_genero, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_nome_6, certificado_nome_7, clinica_coleta, estabelecimento_id, estabelecimento:estabelecimento_id(nome), funcionario_id, observacoes, unidade_id')
+        .select('id, codigo, pet_nome, numero_lacre, data_acolhimento, tipo_cremacao, pet_especie, pet_raca, pet_cor, pet_idade_anos, pet_peso, pet_genero, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_nome_6, certificado_nome_7, clinica_coleta, estabelecimento_id, estabelecimento:estabelecimento_id(nome), funcionario_id, responsavel_user_id, observacoes, unidade_id')
         .eq('id', contratoId)
         .single()
       if (cancelado) return
@@ -116,6 +121,7 @@ export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClos
       setPetPeso(co?.pet_peso != null ? String(co.pet_peso) : '')
       setPetGenero(co?.pet_genero || '')
       setFuncionarioId(co?.funcionario_id || '')
+      setResponsavelUserId(co?.responsavel_user_id || '')
       setCerts([
         co?.certificado_nome_1 || '', co?.certificado_nome_2 || '', co?.certificado_nome_3 || '',
         co?.certificado_nome_4 || '', co?.certificado_nome_5 || '', co?.certificado_nome_6 || '',
@@ -126,6 +132,15 @@ export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClos
       if (uId) {
         const { data: f } = await supabase.from('funcionarios').select('id, nome').eq('unidade_id', uId).order('nome', { ascending: true })
         if (!cancelado) setFuncionarios((f as Funcionario[]) || [])
+
+        // cb_operacional: Responsável vem de quem já loga na unidade, não de funcionarios.
+        const unidade = allUnidades.find(u => u.id === uId)
+        if (unidade?.modulos_ativos?.includes('cb_operacional')) {
+          const { data: atrib } = await supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: uId } as never) as { data: Atribuivel[] | null }
+          if (!cancelado) setAtribuiveis(atrib || [])
+        } else if (!cancelado) {
+          setAtribuiveis([])
+        }
       }
       setLoading(false)
     })()
@@ -154,6 +169,7 @@ export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClos
         upd.pet_peso = petPeso.trim() ? parseFloat(petPeso.replace(',', '.')) || null : null
         upd.pet_genero = petGenero || null
         upd.funcionario_id = funcionarioId || null
+        upd.responsavel_user_id = responsavelUserId || null
         upd.certificado_nome_1 = certs[0]?.trim() || null
         upd.certificado_nome_2 = certs[1]?.trim() || null
         upd.certificado_nome_3 = certs[2]?.trim() || null
@@ -338,12 +354,21 @@ export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClos
 
                 <div>
                   <label className="text-caption text-[var(--shell-text-muted)] block mb-1">Colaborador resp. acolhimento</label>
-                  <select value={funcionarioId} onChange={(e) => setFuncionarioId(e.target.value)} className="input w-full">
-                    <option value="">— sem responsável —</option>
-                    {funcionarios.map(f => (
-                      <option key={f.id} value={f.id}>{f.nome}</option>
-                    ))}
-                  </select>
+                  {temOperacional ? (
+                    <select value={responsavelUserId} onChange={(e) => setResponsavelUserId(e.target.value)} className="input w-full">
+                      <option value="">— sem responsável —</option>
+                      {atribuiveis.map(a => (
+                        <option key={a.user_id} value={a.user_id}>{a.nome}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <select value={funcionarioId} onChange={(e) => setFuncionarioId(e.target.value)} className="input w-full">
+                      <option value="">— sem responsável —</option>
+                      {funcionarios.map(f => (
+                        <option key={f.id} value={f.id}>{f.nome}</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
               </div>
             )}

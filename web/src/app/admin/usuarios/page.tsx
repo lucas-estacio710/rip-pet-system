@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import {
-  Users, Search, X, Plus, Building2, Shield, Crown, User,
+  Users, Search, X, Plus, Building2, Shield, Crown, User, Truck,
   Key, ToggleLeft, ToggleRight, Pencil, Trash2, Loader2, Check,
   ArrowDownAZ, CalendarPlus, Clock
 } from 'lucide-react'
@@ -37,6 +37,7 @@ const ROLE_CONFIG: Record<UserRole, { label: string; icon: typeof Crown; color: 
   super_admin: { label: 'Super Admin', icon: Crown, color: 'text-amber-400' },
   gerente: { label: 'Gerente', icon: Shield, color: 'text-purple-400' },
   operador: { label: 'Concierge', icon: User, color: 'text-orange-400' },
+  operacional: { label: 'Operacional', icon: Truck, color: 'text-cyan-400' },
 }
 
 // ============================================
@@ -671,7 +672,10 @@ export default function AdminUsuariosPage() {
                         ))}
                       </select>
 
-                      {/* Role */}
+                      {/* Role — cargo é cargo, sem trava por módulo aqui: quem decide se
+                          "Tarefas" aparece é o gate de sempre (FLS tela_tarefas + cb_operacional
+                          em Sidebar.tsx/tarefas/page.tsx). Sem módulo ativo, o Operacional só
+                          vê o aviso "módulo não ativo" — comportamento normal, não é erro. */}
                       <select
                         value={perfil.role}
                         onChange={e => updatePerfil(idx, 'role', e.target.value)}
@@ -681,6 +685,7 @@ export default function AdminUsuariosPage() {
                         <option value="operador">Concierge</option>
                         <option value="gerente">Gerente</option>
                         <option value="super_admin">Super Admin</option>
+                        <option value="operacional">Operacional</option>
                       </select>
 
                       {/* Default */}

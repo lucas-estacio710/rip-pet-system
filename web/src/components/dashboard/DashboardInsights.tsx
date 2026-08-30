@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import {
-  Building2, Clock, UserCheck, PawPrint, Package, Heart,
+  Building2, Clock, UserCheck, PawPrint, Package,
   ArrowUpDown, ChevronDown, ChevronRight, Zap, Eye
 } from 'lucide-react'
 import {
@@ -33,8 +33,6 @@ export type ContratoFull = {
   funcionario_id: string | null
   seguradora: string | null
   velorio_deseja: boolean | null
-  pelinho_quer: boolean | null
-  pelinho_feito: boolean | null
   acompanhamento_online: boolean | null
   acompanhamento_presencial: boolean | null
 }
@@ -82,13 +80,12 @@ type Props = {
   estabelecimentos: Estabelecimento[]
 }
 
-type InsightTab = 'clinicas' | 'horarios' | 'equipe' | 'recordacoes' | 'urnas' | 'comportamento'
+type InsightTab = 'clinicas' | 'horarios' | 'equipe' | 'urnas' | 'comportamento'
 
 const TABS: { key: InsightTab; label: string; icon: typeof Building2; mobileLabel: string }[] = [
   { key: 'clinicas', label: 'Clinicas', icon: Building2, mobileLabel: 'Clinicas' },
   { key: 'horarios', label: 'Horarios', icon: Clock, mobileLabel: 'Horarios' },
   { key: 'equipe', label: 'Equipe', icon: UserCheck, mobileLabel: 'Equipe' },
-  { key: 'recordacoes', label: 'Recordacoes', icon: Heart, mobileLabel: 'Record.' },
   { key: 'urnas', label: 'Urnas & Upsell', icon: Package, mobileLabel: 'Urnas' },
   { key: 'comportamento', label: 'Comportamento', icon: Eye, mobileLabel: 'Comport.' },
 ]
@@ -175,7 +172,6 @@ export default function DashboardInsights({ contratos, pagamentos, contratoProdu
             {activeTab === 'clinicas' && <ClinicasInsight contratos={contratos} pagamentos={pagamentos} estabelecimentos={estabelecimentos} />}
             {activeTab === 'horarios' && <HorariosInsight contratos={contratos} />}
             {activeTab === 'equipe' && <EquipeInsight contratos={contratos} pagamentos={pagamentos} funcionarios={funcionarios} />}
-            {activeTab === 'recordacoes' && <RecordacoesInsight contratos={contratos} contratoProdutos={contratoProdutos} produtos={produtos} />}
             {activeTab === 'urnas' && <UrnasInsight contratos={contratos} contratoProdutos={contratoProdutos} produtos={produtos} />}
             {activeTab === 'comportamento' && <ComportamentoInsight contratos={contratos} pagamentos={pagamentos} fontes={fontes} estabelecimentos={estabelecimentos} />}
           </div>
@@ -539,149 +535,6 @@ function EquipeInsight({ contratos, pagamentos, funcionarios }: {
           )}
         </ResponsiveContainer>
       </div>
-    </div>
-  )
-}
-
-// ============================================
-// 4. RECORDACOES INSIGHT
-// ============================================
-function RecordacoesInsight({ contratos, contratoProdutos, produtos }: {
-  contratos: ContratoFull[]
-  contratoProdutos: ContratoProduto[]
-  produtos: Produto[]
-}) {
-  // Pelinho analysis
-  const pelinhoStats = useMemo(() => {
-    const total = contratos.length
-    const quer = contratos.filter(c => c.pelinho_quer === true).length
-    const naoQuer = contratos.filter(c => c.pelinho_quer === false).length
-    const indefinido = total - quer - naoQuer
-    const feito = contratos.filter(c => c.pelinho_feito === true).length
-    const pendente = quer - feito
-
-    return { total, quer, naoQuer, indefinido, feito, pendente, pctQuer: total > 0 ? Math.round((quer / total) * 100) : 0 }
-  }, [contratos])
-
-  // Rescaldo products analysis
-  const rescaldoStats = useMemo(() => {
-    const rescaldoProdutos = produtos.filter(p => p.codigo === '0004')
-    const rescaldoIds = new Set(rescaldoProdutos.map(p => p.id))
-    const comRescaldo = new Set<string>()
-    const rescaldoByTipo: Record<string, number> = {}
-
-    contratoProdutos.forEach(cp => {
-      if (rescaldoIds.has(cp.produto_id)) {
-        comRescaldo.add(cp.contrato_id)
-        const prod = rescaldoProdutos.find(p => p.id === cp.produto_id)
-        if (prod) {
-          rescaldoByTipo[prod.nome] = (rescaldoByTipo[prod.nome] || 0) + 1
-        }
-      }
-    })
-
-    const total = contratos.length
-    const sem = total - comRescaldo.size
-
-    return {
-      com: comRescaldo.size,
-      sem,
-      pctCom: total > 0 ? Math.round((comRescaldo.size / total) * 100) : 0,
-      byTipo: Object.entries(rescaldoByTipo)
-        .map(([name, value]) => ({ name, value }))
-        .sort((a, b) => b.value - a.value),
-    }
-  }, [contratos, contratoProdutos, produtos])
-
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      {/* Pelinho */}
-      <ChartCard title="Pelinho (Recordacao Padrao)" subtitle={`${pelinhoStats.pctQuer}% dos tutores querem`}>
-        <div className="space-y-3">
-          <div className="flex items-center gap-4">
-            <div className="w-28 h-28 flex-shrink-0">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={[
-                      { name: 'Quer', value: pelinhoStats.quer },
-                      { name: 'Nao quer', value: pelinhoStats.naoQuer },
-                      { name: 'Indefinido', value: pelinhoStats.indefinido },
-                    ].filter(d => d.value > 0)}
-                    innerRadius={25}
-                    outerRadius={45}
-                    paddingAngle={2}
-                    dataKey="value"
-                  >
-                    <Cell fill="#10b981" />
-                    <Cell fill="#ef4444" />
-                    <Cell fill="#64748b" />
-                  </Pie>
-                  <Tooltip content={<SimpleTooltip />} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="space-y-2 text-xs">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-green-500" />
-                <span className="text-[var(--surface-500)]">Quer:</span>
-                <span className="text-mono font-bold text-[var(--surface-700)]">{pelinhoStats.quer}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-red-500" />
-                <span className="text-[var(--surface-500)]">Nao quer:</span>
-                <span className="text-mono font-bold text-[var(--surface-700)]">{pelinhoStats.naoQuer}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-slate-500" />
-                <span className="text-[var(--surface-500)]">Indefinido:</span>
-                <span className="text-mono font-bold text-[var(--surface-700)]">{pelinhoStats.indefinido}</span>
-              </div>
-              {pelinhoStats.pendente > 0 && (
-                <div className="pt-1 border-t border-[var(--surface-200)]">
-                  <span className="text-amber-400 font-semibold">{pelinhoStats.pendente} pendente(s) de fazer</span>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </ChartCard>
-
-      {/* Itens de Recordacao */}
-      <ChartCard title="Recordacoes Adicionais" subtitle={`${rescaldoStats.pctCom}% tem alguma recordacao`}>
-        <div className="space-y-3">
-          {/* Com vs Sem */}
-          <div className="flex gap-3">
-            <div className="flex-1 p-2.5 rounded-lg bg-green-900/20 border border-green-700/50 text-center">
-              <p className="text-lg font-bold text-mono text-green-400">{rescaldoStats.com}</p>
-              <p className="text-[10px] text-[var(--surface-400)]">Com recordacao</p>
-            </div>
-            <div className="flex-1 p-2.5 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)] text-center">
-              <p className="text-lg font-bold text-mono text-[var(--surface-500)]">{rescaldoStats.sem}</p>
-              <p className="text-[10px] text-[var(--surface-400)]">Sem recordacao</p>
-            </div>
-          </div>
-
-          {/* Breakdown by type */}
-          {rescaldoStats.byTipo.length > 0 && (
-            <div className="space-y-1.5">
-              {rescaldoStats.byTipo.map((item, i) => {
-                const maxVal = rescaldoStats.byTipo[0]?.value || 1
-                return (
-                  <div key={item.name} className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
-                    <span className="text-xs text-[var(--surface-600)] flex-1 truncate">{item.name}</span>
-                    <div className="w-16 h-1.5 rounded-full bg-[var(--surface-100)] overflow-hidden">
-                      <div className="h-full rounded-full" style={{ width: `${(item.value / maxVal) * 100}%`, background: PIE_COLORS[i % PIE_COLORS.length] }} />
-                    </div>
-                    <span className="text-mono text-xs font-semibold text-[var(--surface-700)] w-6 text-right">{item.value}</span>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      </ChartCard>
     </div>
   )
 }

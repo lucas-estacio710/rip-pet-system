@@ -26,6 +26,9 @@ export type AcolhimentoData = {
   enderecoOutro: string
   // Responsável pelo Acolhimento
   funcionarioId: string
+  // Unidade com cb_operacional: Responsável vem de `perfis` direto — este campo guarda o
+  // user_id, `funcionarioId` fica vazio nesse caminho (ver contratos.responsavel_user_id).
+  responsavelUserId: string
   semResponsavel: boolean
   // Data e Hora do Acolhimento
   dataHoraAcolhimento: string
@@ -49,6 +52,7 @@ export const ACOLHIMENTO_INICIAL: AcolhimentoData = {
   clinicaTextoLivre: '',
   enderecoOutro: '',
   funcionarioId: '',
+  responsavelUserId: '',
   semResponsavel: false,
   dataHoraAcolhimento: '',
   semDataHora: false,
@@ -57,6 +61,7 @@ export const ACOLHIMENTO_INICIAL: AcolhimentoData = {
 }
 
 type Funcionario = { id: string; nome: string }
+type Atribuivel = { user_id: string; nome: string | null; role: string }
 type Estabelecimento = { id: string; nome: string; tipo?: string | null; cidade?: string | null }
 
 type Props = {
@@ -64,6 +69,10 @@ type Props = {
   onChange: (v: AcolhimentoData) => void
   temPadronizacaoClinicas: boolean
   funcionarios: Funcionario[]
+  /** Unidade com cb_operacional ativo — troca a fonte/campo do picker de Responsável. */
+  temOperacional?: boolean
+  /** Quem já loga na unidade (listar_atribuiveis_operacional) — usado quando temOperacional. */
+  atribuiveis?: Atribuivel[]
   estabelecimentos: Estabelecimento[]
   /** Telefone do tutor — imutável, vem do contrato/ficha. */
   telefoneBase: string
@@ -140,6 +149,8 @@ export default function AcolhimentoForm({
   onChange,
   temPadronizacaoClinicas,
   funcionarios,
+  temOperacional = false,
+  atribuiveis = [],
   estabelecimentos,
   telefoneBase,
   tutorNome,
@@ -448,13 +459,18 @@ export default function AcolhimentoForm({
           <label className="text-xs font-medium text-[var(--surface-600)]">Responsável pelo Acolhimento <span className="text-red-400">*</span></label>
           {prov.responsavel && (
             <label className="flex items-center gap-1.5 cursor-pointer select-none">
-              <input type="checkbox" checked={value.semResponsavel} onChange={e => set({ semResponsavel: e.target.checked, ...(e.target.checked ? { funcionarioId: '' } : {}) })} className="h-3 w-3 rounded accent-amber-500" />
+              <input type="checkbox" checked={value.semResponsavel} onChange={e => set({ semResponsavel: e.target.checked, ...(e.target.checked ? { funcionarioId: '', responsavelUserId: '' } : {}) })} className="h-3 w-3 rounded accent-amber-500" />
               <span className="text-[10px] text-amber-500">Sem responsável provisoriamente</span>
             </label>
           )}
         </div>
         {value.semResponsavel ? (
           <div className="px-3 py-2 rounded-lg bg-amber-900/10 border border-amber-500/30 text-xs text-amber-400">A definir</div>
+        ) : temOperacional ? (
+          <select value={value.responsavelUserId} onChange={e => set({ responsavelUserId: e.target.value })} className="input text-sm">
+            <option value="">Selecione...</option>
+            {atribuiveis.map(a => (<option key={a.user_id} value={a.user_id}>{a.nome}</option>))}
+          </select>
         ) : (
           <select value={value.funcionarioId} onChange={e => set({ funcionarioId: e.target.value })} className="input text-sm">
             <option value="">Selecione...</option>

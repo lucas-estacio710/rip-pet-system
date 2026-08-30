@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import {
-  Users, Search, X, Plus, Loader2, ToggleLeft, ToggleRight, History, ChevronDown, Pencil
+  Users, Search, X, Plus, Loader2, ToggleLeft, ToggleRight, History, ChevronDown, Pencil, Truck
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
@@ -20,6 +20,7 @@ type Funcionario = {
   ativo: boolean
   unidade_id: string
   created_at: string
+  user_id: string | null
   unidade?: { nome: string; codigo: string; cidade: string; estado: string }
 }
 
@@ -113,7 +114,7 @@ export default function AdminFuncionariosPage() {
     setLoading(true)
     let query = supabase
       .from('funcionarios')
-      .select('id, nome, ativo, unidade_id, created_at, unidade:unidades(nome, codigo, cidade, estado)')
+      .select('id, nome, ativo, unidade_id, created_at, user_id, unidade:unidades(nome, codigo, cidade, estado)')
       .order('nome')
 
     // Gerente vê só da própria unidade
@@ -374,6 +375,11 @@ export default function AdminFuncionariosPage() {
         </td>
         <td className="px-4 py-3 text-center">
           <div className="flex items-center justify-center gap-1">
+            {func.user_id && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-cyan-900/30 text-cyan-400" title="Tem login vinculado (legado — login de verdade se gerencia em /admin/usuarios)">
+                <Truck className="h-3 w-3" />Operacional
+              </span>
+            )}
             <button
               onClick={() => abrirModalEditar(func)}
               className="p-1.5 rounded-lg hover:bg-[var(--surface-100)] transition-colors"

@@ -871,8 +871,11 @@ export default function FichasPage() {
                             const supabaseLocal = createClient()
                             await supabaseLocal.from('fichas').update({
                               processada: true,
-                              op_dados: { cancelada: true, cancelada_em: new Date().toISOString(), cancelada_por: userId || 'unknown' },
+                              op_dados: { ...(ficha.op_dados || {}), cancelada: true, cancelada_em: new Date().toISOString(), cancelada_por: userId || 'unknown' },
                             } as never).eq('id', ficha.id)
+                            // Mesma limpeza de TratativaModal.tsx — remoção pendente (unidade
+                            // com cb_operacional) não pode ficar órfã na fila do Operacional.
+                            await supabaseLocal.from('tarefas_operacionais').delete().eq('ficha_id', ficha.id).eq('status', 'pendente')
                             setFiltro('canceladas')
                             carregarFichas()
                             carregarContagens()

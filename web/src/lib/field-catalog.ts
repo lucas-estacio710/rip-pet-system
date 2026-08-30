@@ -36,6 +36,9 @@ export type ItemDef = {
   label: string     // Nome amigável para a UI admin
   desc?: string     // Tooltip/descrição
   modo?: PermMode   // 'toggle' (default pra telas/objetos) ou 'full' (default pra campos)
+  moduloPago?: boolean // true = módulo pago por unidade (unidades.modulos_ativos), NÃO field_permissions.
+                        // Renderizado à parte em /admin/visibilidade — é liga/desliga por UNIDADE
+                        // (não por role), e a `key` tem que ser IDÊNTICA ao valor gravado no array.
 }
 
 export type ChildItemDef = ItemDef & {
@@ -81,13 +84,13 @@ export const OBJETOS: ChildItemDef[] = [
   { key: 'obj_produtos', tela: 'tela_contrato', label: 'Produtos/Acessórios', desc: 'Card de produtos e acessórios vinculados ao contrato' },
 
   // Fichas
-  { key: 'cb_padronizacao_clinicas', tela: 'tela_fichas', label: 'Padronização Clínicas', desc: 'Autocomplete de estabelecimentos no processamento de ficha' },
+  { key: 'cb_padronizacao_clinicas', tela: 'tela_fichas', label: 'Padronização Clínicas', desc: 'Autocomplete de estabelecimentos no processamento de ficha', moduloPago: true },
 
   // Pipeline — comportamentos opcionais por unidade
-  { key: 'cb_cremacao_local', tela: 'tela_pipeline', label: 'Cremação Local (sem encaminhamento)', desc: 'Unidade co-localizada com o crematório (ex: PI). Contratos nascem direto em status=pinda; GC criado automático; auto-retorno quando GC vira disponível. Sem supinda. Ver FLOW.md §7.1.' },
+  { key: 'cb_cremacao_local', tela: 'tela_pipeline', label: 'Cremação Local (sem encaminhamento)', desc: 'Unidade co-localizada com o crematório (ex: PI). Contratos nascem direto em status=pinda; GC criado automático; auto-retorno quando GC vira disponível. Sem supinda. Ver FLOW.md §7.1.', moduloPago: true },
 
   // Tarefas — módulo pago (não vendido de graça, decisão 18/08/2026)
-  { key: 'cb_operacional', tela: 'tela_tarefas', label: 'Operacional/Motorista (pago)', desc: 'Libera promover funcionário a usuário Operacional (/admin/funcionarios), o campo Responsável da Tratativa mostrar Operacionais como opção, e a aba "Atribuir" da tela Tarefas. Sem o módulo, trava tudo — unidade continua 100% no fluxo manual de hoje.' },
+  { key: 'cb_operacional', tela: 'tela_tarefas', label: 'Operacional/Motorista (pago)', desc: 'Libera promover funcionário a usuário Operacional (/admin/funcionarios), o campo Responsável da Tratativa mostrar Operacionais como opção, e a aba "Atribuir" da tela Tarefas. Sem o módulo, trava tudo — unidade continua 100% no fluxo manual de hoje.', moduloPago: true },
 
   // Dashboards (usuários)
   { key: 'obj_dash_evolucao', tela: 'tela_dashboards', label: 'Evolução', desc: 'Série mensal de volume e receita — tendência ao longo do tempo' },
@@ -97,6 +100,7 @@ export const OBJETOS: ChildItemDef[] = [
   { key: 'obj_dash_marketing', tela: 'tela_dashboards', label: 'Marketing / Ads', desc: 'UTM, leads, conversão, RIP Shield, ROAS' },
   { key: 'obj_fin_lancamentos', tela: 'tela_financeiro', label: 'Lançamentos', desc: 'Aba de lançar despesa: categoria + valor + como pagou + comprovante' },
   { key: 'obj_fin_repasse', tela: 'tela_financeiro', label: 'Repasse', desc: 'Aba da "planilha do dia 20": os pets acolhidos no mês que a Matriz cobra da unidade' },
+  { key: 'obj_fin_caixa', tela: 'tela_financeiro', label: 'Caixa', desc: 'Aba do fluxo de caixa: saldo por conta, extrato e movimentos (transferência, fatura de cartão, aporte) — mig 124' },
   { key: 'obj_fin_dre', tela: 'tela_financeiro', label: 'DRE', desc: 'Aba do resultado do mês: receita, custo, despesas e investimentos (mig 111)' },
   { key: 'obj_fin_contas', tela: 'tela_financeiro', label: 'Contas', desc: 'Aba de cadastro das contas de onde o dinheiro sai/entra (Inter, Granito, Dinheiro). Escopo por unidade' },
 ]
@@ -152,6 +156,7 @@ export const CAMPOS_BOTOES: ChildItemDef[] = [
   // 'read' aqui = a unidade CONSULTA a própria cobrança, mas não mexe: deflator,
   // acertos, ajuste em lote, fechar e marcar pago somem. Cobrar é ato da Matriz.
   // Sem row = edit, então a Matriz não precisa de configuração nenhuma.
+  { key: 'btn_caixa_editar', tela: 'tela_financeiro', label: 'Lançar movimento de caixa', desc: 'Registrar transferência, pagamento de fatura, aporte. Em leitura, a aba só mostra saldo e extrato' },
   { key: 'btn_contas_editar', tela: 'tela_financeiro', label: 'Editar contas', desc: 'Criar, renomear, desativar e excluir conta. Em leitura, a aba só lista' },
   { key: 'btn_repasse_editar', tela: 'tela_financeiro', label: 'Editar repasse', desc: 'Aplicar deflator, lançar acertos, fechar o repasse e marcar enviado/pago. Só a Matriz — as unidades ficam em leitura (mig 112)' },
 ]

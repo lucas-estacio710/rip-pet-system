@@ -12,6 +12,7 @@ const ROLE_LABELS: Record<string, string> = {
   super_admin: 'Super Admin',
   gerente: 'Gerente',
   operador: 'Concierge',
+  operacional: 'Operacional',
 }
 
 export default function MinhaContaPage() {

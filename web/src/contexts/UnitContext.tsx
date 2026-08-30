@@ -23,7 +23,7 @@ export type Unidade = {
   ativa: boolean
 }
 
-export type UserRole = 'super_admin' | 'gerente' | 'operador'
+export type UserRole = 'super_admin' | 'gerente' | 'operador' | 'operacional'
 
 export type UserPerfil = {
   perfil_id: string
@@ -47,6 +47,10 @@ type UnitContextType = {
   // Impersonação
   impersonating: boolean
   impersonatedEmail: string | null
+  // auth.uid() real continua sendo o do super_admin (impersonar não troca sessão de verdade) —
+  // telas que filtram por "sou eu" (ex: /tarefas "Minhas Tarefas", atribuido_a) precisam desse
+  // id pra mostrar os dados de quem está sendo impersonado, não do super_admin logado.
+  impersonatedUserId: string | null
   startImpersonating: (userId: string, email: string, rpcPerfis?: { perfil_id: string; unidade_id?: string; unidade_nome: string; unidade_codigo: string; role: string; is_default: boolean; nome: string | null; ativo?: boolean }[]) => Promise<void>
   stopImpersonating: () => void
 
@@ -81,6 +85,7 @@ export function UnitProvider({ children }: { children: ReactNode }) {
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [impersonating, setImpersonating] = useState(false)
   const [impersonatedEmail, setImpersonatedEmail] = useState<string | null>(null)
+  const [impersonatedUserId, setImpersonatedUserId] = useState<string | null>(null)
   const [realUserData, setRealUserData] = useState<{ perfis: UserPerfil[]; allUnidades: Unidade[]; userName: string | null; userEmail: string | null } | null>(null)
   // FLS: cache de permissões (field_permissions) — Map<campo, permissao> para unidade+role atual
   const [flsPermissions, setFlsPermissions] = useState<Map<string, string>>(new Map())
@@ -340,6 +345,7 @@ export function UnitProvider({ children }: { children: ReactNode }) {
     setUserEmail(email)
     setImpersonating(true)
     setImpersonatedEmail(email)
+    setImpersonatedUserId(userId)
   }, [supabase, userPerfis, allUnidades, userName, userEmail])
 
   const stopImpersonating = useCallback(() => {
@@ -351,6 +357,7 @@ export function UnitProvider({ children }: { children: ReactNode }) {
     setUserEmail(realUserData.userEmail)
     setImpersonating(false)
     setImpersonatedEmail(null)
+    setImpersonatedUserId(null)
     setRealUserData(null)
 
     // Restaurar unidade default
@@ -373,6 +380,7 @@ export function UnitProvider({ children }: { children: ReactNode }) {
       userEmail,
       impersonating,
       impersonatedEmail,
+      impersonatedUserId,
       startImpersonating,
       stopImpersonating,
       switchUnit,

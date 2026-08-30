@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
 import { gerarContratoPDF, contratoFilename } from '@/lib/contrato-pdf'
+import { criarContratoDeFicha, ContratoValidationError } from '@/lib/criar-contrato-de-ficha'
 import { hojeLocal } from '@/lib/date-local'
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -79,7 +80,7 @@ type Ficha = {
 }
 
 type Estabelecimento = { id: string; nome: string; tipo: string | null; cidade: string | null }
-type Funcionario = { id: string; nome: string }
+type Funcionario = { id: string; nome: string; user_id: string | null }
 type TutorExistente = { id: string; nome: string } | null
 
 type Props = {
@@ -171,10 +172,18 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   // modulos_ativos confiável — mesmo padrão do cb_cremacao_local.
   const unidadeDaFicha = (ficha && allUnidades.find(u => u.id === ficha.unidade_id)) || currentUnit
   const temPadronizacaoClinicas = !!unidadeDaFicha?.modulos_ativos?.includes('cb_padronizacao_clinicas')
+  // Módulo pago cb_operacional — se ativo, o Responsável vem 100% de `perfis` (quem já loga),
+  // sem depender de `funcionarios` (decisão do Lucas, 22/08/2026: "matar funcionarios pra quem
+  // tiver o módulo ativo"). Escolher alguém vira atribuição de tarefa de remoção (ver
+  // processarFicha) em vez do fluxo manual de sempre. Ver contratos.responsavel_user_id (mig 123).
+  const temOperacional = !!unidadeDaFicha?.modulos_ativos?.includes('cb_operacional')
 
   // Lookups
   const [estabelecimentos, setEstabelecimentos] = useState<Estabelecimento[]>([])
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([])
+  // Unidade com cb_operacional: lista de quem já loga (super_admin/gerente/operador/operacional
+  // da unidade) — fonte do picker de Responsável nesse caso, via listar_atribuiveis_operacional.
+  const [atribuiveis, setAtribuiveis] = useState<{ user_id: string; nome: string | null; role: string }[]>([])
   const [tutorExistente, setTutorExistente] = useState<TutorExistente>(null)
   const [tutorChecked, setTutorChecked] = useState(false)
 
@@ -336,6 +345,12 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   // Preventivo = pet vivo: sem acolhimento (data/hora, local, responsável, lacre) nem seguradora.
   const isPreventivo = tipoPlano === 'preventivo'
   const [funcionarioId, setFuncionarioId] = useState('')
+  // Unidade com cb_operacional: Responsável é escolhido direto de `atribuiveis` (perfis), não
+  // de `funcionarios` — guarda o user_id aqui, `funcionarioId` fica vazio nesse caminho.
+  const [responsavelUserId, setResponsavelUserId] = useState('')
+  // Responsável escolhido é um usuário de verdade (perfil ativo)? Só então a remoção vira
+  // tarefa (ver processarFicha) e o lacre passa a ser obrigatório sem escape.
+  const responsavelEscolhidoEhOperacional = temOperacional && !!responsavelUserId
   // Telefone — operador confirma ou adiciona secundário
   const [telefoneConfirmado, setTelefoneConfirmado] = useState(false)
   const [telefone1Nome, setTelefone1Nome] = useState('')
@@ -390,13 +405,24 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
     async function loadData() {
       const [{ data: estabs }, { data: funcs }] = await Promise.all([
         supabase.from('estabelecimentos').select('id, nome, tipo, cidade').eq('unidade_id', ficha!.unidade_id).order('nome'),
-        supabase.from('funcionarios').select('id, nome').eq('ativo', true).eq('unidade_id', ficha!.unidade_id).order('nome'),
+        supabase.from('funcionarios').select('id, nome, user_id').eq('ativo', true).eq('unidade_id', ficha!.unidade_id).order('nome'),
       ])
       if (estabs) setEstabelecimentos(estabs as Estabelecimento[])
       if (funcs) setFuncionarios(funcs as Funcionario[])
+
+      // cb_operacional: Responsável vem de quem já loga na unidade — não depende de
+      // `funcionarios` (nem auto-link, nem vínculo manual; ver incidente 21/08/2026 — o
+      // auto-link por nome gerou um funcionário duplicado e foi removido de vez).
+      const unidade = allUnidades.find(u => u.id === ficha!.unidade_id) || currentUnit
+      if (unidade?.modulos_ativos?.includes('cb_operacional')) {
+        const { data } = await supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: ficha!.unidade_id } as never) as { data: { user_id: string; nome: string | null; role: string }[] | null }
+        setAtribuiveis(data || [])
+      } else {
+        setAtribuiveis([])
+      }
     }
     loadData()
-  }, [isOpen, ficha])
+  }, [isOpen, ficha, allUnidades, currentUnit])
 
   // Check tutor by CPF
   useEffect(() => {
@@ -463,6 +489,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       setEstabBusca('')
       setAutonomo(false)
       setFuncionarioId('')
+      setResponsavelUserId('')
       setCodigo('')
       setCodigoManual(false)
       setValorPlano('')
@@ -528,6 +555,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       if (op.codigo) setCodigo(String(op.codigo))
       if (op.codigoManual) setCodigoManual(true)
       if (op.funcionarioId) setFuncionarioId(String(op.funcionarioId))
+      if (op.responsavelUserId) setResponsavelUserId(String(op.responsavelUserId))
       if (op.semResponsavel) setSemResponsavel(true)
       if (op.localColeta) setLocalColeta(op.localColeta as typeof localColeta)
       if (op.enderecoOutro) setEnderecoOutro(String(op.enderecoOutro))
@@ -586,6 +614,17 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
     ? estabelecimentos.filter(e => e.nome.toLowerCase().includes(estabBusca.toLowerCase())).slice(0, 15)
     : estabelecimentos.slice(0, 15)
 
+  // Push pro Operacional quando a escolha de Responsável vira atribuição de remoção — best-effort.
+  async function notificarAtribuicaoRemocao(userId: string, petNome: string) {
+    try {
+      await fetch('/api/push/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, title: '📋 Nova tarefa pra você', body: `Fazer Remoção — ${petNome}`, url: '/tarefas' }),
+      })
+    } catch { /* não trava o fluxo se falhar */ }
+  }
+
   // ============================================
   // processarFicha — salva dados do operador e marca como processada (NÃO cria contrato)
   // ============================================
@@ -625,6 +664,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         codigoManual,
         tipoPlano,
         funcionarioId: semResponsavel ? null : (funcionarioId || null),
+        responsavelUserId: semResponsavel ? null : (responsavelUserId || null),
         semResponsavel,
         localColeta,
         enderecoOutro: enderecoOutro || null,
@@ -667,6 +707,23 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
 
       if (errUpdate) throw new Error(`Erro ao salvar: ${errUpdate.message}`)
 
+      // Responsável é um Operacional de verdade → vira atribuição de tarefa de remoção
+      // (a própria escolha do responsável JÁ é a atribuição — sem tela de pool separada).
+      if (responsavelEscolhidoEhOperacional && responsavelUserId) {
+        const { data: tarefaExistente } = await supabase.from('tarefas_operacionais')
+          .select('id').eq('ficha_id', ficha.id).eq('status', 'pendente').maybeSingle() as { data: { id: string } | null }
+        if (!tarefaExistente) {
+          await supabase.from('tarefas_operacionais').insert({
+            unidade_id: ficha.unidade_id,
+            tipo: 'remocao',
+            ficha_id: ficha.id,
+            atribuido_a: responsavelUserId,
+            atribuido_por: user?.id || null,
+          } as never)
+          await notificarAtribuicaoRemocao(responsavelUserId, ficha.nome_pet || 'um pet')
+        }
+      }
+
       toast('Ficha processada!', 'success')
       onClose('processada')
     } catch (err: unknown) {
@@ -683,242 +740,60 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   // ============================================
   // Render
   // ============================================
-  // Criar contrato a partir de ficha processada
+  // Monta a lógica de criação do contrato via `criarContratoDeFicha` (compartilhada com o
+  // gatilho automático da tela /tarefas — ver web/src/lib/criar-contrato-de-ficha.ts). Aqui
+  // montamos o op_dados a partir do estado ATUAL do formulário (pode ainda não ter sido salvo
+  // via "Salvar Pendências") em vez de reler do banco.
   async function criarContrato() {
     if (!ficha) return
-    if (ficha.contrato_id) {
-      toast('Esta ficha já virou contrato', 'error')
-      return
-    }
-    setSalvando(true)
     const f = fichaAtual!
-
+    setSalvando(true)
     try {
-      // Step 1: Find or create tutor
-      // Swap tel1↔tel2 leva o nome junto. tel1 (da ficha) é imutável; só apelido editável.
-      const hasTel2 = !!getTelefone2Completo()
-      const tel1NomeVal = telefone1Nome.trim() || null
-      const tel2NomeVal = telefone2Nome.trim() || null
-      const telPrincipal = hasTel2 && usarTelefone2ComoPrincipal ? getTelefone2Completo() : f.telefone
-      const telSecundario = hasTel2 ? (usarTelefone2ComoPrincipal ? f.telefone : getTelefone2Completo()) : null
-      const telPrincipalNome = hasTel2 && usarTelefone2ComoPrincipal ? tel2NomeVal : tel1NomeVal
-      const telSecundarioNome = hasTel2 ? (usarTelefone2ComoPrincipal ? tel1NomeVal : tel2NomeVal) : null
-
-      let tutorId = tutorExistente?.id || null
-      if (!tutorId) {
-        const { data: novoTutor, error: errTutor } = await supabase
-          .from('tutores')
-          .insert({
-            nome: f.nome_completo?.toUpperCase() || '',
-            cpf: f.cpf,
-            telefone: telPrincipal,
-            telefone2: telSecundario,
-            telefone_nome: telPrincipalNome,
-            telefone2_nome: telSecundarioNome,
-            telefone_principal: 1,
-            email: f.email || null,
-            cep: f.cep, endereco: f.endereco, numero: f.numero, complemento: f.complemento || null,
-            bairro: f.bairro, cidade: f.cidade, estado: f.estado, unidade_id: f.unidade_id,
-          } as never).select('id').single() as { data: { id: string } | null; error: { message: string } | null }
-        if (errTutor) throw new Error(`Erro ao criar tutor: ${errTutor.message}`)
-        tutorId = novoTutor!.id
-      }
-
-      // Step 2: Fontes de conhecimento (múltiplas)
-      let fonteConhecimentoId: string | null = null
-      const fonteConhecimentoIds: string[] = []
-      if (f.como_conheceu && f.como_conheceu.length > 0) {
-        const fonteMap: Record<string, string> = {
-          'Google': 'Google', 'Instagram/Facebook': 'Instagram/Facebook',
-          'Veterinário': 'Indicação em Clínica', 'Parente/Amigo': 'Parente/Amigo',
-          'Já utilizei a R.I.P. Pet': 'Cliente',
-          'Passei pela Unidade': 'Ponto',
-          'Outro': 'Outro',
-        }
-        for (const conheceu of f.como_conheceu) {
-          const nomeExato = fonteMap[conheceu] || conheceu
-          const { data: fonte } = await supabase.from('fontes_conhecimento').select('id').eq('nome', nomeExato).maybeSingle() as { data: { id: string } | null }
-          if (fonte) {
-            fonteConhecimentoIds.push(fonte.id)
-            if (!fonteConhecimentoId) fonteConhecimentoId = fonte.id // primeiro = legado
-          }
-        }
-      }
-
-      // Step 3: Resolve estabelecimento (local de coleta)
-      let resolvedEstabId: string | null = estabId
-      // contato_id (quem indicou) nasce null — normalizado depois via farol 🩺 no Pipeline/Contrato
-      const resolvedContatoId: string | null = null
-      let clinicaColetaNome: string | null = null
-
-      if (temPadronizacaoClinicas) {
-        const AUTONOMOS_ESTAB_ID = 'b4eedcff-7ccf-4cfb-bf3a-1978eeec6382'
-        if (autonomo) { resolvedEstabId = AUTONOMOS_ESTAB_ID; clinicaColetaNome = 'Autônomo' }
-        else {
-          clinicaColetaNome = estabNome.trim() || null
-          if (!resolvedEstabId && estabNome.trim()) {
-            // endereco é NOT NULL sem default — precisa ir como '' senão o insert falha silenciosamente
-            const { data: novoEstab } = await supabase.from('estabelecimentos').insert({ nome: estabNome.trim(), tipo: 'clinica', unidade_id: f.unidade_id, endereco: '' } as never).select('id').single() as { data: { id: string } | null }
-            if (novoEstab) resolvedEstabId = novoEstab.id
-          }
-        }
-      } else {
-        clinicaColetaNome = clinicaTextoLivre.trim() || null
-      }
-
-      // Step 4: Map local_coleta
-      const localColetaMap: Record<string, string> = { residencia: 'Residência', clinica: 'Clínica', unidade: 'Unidade', outro: 'Outro' }
-      const localColetaValor = localColetaMap[localColeta] || null
-
-      // Step 4b: Buscar endereço do estabelecimento (se local = clínica)
-      let estabEndereco: { endereco: string; bairro: string; cidade: string; cep: string } | null = null
-      if (localColeta === 'clinica' && resolvedEstabId) {
-        const { data: estabData } = await supabase
-          .from('estabelecimentos')
-          .select('endereco, bairro, cidade, cep')
-          .eq('id', resolvedEstabId)
-          .single() as { data: { endereco: string; bairro: string; cidade: string; cep: string } | null }
-        estabEndereco = estabData
-      }
-
-      // Step 5: Insert contrato
-      const contratoData = {
+      const opDadosParaContrato: Record<string, unknown> = {
+        tipoPlano,
+        funcionarioId: semResponsavel ? null : (funcionarioId || null),
+        responsavelUserId: semResponsavel ? null : (responsavelUserId || null),
+        localColeta,
+        enderecoOutro: enderecoOutro || null,
+        estabId,
+        estabNome: estabNome || null,
+        autonomo,
+        clinicaTextoLivre: clinicaTextoLivre || null,
+        dataHoraAcolhimento: dataHoraAcolhimento || null,
+        lacre: lacre || null,
+        semLacre,
+        valorPlano: valorPlano || null,
+        descontoPreVenda: descontoPreVenda || null,
+        descontoTipo,
+        detalhamentoPlano: detalhamentoPlano.trim() || null,
+        temSeguradora,
+        seguradoraNome: seguradoraNome.trim() || null,
+        dataContrato,
         codigo: codigo.trim(),
-        unidade_id: f.unidade_id,
-        // cb_cremacao_local (PI): EM nasce direto em 'pinda' (sem passar por 'ativo').
-        // PV continua 'preventivo' até ser acionado. Trigger 091 cria contrato_gc no insert.
-        // Checagem direta de modulos_ativos da unidade DA FICHA (não currentUnit) — super_admin
-        // pode estar processando ficha de qualquer unidade, e hasModule() retorna true sempre pra ele.
-        status: tipoPlano === 'emergencial'
-          ? (currentUnit?.modulos_ativos?.includes('cb_cremacao_local') ? 'pinda' : 'ativo')
-          : 'preventivo',
-        tipo_plano: tipoPlano,
-        tipo_cremacao: f.cremacao.toLowerCase() as 'individual' | 'coletiva',
-        pet_nome: f.nome_pet?.toUpperCase() || '', pet_especie: f.especie.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(),
-        pet_raca: f.raca || null, pet_genero: f.genero ? f.genero.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase() : null,
-        pet_cor: f.cor || null, pet_peso: f.peso ? parseFloat(f.peso) || null : null,
-        pet_idade_anos: f.idade ? parseInt(f.idade) || null : null,
-        tutor_id: tutorId,
-        tutor_nome: f.nome_completo?.toUpperCase() || '', tutor_cpf: f.cpf,
-        tutor_telefone: telPrincipal,
-        tutor_telefone2: telSecundario,
-        tutor_telefone_nome: telPrincipalNome,
-        tutor_telefone2_nome: telSecundarioNome,
-        tutor_telefone_principal: 1,
-        tutor_email: f.email || null, tutor_cidade: f.cidade || null, tutor_bairro: f.bairro || null,
-        tutor_endereco: f.endereco ? `${f.endereco}, ${f.numero}${f.complemento ? ` - ${f.complemento}` : ''}` : null,
-        tutor_cep: f.cep || null,
-        clinica_coleta: clinicaColetaNome,
-        contato_id: resolvedContatoId || null, estabelecimento_id: resolvedEstabId || null,
-        funcionario_id: funcionarioId || null,
-        fonte_conhecimento_id: fonteConhecimentoId,
-        fonte_conhecimento_ids: fonteConhecimentoIds.length > 0 ? fonteConhecimentoIds : null,
-        fonte_outro_especificar: f.como_conheceu?.includes('Outro') ? (f.outro_especificar?.trim() || null) : null,
-        data_contrato: dataContrato,
-        data_acolhimento: dataHoraAcolhimento ? new Date(dataHoraAcolhimento).toISOString() : null,
-        pelinho_quer: true, pelinho_feito: false, pelinho_quantidade: 1,
-        velorio_deseja: f.velorio === 'Sim' ? true : f.velorio === 'Não' ? false : null,
-        acompanhamento_online: f.acompanhamento?.includes('On-line') || false,
-        acompanhamento_presencial: f.acompanhamento?.includes('Presencial') || false,
-        valor_plano: valorPlano ? parseFloat(valorPlano) : null,
-        desconto_plano_unificado: (() => {
-          const d = parseFloat(descontoPreVenda) || 0
-          if (!d) return 0
-          if (descontoTipo === 'percentual') return ((parseFloat(valorPlano) || 0) * d) / 100
-          return d
-        })(),
-        local_coleta: localColetaValor,
-        remocao_endereco:
-          localColeta === 'residencia' ? (f.endereco ? `${f.endereco}, ${f.numero}` : null)
-          : localColeta === 'clinica' ? (estabEndereco?.endereco || clinicaColetaNome || null)
-          : localColeta === 'outro' ? (enderecoOutro || null)
-          : localColeta === 'unidade' ? (currentUnit?.endereco || null)
-          : null,
-        remocao_bairro:
-          localColeta === 'residencia' ? f.bairro
-          : localColeta === 'clinica' ? (estabEndereco?.bairro || null)
-          : null,
-        remocao_cidade:
-          localColeta === 'residencia' ? f.cidade
-          : localColeta === 'clinica' ? (estabEndereco?.cidade || null)
-          : localColeta === 'unidade' ? (currentUnit?.cidade || null)
-          : null,
-        remocao_cep:
-          localColeta === 'residencia' ? f.cep
-          : localColeta === 'clinica' ? (estabEndereco?.cep || null)
-          : null,
-        numero_lacre: lacre || null,
-        seguradora: temSeguradora && seguradoraNome.trim() ? seguradoraNome.trim() : null,
-        observacoes: f.observacoes || null,
-        descricao_contrato: detalhamentoPlano.trim() || null,
-        certificado_nome_1: f.nome_completo || null,
-        ...(f.outros_tutores ? Object.fromEntries(
-          f.outros_tutores.filter(Boolean).slice(0, 6).map((nome, i) => [`certificado_nome_${i + 2}`, nome])
-        ) : {}),
+        telefoneConfirmado,
+        telefone1Nome: telefone1Nome.trim() || null,
+        telefone2: getTelefone2Completo() || null,
+        telefone2Nome: telefone2Nome.trim() || null,
+        usarTelefone2ComoPrincipal,
       }
 
-      const { data: contrato, error: errContrato } = await supabase
-        .from('contratos').insert(contratoData as never).select('id')
-        .single() as { data: { id: string } | null; error: { message: string } | null }
-      if (errContrato) throw new Error(`Erro ao criar contrato: ${errContrato.message}`)
-
-      // Vincular contrato à ficha + marcar como processada (se ainda não estava).
-      // Reconcilia op_dados com o que foi de fato usado pra criar o contrato — garante
-      // que PDF da ficha, badges de pendência e o "desfazer ficha" (que preserva op_dados)
-      // reflitam os campos provisórios preenchidos aqui, mesmo sem clicar "Salvar Pendências".
-      const opPrev = (ficha.op_dados || {}) as Record<string, unknown>
-      const opReconciliado = {
-        ...opPrev,
-        semLocal: localColeta ? false : semLocal,
-        localColeta: localColeta || opPrev.localColeta,
-        semResponsavel: funcionarioId ? false : semResponsavel,
-        funcionarioId: funcionarioId || opPrev.funcionarioId,
-        semDataHora: dataHoraAcolhimento ? false : semDataHora,
-        dataHoraAcolhimento: dataHoraAcolhimento || opPrev.dataHoraAcolhimento,
-        semLacre: lacre.trim() ? false : semLacre,
-        lacre: lacre.trim() || opPrev.lacre,
-      }
-      const { error: errLink } = await supabase.from('fichas').update({
-        contrato_id: contrato!.id,
-        processada: true,
-        processada_em: ficha.processada ? undefined : new Date().toISOString(),
-        op_dados: opReconciliado,
-      } as never).eq('id', ficha.id)
-      if (errLink) throw new Error(`Erro ao vincular ficha ao contrato: ${errLink.message}`)
-
-      // Migrar observações da ficha pra tarefas (se houver)
-      if (f.observacoes) {
-        const { data: tipoFicha } = await supabase.from('tarefa_tipos').select('id').eq('nome', 'Observação da Ficha').maybeSingle() as { data: { id: string } | null }
-        if (tipoFicha) {
-          await supabase.from('tarefas').insert({
-            contrato_id: contrato!.id,
-            descricao: f.observacoes,
-            tipo_id: tipoFicha.id,
-            unidade_id: f.unidade_id,
-            criado_por: 'Tutor (ficha)',
-            criado_por_email: f.email || null,
-          } as never)
-        }
-      }
-
-      // Detalhamento do plano vira observação no contrato (tarefa "Observação da Unidade")
-      if (detalhamentoPlano.trim()) {
-        const { data: tipoUnidade } = await supabase.from('tarefa_tipos').select('id').eq('nome', 'Observação da Unidade').maybeSingle() as { data: { id: string } | null }
-        if (tipoUnidade) {
-          await supabase.from('tarefas').insert({
-            contrato_id: contrato!.id,
-            descricao: `Plano: ${detalhamentoPlano.trim()}`,
-            tipo_id: tipoUnidade.id,
-            unidade_id: f.unidade_id,
-            criado_por: userName || 'Operador',
-          } as never)
-        }
-      }
+      const { contratoId } = await criarContratoDeFicha(
+        supabase,
+        { ...f, op_dados: opDadosParaContrato },
+        {
+          codigo: currentUnit?.codigo || '',
+          endereco: currentUnit?.endereco || null,
+          cidade: currentUnit?.cidade || null,
+          modulos_ativos: currentUnit?.modulos_ativos || [],
+        },
+        userName || 'Operador',
+        responsavelEscolhidoEhOperacional
+      )
 
       toast('Contrato criado com sucesso!', 'success')
-      onSuccess(contrato!.id)
+      onSuccess(contratoId)
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Erro desconhecido'
+      const message = err instanceof ContratoValidationError ? err.message : (err instanceof Error ? err.message : 'Erro desconhecido')
       toast(message, 'error')
       console.error('Erro ao criar contrato:', err)
     } finally {
@@ -943,7 +818,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       // Atualizar op_dados
       const opDados = {
         codigo: codigo.trim(), codigoManual, tipoPlano,
-        funcionarioId: semResponsavel ? null : (funcionarioId || null), semResponsavel,
+        funcionarioId: semResponsavel ? null : (funcionarioId || null),
+        responsavelUserId: semResponsavel ? null : (responsavelUserId || null), semResponsavel,
         localColeta, enderecoOutro: enderecoOutro || null, semLocal,
         clinicaTextoLivre: clinicaTextoLivre || null, estabId, estabNome: estabNome || null, autonomo,
         dataHoraAcolhimento: dataHoraAcolhimento || null, semDataHora,
@@ -955,6 +831,23 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         telefoneConfirmado, telefone2: getTelefone2Completo() || null, telefone2Nome: telefone2Nome.trim() || null, telefone2DDI, telefone2DDICustom, mostrarTelefone2, usarTelefone2ComoPrincipal,
       }
       await supabase.from('fichas').update({ op_dados: opDados } as never).eq('id', ficha.id)
+
+      if (responsavelEscolhidoEhOperacional && responsavelUserId) {
+        const { data: tarefaExistente } = await supabase.from('tarefas_operacionais')
+          .select('id').eq('ficha_id', ficha.id).eq('status', 'pendente').maybeSingle() as { data: { id: string } | null }
+        if (!tarefaExistente) {
+          const { data: { user } } = await supabase.auth.getUser()
+          await supabase.from('tarefas_operacionais').insert({
+            unidade_id: ficha.unidade_id,
+            tipo: 'remocao',
+            ficha_id: ficha.id,
+            atribuido_a: responsavelUserId,
+            atribuido_por: user?.id || null,
+          } as never)
+          await notificarAtribuicaoRemocao(responsavelUserId, ficha.nome_pet || 'um pet')
+        }
+      }
+
       toast('Alterações salvas!', 'success')
     } catch (err: unknown) {
       toast(err instanceof Error ? err.message : 'Erro ao salvar', 'error')
@@ -967,7 +860,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   // Telefone OK = (confirmou número da ficha + apelido) OU (informou número alternativo + nome/relação)
   const telefoneOk = (telefoneConfirmado && !!telefone1Nome.trim()) || (mostrarTelefone2 && !!telefone2.trim() && !!telefone2Nome.trim())
   const localOk = semLocal || !!localColeta
-  const responsavelOk = semResponsavel || !!funcionarioId
+  const responsavelOk = semResponsavel || !!funcionarioId || !!responsavelUserId
   const dataHoraOk = semDataHora || !!dataHoraAcolhimento
   const lacreOk = semLacre || !!lacre.trim()
   const valorOk = !!valorPlano.trim()
@@ -976,10 +869,13 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
     ? (telefoneOk && valorOk)  // PV: sem acolhimento (local/responsável/data/lacre escondidos)
     : (telefoneOk && localOk && responsavelOk && dataHoraOk && lacreOk && valorOk)
 
-  // Iniciar Fluxo: mais rigoroso — local, responsável, data/hora e fonte de conhec. NÃO podem ser provisórios (só lacre pode)
+  // Iniciar Fluxo: mais rigoroso — local, responsável, data/hora e fonte de conhec. NÃO podem
+  // ser provisórios (só lacre pode, e só ENQUANTO o responsável não for um Operacional de
+  // verdade — quando for, o lacre passa a ser obrigatório sem escape, decisão de produto pra
+  // acabar com pet sem lacre no pipeline; ver `criarContratoDeFicha`).
   const fluxoValido = isPreventivo
     ? (telefoneOk && valorOk && fonteOk)  // PV: pet vivo, sem acolhimento
-    : (telefoneOk && !!localColeta && !!funcionarioId && !!dataHoraAcolhimento && lacreOk && valorOk && fonteOk)
+    : (telefoneOk && !!localColeta && (!!funcionarioId || !!responsavelUserId) && !!dataHoraAcolhimento && lacreOk && valorOk && fonteOk)
 
   const footer = somenteLeitura ? (
     /* Modo somente leitura (recebidas) — Cancelar, Fechar e Processar */
@@ -1041,7 +937,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         const faltam: string[] = []
         if (!telefoneOk) faltam.push('Telefone')
         if (!isPreventivo && !localColeta) faltam.push('Local de Acolhimento')
-        if (!isPreventivo && !funcionarioId) faltam.push('Responsável')
+        if (!isPreventivo && !funcionarioId && !responsavelUserId) faltam.push('Responsável')
         if (!isPreventivo && !dataHoraAcolhimento) faltam.push('Data/Hora')
         if (!valorPlano.trim()) faltam.push('Valor do Plano')
         if (!fonteOk) faltam.push('Como nos conheceu')
@@ -1152,6 +1048,11 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                   await supabaseLocal.from('fichas').update({
                     op_dados: { ...(ficha.op_dados || {}), cancelada: true, cancelada_em: new Date().toISOString(), cancelada_por: user?.email || null },
                   } as never).eq('id', ficha.id)
+                  // Remoção pendente pra essa ficha (unidade com cb_operacional) fica órfã na
+                  // fila do Operacional se não for limpa aqui — achado em produção (Lola/Carla
+                  // Souza, 23/08/2026): tarefa criada 21/08, ficha cancelada 23/08, tarefa
+                  // continuou pendente pra sempre.
+                  await supabaseLocal.from('tarefas_operacionais').delete().eq('ficha_id', ficha.id).eq('status', 'pendente')
                   setConfirmarCancelamento(false)
                   onClose()
                   onRetornarPendente?.()
@@ -1291,7 +1192,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                 const localLabel = localColeta === 'outro' ? (enderecoOutro || 'Outro endereço') : localColeta === 'clinica' ? (clinicaColetaLabel || 'Clínica / Hospital') : (localMap[localColeta] || localColeta || '')
                 return <p className="text-xs text-[var(--surface-600)]"><strong>Local:</strong> {localLabel ? localLabel : <span className="text-amber-400">A definir</span>}</p>
               })()}
-              <p className="text-xs text-[var(--surface-600)]"><strong>Responsável:</strong> {funcionarioId ? (funcionarios.find(f => f.id === funcionarioId)?.nome || '-') : <span className="text-amber-400">A definir</span>}</p>
+              <p className="text-xs text-[var(--surface-600)]"><strong>Responsável:</strong> {funcionarioId ? (funcionarios.find(f => f.id === funcionarioId)?.nome || '-') : responsavelUserId ? (atribuiveis.find(a => a.user_id === responsavelUserId)?.nome || '-') : <span className="text-amber-400">A definir</span>}</p>
               <p className="text-xs text-[var(--surface-600)]"><strong>Data/Hora:</strong> {dataHoraAcolhimento ? new Date(dataHoraAcolhimento).toLocaleString('pt-BR') : <span className="text-amber-400">A definir</span>}</p>
               <p className="text-xs text-[var(--surface-600)]"><strong>Lacre:</strong> {lacre ? lacre : <span className="text-amber-400">A definir</span>}</p>
               <p className="text-xs text-[var(--surface-600)]">
@@ -1553,10 +1454,20 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               {semResponsavel && (
                 <div>
                   <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Responsável pelo Acolhimento</label>
-                  <select value={funcionarioId} onChange={e => setFuncionarioId(e.target.value)} className="input text-sm">
-                    <option value="">Selecione...</option>
-                    {funcionarios.map(f => (<option key={f.id} value={f.id}>{f.nome}</option>))}
-                  </select>
+                  {temOperacional ? (
+                    <select value={responsavelUserId} onChange={e => setResponsavelUserId(e.target.value)} className="input text-sm">
+                      <option value="">Selecione...</option>
+                      {atribuiveis.map(a => (<option key={a.user_id} value={a.user_id}>{a.nome}</option>))}
+                    </select>
+                  ) : (
+                    <select value={funcionarioId} onChange={e => setFuncionarioId(e.target.value)} className="input text-sm">
+                      <option value="">Selecione...</option>
+                      {funcionarios.map(f => (<option key={f.id} value={f.id}>{f.nome}</option>))}
+                    </select>
+                  )}
+                  {temOperacional && atribuiveis.length === 0 && (
+                    <p className="text-[10px] text-amber-500 mt-1">Ninguém com login ainda nesta unidade.</p>
+                  )}
                 </div>
               )}
 
@@ -1586,8 +1497,9 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                       // Desmarcar "sem" se preencheu
                       semLocal: localColeta ? false : semLocal,
                       localColeta: localColeta || opAtual.localColeta,
-                      semResponsavel: funcionarioId ? false : semResponsavel,
+                      semResponsavel: (funcionarioId || responsavelUserId) ? false : semResponsavel,
                       funcionarioId: funcionarioId || opAtual.funcionarioId,
+                      responsavelUserId: responsavelUserId || opAtual.responsavelUserId,
                       semDataHora: dataHoraAcolhimento ? false : semDataHora,
                       dataHoraAcolhimento: dataHoraAcolhimento || opAtual.dataHoraAcolhimento,
                       semLacre: lacre.trim() ? false : semLacre,
@@ -1597,7 +1509,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                     if (error) throw new Error(error.message)
                     // Atualizar states locais
                     if (localColeta) setSemLocal(false)
-                    if (funcionarioId) setSemResponsavel(false)
+                    if (funcionarioId || responsavelUserId) setSemResponsavel(false)
                     if (dataHoraAcolhimento) setSemDataHora(false)
                     if (lacre.trim()) setSemLacre(false)
                     toast('Pendências salvas!', 'success')
@@ -1984,17 +1896,25 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               <div className="flex items-center justify-between mb-1">
                 <label className="text-xs font-medium text-[var(--surface-600)]">Responsável pelo Acolhimento <span className="text-red-400">*</span></label>
                 <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                  <input type="checkbox" checked={semResponsavel} onChange={e => { setSemResponsavel(e.target.checked); if (e.target.checked) setFuncionarioId('') }} className="h-3 w-3 rounded accent-amber-500" />
+                  <input type="checkbox" checked={semResponsavel} onChange={e => { setSemResponsavel(e.target.checked); if (e.target.checked) { setFuncionarioId(''); setResponsavelUserId('') } }} className="h-3 w-3 rounded accent-amber-500" />
                   <span className="text-[10px] text-amber-500">Sem responsável provisoriamente</span>
                 </label>
               </div>
               {semResponsavel ? (
                 <div className="px-3 py-2 rounded-lg bg-amber-900/10 border border-amber-500/30 text-xs text-amber-400">A definir</div>
+              ) : temOperacional ? (
+                <select value={responsavelUserId} onChange={e => setResponsavelUserId(e.target.value)} className="input text-sm">
+                  <option value="">Selecione...</option>
+                  {atribuiveis.map(a => (<option key={a.user_id} value={a.user_id}>{a.nome}</option>))}
+                </select>
               ) : (
                 <select value={funcionarioId} onChange={e => setFuncionarioId(e.target.value)} className="input text-sm">
                   <option value="">Selecione...</option>
                   {funcionarios.map(f => (<option key={f.id} value={f.id}>{f.nome}</option>))}
                 </select>
+              )}
+              {!semResponsavel && temOperacional && atribuiveis.length === 0 && (
+                <p className="text-[10px] text-amber-500 mt-1">Ninguém com login ainda nesta unidade.</p>
               )}
             </div>
 

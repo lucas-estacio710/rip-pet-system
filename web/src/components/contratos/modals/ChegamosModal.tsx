@@ -585,7 +585,7 @@ export default function ChegamosModal({ isOpen, onClose, contrato }: Props) {
             </div>
           </div>
 
-          {/* Pre-Rescaldo checkbox */}
+          {/* Pre-Personalizados checkbox */}
           <label className="flex items-center gap-3 cursor-pointer group">
             <div
               className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors shrink-0 ${
@@ -609,7 +609,7 @@ export default function ChegamosModal({ isOpen, onClose, contrato }: Props) {
             <span className={`text-sm transition-colors ${
               form.preRescaldo ? 'text-amber-300' : 'text-slate-300'
             }`}>
-              Pre-Rescaldo (mencionar recordacoes)
+              Pre-Personalizados (mencionar recordacoes)
             </span>
           </label>
 

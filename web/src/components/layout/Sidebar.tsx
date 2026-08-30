@@ -21,7 +21,8 @@ import {
   Shield,
   Calendar,
   Stethoscope,
-  Receipt
+  Receipt,
+  ListTodo
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
@@ -31,7 +32,8 @@ type NavItem = {
   label: string
   icon: typeof LayoutDashboard
   countKey: 'contratos' | 'fichas' | 'leads' | null
-  module: string | null          // null = sempre visível
+  module: string | null          // null = sempre visível (FLS — tela_*, via hasModule)
+  cbModule?: string              // módulo pago da unidade (unidades.modulos_ativos) — hasModule() NÃO checa isso, é FLS-only
   superAdminOnly?: boolean
   iconColor?: string             // cor customizada do ícone
 }
@@ -51,15 +53,18 @@ const navItems: NavItem[] = [
   { href: '/ads-shield', label: 'RIP Shield', icon: Shield, countKey: null, module: 'tela_ads_shield', iconColor: '#ef4444' },
   { href: '/dashboard-pipeline', label: 'Dashboards', icon: BarChart3, countKey: null, module: 'tela_dashboards', iconColor: '#10b981' },
   { href: '/dashboard', label: 'Dashboard Admin', icon: LayoutDashboard, countKey: null, module: 'tela_dashboard', iconColor: '#22d3ee', superAdminOnly: true },
+  { href: '/tarefas', label: 'Tarefas', icon: ListTodo, countKey: null, module: 'tela_tarefas', cbModule: 'cb_operacional', iconColor: '#0ea5e9' },
 ]
 
 type Props = {
   /** 'full' = desktop with text, 'mini' = tablet icons only, 'drawer' = inside mobile drawer */
   mode: 'full' | 'mini' | 'drawer'
   onNavigate?: () => void
+  /** aperta o espaçamento entre os itens — usado só na sidebar fixa de desktop (>=1024px) */
+  dense?: boolean
 }
 
-export function Sidebar({ mode, onNavigate }: Props) {
+export function Sidebar({ mode, onNavigate, dense }: Props) {
   const pathname = usePathname()
   const router = useRouter()
   const [contratosCount, setContratosCount] = useState<number | null>(null)
@@ -68,12 +73,19 @@ export function Sidebar({ mode, onNavigate }: Props) {
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const supabase = createClient()
   const showText = mode !== 'mini'
-  const { hasModule, isSuperAdmin, userName, currentUnit } = useUnit()
+  const { hasModule, isSuperAdmin, userName, currentUnit, currentRole } = useUnit()
+
+  // Operacional só vê Tarefas — gate duro no código (não FLS, que é permissiva por padrão e
+  // deixaria todo o resto do menu aparecer). Mesmo racional do redirect em LayoutWrapper.tsx.
+  const isOperacional = currentRole === 'operacional'
 
   // Filtrar itens por módulo ativo e permissão
   const visibleItems = navItems.filter(item => {
+    if (isOperacional) return item.href === '/tarefas'
     if (item.superAdminOnly && !isSuperAdmin) return false
     if (item.module && !hasModule(item.module)) return false
+    // cbModule = módulo pago (unidades.modulos_ativos) — checagem direta, hasModule() é só FLS
+    if (item.cbModule && !isSuperAdmin && !currentUnit?.modulos_ativos?.includes(item.cbModule)) return false
     return true
   })
 
@@ -145,7 +157,7 @@ export function Sidebar({ mode, onNavigate }: Props) {
 
       {/* Navigation */}
       <nav className={`flex-1 ${showText ? 'p-3' : 'p-2'}`}>
-        <ul className="space-y-1">
+        <ul className={dense ? 'space-y-0.5' : 'space-y-1'}>
           {visibleItems.map((item) => {
             const hrefPath = item.href.split('?')[0]
             const isActive = pathname === hrefPath || pathname?.startsWith(hrefPath + '/')
@@ -166,7 +178,8 @@ export function Sidebar({ mode, onNavigate }: Props) {
                     href={item.href}
                     onClick={onNavigate}
                     className={`
-                      relative group flex items-center justify-center w-12 h-12 mx-auto rounded-lg transition-all duration-200
+                      relative group flex items-center justify-center mx-auto rounded-lg transition-all duration-200
+                      ${dense ? 'w-10 h-10' : 'w-12 h-12'}
                       ${isActive
                         ? 'bg-white/10 text-white'
                         : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
@@ -208,7 +221,8 @@ export function Sidebar({ mode, onNavigate }: Props) {
                   href={item.href}
                   onClick={onNavigate}
                   className={`
-                    relative flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200
+                    relative flex items-center gap-3 px-3 rounded-lg transition-all duration-200
+                    ${dense ? 'py-1.5' : 'py-2.5'}
                     ${isActive
                       ? 'bg-white/10 text-white font-semibold'
                       : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'

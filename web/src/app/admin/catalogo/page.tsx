@@ -596,7 +596,7 @@ export default function CatalogoPage() {
 
               {/* Tipo de rescaldo */}
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: '#94a3b8' }}>Tipo de Rescaldo</label>
+                <label className="block text-xs font-medium mb-1" style={{ color: '#94a3b8' }}>Tipo de Personalizado</label>
                 <select
                   value={form.rescaldo_tipo}
                   onChange={e => setForm(f => ({ ...f, rescaldo_tipo: e.target.value }))}
@@ -607,7 +607,7 @@ export default function CatalogoPage() {
                     <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
                 </select>
-                <p className="text-[10px] mt-1" style={{ color: '#64748b' }}>Marca o produto como item de rescaldo — passa a aparecer no modal de Rescaldos do contrato. Pelinho tem fluxo próprio e não entra aqui.</p>
+                <p className="text-[10px] mt-1" style={{ color: '#64748b' }}>Marca o produto como item personalizado — passa a aparecer no modal de Personalizados do contrato. Pelinho tem fluxo próprio e não entra aqui.</p>
               </div>
 
               {/* Imagem do produto */}

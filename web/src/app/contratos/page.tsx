@@ -97,10 +97,6 @@ type Contrato = {
   certificado_nome_6: string | null
   certificado_nome_7: string | null
   certificado_confirmado: boolean | null
-  // Pelinho (rescaldo padrão)
-  pelinho_quer: boolean | null
-  pelinho_feito: boolean
-  pelinho_quantidade: number
   // Produtos do contrato (para calcular complexidade)
   contrato_produtos?: ContratoProduto[]
   // Valores e pagamentos
@@ -343,14 +339,9 @@ function ContratosContent() {
     }
   }
 
-  // Modal do pelinho - Modal 1 (pergunta inicial) e Modal 2 (check/validação)
-  const [pelinhoModal1, setPelinhoModal1] = useState(false) // Pergunta: Tira pelinho?
-  const [pelinhoModal2, setPelinhoModal2] = useState(false) // Check: validação
+  // Modal do pelinho — agora é rescaldo "de verdade" (mig 126): 1 tela, só quantidade.
+  const [pelinhoModal, setPelinhoModal] = useState(false)
   const [pelinhoContrato, setPelinhoContrato] = useState<Contrato | null>(null)
-  const [pelinhoQuer, setPelinhoQuer] = useState(true)
-  const [pelinhoFeito, setPelinhoFeito] = useState(false) // Validado
-  const [pelinhoQtd, setPelinhoQtd] = useState(1)
-  const [salvandoPelinho, setSalvandoPelinho] = useState(false)
 
   // Mobile: card expandido para ações
   const [expandedMobileId, setExpandedMobileId] = useState<string | null>(null)
@@ -909,10 +900,13 @@ function ContratosContent() {
   }
 
   async function carregarProdutosRescaldo() {
+    // Pelinho tem popup dedicado (PelinhoModal) — não entra na lista genérica do RescaldoModal,
+    // senão vira um 3º caminho concorrente pra adicionar o mesmo produto.
     const { data } = await supabase
       .from('produtos')
       .select('id, codigo, nome, tipo, rescaldo_tipo, preco, imagem_url')
       .not('rescaldo_tipo', 'is', null)
+      .neq('rescaldo_tipo', 'pelinho')
       .eq('ativo', true)
       .order('nome')
     if (data) setProdutosRescaldo(data as typeof produtosRescaldo)
@@ -1001,7 +995,7 @@ function ContratosContent() {
 
     // SELECT principal — só dados base + embeds leves essenciais (tutor + supinda + pagamentos).
     // Embeds pesados (contrato_produtos, contrato_gc, fonte_conhecimento) carregam em paralelo após.
-    const SELECT_CONTRATO = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
+    const SELECT_CONTRATO = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
 
     // Helper para aplicar filtros comuns (unidade + status + compartilhados).
     // Tipo `any` aqui porque o builder do supabase-js encadeia tipos genéricos complexos
@@ -1122,7 +1116,7 @@ function ContratosContent() {
     const agruparPorSupinda = agruparSupinda && statusFiltro !== 'preventivo' && !fluxoLocal
 
     // Mesmo padrão da listagem: SELECT leve + enriquecimento paralelo
-    const SELECT_BUSCA = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, pelinho_quer, pelinho_feito, pelinho_quantidade, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
+    const SELECT_BUSCA = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
     // Sanitiza: escapa wildcards SQL (% _) e caracteres reservados PostgREST (, ( ) : * \)
     // + limita 80 chars. Protege contra termo malicioso quebrar o filtro `or`.
     const t = sanitizeBuscaPostgrest(termoBusca)
@@ -2514,125 +2508,27 @@ Gratidão eterna!
     }
   }
 
-  // Funções do modal de pelinho
+  // Pelinho — igual aos outros rescaldos: abre o popup de quantidade direto (sem prompt "quer?").
   function abrirPelinhoModal(contrato: Contrato) {
     highlightContrato(contrato.id)
     setPelinhoContrato(contrato)
-    setPelinhoQtd(contrato.pelinho_quantidade || 1)
-    setPelinhoFeito(contrato.pelinho_feito || false)
-
-    // Se já quer pelinho (true), abre modal 2 (check/validação)
-    // Se não definido (null) ou não quer (false), abre modal 1 (pergunta inicial)
-    if (contrato.pelinho_quer === true) {
-      setPelinhoQuer(true)
-      setPelinhoModal2(true)
-    } else {
-      setPelinhoQuer(contrato.pelinho_quer === null ? true : false) // default Sim
-      setPelinhoModal1(true)
-    }
+    setPelinhoModal(true)
   }
 
-  async function salvarPelinho() {
-    if (!pelinhoContrato) return
-    setSalvandoPelinho(true)
-
-    try {
-      // 1. Buscar produto_id do pelinho (código 0004)
-      const resultado = await supabase
-        .from('produtos')
-        .select('id')
-        .eq('codigo', '0004')
-        .single()
-      const produtoPelinho = resultado.data as { id: string } | null
-
-      if (!produtoPelinho) {
-        alert('Produto pelinho (0004) não encontrado!')
-        setSalvandoPelinho(false)
-        return
-      }
-
-      // 2. Buscar linhas de pelinho existentes para este contrato
-      const resPelinho = await supabase
-        .from('contrato_produtos')
-        .select('id, separado')
-        .eq('contrato_id', pelinhoContrato.id)
-        .eq('produto_id', produtoPelinho.id)
-      const pelinhoExistentes = resPelinho.data as Array<{ id: string; separado: boolean }> | null
-
-      const qtdAtual = pelinhoExistentes?.length || 0
-      const qtdDesejada = pelinhoQuer ? pelinhoQtd : 0
-
-      // 3. Sincronizar contrato_produtos
-      if (qtdDesejada > qtdAtual) {
-        // Adicionar linhas
-        const novasLinhas = Array.from({ length: qtdDesejada - qtdAtual }, () => ({
-          contrato_id: pelinhoContrato.id,
-          produto_id: produtoPelinho.id,
-          quantidade: 1,
-          valor: 0,
-          desconto: 0,
-          is_reserva_pv: false,
-          separado: pelinhoFeito,
-          foto_recebida: false
-        }))
-        await supabase.from('contrato_produtos').insert(novasLinhas as never)
-      } else if (qtdDesejada < qtdAtual) {
-        // Remover linhas extras (remove as últimas)
-        const idsParaRemover = pelinhoExistentes!
-          .slice(qtdDesejada)
-          .map(p => p.id)
-        if (idsParaRemover.length > 0) {
-          await supabase
-            .from('contrato_produtos')
-            .delete()
-            .in('id', idsParaRemover)
-        }
-      }
-
-      // 4. Atualizar status 'separado' das linhas restantes (se marcou como feito)
-      if (pelinhoQuer && pelinhoExistentes && pelinhoExistentes.length > 0) {
-        const idsParaAtualizar = pelinhoExistentes.slice(0, qtdDesejada).map(p => p.id)
-        if (idsParaAtualizar.length > 0) {
-          await supabase
-            .from('contrato_produtos')
-            .update({ separado: pelinhoFeito } as never)
-            .in('id', idsParaAtualizar)
-        }
-      }
-
-      // 5. Atualizar campos no contrato (cache)
-      const { error } = await supabase
-        .from('contratos')
-        .update({
-          pelinho_quer: pelinhoQuer,
-          pelinho_feito: pelinhoQuer ? pelinhoFeito : false,
-          pelinho_quantidade: pelinhoQuer ? pelinhoQtd : 0
-        } as never)
-        .eq('id', pelinhoContrato.id)
-
-      if (error) throw error
-
-      // 6. Atualizar contrato na lista local
-      setContratos(contratos.map(c =>
-        c.id === pelinhoContrato.id
-          ? {
-              ...c,
-              pelinho_quer: pelinhoQuer,
-              pelinho_feito: pelinhoQuer ? pelinhoFeito : false,
-              pelinho_quantidade: pelinhoQuer ? pelinhoQtd : 0
-            }
-          : c
-      ))
-      setPelinhoModal1(false)
-      setPelinhoModal2(false)
-      unhighlightContrato()
-
-    } catch (err) {
-      console.error('Erro ao salvar pelinho:', err)
-      alert('Erro ao salvar. Tente novamente.')
-    }
-
-    setSalvandoPelinho(false)
+  // Recarrega as linhas de pelinho desse contrato depois que o PelinhoModal salva — ele mexe
+  // direto em contrato_produtos e não devolve os ids novos, então é mais simples reler.
+  async function recarregarPelinhoLocal(contratoId: string) {
+    const { data } = await supabase
+      .from('contrato_produtos')
+      .select('id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos!inner(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)')
+      .eq('contrato_id', contratoId)
+      .eq('produto.rescaldo_tipo', 'pelinho')
+    const linhasPelinho = (data || []) as unknown as ContratoProduto[]
+    const mesclar = (prods?: ContratoProduto[]) => [
+      ...(prods || []).filter(cp => cp.produto?.rescaldo_tipo !== 'pelinho'),
+      ...linhasPelinho,
+    ]
+    setContratos(prev => prev.map(c => c.id === contratoId ? { ...c, contrato_produtos: mesclar(c.contrato_produtos) } : c))
   }
 
   // Pet Grato - abre o modal
@@ -3670,7 +3566,7 @@ ${petNome}`
                 { id: 'certificados', icon: '📜', label: 'Certificados', cor: 'blue' },
                 { id: 'protocolos', icon: '📋', label: 'Protocolos', cor: 'slate' },
                 { id: 'pelinhos', icon: '🫙', label: 'Pelinhos', cor: 'amber' },
-                { id: 'rescaldos', icon: '🐾', label: 'Rescaldos', cor: 'orange' },
+                { id: 'rescaldos', icon: '🐾', label: 'Personalizados', cor: 'orange' },
                 { id: 'urnas', icon: '⚱️', label: 'Urnas', cor: 'purple' },
                 { id: 'porta-retratos', icon: '🖼️', label: 'C/ Foto', cor: 'pink' },
                 { id: 'pingentes', icon: '💎', label: 'Pingentes', cor: 'emerald' },
@@ -3865,7 +3761,7 @@ ${petNome}`
           { id: 'certificados', icon: '📜', label: 'Certificados' },
           { id: 'protocolos', icon: '📋', label: 'Protocolos' },
           { id: 'pelinhos', icon: '🫙', label: 'Pelinhos' },
-          { id: 'rescaldos', icon: '🐾', label: 'Rescaldos' },
+          { id: 'rescaldos', icon: '🐾', label: 'Personalizados' },
           { id: 'urnas', icon: '⚱️', label: 'Urnas' },
           { id: 'porta-retratos', icon: '🖼️', label: 'C/ Foto' },
           { id: 'pingentes', icon: '💎', label: 'Pingentes' },
@@ -5238,17 +5134,14 @@ ${petNome}`
         </div>
       )}
 
-      {/* Modal Pelinho (2-step: pergunta + validação) */}
+      {/* Modal Pelinho (popup de quantidade) */}
       {pelinhoContrato && (
         <PelinhoModal
-          isOpen={pelinhoModal1 || pelinhoModal2}
-          onClose={() => { setPelinhoModal1(false); setPelinhoModal2(false); unhighlightContrato(); }}
+          isOpen={pelinhoModal}
+          onClose={() => { setPelinhoModal(false); unhighlightContrato(); }}
           contrato={pelinhoContrato}
-          onSuccess={(updated) => {
-            setContratos(prev => prev.map(c =>
-              c.id === updated.id ? { ...c, ...updated } : c
-            ))
-          }}
+          quantidadeAtual={(pelinhoContrato.contrato_produtos || []).filter(cp => cp.produto?.rescaldo_tipo === 'pelinho').length}
+          onSuccess={() => recarregarPelinhoLocal(pelinhoContrato.id)}
         />
       )}
 

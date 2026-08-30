@@ -5,6 +5,7 @@ import RemocoesKPI from './RemocoesKPI'
 import TipoCremacaoKPI from './TipoCremacaoKPI'
 import LocalRemocaoKPI from './LocalRemocaoKPI'
 import EspecieKPI from './EspecieKPI'
+import PeriodoRemocaoKPI from './PeriodoRemocaoKPI'
 import ComoConheceuKPI from './ComoConheceuKPI'
 import FonteOutroKPI from './FonteOutroKPI'
 import ResponsavelKPI from './ResponsavelKPI'
@@ -29,6 +30,7 @@ export default function OperacionalTab({ range, comparePrev, modo }: Props) {
         <TipoCremacaoKPI range={range} comparePrev={comparePrev} modo={modo} />
         <LocalRemocaoKPI range={range} comparePrev={comparePrev} modo={modo} />
         <EspecieKPI range={range} comparePrev={comparePrev} modo={modo} />
+        <PeriodoRemocaoKPI range={range} comparePrev={comparePrev} modo={modo} />
       </div>
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <ComoConheceuKPI range={range} comparePrev={comparePrev} modo={modo} refreshKey={refreshKey} />

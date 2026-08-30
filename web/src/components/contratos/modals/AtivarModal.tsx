@@ -62,11 +62,14 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
   const { currentUnit } = useUnit()
 
   const temPadronizacaoClinicas = !!currentUnit?.modulos_ativos?.includes('cb_padronizacao_clinicas')
+  // Checa modulos_ativos direto — hasModule() retorna true sempre pra super_admin.
+  const temOperacional = !!currentUnit?.modulos_ativos?.includes('cb_operacional')
 
   const [acolhimento, setAcolhimento] = useState<AcolhimentoData>(ACOLHIMENTO_INICIAL)
   const [salvando, setSalvando] = useState(false)
 
   const [funcionarios, setFuncionarios] = useState<{ id: string; nome: string }[]>([])
+  const [atribuiveis, setAtribuiveis] = useState<{ user_id: string; nome: string | null; role: string }[]>([])
   const [estabelecimentos, setEstabelecimentos] = useState<Estab[]>([])
 
   const telefoneBase = contrato.tutor?.telefone || contrato.tutor_telefone || ''
@@ -99,6 +102,14 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
       if (data) setFuncionarios(data)
     })
 
+    // cb_operacional: Responsável vem de quem já loga na unidade, não de funcionarios.
+    if (temOperacional && unidadeFuncs) {
+      supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: unidadeFuncs } as never)
+        .then(({ data }: { data: { user_id: string; nome: string | null; role: string }[] | null }) => setAtribuiveis(data || []))
+    } else {
+      setAtribuiveis([])
+    }
+
     // Estabelecimentos (clínicas e hospitais) para o autocomplete
     supabase
       .from('estabelecimentos')
@@ -112,13 +123,13 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
     // Pré-preenche o Acolhimento com o que já está gravado no contrato (só ajustar se preciso)
     supabase
       .from('contratos')
-      .select('local_coleta, clinica_coleta, estabelecimento_id, funcionario_id, numero_lacre, data_acolhimento, tutor_telefone_nome, tutor_telefone2, tutor_telefone2_nome, estab:estabelecimentos!estabelecimento_id(nome)')
+      .select('local_coleta, clinica_coleta, estabelecimento_id, funcionario_id, responsavel_user_id, numero_lacre, data_acolhimento, tutor_telefone_nome, tutor_telefone2, tutor_telefone2_nome, estab:estabelecimentos!estabelecimento_id(nome)')
       .eq('id', contrato.id)
       .single()
       .then(({ data }) => {
         const c = data as {
           local_coleta: string | null; clinica_coleta: string | null; estabelecimento_id: string | null
-          funcionario_id: string | null; numero_lacre: string | null; data_acolhimento: string | null
+          funcionario_id: string | null; responsavel_user_id: string | null; numero_lacre: string | null; data_acolhimento: string | null
           tutor_telefone_nome: string | null; tutor_telefone2: string | null; tutor_telefone2_nome: string | null
           estab: { nome: string } | null
         } | null
@@ -143,6 +154,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
           clinicaTextoLivre: localColeta === 'clinica' && !temPadronizacaoClinicas ? (c.clinica_coleta || '') : '',
           enderecoOutro: localColeta === 'outro' ? (c.clinica_coleta || '') : '',
           funcionarioId: c.funcionario_id || '',
+          responsavelUserId: c.responsavel_user_id || '',
           dataHoraAcolhimento: c.data_acolhimento ? isoParaDatetimeLocal(c.data_acolhimento) : dataHoraAgora,
           lacre: c.numero_lacre || '',
         })
@@ -160,7 +172,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
     (acolhimento.localColeta !== 'outro' || !!acolhimento.enderecoOutro.trim())
 
   // PV: pet morreu / foi acionado → local, responsável e data/hora obrigatórios (lacre não)
-  const podeAtivar = localOk && !!acolhimento.funcionarioId && !!acolhimento.dataHoraAcolhimento
+  const podeAtivar = localOk && (!!acolhimento.funcionarioId || !!acolhimento.responsavelUserId) && !!acolhimento.dataHoraAcolhimento
 
   async function salvarAtivacao() {
     const a = acolhimento
@@ -173,7 +185,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
     } else if (a.localColeta === 'outro' && !a.enderecoOutro.trim()) {
       faltando.push('Endereço (Outro)')
     }
-    if (!a.funcionarioId) faltando.push('Responsável pelo acolhimento')
+    if (!a.funcionarioId && !a.responsavelUserId) faltando.push('Responsável pelo acolhimento')
     if (!a.dataHoraAcolhimento) faltando.push('Data e hora do acolhimento')
 
     if (faltando.length) {
@@ -252,6 +264,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
           estabelecimento_id: isClinica ? (resolvedEstabId || null) : null,
           numero_lacre: a.semLacre ? null : (a.lacre.trim() || null),
           funcionario_id: a.semResponsavel ? null : (a.funcionarioId || null),
+          responsavel_user_id: a.semResponsavel ? null : (a.responsavelUserId || null),
           tutor_telefone: telPrincipal,
           tutor_telefone2: telSecundario,
           tutor_telefone_nome: telPrincipalNome,
@@ -316,6 +329,8 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
             onChange={setAcolhimento}
             temPadronizacaoClinicas={temPadronizacaoClinicas}
             funcionarios={funcionarios}
+            temOperacional={temOperacional}
+            atribuiveis={atribuiveis}
             estabelecimentos={estabelecimentos}
             telefoneBase={telefoneBase}
             tutorNome={tutorNome}

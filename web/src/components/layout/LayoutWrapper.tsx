@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { usePathname } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
 import { Sidebar } from './Sidebar'
 import { MobileHeader } from './MobileHeader'
 import { MobileDrawer } from './MobileDrawer'
@@ -11,7 +11,7 @@ import { ToastProvider } from '@/components/ui/Toast'
 import { PanelLeftOpen, PanelLeftClose } from 'lucide-react'
 import { useTheme } from '@/hooks/useTheme'
 import { THEMES, THEME_META, type Theme } from '@/lib/theme'
-import { UnitProvider } from '@/contexts/UnitContext'
+import { UnitProvider, useUnit } from '@/contexts/UnitContext'
 import { UnitSelector } from './UnitSelector'
 import { UserMenu } from './UserMenu'
 import { RefreshButton } from './RefreshButton'
@@ -33,9 +33,6 @@ const STANDALONE_ROUTES = ['/login', '/ficha/', '/preventivo/']
 export function LayoutWrapper({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const isAuthRoute = STANDALONE_ROUTES.some(route => pathname?.startsWith(route))
-  const drawer = useSidebarState()
-  const [sidebarExpanded, setSidebarExpanded] = useState(false)
-  const { theme, setTheme } = useTheme()
 
   if (isAuthRoute) {
     return <ToastProvider>{children}</ToastProvider>
@@ -45,10 +42,39 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
     <UnitProvider>
     <ToastProvider>
       <ActivityTracker />
+      <AppShell>{children}</AppShell>
+    </ToastProvider>
+    </UnitProvider>
+  )
+}
+
+// Operacional só enxerga /tarefas (qualquer outra rota redireciona pra lá) — mas usa o MESMO
+// shell de todo mundo (visual "perfil normal"), só com menos coisa dentro: Sidebar filtra pra
+// só o item Tarefas e UserMenu esconde "Impressão de Documentos" quando currentRole é
+// operacional (gate duro no código, não FLS — ver comentário em Sidebar.tsx/UserMenu.tsx).
+// Bottom nav mobile é suprimido aqui porque os 5 atalhos (Fichas/Pipeline/...) não fazem
+// sentido pra quem só acessa Tarefas.
+function AppShell({ children }: { children: React.ReactNode }) {
+  const { currentRole, isLoading } = useUnit()
+  const pathname = usePathname()
+  const router = useRouter()
+  const drawer = useSidebarState()
+  const [sidebarExpanded, setSidebarExpanded] = useState(false)
+  const { theme, setTheme } = useTheme()
+
+  const isOperacional = currentRole === 'operacional'
+
+  useEffect(() => {
+    if (!isLoading && isOperacional && pathname !== '/tarefas') {
+      router.replace('/tarefas')
+    }
+  }, [isLoading, isOperacional, pathname, router])
+
+  return (
       <div className="min-h-screen bg-[var(--shell-bg)]">
         {/* Desktop sidebar (>=1024px) — mini por padrão, expansível */}
         <aside className={`theme-sidebar hidden lg:flex fixed top-0 left-0 bottom-0 ${sidebarExpanded ? 'w-64' : 'w-[72px]'} bg-slate-900 border-r border-slate-700/50 z-30 flex-col transition-all duration-200`}>
-          <Sidebar mode={sidebarExpanded ? 'full' : 'mini'} />
+          <Sidebar mode={sidebarExpanded ? 'full' : 'mini'} dense />
           <button
             onClick={() => setSidebarExpanded(!sidebarExpanded)}
             className="absolute -right-3 top-20 w-6 h-6 rounded-full bg-slate-800 border border-slate-600 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700 transition-colors shadow-sm z-40"
@@ -71,8 +97,9 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
           <Sidebar mode="drawer" onNavigate={drawer.close} />
         </MobileDrawer>
 
-        {/* Mobile bottom nav (<768px) — atalhos rápidos, gated por FLS nav_bottom */}
-        <MobileBottomNav />
+        {/* Mobile bottom nav (<768px) — atalhos rápidos, gated por FLS nav_bottom. Suprimida
+            pra Operacional (os 5 atalhos não levam a nada que ele acesse). */}
+        {!isOperacional && <MobileBottomNav />}
 
         {/* Main content area — responsive margins */}
         {/* overflow-x-CLIP (não hidden): hidden força overflow-y:auto e o main vira
@@ -96,7 +123,5 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
           </div>
         </main>
       </div>
-    </ToastProvider>
-    </UnitProvider>
   )
 }

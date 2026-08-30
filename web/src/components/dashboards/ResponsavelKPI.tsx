@@ -48,6 +48,34 @@ async function countPorFuncionario(
   return counts
 }
 
+// Mesma coisa por responsavel_user_id — unidades com cb_operacional (ver mig 123). Só
+// entram na contagem os contratos SEM funcionario_id (os dois nunca vêm juntos, ver
+// criar-contrato-de-ficha.ts), então soma-se ao mesmo ranking sem contar em dobro.
+async function countPorResponsavelUserId(
+  supabase: ReturnType<typeof createClient>,
+  unidadeId: string,
+  modo: DashboardModo,
+  from: Date,
+  to: Date,
+): Promise<Map<string | null, number>> {
+  const PAGE = 1000
+  const counts = new Map<string | null, number>()
+  for (let offset = 0; ; offset += PAGE) {
+    const base = supabase
+      .from('contratos')
+      .select('responsavel_user_id')
+      .eq('unidade_id', unidadeId)
+      .not('responsavel_user_id', 'is', null)
+      .range(offset, offset + PAGE - 1)
+    const { data, error } = await filtroModo(base, modo, from, to)
+    if (error) { console.error('[ResponsavelKPI]', error); break }
+    const rows = (data ?? []) as { responsavel_user_id: string | null }[]
+    for (const r of rows) counts.set(r.responsavel_user_id, (counts.get(r.responsavel_user_id) ?? 0) + 1)
+    if (rows.length < PAGE) break
+  }
+  return counts
+}
+
 export default function ResponsavelKPI({ range, comparePrev, modo }: Props) {
   const { currentUnit } = useUnit()
   const [items, setItems] = useState<RankItem[]>([])
@@ -63,24 +91,33 @@ export default function ResponsavelKPI({ range, comparePrev, modo }: Props) {
     const prev = computePreviousRange(range)
     Promise.all([
       supabase.from('funcionarios').select('id, nome').eq('unidade_id', currentUnit.id),
+      supabase.from('perfis').select('user_id, nome').eq('unidade_id', currentUnit.id),
       countPorFuncionario(supabase, currentUnit.id, modo, range.from, range.to),
+      countPorResponsavelUserId(supabase, currentUnit.id, modo, range.from, range.to),
       comparePrev
         ? countPorFuncionario(supabase, currentUnit.id, modo, prev.from, prev.to)
         : Promise.resolve(new Map<string | null, number>()),
-    ]).then(([funcRes, curr, prevC]) => {
+      comparePrev
+        ? countPorResponsavelUserId(supabase, currentUnit.id, modo, prev.from, prev.to)
+        : Promise.resolve(new Map<string | null, number>()),
+    ]).then(([funcRes, perfisRes, curr, currResp, prevC, prevRespC]) => {
       if (cancelled) return
       const funcionarios = (funcRes.data ?? []) as unknown as { id: string; nome: string }[]
       const nomes = new Map(funcionarios.map(f => [f.id, f.nome]))
+      const perfis = (perfisRes.data ?? []) as unknown as { user_id: string; nome: string | null }[]
+      const nomesPerfis = new Map(perfis.map(p => [p.user_id, p.nome]))
       const porNome = new Map<string, RankItem>()
-      const add = (funcId: string | null, count: number, isPrev: boolean) => {
-        const nome = funcId ? (nomes.get(funcId) ?? SEM_RESPONSAVEL) : SEM_RESPONSAVEL
+      const add = (id: string | null, count: number, isPrev: boolean, mapa: Map<string, string | null | undefined>) => {
+        const nome = id ? (mapa.get(id) ?? SEM_RESPONSAVEL) : SEM_RESPONSAVEL
         const item = porNome.get(nome) ?? { nome, count: 0, prevCount: 0 }
         if (isPrev) item.prevCount += count
         else item.count += count
         porNome.set(nome, item)
       }
-      curr.forEach((count, funcId) => add(funcId, count, false))
-      prevC.forEach((count, funcId) => add(funcId, count, true))
+      curr.forEach((count, funcId) => add(funcId, count, false, nomes))
+      prevC.forEach((count, funcId) => add(funcId, count, true, nomes))
+      currResp.forEach((count, userId) => add(userId, count, false, nomesPerfis))
+      prevRespC.forEach((count, userId) => add(userId, count, true, nomesPerfis))
 
       const lista = Array.from(porNome.values())
         .filter(i => i.count > 0 || i.prevCount > 0)

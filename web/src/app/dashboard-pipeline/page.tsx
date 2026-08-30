@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Activity, DollarSign, Building2, Megaphone, BarChart3, Calendar, type LucideIcon } from 'lucide-react'
+import { Activity, DollarSign, Building2, Megaphone, BarChart3, Calendar, TrendingUp, type LucideIcon } from 'lucide-react'
 import EmptyState from '@/components/ui/EmptyState'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
 import OperacionalTab from '@/components/dashboards/OperacionalTab'
 import FinanceiroTab from '@/components/dashboards/FinanceiroTab'
+import EvolucaoTab from '@/components/dashboards/EvolucaoTab'
 import {
   PERIOD_GROUPS,
   DEFAULT_PERIOD,
@@ -32,6 +33,7 @@ type TabDef = {
 
 const TABS: TabDef[] = [
   { key: 'operacional', obj: 'obj_dash_operacional', label: 'Operacional', desc: 'Volume, fluxo, supindas, entregas, rescaldos', icon: Activity },
+  { key: 'evolucao',    obj: 'obj_dash_evolucao',    label: 'Evolução',    desc: 'Série mensal de volume e receita — tendência ao longo do tempo', icon: TrendingUp },
   { key: 'financeiro',  obj: 'obj_dash_financeiro',  label: 'Financeiro',  desc: 'Receita, custo cremação, ticket médio, pendentes, NFS-e', icon: DollarSign },
   { key: 'comercial',   obj: 'obj_dash_comercial',   label: 'Comercial',   desc: 'Ranking clínicas, indicações, conversão de leads', icon: Building2 },
   { key: 'marketing',   obj: 'obj_dash_marketing',   label: 'Marketing',   desc: 'UTM, leads, conversão, RIP Shield, ROAS', icon: Megaphone },
@@ -49,6 +51,33 @@ function fromIsoDate(s: string | null): Date | null {
   const [y, m, d] = s.split('-').map(Number)
   if (!y || !m || !d) return null
   return new Date(y, m - 1, d)
+}
+
+// Toggle Remoções ↔ Contratos — o único filtro do cabeçalho que a aba Evolução também respeita
+function ModoToggle({ modo, selectModo }: { modo: DashboardModo; selectModo: (m: DashboardModo) => void }) {
+  return (
+    <div className="inline-flex rounded-full border border-[var(--surface-300)] p-0.5 bg-[var(--surface-0)]">
+      {([['remocoes', 'Remoções'], ['contratos', 'Contratos']] as const).map(([key, label]) => {
+        const isActive = modo === key
+        return (
+          <button
+            key={key}
+            onClick={() => selectModo(key)}
+            className="text-[11px] font-medium px-2.5 py-0.5 rounded-full transition-colors"
+            style={{
+              background: isActive ? 'var(--brand-500)' : 'transparent',
+              color: isActive ? '#fff' : 'var(--surface-600)',
+            }}
+            title={key === 'remocoes'
+              ? 'Conta remoções (pet já coletado), por data de acolhimento'
+              : 'Conta todos os contratos (inclui preventivos), por data do contrato'}
+          >
+            {label}
+          </button>
+        )
+      })}
+    </div>
+  )
 }
 
 export default function DashboardsPage() {
@@ -137,7 +166,8 @@ export default function DashboardsPage() {
         </h1>
       </div>
 
-      {/* Filtro temporal — em desktop os 2 grupos ficam na mesma linha */}
+      {/* Filtro temporal — não se aplica à aba Evolução (ela tem período próprio: 6/12/24 meses) */}
+      {activeTab?.key !== 'evolucao' && (
       <div className="mb-4">
         <div className="flex flex-col md:flex-row md:items-center md:flex-wrap gap-x-5 gap-y-1.5">
           {PERIOD_GROUPS.map(group => (
@@ -200,27 +230,7 @@ export default function DashboardsPage() {
           </div>
 
           {/* Toggle Remoções ↔ Contratos */}
-          <div className="inline-flex rounded-full border border-[var(--surface-300)] p-0.5 bg-[var(--surface-0)]">
-            {([['remocoes', 'Remoções'], ['contratos', 'Contratos']] as const).map(([key, label]) => {
-              const isActive = modo === key
-              return (
-                <button
-                  key={key}
-                  onClick={() => selectModo(key)}
-                  className="text-[11px] font-medium px-2.5 py-0.5 rounded-full transition-colors"
-                  style={{
-                    background: isActive ? 'var(--brand-500)' : 'transparent',
-                    color: isActive ? '#fff' : 'var(--surface-600)',
-                  }}
-                  title={key === 'remocoes'
-                    ? 'Conta remoções (pet já coletado), por data de acolhimento'
-                    : 'Conta todos os contratos (inclui preventivos), por data do contrato'}
-                >
-                  {label}
-                </button>
-              )
-            })}
-          </div>
+          <ModoToggle modo={modo} selectModo={selectModo} />
 
           <label className="inline-flex items-center gap-1.5 text-[11px] text-[var(--surface-500)] cursor-pointer select-none">
             <input
@@ -238,6 +248,14 @@ export default function DashboardsPage() {
           </label>
         </div>
       </div>
+      )}
+
+      {/* Na Evolução só o toggle Remoções/Contratos vale — o resto do filtro temporal acima não se aplica */}
+      {activeTab?.key === 'evolucao' && (
+        <div className="mb-4">
+          <ModoToggle modo={modo} selectModo={selectModo} />
+        </div>
+      )}
 
       {/* Tabs (categorias) */}
       <div className="flex flex-wrap gap-1.5 mb-4 border-b border-[var(--surface-200)] pb-2">
@@ -265,6 +283,8 @@ export default function DashboardsPage() {
       {/* Conteúdo da aba ativa */}
       {activeTab?.key === 'operacional' ? (
         <OperacionalTab range={range} comparePrev={comparePrev} modo={modo} />
+      ) : activeTab?.key === 'evolucao' ? (
+        <EvolucaoTab modo={modo} />
       ) : activeTab?.key === 'financeiro' ? (
         <FinanceiroTab range={range} comparePrev={comparePrev} modo={modo} />
       ) : activeTab ? (

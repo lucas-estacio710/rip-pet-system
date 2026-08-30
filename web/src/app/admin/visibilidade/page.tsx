@@ -22,7 +22,7 @@ const PERM_STYLES: Record<PermissionLevel, { icon: string; bg: string; text: str
   hidden: { icon: '🚫', bg: 'rgba(239,68,68,0.15)', text: '#ef4444', border: '#ef4444' },
 }
 
-type Unidade = { id: string; codigo: string; nome: string; is_matriz: boolean; ordem: number }
+type Unidade = { id: string; codigo: string; nome: string; is_matriz: boolean; ordem: number; modulos_ativos: string[] }
 type LogEntry = { id: string; entidade_nome: string; valor_anterior: string | null; valor_novo: string | null; nota: string | null; criado_em: string; alterado_por_email: string | null }
 
 export default function VisibilidadePage() {
@@ -45,6 +45,11 @@ export default function VisibilidadePage() {
   const [modoOverrides, setModoOverrides] = useState<Record<string, PermMode>>({})
   const [originalModoOverrides, setOriginalModoOverrides] = useState<Record<string, PermMode>>({})
 
+  // Módulos pagos (unidades.modulos_ativos) — unidadeId → array de chaves ativas. Liga/desliga
+  // por UNIDADE (não por role) — mecanismo separado do FLS, ver ItemDef.moduloPago.
+  const [modulos, setModulos] = useState<Record<string, string[]>>({})
+  const [originalModulos, setOriginalModulos] = useState<Record<string, string[]>>({})
+
   useEffect(() => { loadUnidades(); loadLogs(); loadModos() }, [])
   useEffect(() => { if (unidades.length > 0) loadPerms() }, [unidades])
 
@@ -52,7 +57,7 @@ export default function VisibilidadePage() {
     const { data } = await supabase
       .from('historico_alteracoes')
       .select('id, entidade_nome, valor_anterior, valor_novo, nota, criado_em, alterado_por_email')
-      .in('entidade', ['visibilidade', 'field_permissions'])
+      .in('entidade', ['visibilidade', 'field_permissions', 'unidades'])
       .order('criado_em', { ascending: false })
       .limit(50)
     if (data) setLogs(data as LogEntry[])
@@ -60,8 +65,16 @@ export default function VisibilidadePage() {
 
   async function loadUnidades() {
     setLoading(true)
-    const { data } = await supabase.from('unidades').select('id, codigo, nome, is_matriz, ordem').order('ordem').order('nome')
-    if (data) setUnidades(data as Unidade[])
+    const { data } = await supabase.from('unidades').select('id, codigo, nome, is_matriz, ordem, modulos_ativos').order('ordem').order('nome')
+    if (data) {
+      const list = (data as { id: string; codigo: string; nome: string; is_matriz: boolean; ordem: number; modulos_ativos: string[] | null }[])
+        .map(u => ({ ...u, modulos_ativos: u.modulos_ativos || [] }))
+      setUnidades(list)
+      const map: Record<string, string[]> = {}
+      for (const u of list) map[u.id] = u.modulos_ativos
+      setModulos(map)
+      setOriginalModulos(map)
+    }
     setLoading(false)
   }
 
@@ -117,6 +130,15 @@ export default function VisibilidadePage() {
     setSaved(false)
   }
 
+  function toggleModuloAtivo(unidadeId: string, chave: string) {
+    setModulos(prev => {
+      const atual = prev[unidadeId] || []
+      const ativo = atual.includes(chave)
+      return { ...prev, [unidadeId]: ativo ? atual.filter(c => c !== chave) : [...atual, chave] }
+    })
+    setSaved(false)
+  }
+
   /** Default de um item sem row no banco */
   function getDefaultPerm(modo: PermMode): PermissionLevel {
     return modo === 'toggle' ? 'read' : 'edit'
@@ -126,7 +148,7 @@ export default function VisibilidadePage() {
     return perms[`${unidadeId}:${role}:${campo}`] ?? getDefaultPerm(modo)
   }
 
-  const hasChanges = JSON.stringify(perms) !== JSON.stringify(originalPerms) || JSON.stringify(modoOverrides) !== JSON.stringify(originalModoOverrides)
+  const hasChanges = JSON.stringify(perms) !== JSON.stringify(originalPerms) || JSON.stringify(modoOverrides) !== JSON.stringify(originalModoOverrides) || JSON.stringify(modulos) !== JSON.stringify(originalModulos)
 
   async function handleSave() {
     setSaving(true)
@@ -222,6 +244,42 @@ export default function VisibilidadePage() {
       )
     }
 
+    // Módulos pagos (unidades.modulos_ativos) — diff por unidade, 1 UPDATE por unidade alterada
+    const modulosLogEntries: any[] = []
+    for (const unidadeId of Object.keys(modulos)) {
+      const atual = modulos[unidadeId] || []
+      const original = originalModulos[unidadeId] || []
+      if (JSON.stringify([...atual].sort()) === JSON.stringify([...original].sort())) continue
+
+      const { error } = await supabase.from('unidades').update({ modulos_ativos: atual } as never).eq('id', unidadeId)
+      if (error) { console.error('Erro ao salvar módulos:', error); continue }
+
+      const unit = unidades.find(u => u.id === unidadeId)
+      const ligados = atual.filter(c => !original.includes(c))
+      const desligados = original.filter(c => !atual.includes(c))
+      for (const chave of ligados) {
+        const item = OBJETOS.find(o => o.key === chave)
+        modulosLogEntries.push({
+          entidade: 'unidades', entidade_id: unidadeId, entidade_nome: unit?.nome || chave,
+          campo: chave, campo_label: item?.label || chave,
+          valor_anterior: 'Inativo', valor_novo: 'Ativo', tipo: 'modulo_pago',
+          alterado_por: user?.id || null, alterado_por_email: user?.email || null,
+        })
+      }
+      for (const chave of desligados) {
+        const item = OBJETOS.find(o => o.key === chave)
+        modulosLogEntries.push({
+          entidade: 'unidades', entidade_id: unidadeId, entidade_nome: unit?.nome || chave,
+          campo: chave, campo_label: item?.label || chave,
+          valor_anterior: 'Ativo', valor_novo: 'Inativo', tipo: 'modulo_pago',
+          alterado_por: user?.id || null, alterado_por_email: user?.email || null,
+        })
+      }
+    }
+    if (modulosLogEntries.length > 0) {
+      await supabase.from('historico_alteracoes').insert(modulosLogEntries as never)
+    }
+
     await refetch()
     await loadPerms()
     await loadModos()
@@ -235,7 +293,8 @@ export default function VisibilidadePage() {
     return <div className="animate-fade-in"><EmptyState icon={Shield} title="Acesso restrito" description="Somente administradores." /></div>
   }
 
-  const filteredObjetos = OBJETOS.filter(o => o.tela === selectedTela)
+  const filteredObjetos = OBJETOS.filter(o => o.tela === selectedTela && !o.moduloPago)
+  const filteredModulos = OBJETOS.filter(o => o.tela === selectedTela && o.moduloPago)
   const filteredCampos = CAMPOS_BOTOES.filter(c => c.tela === selectedTela)
   const selectedTelaItem = TELAS.find(t => t.key === selectedTela)
 
@@ -391,6 +450,60 @@ export default function VisibilidadePage() {
     )
   }
 
+  // ============================================
+  // Módulos pagos: liga/desliga por UNIDADE (não por role) — grava direto em
+  // unidades.modulos_ativos, diferente do resto da tela (que grava em field_permissions).
+  // ============================================
+  function renderModulosPagos(items: ChildItemDef[]) {
+    if (items.length === 0) return null
+    return (
+      <div className="mb-6">
+        <div className="flex items-center gap-2 mb-2">
+          <Shield className="h-4 w-4" style={{ color: '#eab308' }} />
+          <h2 className="text-sm font-bold uppercase tracking-wider" style={{ color: '#eab308' }}>Módulos Pagos</h2>
+          <span className="text-[10px]" style={{ color: '#64748b' }}>liga/desliga por unidade — não é FLS</span>
+        </div>
+        <div className="card overflow-x-auto">
+          <table className="w-full text-sm" style={{ tableLayout: 'auto' }}>
+            <thead>
+              <tr style={{ borderBottom: '2px solid var(--surface-200)' }}>
+                <th className="text-left px-2 py-2 text-xs font-semibold text-[var(--surface-500)]" style={{ minWidth: 100 }}>Unidade</th>
+                {items.map(m => (
+                  <th key={m.key} className="px-2 py-2 text-center" style={{ minWidth: 140 }} title={m.desc}>
+                    <span className="text-[9px] font-semibold text-[var(--surface-600)] leading-tight block" style={{ maxWidth: 140, wordBreak: 'break-word' }}>{m.label}</span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {unidades.map(u => (
+                <tr key={u.id} style={{ borderBottom: '1px solid var(--surface-100)' }} className="hover:bg-[var(--surface-50)] transition-colors">
+                  <td className="px-2 py-1.5"><UnitLabel u={u} /></td>
+                  {items.map(m => {
+                    const ativo = (modulos[u.id] || []).includes(m.key)
+                    return (
+                      <td key={m.key} className="px-2 py-1.5 text-center">
+                        <button
+                          onClick={() => toggleModuloAtivo(u.id, m.key)}
+                          className="px-2.5 py-1 rounded-full text-[10px] font-bold transition-all hover:scale-105"
+                          style={ativo
+                            ? { background: 'rgba(234,179,8,0.18)', color: '#eab308', border: '1.5px solid #eab308' }
+                            : { background: 'rgba(100,116,139,0.12)', color: '#64748b', border: '1.5px solid var(--surface-200)' }}
+                        >
+                          {ativo ? '💳 Ativo' : 'Inativo'}
+                        </button>
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="animate-fade-in">
       {/* Header */}
@@ -497,10 +610,11 @@ export default function VisibilidadePage() {
           </div>
 
           {/* Matrizes filtradas pela tela */}
+          {renderModulosPagos(filteredModulos)}
           {renderMatrix('Objetos Relacionados', Wrench, '#f59e0b', filteredObjetos, 'objetos')}
           {renderMatrix('Campos e Botões', FormInput, '#8b5cf6', filteredCampos, 'campos')}
 
-          {filteredObjetos.length === 0 && filteredCampos.length === 0 && (
+          {filteredObjetos.length === 0 && filteredCampos.length === 0 && filteredModulos.length === 0 && (
             <div className="card p-6 text-center text-sm" style={{ color: '#94a3b8' }}>
               Nenhum objeto ou campo configurável para "{selectedTelaItem?.label}".
             </div>

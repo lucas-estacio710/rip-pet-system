@@ -19,10 +19,6 @@ export type ComputedTag = {
 export type ContratoTagData = {
   status: string
   tipo_cremacao: string
-  // Pelinho
-  pelinho_quer: boolean | null
-  pelinho_feito: boolean
-  pelinho_quantidade: number
   // Certificado
   certificado_confirmado: boolean | null
   certificado_nome_1?: string | null
@@ -96,24 +92,23 @@ export function getPagamentoPendente(contrato: Pick<ContratoTagData, 'valor_plan
 
 // --- Individual tag computations ---
 
+// Pelinho é rescaldo "de verdade" desde a mig 126 — igual molde/carimbo/pelo_extra, só existe
+// se alguém adicionar. Diferença: guarda um farol permanente que nasce vermelho ("sem
+// pelinho") em todo contrato, em vez de ficar oculto quando não tem nenhuma linha.
 export function computePelinho(c: ContratoTagData): ComputedTag {
-  const qtd = c.pelinho_quantidade || 1
-  const sub = qtd > 1 ? `${qtd}` : undefined
+  const itens = (c.contrato_produtos || []).filter(cp => cp.produto?.rescaldo_tipo === 'pelinho')
+  const total = itens.length
+  const sub = total > 1 ? `${total}` : undefined
 
-  // Não quer → vermelho
-  if (c.pelinho_quer === false) {
-    return { id: 'pelinho', emoji: '🫙', state: 'rejected', label: 'Pelinho', tooltip: 'Não quer pelinho' }
+  if (total === 0) {
+    return { id: 'pelinho', emoji: '🫙', state: 'rejected', label: 'Pelinho', tooltip: 'Sem pelinho' }
   }
-  // Quer e validado → verde
-  if (c.pelinho_quer === true && c.pelinho_feito) {
-    return { id: 'pelinho', emoji: '🫙', state: 'completed', label: 'Pelinho', tooltip: qtd > 1 ? `Pelinho: ${qtd} validado(s)` : 'Pelinho: Validado', sublabel: sub }
+
+  const feitos = itens.filter(cp => cp.rescaldo_feito).length
+  if (feitos < total) {
+    return { id: 'pelinho', emoji: '🫙', state: 'in_progress', label: 'Pelinho', tooltip: `Pelinho: ${total - feitos} pendente(s)`, sublabel: sub }
   }
-  // Quer mas não validado → amarelo na esquerda (aguardando validação)
-  if (c.pelinho_quer === true && !c.pelinho_feito) {
-    return { id: 'pelinho', emoji: '🫙', state: 'in_progress', label: 'Pelinho', tooltip: `Pelinho: ${qtd} aguardando validação`, sublabel: sub }
-  }
-  // Ainda não perguntou (null) → amarelo com ❓
-  return { id: 'pelinho', emoji: '🫙', state: 'pending', label: 'Pelinho', tooltip: 'Pelinho: Clique para definir', sublabel: '❓' }
+  return { id: 'pelinho', emoji: '🫙', state: 'completed', label: 'Pelinho', tooltip: `Pelinho: ${total} feito(s)`, count: total, sublabel: sub }
 }
 
 export function computeUrna(c: ContratoTagData): ComputedTag {
@@ -211,31 +206,32 @@ export function computeProtocolo(c: ContratoTagData): ComputedTag {
 }
 
 export function computeRescaldo(c: ContratoTagData): ComputedTag {
-  const todosRescaldo = (c.contrato_produtos || []).filter(cp => cp.produto?.rescaldo_tipo || cp.produto?.codigo === '0002')
+  // Pelinho tem farol próprio (computePelinho) — não entra no balde genérico de rescaldo.
+  const todosRescaldo = (c.contrato_produtos || []).filter(cp => (cp.produto?.rescaldo_tipo && cp.produto.rescaldo_tipo !== 'pelinho') || cp.produto?.codigo === '0002')
   const temNenhum = todosRescaldo.some(cp => cp.produto?.codigo === '0002')
   const produtosRescaldo = todosRescaldo.filter(cp => cp.produto?.codigo !== '0002')
   const total = produtosRescaldo.length
 
   if (c.status === 'finalizado' && total === 0 && !temNenhum) {
-    return { id: 'rescaldo', emoji: '💎', state: 'hidden', label: 'Rescaldo', tooltip: '' }
+    return { id: 'rescaldo', emoji: '💎', state: 'hidden', label: 'Personalizados', tooltip: '' }
   }
 
   if (temNenhum && total === 0) {
-    return { id: 'rescaldo', emoji: '💎', state: 'rejected', label: 'Rescaldo', tooltip: 'Não quer rescaldo' }
+    return { id: 'rescaldo', emoji: '💎', state: 'rejected', label: 'Personalizados', tooltip: 'Não quer personalizado' }
   }
 
   if (total === 0) {
-    return { id: 'rescaldo', emoji: '💎', state: 'ghost', label: 'Rescaldo', tooltip: 'Rescaldos: Clique para adicionar', sublabel: '❓' }
+    return { id: 'rescaldo', emoji: '💎', state: 'ghost', label: 'Personalizados', tooltip: 'Personalizados: Clique para adicionar', sublabel: '❓' }
   }
 
   const pendentes = produtosRescaldo.filter(cp => !cp.rescaldo_feito).length
 
   if (pendentes === 0) {
     const sub = c.status === 'finalizado' ? `${total}` : `${total}✓`
-    return { id: 'rescaldo', emoji: '💎', state: 'completed', label: 'Rescaldo', tooltip: `Rescaldos: ${total} feito(s)`, count: total, sublabel: sub }
+    return { id: 'rescaldo', emoji: '💎', state: 'completed', label: 'Personalizados', tooltip: `Personalizados: ${total} feito(s)`, count: total, sublabel: sub }
   }
 
-  return { id: 'rescaldo', emoji: '💎', state: 'in_progress', label: 'Rescaldo', tooltip: `Rescaldos: ${pendentes} pendente(s)`, count: pendentes, sublabel: `${pendentes}⏳` }
+  return { id: 'rescaldo', emoji: '💎', state: 'in_progress', label: 'Personalizados', tooltip: `Personalizados: ${pendentes} pendente(s)`, count: pendentes, sublabel: `${pendentes}⏳` }
 }
 
 export function computeIndicacao(c: ContratoTagData): ComputedTag {

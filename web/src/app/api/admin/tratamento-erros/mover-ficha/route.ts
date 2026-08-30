@@ -199,12 +199,44 @@ export async function POST(request: NextRequest) {
       .eq('id', ficha_id)
     if (updErr) return NextResponse.json({ error: 'Falha ao mover: ' + updErr.message }, { status: 500 })
 
+    // 4) Tarefa de remoção pendente (unidade com cb_operacional) vinculada a essa ficha — sem
+    // isso ela ficava apontando pra unidade_id antiga: some do "Em andamento" de quem gerencia
+    // a unidade destino, e continua preso na origem. Achado numa auditoria de todos os
+    // pontos de entrada/saída de tarefas_operacionais (25/08/2026), não num caso real ainda.
+    // NÃO mexemos em atribuido_a (NOT NULL, e trocar quebraria a consistência com
+    // op_dados.responsavelUserId que a mesma tarefa já carrega) — só avisamos se a pessoa
+    // atribuída não tem perfil ativo na unidade destino, pro super_admin decidir reatribuir.
+    let responsavelAviso: string | null = null
+    const { data: tarefaPendente } = await supabaseAdmin
+      .from('tarefas_operacionais')
+      .select('id, atribuido_a')
+      .eq('ficha_id', ficha_id)
+      .eq('tipo', 'remocao')
+      .eq('status', 'pendente')
+      .maybeSingle()
+    if (tarefaPendente) {
+      await supabaseAdmin.from('tarefas_operacionais').update({ unidade_id: unidade_destino_id } as never).eq('id', tarefaPendente.id)
+      const { data: perfilNaDestino } = await supabaseAdmin
+        .from('perfis')
+        .select('nome')
+        .eq('user_id', tarefaPendente.atribuido_a)
+        .eq('unidade_id', unidade_destino_id)
+        .eq('ativo', true)
+        .maybeSingle()
+      if (!perfilNaDestino) {
+        const { data: perfilQualquer } = await supabaseAdmin
+          .from('perfis').select('nome').eq('user_id', tarefaPendente.atribuido_a).limit(1).maybeSingle()
+        responsavelAviso = `Essa ficha tinha remoção pendente atribuída a "${perfilQualquer?.nome || 'alguém'}", que não tem perfil ativo em ${destino.codigo} — a tarefa continua com essa pessoa; reatribua em /tarefas se necessário.`
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       destino: `${destino.nome} (${destino.codigo})`,
       codigoAntes,
       codigoDepois,
       funcAviso,
+      responsavelAviso,
     })
   } catch (err) {
     console.error('Erro mover-ficha POST:', err)

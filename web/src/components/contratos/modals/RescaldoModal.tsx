@@ -103,19 +103,19 @@ export default function RescaldoModal({
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
       <div className="bg-slate-800 rounded-xl shadow-xl max-w-lg w-full mx-4 p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-slate-200">🐾 Rescaldos — {petNome}</h3>
+          <h3 className="text-lg font-semibold text-slate-200">🐾 Personalizados — {petNome}</h3>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-200">✕</button>
         </div>
 
         <p className="text-sm text-slate-400 mb-4">{codigo}</p>
 
-        {/* Marcado como "Nenhum rescaldo" */}
+        {/* Marcado como "Nenhum personalizado" */}
         {temNenhum && (
           <div className="flex items-center gap-3 p-3 rounded-lg border border-red-700 bg-red-900/30 mb-4">
             <span className="text-lg">🚫</span>
             <div className="flex-1">
-              <p className="font-medium text-red-300 text-sm">Nenhum rescaldo</p>
-              <p className="text-xs text-red-400">Tutor não quer rescaldo</p>
+              <p className="font-medium text-red-300 text-sm">Nenhum personalizado</p>
+              <p className="text-xs text-red-400">Tutor não quer personalizado</p>
             </div>
             <button
               onClick={() => {
@@ -134,7 +134,7 @@ export default function RescaldoModal({
         <div className="space-y-2 mb-4">
           <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">No contrato</p>
           {rescaldosReais.length === 0 && !temNenhum && (
-            <p className="text-center text-slate-400 py-3 text-sm">Nenhum rescaldo adicionado</p>
+            <p className="text-center text-slate-400 py-3 text-sm">Nenhum personalizado adicionado</p>
           )}
           {rescaldosReais.map(cp => {
             const tipoInfo = cp.produto?.rescaldo_tipo ? RESCALDO_TIPO_LABELS[cp.produto.rescaldo_tipo] : null
@@ -179,7 +179,7 @@ export default function RescaldoModal({
                 <button
                   onClick={() => onRemover(cp.id, produtoIdDe(cp))}
                   className="flex items-center justify-center w-9 h-9 rounded-full bg-red-900/40 text-red-500 hover:bg-red-900/50 transition-colors"
-                  title="Remover produto de rescaldo"
+                  title="Remover produto personalizado"
                 >
                   ✕
                 </button>
@@ -198,7 +198,7 @@ export default function RescaldoModal({
                 disabled={salvando}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-700 bg-red-900/30 hover:bg-red-900/50 transition-colors text-red-300 text-xs font-medium disabled:opacity-50"
               >
-                🚫 Nenhum rescaldo
+                🚫 Nenhum personalizado
               </button>
             </div>
             <input

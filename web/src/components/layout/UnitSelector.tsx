@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useUnit } from '@/contexts/UnitContext'
-import { ChevronDown, Check, Shield, Crown, User } from 'lucide-react'
+import { ChevronDown, Check, Shield, Crown, User, Truck } from 'lucide-react'
 
 // Cores por código de unidade
 const UNIT_COLORS: Record<string, string> = {
@@ -33,12 +33,14 @@ const ROLE_ICONS = {
   super_admin: Crown,
   gerente: Shield,
   operador: User,
+  operacional: Truck,
 }
 
 const ROLE_LABELS = {
   super_admin: 'Super Admin',
   gerente: 'Gerente',
   operador: 'Concierge',
+  operacional: 'Operacional',
 }
 
 export function UnitSelector() {

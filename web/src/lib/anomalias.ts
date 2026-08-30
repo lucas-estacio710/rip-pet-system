@@ -512,18 +512,10 @@ export const ANOMALIAS: Check[] = [
     titulo: 'Sem responsável pelo atendimento',
     porque: 'Sem funcionário vinculado, o contrato não entra no ranking de produtividade da equipe.',
     comoCorrigir: 'Informar quem atendeu.',
-    filtro: q => q.is('funcionario_id', null),
+    // Unidades com cb_operacional gravam responsavel_user_id em vez de funcionario_id (mig
+    // 123) — só é anomalia se os DOIS estiverem vazios.
+    filtro: q => q.is('funcionario_id', null).is('responsavel_user_id', null),
   }),
-  checkContratos({
-    id: 'individual-sem-pelinho',
-    categoria: 'cadastro',
-    severidade: 'baixa',
-    titulo: 'Individual sem definição de pelinho',
-    porque: 'No individual o pelinho é padrão — em branco significa que ninguém perguntou ao tutor.',
-    comoCorrigir: 'Confirmar com o tutor se deseja o pelinho e marcar sim/não.',
-    filtro: q => q.eq('tipo_cremacao', 'individual').is('pelinho_quer', null),
-  }),
-
   // ═══ OPERAÇÃO ═══
   {
     id: 'ficha-processada-sem-contrato',

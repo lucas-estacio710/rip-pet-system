@@ -174,6 +174,12 @@ export async function POST(request: NextRequest) {
       .eq('id', ficha_id)
     if (updErr) return NextResponse.json({ error: 'Falha ao atualizar ficha: ' + updErr.message }, { status: 500 })
 
+    // 1.5) Deleta tarefa_operacional pendente ligada a essa ficha (remoção que ainda não foi
+    // feita) — senão fica órfã pra sempre na fila do Operacional, apontando pra uma ficha que
+    // voltou a ser rascunho (achado em produção: ficha cancelada direto, sem passar por aqui,
+    // mesmo bug — ver também o cancelamento em fichas/page.tsx e TratativaModal.tsx).
+    await supabaseAdmin.from('tarefas_operacionais').delete().eq('ficha_id', ficha_id).eq('status', 'pendente')
+
     // 2) Deleta contrato (se existir)
     let contratoDeletado = false
     if (contratoId) {
