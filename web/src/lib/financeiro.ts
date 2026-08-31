@@ -177,6 +177,61 @@ export function nomeDaConta(instituicao: string, p: ProdutoConta, indice?: numbe
   return indice && indice > 1 ? `${base} ${indice}` : base
 }
 
+/**
+ * TAXA DO ADQUIRENTE (mig 134) — uma fonte só, para as duas telas.
+ *
+ * O defeito que isto encerra: o mega pagamento do pipeline descontava a taxa e o
+ * modal do detalhe do contrato gravava `valor_liquido = valor`, sem taxa. A mesma
+ * venda de R$ 3.000 entrava como R$ 3.000 ou R$ 2.856 conforme a tela aberta.
+ */
+export type TaxaConta = {
+  modalidade: 'debito' | 'credito' | 'pix'
+  parcela_de: number
+  parcela_ate: number
+  bandeira: string | null
+  percentual: number
+  prazo_dias: number
+}
+
+/** Faixas como as operadoras publicam — não parcela a parcela. */
+export const FAIXAS_TAXA: { modalidade: 'debito' | 'credito'; de: number; ate: number; label: string; prazo: number }[] = [
+  { modalidade: 'debito',  de: 1, ate: 1,  label: 'Débito',          prazo: 1 },
+  { modalidade: 'credito', de: 1, ate: 1,  label: 'Crédito à vista', prazo: 30 },
+  { modalidade: 'credito', de: 2, ate: 6,  label: 'Crédito 2 a 6x',  prazo: 30 },
+  { modalidade: 'credito', de: 7, ate: 12, label: 'Crédito 7 a 12x', prazo: 30 },
+]
+
+export const BANDEIRAS = ['master', 'visa', 'elo', 'amex', 'hiper']
+
+/**
+ * Acha a taxa da venda. Bandeira específica ganha da genérica (bandeira nula).
+ * Sem linha cadastrada devolve zero — NUNCA inventa taxa, porque taxa chutada
+ * vira valor líquido errado e o caixa deixa de bater com o extrato.
+ */
+export function acharTaxa(
+  taxas: TaxaConta[], modalidade: 'debito' | 'credito' | 'pix',
+  parcelas = 1, bandeira?: string | null,
+): { percentual: number; prazoDias: number } {
+  const p = Math.max(parcelas || 1, 1)
+  const candidatas = taxas.filter(t =>
+    t.modalidade === modalidade && p >= t.parcela_de && p <= t.parcela_ate)
+  const especifica = bandeira
+    ? candidatas.find(t => (t.bandeira || '').toLowerCase() === bandeira.toLowerCase())
+    : undefined
+  const achada = especifica || candidatas.find(t => !t.bandeira)
+  return { percentual: achada?.percentual ?? 0, prazoDias: achada?.prazo_dias ?? 0 }
+}
+
+/** Quanto entra na conta e quando. `taxa` é o que o adquirente retém. */
+export function liquidoDaVenda(
+  valor: number, taxas: TaxaConta[],
+  modalidade: 'debito' | 'credito' | 'pix', parcelas = 1, bandeira?: string | null,
+): { taxa: number; liquido: number; prazoDias: number; percentual: number } {
+  const { percentual, prazoDias } = acharTaxa(taxas, modalidade, parcelas, bandeira)
+  const taxa = Math.round(valor * (percentual / 100) * 100) / 100
+  return { taxa, liquido: Math.round((valor - taxa) * 100) / 100, prazoDias, percentual }
+}
+
 export const fmtBRL = (v?: number | null) =>
   Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 

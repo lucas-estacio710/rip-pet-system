@@ -31,6 +31,7 @@ import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import {
   PRODUTOS, INSTITUICOES, camposDoProduto, nomeDaConta, type ProdutoConta,
+  FAIXAS_TAXA, BANDEIRAS, type TaxaConta,
 } from '@/lib/financeiro'
 
 /** Métodos que uma conta pode RECEBER — espelha o ENUM `metodo_pagamento`. */
@@ -95,6 +96,9 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
   // Qual lado está aberto no painel. Mostrar os dois de uma vez são 10 chips na
   // cara; quase toda conta é forte num lado só, então abre-se o que se vai mexer.
   const [lado, setLado] = useState<'entradas' | 'saidas' | null>(null)
+  // Taxas do adquirente (mig 134) — carregadas só quando uma maquininha abre.
+  const [taxas, setTaxas] = useState<TaxaConta[]>([])
+  const [bandeiraVista, setBandeiraVista] = useState<string>('')   // '' = a genérica
 
   const carregar = useCallback(async () => {
     if (!currentUnit?.id) return
@@ -118,6 +122,43 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
   }, [supabase, currentUnit?.id])
 
   useEffect(() => { void carregar() }, [carregar])
+
+  // Ao abrir uma maquininha, busca a tabela dela.
+  useEffect(() => {
+    const c = contas.find(x => x.id === aberta)
+    if (!c || c.produto !== 'maquininha') { setTaxas([]); return }
+    supabase.from('fin_taxas_conta')
+      .select('modalidade, parcela_de, parcela_ate, bandeira, percentual, prazo_dias')
+      .eq('conta_id', c.id).eq('ativo', true)
+      .then(({ data }) => setTaxas(((data as unknown as TaxaConta[]) || [])))
+  }, [aberta, contas, supabase])
+
+  /** Grava a taxa de uma faixa. Cria a linha se ainda não existir. */
+  async function salvarTaxa(
+    contaId: string, f: typeof FAIXAS_TAXA[number], bandeira: string, valor: string,
+  ) {
+    const pct = Number(valor.replace(',', '.'))
+    if (Number.isNaN(pct) || pct < 0 || pct >= 100) return toast('Percentual inválido', 'error')
+    const { error } = await supabase.from('fin_taxas_conta').upsert({
+      conta_id: contaId,
+      modalidade: f.modalidade,
+      parcela_de: f.de,
+      parcela_ate: f.ate,
+      bandeira: bandeira || null,
+      percentual: pct,
+      prazo_dias: f.prazo,
+      ativo: true,
+    }, { onConflict: 'conta_id,modalidade,parcela_de,parcela_ate,bandeira' })
+    if (error) return toast(error.message, 'error')
+    setTaxas(ts => {
+      const outras = ts.filter(t => !(t.modalidade === f.modalidade
+        && t.parcela_de === f.de && (t.bandeira || '') === bandeira))
+      return [...outras, {
+        modalidade: f.modalidade, parcela_de: f.de, parcela_ate: f.ate,
+        bandeira: bandeira || null, percentual: pct, prazo_dias: f.prazo,
+      }]
+    })
+  }
 
   function duplicada(nome: string, exceto?: string) {
     const n = nome.trim().toLowerCase()
@@ -517,6 +558,60 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
                           })}
                         </div>
                       </div>
+
+                      {/* TAXAS — só faz sentido em maquininha (mig 134). É o que
+                          permite saber quanto entra e QUANDO cai. */}
+                      {c.produto === 'maquininha' && (
+                        <div>
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <p className="text-[11px] text-[var(--surface-500)]">
+                              Quanto {c.instituicao || 'o adquirente'} cobra
+                            </p>
+                            <select
+                              value={bandeiraVista}
+                              onChange={e => setBandeiraVista(e.target.value)}
+                              className="input text-[11px] py-0.5 w-28"
+                              title="Cadastre por bandeira só se as taxas forem diferentes"
+                            >
+                              <option value="">todas as bandeiras</option>
+                              {BANDEIRAS.map(b => <option key={b} value={b}>{b}</option>)}
+                            </select>
+                          </div>
+
+                          <div className="space-y-1">
+                            {FAIXAS_TAXA.map(f => {
+                              const atual = taxas.find(t => t.modalidade === f.modalidade
+                                && t.parcela_de === f.de
+                                && (t.bandeira || '') === bandeiraVista)
+                              return (
+                                <div key={`${f.modalidade}-${f.de}`} className="flex items-center gap-2">
+                                  <span className="text-xs text-[var(--surface-600)] w-32 shrink-0">
+                                    {f.label}
+                                  </span>
+                                  <div className="flex items-center rounded-[var(--radius-sm)] border overflow-hidden shrink-0"
+                                       style={{ borderColor: 'var(--surface-300)', background: 'var(--surface-0)' }}>
+                                    <input
+                                      type="number" step="0.01" min={0} max={99}
+                                      defaultValue={atual?.percentual ?? ''}
+                                      onBlur={e => void salvarTaxa(c.id, f, bandeiraVista, e.target.value)}
+                                      placeholder="0,00"
+                                      className="w-16 bg-transparent border-0 outline-none text-xs text-mono px-1.5 py-1 text-[var(--surface-800)]"
+                                    />
+                                    <span className="text-[11px] text-[var(--surface-400)] pr-1.5">%</span>
+                                  </div>
+                                  <span className="text-[11px] text-[var(--surface-400)]">
+                                    cai em D+{f.prazo}
+                                  </span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                          <p className="text-[11px] text-[var(--surface-400)] mt-1.5">
+                            O valor que entra no caixa já vem sem a taxa, e o dinheiro só fica
+                            disponível quando {c.instituicao || 'o adquirente'} liquidar.
+                          </p>
+                        </div>
+                      )}
 
                       <div className="flex items-center gap-2 pt-1">
                         <button onClick={() => void patch(c, { ativo: !c.ativo })} className="btn-secondary text-xs">

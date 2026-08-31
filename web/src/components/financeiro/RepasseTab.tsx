@@ -59,6 +59,10 @@ type RepasseSalvo = {
   pago_em: string | null
 }
 
+/** Contas do plano usadas pelas duas pernas do acerto (mig 133). */
+const CONTA_ACERTO_DESPESA = '9.1.02'
+const CONTA_ACERTO_RECEITA = '9.1.01'
+
 const mesAtual = () => new Date().toISOString().slice(0, 7)
 
 export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?: boolean }) {
@@ -442,9 +446,27 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
       criado_por_nome: userName || null,
     }
 
+    // 🔴 As duas pernas PRECISAM de `conta_id`. Sem ela, a DRE cai no
+    // `coalesce(grupo_dre,'outras_despesas')` com sinal −1 e as DUAS pernas
+    // SUBTRAEM — um acerto de R$ 5.000 tirava R$ 10.000 do resultado do grupo.
+    // A defesa existe na view (mig 111 trata `outras_receitas` com sinal +1);
+    // faltava o chamador acioná-la.
+    const { data: contas2 } = await supabase.from('fin_contas')
+      .select('id, codigo, nome, grupo_dre')
+      .in('codigo', [CONTA_ACERTO_DESPESA, CONTA_ACERTO_RECEITA])
+    const achar = (cod: string) =>
+      ((contas2 as { id: string; codigo: string; nome: string }[]) || []).find(c => c.codigo === cod)
+    const cDesp = achar(CONTA_ACERTO_DESPESA)
+    const cRec = achar(CONTA_ACERTO_RECEITA)
+    if (!cDesp || !cRec) {
+      return toast('Faltam as contas de acerto no plano de contas (rodar a migration)', 'error')
+    }
+
     const { data, error } = await supabase.from('fin_lancamentos').insert([
-      { ...base, unidade_id: unidadeDespesa, conta_nome: 'Acerto de repasse (despesa)' },
-      { ...base, unidade_id: unidadeReceita, conta_nome: 'Acerto de repasse (receita)' },
+      { ...base, unidade_id: unidadeDespesa,
+        conta_id: cDesp.id, conta_codigo: cDesp.codigo, conta_nome: cDesp.nome },
+      { ...base, unidade_id: unidadeReceita,
+        conta_id: cRec.id, conta_codigo: cRec.codigo, conta_nome: cRec.nome },
     ]).select('id')
     if (error) return toast(error.message, 'error')
 

@@ -205,9 +205,11 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
   const visiveis = linhas
     .filter(l => (conta ? l.conta_id === conta : true))
     .filter(l => (soDaqui ? daqui(l) : true))
-  // DISPONÍVEL exclui maquininha (ainda não liquidou) e cartão (é dívida).
+  // DISPONÍVEL exclui maquininha (ainda não liquidou), cartão (é dívida) e
+  // LEGADO — a conta histórica carrega recebimento antigo cujo dinheiro não está
+  // mais lá; contá-la mostrava centenas de milhares como gastáveis.
   const totalDisponivel = saldos
-    .filter(s => !ehCartao(s) && !ehMaquininha(s))
+    .filter(s => !ehCartao(s) && !ehMaquininha(s) && !s.legado)
     .reduce((a, s) => a + Number(s.saldo || 0), 0)
   const totalAReceber = maquininhas.reduce((a, s) => a + Math.max(Number(s.saldo || 0), 0), 0)
   const totalFaturas = cartoes.reduce((a, s) => a + Math.min(Number(s.saldo || 0), 0), 0)
