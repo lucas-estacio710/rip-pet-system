@@ -34,13 +34,18 @@ type SortDir = 'asc' | 'desc'
 const TIPO_LABELS: Record<string, string> = { urna: 'Urna', acessorio: 'Acessório', incluso: 'Incluso' }
 const TIPO_COLORS: Record<string, string> = { urna: '#7c3aed', acessorio: '#3b82f6', incluso: '#22c55e' }
 
-// Opções de tipo de rescaldo (enum tipo_rescaldo). `pelinho` fica de fora — tem fluxo próprio (PelinhoModal).
-// Vazio = produto não é de rescaldo (rescaldo_tipo = null). Labels espelham o RescaldoModal.
+// Opções de tipo de rescaldo (enum tipo_rescaldo). Vazio = produto não é de rescaldo
+// (rescaldo_tipo = null). Labels espelham o RescaldoModal.
+// `pelinho` (produto 0004) precisa aparecer aqui — mesmo tendo popup dedicado
+// (PelinhoModal) pra adicionar quantidade — senão o Lucas fica sem opção certa nesse
+// dropdown e categoriza errado (achado em produção 30/08/2026: 0004 foi editado pra
+// "Pelo Extra" porque "pelinho" não existia na lista).
 const RESCALDO_TIPO_OPCOES: { value: string; label: string }[] = [
   { value: '', label: 'Nenhum (não é rescaldo)' },
   { value: 'molde_patinha', label: '🐾 Molde de Patinha' },
   { value: 'carimbo', label: '📄 Carimbo' },
   { value: 'pelo_extra', label: '✂️ Pelo Extra' },
+  { value: 'pelinho', label: '🫙 Pelinho Vidrinho' },
   { value: 'itens_pessoais', label: '📦 Itens Pessoais' },
   { value: 'outro', label: '💎 Outro' },
 ]
@@ -607,7 +612,7 @@ export default function CatalogoPage() {
                     <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
                 </select>
-                <p className="text-[10px] mt-1" style={{ color: '#64748b' }}>Marca o produto como item personalizado — passa a aparecer no modal de Personalizados do contrato. Pelinho tem fluxo próprio e não entra aqui.</p>
+                <p className="text-[10px] mt-1" style={{ color: '#64748b' }}>Marca o produto como item personalizado — passa a aparecer no modal de Personalizados do contrato. "Pelinho Vidrinho" tem farol e popup próprios no contrato (não aparece nesse modal, mas continua contando pro farol de pelinho).</p>
               </div>
 
               {/* Imagem do produto */}
