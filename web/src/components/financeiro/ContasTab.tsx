@@ -66,6 +66,7 @@ type Conta = {
   legado: boolean             // histórico (mig 127) — não se lança nela
   instituicao: string | null
   produto: string | null      // null = cadastrada antes da mig 130
+  tem_taxa?: boolean          // maquininha com tabela do adquirente (mig 134)
   unidades_extras: string[] | null
   entradas: string[]
   saidas: string[]
@@ -117,7 +118,16 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
       ])
       return { ...c, entradasUso: e.count || 0, saidasUso: s.count || 0 }
     }))
-    setContas(comUso)
+    // Quais maquininhas já têm tabela do adquirente — sem isso a linha não
+    // consegue avisar antes de abrir.
+    const maqs = comUso.filter(c => c.produto === 'maquininha').map(c => c.id)
+    let comTaxa = new Set<string>()
+    if (maqs.length) {
+      const { data: tx } = await supabase.from('fin_taxas_conta')
+        .select('conta_id').in('conta_id', maqs).eq('ativo', true)
+      comTaxa = new Set(((tx as { conta_id: string }[]) || []).map(t => t.conta_id))
+    }
+    setContas(comUso.map(c => ({ ...c, tem_taxa: comTaxa.has(c.id) })))
     setCarregando(false)
   }, [supabase, currentUnit?.id])
 
@@ -258,6 +268,8 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
     // O PRODUTO é a informação principal: quem sabe que é maquininha já sabe
     // que recebe crédito e débito. Os métodos viram detalhe.
     const prod = PRODUTOS.find(x => x.v === c.produto)
+    // Maquininha sem taxa é o caso que engana: parece configurada e cobra zero.
+    if (c.produto === 'maquininha' && !c.tem_taxa) return 'taxas não cadastradas'
     if (prod) return prod.desc
     const nome = (v: string) => (ENTRADAS.concat(SAIDAS).find(x => x.v === v)?.label || v).toLowerCase()
     const e = (c.entradas || []).length ? `recebe ${c.entradas.map(nome).join(', ')}` : ''
@@ -606,10 +618,22 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
                               )
                             })}
                           </div>
-                          <p className="text-[11px] text-[var(--surface-400)] mt-1.5">
-                            O valor que entra no caixa já vem sem a taxa, e o dinheiro só fica
-                            disponível quando {c.instituicao || 'o adquirente'} liquidar.
-                          </p>
+                          {taxas.length === 0 ? (
+                            <div
+                              className="mt-2 px-2 py-1.5 rounded-[var(--radius-sm)] text-[11px]"
+                              style={{ background: 'rgba(245,158,11,0.14)', color: '#f59e0b' }}
+                            >
+                              <strong className="font-medium">Taxas ainda não cadastradas.</strong>{' '}
+                              Enquanto isso, a venda entra no caixa pelo valor cheio — sem descontar
+                              o que {c.instituicao || 'o adquirente'} retém. Pegue a tabela no app
+                              ou no extrato e preencha acima.
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-[var(--surface-400)] mt-1.5">
+                              O valor que entra no caixa já vem sem a taxa, e o dinheiro só fica
+                              disponível quando {c.instituicao || 'o adquirente'} liquidar.
+                            </p>
+                          )}
                         </div>
                       )}
 
