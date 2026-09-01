@@ -21,6 +21,9 @@ const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 // planejada -> embarcada_ida -> ida_finalizada -> finalizada
 // IDA bloqueada (sem adicionar/remover pet pra levar): após embarcar.
 // VOLTA bloqueada (sem adicionar/remover pet pra retirar): só após Finalizar Volta.
+// Colunas lidas em toda query de contrato desta tela (era string literal repetida 8×)
+const CAMPOS_CONTRATO_ENC = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
+
 const STATUS_IDA_FECHADA = ['embarcada_ida', 'ida_finalizada', 'finalizada'] as const
 const STATUS_VOLTA_FECHADA = ['finalizada'] as const
 const isIdaFechada = (status?: string | null) => !!status && (STATUS_IDA_FECHADA as readonly string[]).includes(status)
@@ -295,42 +298,55 @@ export default function EncaminhamentosPage() {
   // Seção "↑ Levou" (ida) — colapsa por padrão em ida_finalizada/finalizada; clique no header expande
   const [idaExpandida, setIdaExpandida] = useState<Set<string>>(new Set())
 
-  // Helper: aplica filtro de unidade condicionalmente (super_admin + viewAllUnits = sem filtro)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const filterUnit = (q: any) => viewAllUnits ? q : q.eq('unidade_id', currentUnit!.id)
-
-  useEffect(() => {
+  // Recarga ÚNICA de todos os dados da tela.
+  //
+  // 🔴 Incidente SP47 (01/09/2026): este bloco existia copiado em 8 lugares, e 3 deles
+  // (criar encaminhamento, incluir pet em existente, excluir encaminhamento) tinham perdido
+  // o `.in('status', [...])` da query de `vinculados`. Sem esse filtro a query devolve TODO
+  // contrato que já passou por um encaminhamento — 1.381 em SP, 1.656 em ST — e o PostgREST
+  // corta em 1000. Como a ordem é `data_acolhimento` ASC (mais antigo primeiro), quem fica de
+  // fora do corte é justamente o pet recém-vinculado: o encaminhamento aparecia VAZIO logo
+  // depois de ser criado com pets dentro. Daí saíam os outros dois sintomas — o gate de
+  // `idaChecksOk` liberava por lista vazia e o UPDATE em lote não pegava ninguém.
+  //
+  // ⚠️ Toda query nova aqui precisa de um filtro que a mantenha longe do teto de 1000, ou de
+  // paginação com `.range()`. Uma cópia divergente foi suficiente pra travar 90 pets.
+  const recarregarDados = useCallback(async () => {
     if (!currentUnit) return
-    async function carregar() {
-      const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
-      const [{ data: crem }, { data: ativ }, { data: funcs }, { data: encs }, { data: vinc }] = await Promise.all([
-        filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_acolhimento', { ascending: true, nullsFirst: false }),
-        filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_acolhimento', { ascending: true, nullsFirst: false }),
-        filterUnit(supabase.from('funcionarios').select('id, nome')).eq('ativo', true).order('nome'),
-        supabase.from('supindas').select('id, numero, data, responsavel, quantidade_pets, peso_total, status, observacoes, unidades(codigo)').order('data'),
-        filterUnit(supabase.from('contratos').select(campos)).in('status', ['ativo', 'pinda', 'retorno']).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_acolhimento', { ascending: true, nullsFirst: false }),
-      ])
-      setCremados(((crem || []) as ContratoEnc[]).filter(c => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fu = (q: any) => viewAllUnits ? q : q.eq('unidade_id', currentUnit.id)
+    const campos = CAMPOS_CONTRATO_ENC
+    const [{ data: crem }, { data: ativ }, { data: funcs }, { data: encs }, { data: vinc }] = await Promise.all([
+      fu(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_acolhimento', { ascending: true, nullsFirst: false }),
+      fu(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_acolhimento', { ascending: true, nullsFirst: false }),
+      fu(supabase.from('funcionarios').select('id, nome')).eq('ativo', true).order('nome'),
+      supabase.from('supindas').select('id, numero, data, responsavel, quantidade_pets, peso_total, status, observacoes, unidades(codigo)').order('data'),
+      fu(supabase.from('contratos').select(campos)).in('status', ['ativo', 'pinda', 'retorno']).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_acolhimento', { ascending: true, nullsFirst: false }),
+    ])
+    setCremados(((crem || []) as ContratoEnc[]).filter(c => {
       const gc = Array.isArray(c.contrato_gc) ? c.contrato_gc[0] : c.contrato_gc
       return gc?.etapa === 'disponivel'
     }))
-      setAtivos((ativ || []) as ContratoEnc[])
-      setVinculados((vinc || []) as ContratoEnc[])
-      setFuncionarios((funcs || []) as { id: string; nome: string }[])
-      setEncaminhamentos((encs || []).map((e: Record<string, unknown>) => ({
-        id: e.id as string,
-        numero: e.numero as string,
-        data: e.data as string,
-        responsavel: (e.responsavel as string) || null,
-        quantidade_pets: (e.quantidade_pets as number) || 0,
-        peso_total: (e.peso_total as number) || 0,
-        status: e.status as string,
-        observacoes: (e.observacoes as string) || null,
-        codigo_unidade: ((e.unidades as Record<string, string>)?.codigo) || '??',
-      })))
-    }
-    carregar()
+    setAtivos((ativ || []) as ContratoEnc[])
+    setVinculados((vinc || []) as ContratoEnc[])
+    if (funcs) setFuncionarios(funcs as { id: string; nome: string }[])
+    setEncaminhamentos((encs || []).map((e: Record<string, unknown>) => ({
+      id: e.id as string,
+      numero: e.numero as string,
+      data: e.data as string,
+      responsavel: (e.responsavel as string) || null,
+      quantidade_pets: (e.quantidade_pets as number) || 0,
+      peso_total: (e.peso_total as number) || 0,
+      status: e.status as string,
+      observacoes: (e.observacoes as string) || null,
+      codigo_unidade: ((e.unidades as Record<string, string>)?.codigo) || '??',
+    })))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUnit, viewAllUnits])
+
+  useEffect(() => {
+    recarregarDados()
+  }, [recarregarDados])
 
   // Desktop: offset em dias (move de 2 em 2)
   // Janela visível: offset-2 (anteontem relativo) até offset+7 = 10 dias
@@ -477,21 +493,7 @@ export default function EncaminhamentosPage() {
     if (diaEnc) setDiaSelecionado(diaEnc)
     setEncAbertos(prev => { const next = new Set(prev); next.add(enc.id); return next })
 
-    // Recarregar
-    const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
-    const [{ data: crem }, { data: ativ }, { data: encs }, { data: vinc }] = await Promise.all([
-      filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_acolhimento', { ascending: true, nullsFirst: false }),
-      filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_acolhimento', { ascending: true, nullsFirst: false }),
-      supabase.from('supindas').select('id, numero, data, responsavel, quantidade_pets, peso_total, status, observacoes, unidades(codigo)').order('data'),
-      filterUnit(supabase.from('contratos').select(campos)).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_acolhimento', { ascending: true, nullsFirst: false }),
-    ])
-    setCremados(((crem || []) as ContratoEnc[]).filter(c => {
-      const gc = Array.isArray(c.contrato_gc) ? c.contrato_gc[0] : c.contrato_gc
-      return gc?.etapa === 'disponivel'
-    }))
-    setAtivos((ativ || []) as ContratoEnc[])
-    setVinculados((vinc || []) as ContratoEnc[])
-    setEncaminhamentos((encs || []).map((e: Record<string, unknown>) => ({ id: e.id as string, numero: e.numero as string, data: e.data as string, responsavel: (e.responsavel as string) || null, quantidade_pets: (e.quantidade_pets as number) || 0, peso_total: (e.peso_total as number) || 0, status: e.status as string, observacoes: (e.observacoes as string) || null, codigo_unidade: ((e.unidades as Record<string, string>)?.codigo) || '??' })))
+    await recarregarDados()
   }
 
   async function excluirEncaminhamento(enc: EncResumo, qtdIda: number, qtdVolta: number) {
@@ -522,20 +524,7 @@ export default function EncaminhamentosPage() {
 
     // Recarregar tudo (mesmo padrão de incluirEmExistente)
     setEncAbertos(prev => { const next = new Set(prev); next.delete(enc.id); return next })
-    const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
-    const [{ data: crem }, { data: ativ }, { data: encs }, { data: vinc }] = await Promise.all([
-      filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_acolhimento', { ascending: true, nullsFirst: false }),
-      filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_acolhimento', { ascending: true, nullsFirst: false }),
-      supabase.from('supindas').select('id, numero, data, responsavel, quantidade_pets, peso_total, status, observacoes, unidades(codigo)').order('data'),
-      filterUnit(supabase.from('contratos').select(campos)).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_acolhimento', { ascending: true, nullsFirst: false }),
-    ])
-    setCremados(((crem || []) as ContratoEnc[]).filter(c => {
-      const gc = Array.isArray(c.contrato_gc) ? c.contrato_gc[0] : c.contrato_gc
-      return gc?.etapa === 'disponivel'
-    }))
-    setAtivos((ativ || []) as ContratoEnc[])
-    setVinculados((vinc || []) as ContratoEnc[])
-    setEncaminhamentos((encs || []).map((e: Record<string, unknown>) => ({ id: e.id as string, numero: e.numero as string, data: e.data as string, responsavel: (e.responsavel as string) || null, quantidade_pets: (e.quantidade_pets as number) || 0, peso_total: (e.peso_total as number) || 0, status: e.status as string, observacoes: (e.observacoes as string) || null, codigo_unidade: ((e.unidades as Record<string, string>)?.codigo) || '??' })))
+    await recarregarDados()
   }
 
   async function abrirTelaEdicao(dataPreenchida?: Date, idsSelecionados?: Set<string>) {
@@ -606,30 +595,7 @@ export default function EncaminhamentosPage() {
     setEncAbertos(prev => { const next = new Set(prev); next.add(novaSupinda.id); return next })
 
     // Recarregar tudo
-    const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
-    const [{ data: crem }, { data: ativ }, { data: encs }, { data: vinc }] = await Promise.all([
-      filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_acolhimento', { ascending: true, nullsFirst: false }),
-      filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_acolhimento', { ascending: true, nullsFirst: false }),
-      supabase.from('supindas').select('id, numero, data, responsavel, quantidade_pets, peso_total, status, observacoes, unidades(codigo)').order('data'),
-      filterUnit(supabase.from('contratos').select(campos)).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_acolhimento', { ascending: true, nullsFirst: false }),
-    ])
-    setCremados(((crem || []) as ContratoEnc[]).filter(c => {
-      const gc = Array.isArray(c.contrato_gc) ? c.contrato_gc[0] : c.contrato_gc
-      return gc?.etapa === 'disponivel'
-    }))
-    setAtivos((ativ || []) as ContratoEnc[])
-    setVinculados((vinc || []) as ContratoEnc[])
-    setEncaminhamentos((encs || []).map((e: Record<string, unknown>) => ({
-      id: e.id as string,
-      numero: e.numero as string,
-      data: e.data as string,
-      responsavel: (e.responsavel as string) || null,
-      quantidade_pets: (e.quantidade_pets as number) || 0,
-      peso_total: (e.peso_total as number) || 0,
-      status: e.status as string,
-      observacoes: (e.observacoes as string) || null,
-      codigo_unidade: ((e.unidades as Record<string, string>)?.codigo) || '??',
-    })))
+    await recarregarDados()
   }
 
   return (
@@ -1062,7 +1028,14 @@ export default function EncaminhamentosPage() {
               const cor = UNIT_COLORS[enc.codigo_unidade] || '#6366f1'
               const encIda = vinculados.filter(c => c.supinda_id === enc.id)
               const encVolta = vinculados.filter(c => c.supinda_volta_id === enc.id)
-              const idaChecksOk = encIda.every(c => c.acondicionado)
+              // ⚠️ `[].every(...)` é `true` — uma lista vazia LIBERAVA o botão de finalizar.
+              // Com o state truncado (incidente SP47, ver recarregarDados) isso deixava o
+              // operador fechar a ida de um encaminhamento cheio como se estivesse vazio.
+              // `quantidade_pets` é mantido no banco a cada inclusão/remoção e serve de
+              // contraprova: lista local vazia com contador > 0 = state furado, não viagem
+              // sem pets. A trava definitiva está no clique, que confere direto no banco.
+              const idaListaSuspeita = encIda.length === 0 && (enc.quantidade_pets || 0) > 0
+              const idaChecksOk = !idaListaSuspeita && encIda.every(c => c.acondicionado)
               const voltaChecksOk = encVolta.every(c => {
                 if (c.tipo_cremacao !== 'coletiva') return c.cinzas_recebidas && c.certificado_recebido
                 return c.certificado_recebido
@@ -1189,27 +1162,42 @@ export default function EncaminhamentosPage() {
                       <button
                         onClick={async e => {
                           e.stopPropagation()
-                          if (!confirm(`Finalizar Ida do ${enc.numero}? Os pets de ida passam para status "Pinda". Pets de volta podem continuar sendo vinculados até Finalizar Volta.`)) return
-                          const dataEnc = enc.data
-                          const idsIda = encIda.map(c => c.id)
-                          await supabase.from('supindas').update({ status: 'ida_finalizada' } as never).eq('id', enc.id)
-                          if (idsIda.length > 0) {
-                            await supabase.from('contratos').update({ data_leva_pinda: dataEnc, status: 'pinda' } as never).in('id', idsIda)
+                          // ⚠️ A lista de pets vem do BANCO, nunca do state `vinculados` — ver o
+                          // incidente SP47 comentado em recarregarDados(). Com o state truncado,
+                          // este handler fechava a supinda e atualizava ZERO contrato: a viagem
+                          // ficava `ida_finalizada` com 47 pets presos em `ativo`, em silêncio.
+                          const { data: idaDb, error: errLer } = await supabase
+                            .from('contratos')
+                            .select('id, pet_nome, acondicionado')
+                            .eq('supinda_id', enc.id)
+                          if (errLer) {
+                            alert(`Não deu pra conferir os pets do ${enc.numero}: ${errLer.message}\n\nNada foi alterado — tente de novo.`)
+                            return
                           }
-                          setEncaminhamentos(prev => prev.map(x => x.id === enc.id ? { ...x, status: 'ida_finalizada' } : x))
-                          // Recarregar contratos
-                          const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
-                          const [{ data: crem }, { data: ativ }, { data: vinc2 }] = await Promise.all([
-                            filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_acolhimento', { ascending: true, nullsFirst: false }),
-                            filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_acolhimento', { ascending: true, nullsFirst: false }),
-                            filterUnit(supabase.from('contratos').select(campos)).in('status', ['ativo', 'pinda', 'retorno']).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_acolhimento', { ascending: true, nullsFirst: false }),
-                          ])
-                          setCremados(((crem || []) as ContratoEnc[]).filter(c => {
-      const gc = Array.isArray(c.contrato_gc) ? c.contrato_gc[0] : c.contrato_gc
-      return gc?.etapa === 'disponivel'
-    }))
-                          setAtivos((ativ || []) as ContratoEnc[])
-                          setVinculados((vinc2 || []) as ContratoEnc[])
+                          const idaReal = (idaDb || []) as { id: string; pet_nome: string | null; acondicionado: boolean }[]
+                          const semAcond = idaReal.filter(c => !c.acondicionado)
+                          if (semAcond.length > 0) {
+                            const lista = semAcond.slice(0, 10).map(c => `• ${c.pet_nome || 'sem nome'}`).join('\n')
+                            alert(`Não dá pra finalizar a ida do ${enc.numero}.\n\n${semAcond.length} pet${semAcond.length > 1 ? 's' : ''} sem acondicionar:\n${lista}${semAcond.length > 10 ? `\n… e mais ${semAcond.length - 10}` : ''}\n\nMarque o acondicionamento antes de finalizar.`)
+                            await recarregarDados()
+                            return
+                          }
+                          if (!confirm(`Finalizar Ida do ${enc.numero}?\n\n${idaReal.length} pet${idaReal.length === 1 ? '' : 's'} de ida passam para status "Pinda". Pets de volta podem continuar sendo vinculados até Finalizar Volta.`)) return
+                          // Move os contratos ANTES de fechar a supinda: se o update falhar, a
+                          // viagem continua aberta e dá pra repetir — em vez de ficar fechada
+                          // com os pets para trás, que foi exatamente o estado do incidente.
+                          if (idaReal.length > 0) {
+                            const { error: errMover } = await supabase
+                              .from('contratos')
+                              .update({ data_leva_pinda: enc.data, status: 'pinda' } as never)
+                              .in('id', idaReal.map(c => c.id))
+                            if (errMover) {
+                              alert(`Erro ao mover os pets para Pinda: ${errMover.message}\n\nA ida NÃO foi finalizada.`)
+                              return
+                            }
+                          }
+                          await supabase.from('supindas').update({ status: 'ida_finalizada' } as never).eq('id', enc.id)
+                          await recarregarDados()
                         }}
                         className="px-3 py-1.5 rounded-lg text-[10px] font-semibold text-white bg-purple-600 hover:bg-purple-700 transition-colors shrink-0"
                       >
@@ -1220,27 +1208,39 @@ export default function EncaminhamentosPage() {
                       <button
                         onClick={async e => {
                           e.stopPropagation()
-                          if (!confirm(`Finalizar Volta do ${enc.numero}? Isso marca a viagem como concluída e os pets de volta passam para "Retorno".`)) return
-                          const dataEnc = enc.data
-                          const idsVolta = encVolta.map(c => c.id)
-                          await supabase.from('supindas').update({ status: 'finalizada' } as never).eq('id', enc.id)
-                          if (idsVolta.length > 0) {
-                            await supabase.from('contratos').update({ data_retorno: dataEnc, status: 'retorno' } as never).in('id', idsVolta)
+                          // Mesma trava da Finalizar Ida: a lista sai do banco, não do state.
+                          const { data: voltaDb, error: errLer } = await supabase
+                            .from('contratos')
+                            .select('id, pet_nome, tipo_cremacao, cinzas_recebidas, certificado_recebido')
+                            .eq('supinda_volta_id', enc.id)
+                          if (errLer) {
+                            alert(`Não deu pra conferir os pets de volta do ${enc.numero}: ${errLer.message}\n\nNada foi alterado — tente de novo.`)
+                            return
                           }
-                          setEncaminhamentos(prev => prev.map(x => x.id === enc.id ? { ...x, status: 'finalizada' } : x))
-                          // Recarregar contratos
-                          const campos = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
-                          const [{ data: crem }, { data: ativ }, { data: vinc2 }] = await Promise.all([
-                            filterUnit(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_acolhimento', { ascending: true, nullsFirst: false }),
-                            filterUnit(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_acolhimento', { ascending: true, nullsFirst: false }),
-                            filterUnit(supabase.from('contratos').select(campos)).in('status', ['ativo', 'pinda', 'retorno']).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_acolhimento', { ascending: true, nullsFirst: false }),
-                          ])
-                          setCremados(((crem || []) as ContratoEnc[]).filter(c => {
-      const gc = Array.isArray(c.contrato_gc) ? c.contrato_gc[0] : c.contrato_gc
-      return gc?.etapa === 'disponivel'
-    }))
-                          setAtivos((ativ || []) as ContratoEnc[])
-                          setVinculados((vinc2 || []) as ContratoEnc[])
+                          const voltaReal = (voltaDb || []) as { id: string; pet_nome: string | null; tipo_cremacao: string; cinzas_recebidas: boolean; certificado_recebido: boolean }[]
+                          // Coletiva não devolve cinzas — só o certificado é exigido.
+                          const pendentes = voltaReal.filter(c => c.tipo_cremacao === 'coletiva'
+                            ? !c.certificado_recebido
+                            : !(c.cinzas_recebidas && c.certificado_recebido))
+                          if (pendentes.length > 0) {
+                            const lista = pendentes.slice(0, 10).map(c => `• ${c.pet_nome || 'sem nome'}`).join('\n')
+                            alert(`Não dá pra finalizar a volta do ${enc.numero}.\n\n${pendentes.length} pet${pendentes.length > 1 ? 's' : ''} sem a conferência de chegada:\n${lista}${pendentes.length > 10 ? `\n… e mais ${pendentes.length - 10}` : ''}\n\nConfirme cinzas e certificado antes de finalizar.`)
+                            await recarregarDados()
+                            return
+                          }
+                          if (!confirm(`Finalizar Volta do ${enc.numero}?\n\nA viagem é marcada como concluída e ${voltaReal.length} pet${voltaReal.length === 1 ? ' passa' : 's passam'} para "Retorno".`)) return
+                          if (voltaReal.length > 0) {
+                            const { error: errMover } = await supabase
+                              .from('contratos')
+                              .update({ data_retorno: enc.data, status: 'retorno' } as never)
+                              .in('id', voltaReal.map(c => c.id))
+                            if (errMover) {
+                              alert(`Erro ao mover os pets para Retorno: ${errMover.message}\n\nA volta NÃO foi finalizada.`)
+                              return
+                            }
+                          }
+                          await supabase.from('supindas').update({ status: 'finalizada' } as never).eq('id', enc.id)
+                          await recarregarDados()
                         }}
                         className="px-3 py-1.5 rounded-lg text-[10px] font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors shrink-0"
                       >
@@ -1330,20 +1330,7 @@ export default function EncaminhamentosPage() {
                                                     quantidade_pets: Math.max(0, enc.quantidade_pets - 1),
                                                     peso_total: Math.max(0, enc.peso_total - (c.pet_peso || 0)),
                                                   } as never).eq('id', enc.id)
-                                                  const campos2 = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
-                                                  const [{ data: crem }, { data: ativ }, { data: vinc4 }, { data: encs2 }] = await Promise.all([
-                                                    filterUnit(supabase.from('contratos').select(campos2)).eq('status', 'pinda').order('data_acolhimento', { ascending: true, nullsFirst: false }),
-                                                    filterUnit(supabase.from('contratos').select(campos2)).eq('status', 'ativo').order('data_acolhimento', { ascending: true, nullsFirst: false }),
-                                                    filterUnit(supabase.from('contratos').select(campos2)).in('status', ['ativo', 'pinda', 'retorno']).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_acolhimento', { ascending: true, nullsFirst: false }),
-                                                    supabase.from('supindas').select('id, numero, data, responsavel, quantidade_pets, peso_total, status, observacoes, unidades(codigo)').order('data'),
-                                                  ])
-                                                  setCremados(((crem || []) as ContratoEnc[]).filter(c => {
-      const gc = Array.isArray(c.contrato_gc) ? c.contrato_gc[0] : c.contrato_gc
-      return gc?.etapa === 'disponivel'
-    }))
-                                                  setAtivos((ativ || []) as ContratoEnc[])
-                                                  setVinculados((vinc4 || []) as ContratoEnc[])
-                                                  setEncaminhamentos((encs2 || []).map((e: Record<string, unknown>) => ({ id: e.id as string, numero: e.numero as string, data: e.data as string, responsavel: (e.responsavel as string) || null, quantidade_pets: (e.quantidade_pets as number) || 0, peso_total: (e.peso_total as number) || 0, status: e.status as string, observacoes: (e.observacoes as string) || null, codigo_unidade: ((e.unidades as Record<string, string>)?.codigo) || '??' })))
+                                                  await recarregarDados()
                                                 }}
                                                 className="p-1 rounded text-[var(--surface-400)] hover:text-red-400 hover:bg-red-900/10 transition-colors"
                                                 title="Remover do encaminhamento"
@@ -1455,20 +1442,7 @@ export default function EncaminhamentosPage() {
                                                 onClick={async () => {
                                                   if (!confirm(`Remover ${c.pet_nome} do encaminhamento?`)) return
                                                   await supabase.from('contratos').update({ supinda_volta_id: null } as never).eq('id', c.id)
-                                                  const campos2 = 'id, codigo, pet_nome, pet_especie, pet_peso, tutor_nome, tipo_cremacao, status, numero_lacre, data_cremacao, supinda_id, supinda_volta_id, acondicionado, cinzas_recebidas, certificado_recebido, contrato_gc(data_cremacao,contato_status,etapa)'
-                                                  const [{ data: crem }, { data: ativ }, { data: vinc4 }, { data: encs2 }] = await Promise.all([
-                                                    filterUnit(supabase.from('contratos').select(campos2)).eq('status', 'pinda').order('data_acolhimento', { ascending: true, nullsFirst: false }),
-                                                    filterUnit(supabase.from('contratos').select(campos2)).eq('status', 'ativo').order('data_acolhimento', { ascending: true, nullsFirst: false }),
-                                                    filterUnit(supabase.from('contratos').select(campos2)).in('status', ['ativo', 'pinda', 'retorno']).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_acolhimento', { ascending: true, nullsFirst: false }),
-                                                    supabase.from('supindas').select('id, numero, data, responsavel, quantidade_pets, peso_total, status, observacoes, unidades(codigo)').order('data'),
-                                                  ])
-                                                  setCremados(((crem || []) as ContratoEnc[]).filter(c => {
-      const gc = Array.isArray(c.contrato_gc) ? c.contrato_gc[0] : c.contrato_gc
-      return gc?.etapa === 'disponivel'
-    }))
-                                                  setAtivos((ativ || []) as ContratoEnc[])
-                                                  setVinculados((vinc4 || []) as ContratoEnc[])
-                                                  setEncaminhamentos((encs2 || []).map((e: Record<string, unknown>) => ({ id: e.id as string, numero: e.numero as string, data: e.data as string, responsavel: (e.responsavel as string) || null, quantidade_pets: (e.quantidade_pets as number) || 0, peso_total: (e.peso_total as number) || 0, status: e.status as string, observacoes: (e.observacoes as string) || null, codigo_unidade: ((e.unidades as Record<string, string>)?.codigo) || '??' })))
+                                                  await recarregarDados()
                                                 }}
                                                 className="p-1 rounded text-[var(--surface-400)] hover:text-red-400 hover:bg-red-900/10 transition-colors"
                                                 title="Remover do encaminhamento"
