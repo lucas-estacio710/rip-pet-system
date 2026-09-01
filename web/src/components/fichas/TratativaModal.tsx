@@ -790,6 +790,41 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         responsavelEscolhidoEhOperacional
       )
 
+      // Se a ficha tinha remoção pendente pro Operacional (Responsável era Operacional —
+      // processarFicha() já tinha criado a tarefa), fecha ela aqui: o contrato acabou de
+      // nascer direto pelo Tratativa, sem passar pela confirmação do Operacional em
+      // /tarefas — senão a tarefa fica pendurada pra sempre (mesma classe dos outros 7
+      // gatilhos de tarefa órfã, achado em produção 01/09/2026).
+      const { data: tarefaPendente } = await supabase.from('tarefas_operacionais')
+        .select('id').eq('ficha_id', ficha.id).eq('tipo', 'remocao').eq('status', 'pendente').maybeSingle() as { data: { id: string } | null }
+      if (tarefaPendente) {
+        const { data: { user: userAtual } } = await supabase.auth.getUser()
+        await supabase.from('tarefas_operacionais').update({
+          status: 'concluida',
+          concluido_em: new Date().toISOString(),
+          anotacao_conclusao: 'Contrato criado direto pelo Tratativa — sem passar pela confirmação do Operacional em /tarefas.',
+        } as never).eq('id', tarefaPendente.id)
+        await supabase.from('historico_alteracoes').insert({
+          entidade: 'tarefa_operacional',
+          entidade_id: tarefaPendente.id,
+          entidade_nome: ficha.nome_pet || '—',
+          campo: 'conclusao',
+          campo_label: 'Tarefa concluída',
+          valor_novo: 'Remoção concluída direto no Tratativa (fora do app do Operacional)',
+          tipo: 'conclusao',
+          alterado_por: userAtual?.id ?? null,
+          alterado_por_email: userAtual?.email ?? null,
+        } as never)
+        const { data: tipoTarefaObs } = await supabase.from('tarefa_tipos').select('id').eq('nome', 'Observação da Unidade').maybeSingle() as { data: { id: string } | null }
+        await supabase.from('tarefas').insert({
+          contrato_id: contratoId,
+          descricao: `${userName || 'Alguém'} criou o contrato direto pelo Tratativa — a tarefa de remoção pendente pro Operacional foi concluída junto.`,
+          tipo_id: tipoTarefaObs?.id || null,
+          importante: false,
+          criado_por: userName || 'Sistema',
+        } as never)
+      }
+
       toast('Contrato criado com sucesso!', 'success')
       onSuccess(contratoId)
     } catch (err: unknown) {

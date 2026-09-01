@@ -15,7 +15,7 @@
 // (criarContratoDeFicha, responsavelEhOperacional=true).
 // ============================================================================
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Truck, PackageCheck, PawPrint, Fingerprint, Scissors, Feather, MapPin, Navigation, FileDown, Check, Loader2, ClipboardList, UserPlus, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
@@ -34,6 +34,10 @@ const TIPO_INFO: Record<TarefaTipo, { label: string; icon: typeof Truck; cor: st
   pelo_extra: { label: 'Tirar Pelo Extra', icon: Scissors, cor: '#ec4899' },
   pelinho: { label: 'Tirar Pelinho', icon: Feather, cor: '#14b8a6' },
 }
+
+// Cor única do botão "Atribuir" em todo o pool — não usa mais a cor por tipo (que continua
+// valendo pra ícone/label/badge de tudo mais), pra padronizar a ação mais comum da tela.
+const AZUL_ROYAL = '#2563eb'
 
 type TarefaRow = {
   id: string
@@ -294,73 +298,42 @@ function agruparTarefas(tarefas: TarefaEnriquecida[]): TarefaGrupo[] {
   return Object.values(grupos)
 }
 
-function PoolItem({ tipo, item, operacionais, cargaPorPessoa, atribuindoId, setAtribuindoId, operacionalEscolhido, setOperacionalEscolhido, observacaoTexto, setObservacaoTexto, salvando, onAtribuir }: {
+function PoolItem({ tipo, item, onAbrirAtribuir, onMarcarFeito, marcandoFeitoId }: {
   tipo: TarefaTipo
   item: PoolItemData
-  operacionais: { user_id: string; nome: string | null; role: string }[]
-  cargaPorPessoa: Record<string, number>
-  atribuindoId: string | null
-  setAtribuindoId: (id: string | null) => void
-  operacionalEscolhido: Record<string, string>
-  setOperacionalEscolhido: (fn: (prev: Record<string, string>) => Record<string, string>) => void
-  observacaoTexto: Record<string, string>
-  setObservacaoTexto: (fn: (prev: Record<string, string>) => Record<string, string>) => void
-  salvando: boolean
-  onAtribuir: (item: PoolItemData) => void
+  onAbrirAtribuir: (item: PoolItemData) => void
+  onMarcarFeito: (item: PoolItemData) => void
+  marcandoFeitoId: string | null
 }) {
-  const cor = TIPO_INFO[tipo].cor
   return (
-    <div>
-      <TarefaCard
-        tipo={tipo}
-        statusBadge={item.status}
-        lacre={item.lacre}
-        petNome={item.petNome}
-        tutorNome={item.tutorNome}
-        quantidade={item.quantidade}
-        linhaExtra={item.enderecoResumo ? <p className="text-xs text-[var(--surface-500)] line-clamp-2 mt-0.5">📍 {item.enderecoResumo}</p> : undefined}
-        acao={
+    <TarefaCard
+      tipo={tipo}
+      statusBadge={item.status}
+      lacre={item.lacre}
+      petNome={item.petNome}
+      tutorNome={item.tutorNome}
+      quantidade={item.quantidade}
+      linhaExtra={item.enderecoResumo ? <p className="text-xs text-[var(--surface-500)] line-clamp-2 mt-0.5">📍 {item.enderecoResumo}</p> : undefined}
+      acao={
+        <div className="flex flex-col items-stretch gap-2 shrink-0">
           <button
-            onClick={() => setAtribuindoId(atribuindoId === item.key ? null : item.key)}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white shrink-0"
-            style={{ background: cor }}
+            onClick={() => onAbrirAtribuir(item)}
+            className="flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white"
+            style={{ background: AZUL_ROYAL }}
           >
             <UserPlus className="h-3.5 w-3.5" />Atribuir
           </button>
-        }
-      />
-      {atribuindoId === item.key && (
-        <div className="mt-1.5 ml-1 space-y-1.5">
-          <select
-            value={operacionalEscolhido[item.key] || ''}
-            onChange={e => setOperacionalEscolhido(prev => ({ ...prev, [item.key]: e.target.value }))}
-            className="input text-sm w-full"
-          >
-            <option value="">Escolher quem vai fazer...</option>
-            {operacionais.map(o => (
-              <option key={o.user_id} value={o.user_id}>
-                {o.nome || 'Sem nome'} ({o.role === 'operacional' ? 'Operacional' : o.role === 'gerente' ? 'Gerente' : o.role === 'super_admin' ? 'Admin' : 'Concierge'}) — {cargaPorPessoa[o.user_id] || 0} pendente{(cargaPorPessoa[o.user_id] || 0) === 1 ? '' : 's'}
-              </option>
-            ))}
-          </select>
-          <textarea
-            value={observacaoTexto[item.key] || ''}
-            onChange={e => setObservacaoTexto(prev => ({ ...prev, [item.key]: e.target.value }))}
-            rows={2}
-            placeholder={PLACEHOLDER_PEDIDO[tipo]}
-            className="input text-sm w-full resize-none"
-          />
           <button
-            onClick={() => onAtribuir(item)}
-            disabled={salvando || !operacionalEscolhido[item.key]}
-            className="w-full py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-50"
-            style={{ background: cor }}
+            onClick={() => onMarcarFeito(item)}
+            disabled={marcandoFeitoId === item.key}
+            className="flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-emerald-600 disabled:opacity-50"
+            title="Já fiz — abre a tela de conclusão (com data, se for entrega antiga)"
           >
-            Atribuir
+            <Check className="h-3.5 w-3.5" />{marcandoFeitoId === item.key ? '...' : 'Feito'}
           </button>
         </div>
-      )}
-    </div>
+      }
+    />
   )
 }
 
@@ -444,9 +417,13 @@ export default function TarefasPage() {
     })
   }, [supabase])
 
+  const carregouMinhasAntes = useRef(false)
   const carregarMinhas = useCallback(async () => {
     if (!userId) return
-    setLoadingMinhas(true)
+    // Só mostra "Carregando..." na primeira vez — recarregar em cima de uma lista que já
+    // carregou antes (ex: depois de concluir uma tarefa) troca os dados na hora, sem colapsar
+    // a lista e sem pular a rolagem de quem tava vendo outra coisa mais embaixo na tela.
+    if (!carregouMinhasAntes.current) setLoadingMinhas(true)
     const { data } = await supabase
       .from('tarefas_operacionais')
       .select('id, unidade_id, tipo, ficha_id, contrato_id, contrato_produto_id, atribuido_a, status, lacre, observacao_atribuicao, atribuido_em')
@@ -488,6 +465,7 @@ export default function TarefasPage() {
       for (const p of (produtos || []) as unknown as ContratoProdutoResumo[]) map[p.id] = p
       setProdutosPorId(map)
     }
+    carregouMinhasAntes.current = true
     setLoadingMinhas(false)
   }, [supabase, userId, resolverPetTutor])
 
@@ -561,11 +539,17 @@ export default function TarefasPage() {
 
       toast('Tarefa concluída!', 'success')
       setTarefaAberta(null)
+      setTarefaAbertaRascunho(false)
       setAnotacaoSimples('')
       setLeuObservacao(false)
       setModoDataEntrega('agora')
       setDataEntregaManual('')
-      await carregarMinhas()
+      // carregarEmAndamento/carregarConcluidasRecentes já no-opam sozinhas se quem concluiu
+      // não é podeAtribuir — sem custo extra pro Operacional comum, mas mantém a aba Atribuir
+      // em dia quando a conclusão veio de lá (botão "Feito" do pool). Pool fica de fora — quem
+      // já foi atribuído (mesmo que autoatribuído pelo "Feito") já saiu do pool há muito, não
+      // muda de novo aqui.
+      await Promise.all([carregarMinhas(), carregarEmAndamento(), carregarConcluidasRecentes()])
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Erro ao concluir', 'error')
     } finally {
@@ -744,10 +728,17 @@ export default function TarefasPage() {
   const [poolRescaldo, setPoolRescaldo] = useState<ContratoProdutoResumo[]>([])
   const [operacionais, setOperacionais] = useState<{ user_id: string; nome: string | null; role: string }[]>([])
   const [loadingPool, setLoadingPool] = useState(false)
-  const [atribuindoId, setAtribuindoId] = useState<string | null>(null)
+  // Popup de atribuição (select + observação) — era expansão inline embaixo do card, mas
+  // empurrava a lista inteira pra baixo a cada clique ("bagunça os olhos"); virou modal.
+  const [atribuirModalItem, setAtribuirModalItem] = useState<{ tipo: TarefaTipo; item: PoolItemData } | null>(null)
   const [operacionalEscolhido, setOperacionalEscolhido] = useState<Record<string, string>>({})
   const [observacaoAtribuicao, setObservacaoAtribuicao] = useState<Record<string, string>>({})
   const [salvandoAtribuicao, setSalvandoAtribuicao] = useState(false)
+  const [marcandoFeitoId, setMarcandoFeitoId] = useState<string | null>(null)
+  // true só quando tarefaAberta foi criada agora mesmo pelo botão "Feito" do pool (rascunho
+  // autoatribuído, ainda sem confirmação) — se a pessoa fechar sem concluir, apaga de volta
+  // em vez de deixar uma tarefa pendente órfã sobrando em "Em andamento".
+  const [tarefaAbertaRascunho, setTarefaAbertaRascunho] = useState(false)
 
   // ── Em andamento (já atribuídas, ainda pendentes) — visibilidade de carga + reatribuir ──
   const [emAndamento, setEmAndamento] = useState<TarefaGrupo[]>([])
@@ -756,9 +747,12 @@ export default function TarefasPage() {
   const [novoOperacional, setNovoOperacional] = useState<Record<string, string>>({})
   const [salvandoReatribuicao, setSalvandoReatribuicao] = useState(false)
 
+  const carregouEmAndamentoAntes = useRef(false)
   const carregarEmAndamento = useCallback(async () => {
     if (!currentUnit || !podeAtribuir) return
-    setLoadingEmAndamento(true)
+    // Só "Carregando..." na primeira vez — recarregar por cima (ex: depois de concluir uma
+    // tarefa) troca os dados sem colapsar a lista nem pular a rolagem de quem tava mais embaixo.
+    if (!carregouEmAndamentoAntes.current) setLoadingEmAndamento(true)
     const { data } = await supabase
       .from('tarefas_operacionais')
       .select('id, unidade_id, tipo, ficha_id, contrato_id, contrato_produto_id, atribuido_a, status, lacre, observacao_atribuicao, atribuido_em')
@@ -767,6 +761,7 @@ export default function TarefasPage() {
       .order('atribuido_em', { ascending: true }) as { data: TarefaRow[] | null }
 
     setEmAndamento(agruparTarefas(await resolverPetTutor(data || [])))
+    carregouEmAndamentoAntes.current = true
     setLoadingEmAndamento(false)
   }, [supabase, currentUnit, podeAtribuir, resolverPetTutor])
 
@@ -858,9 +853,10 @@ export default function TarefasPage() {
   const [loadingConcluidas, setLoadingConcluidas] = useState(false)
   const [desfazendoId, setDesfazendoId] = useState<string | null>(null)
 
+  const carregouConcluidasAntes = useRef(false)
   const carregarConcluidasRecentes = useCallback(async () => {
     if (!currentUnit || !podeAtribuir) return
-    setLoadingConcluidas(true)
+    if (!carregouConcluidasAntes.current) setLoadingConcluidas(true)
     const desde = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
     const { data } = await supabase
       .from('tarefas_operacionais')
@@ -871,6 +867,7 @@ export default function TarefasPage() {
       .order('concluido_em', { ascending: false }) as { data: TarefaRow[] | null }
 
     setConcluidasRecentes(agruparTarefas(await resolverPetTutor(data || [])))
+    carregouConcluidasAntes.current = true
     setLoadingConcluidas(false)
   }, [supabase, currentUnit, podeAtribuir, resolverPetTutor])
 
@@ -932,9 +929,10 @@ export default function TarefasPage() {
     }
   }
 
+  const carregouPoolAntes = useRef(false)
   const carregarPool = useCallback(async () => {
     if (!currentUnit || !podeAtribuir) return
-    setLoadingPool(true)
+    if (!carregouPoolAntes.current) setLoadingPool(true)
 
     const { data: pendentesEntrega } = await supabase.from('tarefas_operacionais').select('contrato_id').eq('unidade_id', currentUnit.id).eq('tipo', 'entrega').eq('status', 'pendente')
     const idsEntregaOcupados = (pendentesEntrega || []).map((r: { contrato_id: string | null }) => r.contrato_id).filter(Boolean)
@@ -965,6 +963,7 @@ export default function TarefasPage() {
     const { data: perfisAtribuiveis } = await supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: currentUnit.id } as never)
     setOperacionais((perfisAtribuiveis || []) as { user_id: string; nome: string | null; role: string }[])
 
+    carregouPoolAntes.current = true
     setLoadingPool(false)
   }, [supabase, currentUnit, podeAtribuir])
 
@@ -1025,13 +1024,65 @@ export default function TarefasPage() {
       await notificarAtribuicao(operacionalId, TIPO_INFO[tipo].label, petNome || 'um pet', quantidade)
 
       toast('Tarefa atribuída!', 'success')
-      setAtribuindoId(null)
+      setAtribuirModalItem(null)
       setObservacaoAtribuicao(prev => { const n = { ...prev }; delete n[itemKey]; return n })
       await Promise.all([carregarPool(), carregarEmAndamento(), carregarMinhas()])
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Erro ao atribuir', 'error')
     } finally {
       setSalvandoAtribuicao(false)
+    }
+  }
+
+  // ── Marcar feito direto na atribuição — pro real: quem tá atribuindo (gerente/concierge)
+  // já fez o trabalho ele mesmo antes de abrir o app, e não faz sentido atribuir pra outra
+  // pessoa fazer de novo. NÃO assume "agora": se for Entrega, a data de verdade importa (ex:
+  // zerando um backlog de entregas antigas, cada uma com a data real dela) — por isso "Feito"
+  // só se autoatribui e abre a MESMA tela de conclusão de "Minhas Tarefas" (com Agora/Outra
+  // pra Entrega, Anotação opcional), em vez de gravar a data de hoje sem perguntar. Se a pessoa
+  // fechar o modal sem concluir, sobra uma tarefa autoatribuída pendente em "Em andamento" —
+  // mesmo resultado de ter clicado Atribuir e escolhido a si mesma, não é um estado quebrado.
+  async function marcarFeitoDireto(tipo: TarefaTipo, origem: { contratoId?: string; contratoProdutoIds?: string[]; unidadeId: string }, itemKey: string) {
+    setMarcandoFeitoId(itemKey)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Sessão expirada — recarregue a página')
+      const linhasBase = {
+        unidade_id: origem.unidadeId,
+        tipo,
+        atribuido_a: user.id,
+        atribuido_por: user.id,
+      }
+      const rows = origem.contratoProdutoIds && origem.contratoProdutoIds.length > 0
+        ? origem.contratoProdutoIds.map(cpId => ({ ...linhasBase, contrato_id: null, contrato_produto_id: cpId }))
+        : [{ ...linhasBase, contrato_id: origem.contratoId || null, contrato_produto_id: null }]
+      const { data: novasTarefas, error } = await supabase
+        .from('tarefas_operacionais')
+        .insert(rows as never)
+        .select('id, unidade_id, tipo, ficha_id, contrato_id, contrato_produto_id, atribuido_a, status, lacre, observacao_atribuicao, atribuido_em')
+      if (error) throw new Error(error.message)
+
+      const grupo = agruparTarefas(await resolverPetTutor((novasTarefas || []) as TarefaRow[]))[0]
+      if (!grupo) throw new Error('Erro ao criar a tarefa')
+
+      // Abre na hora — não espera recarregar pool/em-andamento antes (isso pisca a lista de
+      // fundo com "Carregando..." antes do modal nem aparecer, feio no mobile). O básico
+      // (pet/tutor/status/lacre) já vem no grupo; carregarMinhas() roda em paralelo e traz o
+      // detalhe rico (endereço, espécie) — se chegar depois do modal já aberto, só preenche
+      // sozinho (contratosPorId/produtosPorId são lidos a cada render).
+      setTarefaAberta(grupo)
+      setTarefaAbertaRascunho(true)
+      setAnotacaoSimples('')
+      setLeuObservacao(false)
+      setModoDataEntrega('agora')
+      setDataEntregaManual('')
+      carregarPool()
+      carregarEmAndamento()
+      carregarMinhas()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Erro ao marcar como feito', 'error')
+    } finally {
+      setMarcandoFeitoId(null)
     }
   }
 
@@ -1071,6 +1122,18 @@ export default function TarefasPage() {
   const totalPraAtribuir = poolEntrega.length + poolRescaldo.length
   const andamentoPorTipo = agruparPorTipo(emAndamento)
   const concluidasPorTipo = agruparPorTipo(concluidasRecentes)
+
+  // Fecha o modal de detalhe/conclusão — se era um rascunho do "Feito" (autoatribuído, ainda
+  // não confirmado), apaga a tarefa de volta em vez de deixar pendente sobrando.
+  async function fecharModalTarefa() {
+    if (tarefaAbertaRascunho && tarefaAberta) {
+      await supabase.from('tarefas_operacionais').delete().in('id', tarefaAberta.ids)
+      carregarPool()
+      carregarEmAndamento()
+    }
+    setTarefaAberta(null)
+    setTarefaAbertaRascunho(false)
+  }
 
   // ============================================
   // Render
@@ -1122,7 +1185,7 @@ export default function TarefasPage() {
                   tutorNome={tutorNome}
                   quantidade={t.quantidade}
                   acao={t.observacao_atribuicao ? <span className="text-base shrink-0" title="Tem pedido específico">📝</span> : undefined}
-                  onClick={() => { setTarefaAberta(t); setLacreRemocao(''); setAnotacaoRemocao(''); setAnotacaoSimples(''); setErroRemocao(null); setLeuObservacao(false); setModoDataEntrega('agora'); setDataEntregaManual(''); setModoDataRemocao('agora'); setDataHoraRemocaoManual('') }}
+                  onClick={() => { setTarefaAberta(t); setTarefaAbertaRascunho(false); setLacreRemocao(''); setAnotacaoRemocao(''); setAnotacaoSimples(''); setErroRemocao(null); setLeuObservacao(false); setModoDataEntrega('agora'); setDataEntregaManual(''); setModoDataRemocao('agora'); setDataHoraRemocaoManual('') }}
                 />
               )
             })
@@ -1147,16 +1210,9 @@ export default function TarefasPage() {
                       key={item.key}
                       tipo={tipo}
                       item={item}
-                      operacionais={operacionais}
-                      cargaPorPessoa={cargaPorPessoa}
-                      atribuindoId={atribuindoId}
-                      setAtribuindoId={setAtribuindoId}
-                      operacionalEscolhido={operacionalEscolhido}
-                      setOperacionalEscolhido={setOperacionalEscolhido}
-                      observacaoTexto={observacaoAtribuicao}
-                      setObservacaoTexto={setObservacaoAtribuicao}
-                      salvando={salvandoAtribuicao}
-                      onAtribuir={poolItem => atribuir(tipo, tipo === 'entrega' ? { contratoId: poolItem.key, unidadeId: currentUnit!.id } : { contratoProdutoIds: poolItem.itemIds, unidadeId: currentUnit!.id }, poolItem.key)}
+                      onAbrirAtribuir={poolItem => setAtribuirModalItem({ tipo, item: poolItem })}
+                      onMarcarFeito={poolItem => marcarFeitoDireto(tipo, tipo === 'entrega' ? { contratoId: poolItem.key, unidadeId: currentUnit!.id } : { contratoProdutoIds: poolItem.itemIds, unidadeId: currentUnit!.id }, poolItem.key)}
+                      marcandoFeitoId={marcandoFeitoId}
                     />
                   ))}
                 </TipoGroup>
@@ -1261,10 +1317,73 @@ export default function TarefasPage() {
         </div>
       )}
 
+      {/* Popup de atribuição — era formulário inline embaixo do card, empurrava a lista
+          inteira a cada clique. Virou popup centralizado, mesmo padrão visual do modal de
+          conclusão abaixo. */}
+      {atribuirModalItem && (() => {
+        const { tipo, item } = atribuirModalItem
+        const cor = TIPO_INFO[tipo].cor
+        const Icon = TIPO_INFO[tipo].icon
+        return (
+          <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => !salvandoAtribuicao && setAtribuirModalItem(null)}>
+            <div className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto rounded-2xl p-4 space-y-4 bg-[var(--surface-0)]" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between">
+                <h2 className="text-base font-bold text-[var(--surface-800)] flex items-center gap-2">
+                  <Icon className="h-5 w-5" style={{ color: cor }} />
+                  Atribuir {TIPO_INFO[tipo].label}
+                  {item.quantidade > 1 && (
+                    <span className="text-xs font-bold px-1.5 py-0.5 rounded-full text-white" style={{ background: cor }}>×{item.quantidade}</span>
+                  )}
+                </h2>
+                <button onClick={() => setAtribuirModalItem(null)} disabled={salvandoAtribuicao} className="p-1 rounded-lg hover:bg-[var(--surface-100)]">
+                  <X className="h-5 w-5 text-[var(--surface-400)]" />
+                </button>
+              </div>
+
+              <div className="p-3 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)]">
+                <p className="text-sm font-semibold text-[var(--surface-800)] flex items-center gap-1.5">
+                  {item.status && <StatusBadge status={item.status} />}
+                  {item.lacre ? `${item.lacre} — ${item.petNome}` : item.petNome}
+                </p>
+                <p className="text-xs text-[var(--surface-500)]">{item.tutorNome}</p>
+              </div>
+
+              <select
+                value={operacionalEscolhido[item.key] || ''}
+                onChange={e => setOperacionalEscolhido(prev => ({ ...prev, [item.key]: e.target.value }))}
+                className="input text-sm w-full"
+              >
+                <option value="">Escolher quem vai fazer...</option>
+                {operacionais.map(o => (
+                  <option key={o.user_id} value={o.user_id}>
+                    {o.nome || 'Sem nome'} ({o.role === 'operacional' ? 'Operacional' : o.role === 'gerente' ? 'Gerente' : o.role === 'super_admin' ? 'Admin' : 'Concierge'}) — {cargaPorPessoa[o.user_id] || 0} pendente{(cargaPorPessoa[o.user_id] || 0) === 1 ? '' : 's'}
+                  </option>
+                ))}
+              </select>
+              <textarea
+                value={observacaoAtribuicao[item.key] || ''}
+                onChange={e => setObservacaoAtribuicao(prev => ({ ...prev, [item.key]: e.target.value }))}
+                rows={2}
+                placeholder={PLACEHOLDER_PEDIDO[tipo]}
+                className="input text-sm w-full resize-none"
+              />
+              <button
+                onClick={() => atribuir(tipo, tipo === 'entrega' ? { contratoId: item.key, unidadeId: currentUnit!.id } : { contratoProdutoIds: item.itemIds, unidadeId: currentUnit!.id }, item.key)}
+                disabled={salvandoAtribuicao || !operacionalEscolhido[item.key]}
+                className="w-full py-2.5 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
+                style={{ background: AZUL_ROYAL }}
+              >
+                {salvandoAtribuicao ? 'Atribuindo...' : 'Atribuir'}
+              </button>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Detalhe / conclusão de tarefa */}
       {tarefaAberta && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center" onClick={() => !concluindoRemocao && !concluindoSimples && setTarefaAberta(null)}>
-          <div className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl p-4 space-y-4 bg-[var(--surface-0)]" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => !concluindoRemocao && !concluindoSimples && fecharModalTarefa()}>
+          <div className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto rounded-2xl p-4 space-y-4 bg-[var(--surface-0)]" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h2 className="text-base font-bold text-[var(--surface-800)] flex items-center gap-2">
                 {(() => { const Icon = TIPO_INFO[tarefaAberta.tipo].icon; return <Icon className="h-5 w-5" style={{ color: TIPO_INFO[tarefaAberta.tipo].cor }} /> })()}
@@ -1273,7 +1392,7 @@ export default function TarefasPage() {
                   <span className="text-xs font-bold px-1.5 py-0.5 rounded-full text-white" style={{ background: TIPO_INFO[tarefaAberta.tipo].cor }}>×{tarefaAberta.quantidade}</span>
                 )}
               </h2>
-              <button onClick={() => setTarefaAberta(null)} disabled={concluindoRemocao || concluindoSimples} className="p-1 rounded-lg hover:bg-[var(--surface-100)]">
+              <button onClick={fecharModalTarefa} disabled={concluindoRemocao || concluindoSimples} className="p-1 rounded-lg hover:bg-[var(--surface-100)]">
                 <X className="h-5 w-5 text-[var(--surface-400)]" />
               </button>
             </div>
@@ -1331,7 +1450,7 @@ export default function TarefasPage() {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Número do Lacre <span className="text-red-400">*</span></label>
-                    <input type="text" value={lacreRemocao} onChange={e => setLacreRemocao(e.target.value)} placeholder="Número do lacre" className="input w-full" autoFocus />
+                    <input type="text" value={lacreRemocao} onChange={e => setLacreRemocao(e.target.value)} placeholder="Número do lacre" className="input w-full" />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Anotação (opcional)</label>
@@ -1407,7 +1526,7 @@ export default function TarefasPage() {
                 )}
                 <div>
                   <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Anotação (opcional)</label>
-                  <textarea value={anotacaoSimples} onChange={e => setAnotacaoSimples(e.target.value)} rows={2} placeholder="Alguma observação..." className="input w-full resize-none" autoFocus />
+                  <textarea value={anotacaoSimples} onChange={e => setAnotacaoSimples(e.target.value)} rows={2} placeholder="Alguma observação..." className="input w-full resize-none" />
                 </div>
                 <button
                   onClick={() => concluirTarefaSimples(tarefaAberta)}
