@@ -16,7 +16,7 @@
 // ============================================================================
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Truck, PackageCheck, PawPrint, Fingerprint, Scissors, Feather, MapPin, Navigation, FileDown, Check, Loader2, ClipboardList, UserPlus, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { HandHeart, PackageCheck, PawPrint, Fingerprint, Scissors, Feather, MapPin, Navigation, FileDown, Check, Loader2, ClipboardList, UserPlus, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import { useToast } from '@/components/ui/Toast'
@@ -26,8 +26,8 @@ import { hojeLocal, inputLocalParaIso } from '@/lib/date-local'
 
 type TarefaTipo = 'remocao' | 'entrega' | 'molde_patinha' | 'carimbo' | 'pelo_extra' | 'pelinho'
 
-const TIPO_INFO: Record<TarefaTipo, { label: string; icon: typeof Truck; cor: string }> = {
-  remocao: { label: 'Acolhimento', icon: Truck, cor: '#0ea5e9' },
+const TIPO_INFO: Record<TarefaTipo, { label: string; icon: typeof HandHeart; cor: string }> = {
+  remocao: { label: 'Acolhimento', icon: HandHeart, cor: '#0ea5e9' },
   entrega: { label: 'Realizar Entrega', icon: PackageCheck, cor: '#22c55e' },
   molde_patinha: { label: 'Tirar Molde', icon: PawPrint, cor: '#a855f7' },
   carimbo: { label: 'Tirar Carimbo', icon: Fingerprint, cor: '#f59e0b' },
