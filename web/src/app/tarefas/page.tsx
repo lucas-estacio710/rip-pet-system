@@ -1968,10 +1968,54 @@ export default function TarefasPage() {
             {tarefaAberta.tipo === 'remocao' && tarefaAberta.ficha_id && fichasPorId[tarefaAberta.ficha_id] && (() => {
               const ficha = fichasPorId[tarefaAberta.ficha_id!]
               const op = (ficha.op_dados || {}) as Record<string, unknown>
-              const enderecoCompleto = `${ficha.endereco}, ${ficha.numero}${ficha.complemento ? ` - ${ficha.complemento}` : ''} - ${ficha.bairro}, ${ficha.cidade}/${ficha.estado}`
               const petDetalhe = [ficha.especie, ficha.raca, ficha.cor].filter(Boolean).join(' · ')
-              const wazeUrl = `https://waze.com/ul?q=${encodeURIComponent(enderecoCompleto)}&navigate=yes`
-              const gmapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(enderecoCompleto)}`
+
+              // Onde buscar o pet: residência do tutor, uma clínica/hospital ou um 3º endereço
+              // avulso — nunca sempre a residência (achado do Lucas, 02/09/2026: o popup
+              // sempre linkava Waze/Maps pro endereço de CADASTRO do tutor, mesmo quando o pet
+              // estava numa clínica). `op.localColeta` é o que o gerente confirmou na Tratativa
+              // (tem prioridade, mesmo padrão de `gerarPdfDaFicha`); sem isso ainda (ficha
+              // recém-chegada), cai no que o tutor preencheu na ficha pública
+              // (`ficha.localizacao`/`localizacao_outra`).
+              const unidade = unidadeDaFicha(ficha)
+              const temPadronizacaoClinicas = !!unidade?.modulos_ativos?.includes('cb_padronizacao_clinicas')
+              const opLocalColeta = op.localColeta as string | null
+              const enderecoResidencia = ficha.endereco ? `${ficha.endereco}, ${ficha.numero}${ficha.complemento ? ` - ${ficha.complemento}` : ''} - ${ficha.bairro}, ${ficha.cidade}/${ficha.estado}` : ''
+
+              let localLabel = 'Residência'
+              let enderecoNavegavel = enderecoResidencia
+              let semTraslado = false
+
+              if (op.semLocal) {
+                localLabel = 'Local não informado'
+                enderecoNavegavel = ''
+              } else if (opLocalColeta === 'clinica') {
+                localLabel = 'Clínica / Hospital'
+                enderecoNavegavel = (temPadronizacaoClinicas ? (op.estabNome as string) : (op.clinicaTextoLivre as string)) || ficha.localizacao_outra || ''
+              } else if (opLocalColeta === 'outro') {
+                localLabel = 'Outro endereço'
+                enderecoNavegavel = (op.enderecoOutro as string) || ficha.localizacao_outra || ''
+              } else if (opLocalColeta === 'unidade') {
+                localLabel = 'Unidade R.I.P. Pet'
+                enderecoNavegavel = ''
+                semTraslado = true
+              } else if (!opLocalColeta) {
+                if (ficha.localizacao === 'Hospital/Clínica Veterinária') {
+                  localLabel = 'Clínica / Hospital'
+                  enderecoNavegavel = ficha.localizacao_outra || ''
+                } else if (ficha.localizacao === 'Outro') {
+                  localLabel = 'Outro endereço'
+                  enderecoNavegavel = ficha.localizacao_outra || ''
+                } else if (ficha.localizacao === 'Unidade R.I.P. Pet') {
+                  localLabel = 'Unidade R.I.P. Pet'
+                  enderecoNavegavel = ''
+                  semTraslado = true
+                }
+              }
+
+              const wazeUrl = enderecoNavegavel ? `https://waze.com/ul?q=${encodeURIComponent(enderecoNavegavel)}&navigate=yes` : null
+              const gmapsUrl = enderecoNavegavel ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(enderecoNavegavel)}` : null
+
               return (
                 <div className="space-y-3">
                   <div className="p-3 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)] space-y-1">
@@ -1979,17 +2023,25 @@ export default function TarefasPage() {
                     {petDetalhe && <p className="text-xs text-[var(--surface-500)]">{petDetalhe}</p>}
                     <p className="text-sm"><strong className="text-[var(--surface-700)]">Tutor:</strong> {ficha.nome_completo}</p>
                     <p className="text-sm"><strong className="text-[var(--surface-700)]">Contato:</strong> {(op.telefone1Nome as string) || ficha.nome_completo}</p>
-                    <p className="text-sm"><strong className="text-[var(--surface-700)]">Endereço:</strong> {enderecoCompleto}</p>
+                    <p className="text-sm"><strong className="text-[var(--surface-700)]">Local:</strong> {localLabel}</p>
+                    {enderecoNavegavel && <p className="text-sm"><strong className="text-[var(--surface-700)]">Endereço:</strong> {enderecoNavegavel}</p>}
+                    {semTraslado && <p className="text-xs text-[var(--surface-500)]">Tutor já trouxe o pet até a unidade — sem deslocamento.</p>}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2">
-                    <a href={wazeUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 py-2.5 rounded-lg bg-sky-600 text-white text-sm font-semibold">
-                      <MapPin className="h-4 w-4" />Waze
-                    </a>
-                    <a href={gmapsUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold">
-                      <Navigation className="h-4 w-4" />Google Maps
-                    </a>
-                  </div>
+                  {(wazeUrl || gmapsUrl) && (
+                    <div className="grid grid-cols-2 gap-2">
+                      {wazeUrl && (
+                        <a href={wazeUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 py-2.5 rounded-lg bg-sky-600 text-white text-sm font-semibold">
+                          <MapPin className="h-4 w-4" />Waze
+                        </a>
+                      )}
+                      {gmapsUrl && (
+                        <a href={gmapsUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold">
+                          <Navigation className="h-4 w-4" />Google Maps
+                        </a>
+                      )}
+                    </div>
+                  )}
 
                   <button onClick={() => gerarPdfDaFicha(ficha)} disabled={gerandoPdf} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-[var(--surface-200)] text-sm font-semibold text-[var(--surface-600)] disabled:opacity-50">
                     {gerandoPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
