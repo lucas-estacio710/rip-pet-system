@@ -538,7 +538,7 @@ function PetConcluidasCard({ petGroup, onDesfazer, desfazendoId, nomePorId }: {
                   {info.label}{t.quantidade > 1 ? ` ×${t.quantidade}` : ''}
                 </span>
                 <span className="text-[10px] text-[var(--surface-500)]">
-                  {formatarDataHoraConclusao(t.concluido_em)}{nomePorId ? ` · ${nomePorId[t.atribuido_a] || '—'}` : ''}
+                  ✅ {formatarDataHoraConclusao(t.concluido_em)}{nomePorId ? ` · ${nomePorId[t.atribuido_a] || '—'}` : ''}
                 </span>
               </div>
               <button
@@ -1645,7 +1645,7 @@ export default function TarefasPage() {
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
-                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">{formatarDataHoraConclusao(t.concluido_em)}</p>}
+                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)}</p>}
                     />
                   ))}
                 </TipoGroup>
@@ -1663,7 +1663,7 @@ export default function TarefasPage() {
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
-                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">{formatarDataHoraConclusao(t.concluido_em)}</p>}
+                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)}</p>}
                       acao={
                         <button
                           onClick={() => desfazerConclusao(t)}
@@ -1829,7 +1829,7 @@ export default function TarefasPage() {
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
-                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">{formatarDataHoraConclusao(t.concluido_em)} · {nomePorId[t.atribuido_a] || '—'}</p>}
+                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · {nomePorId[t.atribuido_a] || '—'}</p>}
                     />
                   ))}
                 </TipoGroup>
@@ -1847,7 +1847,7 @@ export default function TarefasPage() {
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
-                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">{formatarDataHoraConclusao(t.concluido_em)} · {nomePorId[t.atribuido_a] || '—'}</p>}
+                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · {nomePorId[t.atribuido_a] || '—'}</p>}
                       acao={
                         <button
                           onClick={() => desfazerConclusao(t)}

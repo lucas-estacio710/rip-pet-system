@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { TextSelect, FileCheck, Route, ShelvingUnit, BarChart3 } from 'lucide-react'
+import { TextSelect, FileCheck, ListTodo, Route, ShelvingUnit, BarChart3 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 
@@ -12,14 +12,16 @@ type BottomItem = {
   label: string
   icon: typeof TextSelect
   module: string
+  cbModule?: string // módulo pago (unidades.modulos_ativos) — hasModule() é FLS-only, não checa isso
   iconColor: string
   badge: 'fichas' | null
 }
 
-// 5 atalhos fixos de deslocamento rápido (mobile). Ordem = fluxo operacional.
+// 6 atalhos fixos de deslocamento rápido (mobile). Ordem = fluxo operacional.
 const bottomItems: BottomItem[] = [
   { href: '/fichas', label: 'Fichas', icon: TextSelect, module: 'tela_fichas', iconColor: '#38bdf8', badge: 'fichas' },
   { href: '/contratos?status=ativo', label: 'Pipeline', icon: FileCheck, module: 'tela_pipeline', iconColor: '#f59e0b', badge: null },
+  { href: '/tarefas', label: 'Tarefas', icon: ListTodo, module: 'tela_tarefas', cbModule: 'cb_operacional', iconColor: '#0ea5e9', badge: null },
   { href: '/encaminhamentos', label: 'Encam.', icon: Route, module: 'tela_entregas', iconColor: '#bef264', badge: null },
   { href: '/estoque', label: 'Estoque', icon: ShelvingUnit, module: 'tela_estoque', iconColor: '#a0522d', badge: null },
   { href: '/dashboard-pipeline', label: 'Painéis', icon: BarChart3, module: 'tela_dashboards', iconColor: '#10b981', badge: null },
@@ -27,7 +29,7 @@ const bottomItems: BottomItem[] = [
 
 export function MobileBottomNav() {
   const pathname = usePathname()
-  const { hasModule, currentUnit } = useUnit()
+  const { hasModule, currentUnit, isSuperAdmin } = useUnit()
   const supabase = createClient()
   const [fichasCount, setFichasCount] = useState<number | null>(null)
   const [overlayAberto, setOverlayAberto] = useState(false)
@@ -35,8 +37,14 @@ export function MobileBottomNav() {
   // FLS: 1 toggle controla a barra inteira (default permissivo = visível)
   const barraVisivel = hasModule('nav_bottom')
 
-  // Cada atalho ainda respeita a visibilidade da própria tela
-  const visibleItems = bottomItems.filter(item => hasModule(item.module))
+  // Cada atalho ainda respeita a visibilidade da própria tela. Tarefas também exige o módulo
+  // pago cb_operacional na unidade (mesmo padrão do Sidebar.tsx) — sem essa 2ª checagem, uma
+  // unidade sem o módulo veria o ícone mesmo assim, já que FLS é permissiva por padrão.
+  const visibleItems = bottomItems.filter(item => {
+    if (!hasModule(item.module)) return false
+    if (item.cbModule && !isSuperAdmin && !currentUnit?.modulos_ativos?.includes(item.cbModule)) return false
+    return true
+  })
 
   useEffect(() => {
     if (!barraVisivel) return
