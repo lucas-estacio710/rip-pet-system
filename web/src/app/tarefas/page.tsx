@@ -81,6 +81,11 @@ type FichaRemocao = {
   observacoes: string | null
   localizacao: string
   localizacao_outra: string | null
+  // Respostas do tutor que o contrato e o PDF precisam — ver o select e a montagem do PDF
+  velorio: string | null
+  acompanhamento: string | null
+  pagamento: string | null
+  parcelas: string | null
   unidade_id: string
   contrato_id: string | null
   processada: boolean | null
@@ -707,7 +712,11 @@ export default function TarefasPage() {
     if (fichaIds.length > 0) {
       const { data: fichas } = await supabase
         .from('fichas')
-        .select('id, nome_completo, cpf, telefone, email, cep, estado, cidade, bairro, endereco, numero, complemento, outros_tutores, nome_pet, idade, especie, genero, raca, cor, peso, cremacao, como_conheceu, outro_especificar, observacoes, localizacao, localizacao_outra, unidade_id, contrato_id, processada, op_dados')
+        // `velorio`, `acompanhamento`, `pagamento` e `parcelas` entram aqui porque o contrato e o
+        // PDF gerados por este caminho precisam deles tanto quanto os da Tratativa — sem eles o
+        // mesmo contrato saía diferente conforme quem clicou (ver os campos passados ao PDF logo
+        // abaixo, que estavam chumbados em null).
+        .select('id, nome_completo, cpf, telefone, email, cep, estado, cidade, bairro, endereco, numero, complemento, outros_tutores, nome_pet, idade, especie, genero, raca, cor, peso, cremacao, como_conheceu, outro_especificar, observacoes, localizacao, localizacao_outra, velorio, acompanhamento, pagamento, parcelas, unidade_id, contrato_id, processada, op_dados')
         .in('id', fichaIds)
       const map: Record<string, FichaRemocao> = {}
       for (const f of (fichas || []) as FichaRemocao[]) map[f.id] = f
@@ -905,11 +914,14 @@ export default function TarefasPage() {
           const dr = dt === 'percentual' ? (vp * dp) / 100 : dp
           return Math.max(vp - dr, 0)
         })(),
-        metodoPagamento: null,
-        parcelas: null,
-        velorioDeseja: null,
-        acompanhamentoOnline: false,
-        acompanhamentoPresencial: false,
+        // Eram `null`/`false` chumbados: o PDF emitido pela tela de Tarefas saía sem forma de
+        // pagamento, sem parcelas e sem velório, enquanto o mesmo contrato emitido pela Tratativa
+        // (TratativaModal.tsx) saía completo. Agora os dois leem a ficha.
+        metodoPagamento: ficha.pagamento || null,
+        parcelas: ficha.parcelas ? parseInt(String(ficha.parcelas).replace(/\D/g, '')) || null : null,
+        velorioDeseja: ficha.velorio === 'Sim' ? true : ficha.velorio === 'Não' ? false : null,
+        acompanhamentoOnline: /v[ií]deo|on-?line/i.test(ficha.acompanhamento || ''),
+        acompanhamentoPresencial: /presencial/i.test(ficha.acompanhamento || ''),
         dataAcolhimento: op.semDataHora ? null : (op.dataHoraAcolhimento as string) || null,
         tipoPlano: 'emergencial',
         dataContrato: (op.dataContrato as string) || null,

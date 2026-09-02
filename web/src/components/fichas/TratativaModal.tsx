@@ -1123,7 +1123,18 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               <p className="text-sm font-bold text-blue-400">{ficha?.nome_completo?.toUpperCase()}</p>
               <p className="text-xs text-[var(--surface-600)] text-mono">{ficha?.cpf} | {formatarTel(ficha?.telefone)}</p>
               {ficha?.email && <p className="text-xs text-[var(--surface-500)]">{ficha.email}</p>}
-              <p className="text-xs text-[var(--surface-500)]">{ficha?.endereco}, {ficha?.numero} — {ficha?.bairro}, {ficha?.cidade}/{ficha?.estado}</p>
+              {/* Endereço completo. O complemento (apto/bloco) vem em ~64% das fichas e o CEP
+                  em 100% — os dois já iam pro contrato e pro PDF, mas não apareciam aqui, então
+                  o concierge conferia um endereço menos completo do que o que o tutor mandou. */}
+              <p className="text-xs text-[var(--surface-500)]">
+                {ficha?.endereco}, {ficha?.numero}
+                {ficha?.complemento ? ` - ${ficha.complemento}` : ''} — {ficha?.bairro}, {ficha?.cidade}/{ficha?.estado}
+              </p>
+              {ficha?.cep && (
+                <p className="text-xs text-[var(--surface-500)]">
+                  CEP <span className="text-mono">{ficha.cep}</span>
+                </p>
+              )}
               {(telefoneConfirmado || (mostrarTelefone2 && getTelefone2Completo())) && (
                 <div className="mt-1.5 pt-1.5 border-t border-[var(--surface-200)]">
                   {mostrarTelefone2 && getTelefone2Completo() ? (

@@ -39,6 +39,11 @@ export type FichaParaContrato = {
   como_conheceu: string[] | null
   outro_especificar: string | null
   observacoes: string | null
+  // Respostas do tutor sobre velório e acompanhamento da cremação. Ficaram de fora quando esta
+  // função foi extraída do TratativaModal (ver comentário no insert do contrato) — sem elas o
+  // contrato nasce sem saber que o tutor pediu velório.
+  velorio?: string | null
+  acompanhamento?: string | null
   unidade_id: string
   contrato_id: string | null
   processada?: boolean | null
@@ -278,6 +283,22 @@ export async function criarContratoDeFicha(
     seguradora: temSeguradora && seguradoraNome.trim() ? seguradoraNome.trim() : null,
     observacoes: ficha.observacoes || null,
     descricao_contrato: detalhamentoPlano.trim() || null,
+    // 🔴 REGRESSÃO CORRIGIDA (02/09/2026): estas 3 linhas existiam em TratativaModal.tsx e se
+    // PERDERAM quando a criação do contrato foi extraída pra cá (commit a918b1d, 30/08). Efeito
+    // medido no banco: até 29/08 o velório era gravado certinho (615 fichas "Sim" -> 605
+    // contratos), e a partir de 31/08 `velorio_deseja` passou a nascer NULL em 100% dos
+    // contratos. O gatilho da mensagem "Prepara Velório" (FLOW §5) depende deste campo, então
+    // ficou mudo por 3 dias. ⚠️ Ao mexer nesta função, conferir que nenhum campo do formulário
+    // some — a extração não tinha teste que pegasse isso.
+    velorio_deseja: ficha.velorio === 'Sim' ? true : ficha.velorio === 'Não' ? false : null,
+    // ⚠️ O mapeamento antigo era `includes('On-line')`, rótulo que a ficha NÃO usa mais — por
+    // isso `acompanhamento_online` tem 1 único true em 3.583 contratos de 2026, enquanto 1.272
+    // tutores pediram vídeo. Os rótulos reais hoje são "Vídeo gravado", "Vídeo-chamada ao vivo",
+    // "Presencial na Matriz", "Não desejo" e "Decidirei depois". Estes 2 booleanos não separam
+    // gravado de ao vivo; quem faz essa distinção é `contrato_gc.acompanhamento_confirmado`
+    // (4 valores), preenchido à mão pela Matriz e consumido pela tela /agenda.
+    acompanhamento_online: /v[ií]deo|on-?line/i.test(ficha.acompanhamento || ''),
+    acompanhamento_presencial: /presencial/i.test(ficha.acompanhamento || ''),
     certificado_nome_1: ficha.nome_completo || null,
     ...(ficha.outros_tutores ? Object.fromEntries(
       ficha.outros_tutores.filter(Boolean).slice(0, 6).map((nome, i) => [`certificado_nome_${i + 2}`, nome])
