@@ -1592,7 +1592,7 @@ export default function TarefasPage() {
                       key={t.id}
                       tipo={t.tipo}
                       statusBadge={t.statusContrato}
-                      lacre={t.lacreContrato}
+                      lacre={t.lacreContrato || t.lacre}
                       petNome={petNome}
                       tutorNome={tutorNome}
                       quantidade={t.quantidade}
@@ -1619,7 +1619,7 @@ export default function TarefasPage() {
                       key={t.id}
                       tipo={t.tipo}
                       statusBadge={t.statusContrato}
-                      lacre={t.lacreContrato}
+                      lacre={t.lacreContrato || t.lacre}
                       petNome={petNome}
                       tutorNome={tutorNome}
                       quantidade={t.quantidade}
@@ -1653,7 +1653,7 @@ export default function TarefasPage() {
                     <TarefaCard
                       key={t.id}
                       tipo={t.tipo}
-                      lacre={t.lacreContrato}
+                      lacre={t.lacreContrato || t.lacre}
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
@@ -1671,7 +1671,7 @@ export default function TarefasPage() {
                     <TarefaCard
                       key={t.id}
                       tipo={t.tipo}
-                      lacre={t.lacreContrato}
+                      lacre={t.lacreContrato || t.lacre}
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
@@ -1764,7 +1764,7 @@ export default function TarefasPage() {
                       <div key={t.id}>
                         <TarefaCard
                           tipo={t.tipo}
-                          lacre={t.lacre}
+                          lacre={t.lacreContrato || t.lacre}
                           petNome={t.petNome}
                           tutorNome={t.tutorNome}
                           quantidade={t.quantidade}
@@ -1837,7 +1837,7 @@ export default function TarefasPage() {
                     <TarefaCard
                       key={t.id}
                       tipo={t.tipo}
-                      lacre={t.lacre}
+                      lacre={t.lacreContrato || t.lacre}
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
@@ -1855,7 +1855,7 @@ export default function TarefasPage() {
                     <TarefaCard
                       key={t.id}
                       tipo={t.tipo}
-                      lacre={t.lacre}
+                      lacre={t.lacreContrato || t.lacre}
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
