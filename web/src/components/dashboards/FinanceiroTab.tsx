@@ -10,7 +10,7 @@ import AnimatedNumber from './AnimatedNumber'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import { computePreviousRange, type PeriodRange } from '@/lib/dashboard-period'
-import { filtroModo, STATUS_REMOVIDO, type DashboardModo } from '@/lib/dashboard-modo'
+import { filtroModo, STATUS_REMOVIDO, diaLocalDeCorte, type DashboardModo } from '@/lib/dashboard-modo'
 
 type Props = {
   range: PeriodRange
@@ -223,7 +223,12 @@ function buildSerie(contratos: ContratoRow[], modo: DashboardModo, from: Date, t
   for (const c of contratos) {
     const dataCorte = modo === 'contratos' ? c.data_contrato : c.data_acolhimento
     if (!dataCorte) continue
-    const dia = dataCorte.slice(0, 10)
+    // ⚠️ Era `dataCorte.slice(0, 10)` direto: correto pra `data_contrato` (date puro), errado
+    // pra `data_acolhimento` (timestamptz), porque cortar a string pega a data UTC — o pet
+    // acolhido depois das 21h de Brasília era contado no dia seguinte. Medido em 02/09/2026:
+    // 454 de 3.533 acolhimentos de 2026 (12,9%) caíam no dia errado na série diária, e 15 no
+    // mês errado. Mesmo erro da migration 113, no front. Ver lib/dashboard-modo.ts.
+    const dia = diaLocalDeCorte(dataCorte)
     const b = buckets.get(monthly ? dia.slice(0, 7) : dia)
     if (!b) continue
     b.plano += vendidoPlanoDe(c)

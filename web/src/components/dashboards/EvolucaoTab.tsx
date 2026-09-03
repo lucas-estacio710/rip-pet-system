@@ -7,11 +7,15 @@ import {
 } from 'recharts'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
-import { filtroModo, type DashboardModo } from '@/lib/dashboard-modo'
+import { filtroModo, mesLocalDeCorte, type DashboardModo } from '@/lib/dashboard-modo'
+import ModoToggle from './ModoToggle'
 import { PERIODOS_DIA, periodoDoDia, type PeriodoKey } from './PeriodoRemocaoKPI'
 
 type Props = {
   modo: DashboardModo
+  // A aba renderiza o próprio toggle de modo (junto da janela de tempo), mas o estado continua
+  // na página — é ela que persiste a escolha em localStorage.
+  selectModo: (m: DashboardModo) => void
 }
 
 // Mesmas cores já usadas nas outras telas de Dashboards — mantém a identidade visual
@@ -145,9 +149,11 @@ function ymKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
-function mesKeyDe(dataStr: string): string {
-  return ymKey(new Date(dataStr))
-}
+// ⚠️ Não trocar por `ymKey(new Date(dataStr))`: `data_contrato` é `date` puro e o JS lê
+// ISO date-only como meia-noite UTC — em Brasília isso é 21h do dia anterior, e todo contrato
+// do dia 1º ia parar no mês anterior (era a divergência com a aba Operacional). Ver
+// `mesLocalDeCorte` em lib/dashboard-modo.ts, que trata as duas colunas do toggle.
+const mesKeyDe = mesLocalDeCorte
 
 function novoMesPonto(d: Date, key: string): MesPonto {
   return {
@@ -214,7 +220,7 @@ function MiniEvolucaoChart({
   )
 }
 
-export default function EvolucaoTab({ modo }: Props) {
+export default function EvolucaoTab({ modo, selectModo }: Props) {
   const { currentUnit } = useUnit()
   const [janela, setJanela] = useState<6 | 12 | 24>(12)
   const [rows, setRows] = useState<ContratoRow[] | null>(null)
@@ -381,8 +387,11 @@ export default function EvolucaoTab({ modo }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* Controles: janela de tempo + alternar tabela */}
+      {/* Controles da aba, todos na MESMA linha: janela · modo · tabela. O toggle de modo ficava
+          numa faixa própria acima das tabs (renderizado pela página) — três alturas de botão pra
+          três controles da mesma aba. */}
       <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center flex-wrap gap-2">
         <div className="inline-flex rounded-full border border-[var(--surface-300)] p-0.5 bg-[var(--surface-0)]">
           {JANELAS.map(j => {
             const isActive = janela === j.meses
@@ -400,6 +409,9 @@ export default function EvolucaoTab({ modo }: Props) {
               </button>
             )
           })}
+        </div>
+
+        <ModoToggle modo={modo} selectModo={selectModo} />
         </div>
 
         <button

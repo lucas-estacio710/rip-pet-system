@@ -15,7 +15,8 @@ import {
   formatRangeShort,
   type PeriodKey,
 } from '@/lib/dashboard-period'
-import { type DashboardModo, MODO_STORAGE_KEY } from '@/lib/dashboard-modo'
+import { type DashboardModo, MODO_STORAGE_KEY, MODO_EVOLUCAO_STORAGE_KEY } from '@/lib/dashboard-modo'
+import ModoToggle from '@/components/dashboards/ModoToggle'
 
 const TELA = 'tela_dashboards'
 const PERIOD_STORAGE_KEY = 'dashboards.period'
@@ -53,33 +54,6 @@ function fromIsoDate(s: string | null): Date | null {
   return new Date(y, m - 1, d)
 }
 
-// Toggle Remoções ↔ Contratos — o único filtro do cabeçalho que a aba Evolução também respeita
-function ModoToggle({ modo, selectModo }: { modo: DashboardModo; selectModo: (m: DashboardModo) => void }) {
-  return (
-    <div className="inline-flex rounded-full border border-[var(--surface-300)] p-0.5 bg-[var(--surface-0)]">
-      {([['remocoes', 'Remoções'], ['contratos', 'Contratos']] as const).map(([key, label]) => {
-        const isActive = modo === key
-        return (
-          <button
-            key={key}
-            onClick={() => selectModo(key)}
-            className="text-[11px] font-medium px-2.5 py-0.5 rounded-full transition-colors"
-            style={{
-              background: isActive ? 'var(--brand-500)' : 'transparent',
-              color: isActive ? '#fff' : 'var(--surface-600)',
-            }}
-            title={key === 'remocoes'
-              ? 'Conta remoções (pet já coletado), por data de acolhimento'
-              : 'Conta todos os contratos (inclui preventivos), por data do contrato'}
-          >
-            {label}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
 export default function DashboardsPage() {
   const { isVisible } = useFieldPermission()
 
@@ -94,6 +68,10 @@ export default function DashboardsPage() {
   const [customTo, setCustomTo] = useState<Date | null>(null)
   const [comparePrev, setComparePrev] = useState(false)
   const [modo, setModo] = useState<DashboardModo>('remocoes')
+  // Modo da aba Evolução é INDEPENDENTE do das outras: ela não usa o filtro de período comum
+  // (tem janela própria de 6/12/24 meses), então trocar o toggle lá não deve mexer no
+  // Operacional/Financeiro — nem o contrário.
+  const [modoEvolucao, setModoEvolucao] = useState<DashboardModo>('remocoes')
 
   // Hidrata do localStorage no client
   useEffect(() => {
@@ -107,12 +85,19 @@ export default function DashboardsPage() {
       setComparePrev(localStorage.getItem(COMPARE_PREV_KEY) === '1')
       const savedModo = localStorage.getItem(MODO_STORAGE_KEY)
       if (savedModo === 'contratos' || savedModo === 'remocoes') setModo(savedModo)
+      const savedModoEvo = localStorage.getItem(MODO_EVOLUCAO_STORAGE_KEY)
+      if (savedModoEvo === 'contratos' || savedModoEvo === 'remocoes') setModoEvolucao(savedModoEvo)
     } catch { /* ignora */ }
   }, [])
 
   function selectModo(m: DashboardModo) {
     setModo(m)
     try { localStorage.setItem(MODO_STORAGE_KEY, m) } catch { /* ignora */ }
+  }
+
+  function selectModoEvolucao(m: DashboardModo) {
+    setModoEvolucao(m)
+    try { localStorage.setItem(MODO_EVOLUCAO_STORAGE_KEY, m) } catch { /* ignora */ }
   }
 
   function selectPeriod(k: PeriodKey) {
@@ -169,33 +154,64 @@ export default function DashboardsPage() {
       {/* Filtro temporal — não se aplica à aba Evolução (ela tem período próprio: 6/12/24 meses) */}
       {activeTab?.key !== 'evolucao' && (
       <div className="mb-4">
-        <div className="flex flex-col md:flex-row md:items-center md:flex-wrap gap-x-5 gap-y-1.5">
-          {PERIOD_GROUPS.map(group => (
-            <div key={group.label} className="flex items-center gap-2 flex-wrap">
-              <span className="text-[10px] uppercase tracking-wide text-[var(--surface-400)] shrink-0 font-mono">
+        {/* Uma faixa só. Antes eram três blocos empilhados — grupo Calendário, grupo Relativos e
+            a linha de range/modo/comparação — e o `flex-col md:flex-row` ainda quebrava os grupos
+            em linhas próprias fora do desktop: 15 botões viravam uma escada desalinhada. Agora
+            tudo flui no mesmo wrap, na mesma escala de tamanho do ModoToggle, e o estado do
+            filtro é empurrado pra direita quando há espaço. */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          {PERIOD_GROUPS.map((group, gi) => (
+            <div
+              key={group.label}
+              className={`flex items-center flex-wrap gap-1 ${gi > 0 ? 'sm:pl-3 sm:border-l sm:border-[var(--surface-200)]' : ''}`}
+            >
+              <span className="text-[10px] uppercase tracking-wide text-[var(--surface-400)] shrink-0 font-mono mr-0.5">
                 {group.label}
               </span>
-              <div className="flex flex-wrap gap-1.5">
-                {group.items.map(item => {
-                  const isActive = periodKey === item.key
-                  return (
-                    <button
-                      key={item.key}
-                      onClick={() => selectPeriod(item.key)}
-                      className="text-xs font-medium px-2.5 py-1 rounded-full transition-colors"
-                      style={{
-                        background: isActive ? 'var(--brand-500)' : 'transparent',
-                        color: isActive ? '#fff' : 'var(--surface-600)',
-                        border: `1px solid ${isActive ? 'transparent' : 'var(--surface-300)'}`,
-                      }}
-                    >
-                      {item.label}
-                    </button>
-                  )
-                })}
-              </div>
+              {group.items.map(item => {
+                const isActive = periodKey === item.key
+                return (
+                  <button
+                    key={item.key}
+                    onClick={() => selectPeriod(item.key)}
+                    className="text-[11px] font-medium px-2 py-0.5 rounded-full transition-colors"
+                    style={{
+                      background: isActive ? 'var(--brand-500)' : 'transparent',
+                      color: isActive ? '#fff' : 'var(--surface-600)',
+                      border: `1px solid ${isActive ? 'transparent' : 'var(--surface-300)'}`,
+                    }}
+                  >
+                    {item.label}
+                  </button>
+                )
+              })}
             </div>
           ))}
+
+          {/* Estado do filtro: período resolvido + modo + comparação */}
+          <div className="flex items-center flex-wrap gap-x-3 gap-y-1 sm:ml-auto">
+            <span className="inline-flex items-center gap-1 text-[11px] text-[var(--surface-500)] font-mono">
+              <Calendar className="h-3 w-3" />
+              {formatRangeShort(range)}
+            </span>
+
+            <ModoToggle modo={modo} selectModo={selectModo} />
+
+            <label className="inline-flex items-center gap-1.5 text-[11px] text-[var(--surface-500)] cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={comparePrev}
+                onChange={toggleComparePrev}
+                className="h-3 w-3 accent-[var(--brand-500)]"
+              />
+              Comparar anterior
+              {comparePrev && (
+                <span className="font-mono text-[var(--surface-400)]">
+                  ({formatRangeShort(computePreviousRange(range))})
+                </span>
+              )}
+            </label>
+          </div>
         </div>
 
         {/* Inputs do Personalizado */}
@@ -222,40 +238,12 @@ export default function DashboardsPage() {
           </div>
         )}
 
-        {/* Range + toggle de modo (Remoções/Contratos) + comparação */}
-        <div className="flex items-center gap-x-4 gap-y-1 flex-wrap mt-1.5">
-          <div className="flex items-center gap-1.5 text-[11px] text-[var(--surface-500)] font-mono">
-            <Calendar className="h-3 w-3" />
-            {formatRangeShort(range)}
-          </div>
-
-          {/* Toggle Remoções ↔ Contratos */}
-          <ModoToggle modo={modo} selectModo={selectModo} />
-
-          <label className="inline-flex items-center gap-1.5 text-[11px] text-[var(--surface-500)] cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={comparePrev}
-              onChange={toggleComparePrev}
-              className="h-3 w-3 accent-[var(--brand-500)]"
-            />
-            Comparar c/ período anterior
-            {comparePrev && (
-              <span className="font-mono text-[var(--surface-400)]">
-                ({formatRangeShort(computePreviousRange(range))})
-              </span>
-            )}
-          </label>
-        </div>
       </div>
       )}
 
-      {/* Na Evolução só o toggle Remoções/Contratos vale — o resto do filtro temporal acima não se aplica */}
-      {activeTab?.key === 'evolucao' && (
-        <div className="mb-4">
-          <ModoToggle modo={modo} selectModo={selectModo} />
-        </div>
-      )}
+      {/* O toggle da Evolução NÃO fica aqui: ele é renderizado dentro do próprio EvolucaoTab, na
+          mesma linha da janela de 6/12/24 meses. Numa linha só pra ele, acima das tabs, sobrava
+          uma faixa quase vazia e os controles da aba ficavam espalhados por três alturas. */}
 
       {/* Tabs (categorias) */}
       <div className="flex flex-wrap gap-1.5 mb-4 border-b border-[var(--surface-200)] pb-2">
@@ -284,7 +272,7 @@ export default function DashboardsPage() {
       {activeTab?.key === 'operacional' ? (
         <OperacionalTab range={range} comparePrev={comparePrev} modo={modo} />
       ) : activeTab?.key === 'evolucao' ? (
-        <EvolucaoTab modo={modo} />
+        <EvolucaoTab modo={modoEvolucao} selectModo={selectModoEvolucao} />
       ) : activeTab?.key === 'financeiro' ? (
         <FinanceiroTab range={range} comparePrev={comparePrev} modo={modo} />
       ) : activeTab ? (
