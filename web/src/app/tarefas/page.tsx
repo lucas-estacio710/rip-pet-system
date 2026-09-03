@@ -838,6 +838,7 @@ export default function TarefasPage() {
       } as never)
 
       toast('Tarefa concluída!', 'success')
+      notificarConclusaoUnidade(rotulo, tarefa.petNome)
       setTarefaAberta(null)
       setTarefaAbertaRascunho(false)
       setAnotacaoSimples('')
@@ -1011,6 +1012,7 @@ export default function TarefasPage() {
       } as never)
 
       toast('Remoção confirmada — contrato criado!', 'success')
+      notificarConclusaoUnidade(TIPO_INFO.remocao.label, ficha.nome_pet || '—')
       setTarefaAberta(null)
       setLacreRemocao('')
       setAnotacaoRemocao('')
@@ -1090,6 +1092,27 @@ export default function TarefasPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, title: '📋 Nova tarefa pra você', body: `${label} — ${petNome}`, url: '/tarefas' }),
+      })
+    } catch { /* push é best-effort — não trava o fluxo se falhar */ }
+  }
+
+  // Avisa gerente/concierge da unidade quando uma tarefa é concluída (pedido do Lucas,
+  // 03/09/2026). Busca a lista NA HORA em vez de reaproveitar o state `operacionais` — esse só
+  // carrega quando a aba "Gestão de Tarefas" é aberta, e um Operacional puro nunca vê essa
+  // aba (só "Minhas Tarefas"), então o array ficaria sempre vazio pra quem mais completa
+  // tarefa no dia a dia.
+  async function notificarConclusaoUnidade(label: string, petNome: string) {
+    if (!currentUnit) return
+    try {
+      const { data } = await supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: currentUnit.id } as never) as { data: { user_id: string; role: string }[] | null }
+      const destinatarios = (data || [])
+        .filter(p => (p.role === 'gerente' || p.role === 'operador') && p.user_id !== userId)
+        .map(p => p.user_id)
+      if (destinatarios.length === 0) return
+      await fetch('/api/push/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userIds: destinatarios, title: '✅ Tarefa concluída', body: `${label} — ${petNome}`, url: '/tarefas' }),
       })
     } catch { /* push é best-effort — não trava o fluxo se falhar */ }
   }

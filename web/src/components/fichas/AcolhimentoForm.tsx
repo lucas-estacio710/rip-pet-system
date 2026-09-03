@@ -467,12 +467,12 @@ export default function AcolhimentoForm({
         {value.semResponsavel ? (
           <div className="px-3 py-2 rounded-lg bg-amber-900/10 border border-amber-500/30 text-xs text-amber-400">A definir</div>
         ) : temOperacional ? (
-          <select value={value.responsavelUserId} onChange={e => set({ responsavelUserId: e.target.value })} className="input text-sm">
+          <select value={value.responsavelUserId} onChange={e => set({ responsavelUserId: e.target.value, ...(e.target.value ? { semResponsavel: false } : {}) })} className="input text-sm">
             <option value="">Selecione...</option>
             {atribuiveis.map(a => (<option key={a.user_id} value={a.user_id}>{a.nome}</option>))}
           </select>
         ) : (
-          <select value={value.funcionarioId} onChange={e => set({ funcionarioId: e.target.value })} className="input text-sm">
+          <select value={value.funcionarioId} onChange={e => set({ funcionarioId: e.target.value, ...(e.target.value ? { semResponsavel: false } : {}) })} className="input text-sm">
             <option value="">Selecione...</option>
             {funcionarios.map(f => (<option key={f.id} value={f.id}>{f.nome}</option>))}
           </select>

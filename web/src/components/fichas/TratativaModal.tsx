@@ -663,8 +663,12 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         codigo: codigo.trim(),
         codigoManual,
         tipoPlano,
-        funcionarioId: semResponsavel ? null : (funcionarioId || null),
-        responsavelUserId: semResponsavel ? null : (responsavelUserId || null),
+        // Sem o `semResponsavel ?` na frente: se a pessoa JÁ escolheu um nome, esse nome vale
+        // — não existe cenário em que descartar uma escolha real é o certo. O checkbox "Sem
+        // responsável provisoriamente" já limpa os 2 ids sozinho ao ser marcado (ver seu
+        // onChange), então por construção só sobra valor aqui quando é pra valer.
+        funcionarioId: funcionarioId || null,
+        responsavelUserId: responsavelUserId || null,
         semResponsavel,
         localColeta,
         enderecoOutro: enderecoOutro || null,
@@ -751,8 +755,17 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
     try {
       const opDadosParaContrato: Record<string, unknown> = {
         tipoPlano,
-        funcionarioId: semResponsavel ? null : (funcionarioId || null),
-        responsavelUserId: semResponsavel ? null : (responsavelUserId || null),
+        // 🔴 BUG ACHADO EM PRODUÇÃO (03/09/2026, SP): reabrir uma ficha salva com "Sem
+        // responsável provisoriamente" e escolher o nome no bloco "Campos Pendentes" deixava
+        // o botão "Iniciar Fluxo" habilitado (fluxoValido só olha funcionarioId/
+        // responsavelUserId, não semResponsavel) — mas esse `semResponsavel ?` aqui embaixo
+        // MANDAVA NULL mesmo com o nome escolhido, porque só "Salvar Pendências" (botão
+        // separado) desmarcava o estado `semResponsavel`. Resultado: "Iniciar Fluxo" direto
+        // sempre falhava com "Preencha antes: Responsável", e só ia depois de passar por
+        // "Salvar Pendências" primeiro. Sem o `semResponsavel ?`: se a pessoa escolheu um
+        // nome, ele vale — nunca existe um cenário em que descartar uma escolha real é certo.
+        funcionarioId: funcionarioId || null,
+        responsavelUserId: responsavelUserId || null,
         localColeta,
         enderecoOutro: enderecoOutro || null,
         estabId,
@@ -853,8 +866,10 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       // Atualizar op_dados
       const opDados = {
         codigo: codigo.trim(), codigoManual, tipoPlano,
-        funcionarioId: semResponsavel ? null : (funcionarioId || null),
-        responsavelUserId: semResponsavel ? null : (responsavelUserId || null), semResponsavel,
+        // Mesmo ajuste de `criarContrato()` acima — nome escolhido sempre vale, não some por
+        // causa da flag `semResponsavel` (ver comentário lá pro caso real que isso causou).
+        funcionarioId: funcionarioId || null,
+        responsavelUserId: responsavelUserId || null, semResponsavel,
         localColeta, enderecoOutro: enderecoOutro || null, semLocal,
         clinicaTextoLivre: clinicaTextoLivre || null, estabId, estabNome: estabNome || null, autonomo,
         dataHoraAcolhimento: dataHoraAcolhimento || null, semDataHora,
@@ -1501,12 +1516,12 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                 <div>
                   <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Responsável pelo Acolhimento</label>
                   {temOperacional ? (
-                    <select value={responsavelUserId} onChange={e => setResponsavelUserId(e.target.value)} className="input text-sm">
+                    <select value={responsavelUserId} onChange={e => { setResponsavelUserId(e.target.value); if (e.target.value) setSemResponsavel(false) }} className="input text-sm">
                       <option value="">Selecione...</option>
                       {atribuiveis.map(a => (<option key={a.user_id} value={a.user_id}>{a.nome}</option>))}
                     </select>
                   ) : (
-                    <select value={funcionarioId} onChange={e => setFuncionarioId(e.target.value)} className="input text-sm">
+                    <select value={funcionarioId} onChange={e => { setFuncionarioId(e.target.value); if (e.target.value) setSemResponsavel(false) }} className="input text-sm">
                       <option value="">Selecione...</option>
                       {funcionarios.map(f => (<option key={f.id} value={f.id}>{f.nome}</option>))}
                     </select>

@@ -263,8 +263,13 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
           clinica_coleta: clinicaColeta,
           estabelecimento_id: isClinica ? (resolvedEstabId || null) : null,
           numero_lacre: a.semLacre ? null : (a.lacre.trim() || null),
-          funcionario_id: a.semResponsavel ? null : (a.funcionarioId || null),
-          responsavel_user_id: a.semResponsavel ? null : (a.responsavelUserId || null),
+          // Sem o `semResponsavel ?` na frente — mesmo ajuste do TratativaModal (achado em
+          // produção, 03/09/2026): nome escolhido sempre vale, nunca existe motivo pra
+          // descartar uma escolha real. Aqui `provisorios.responsavel=false` já impede o
+          // checkbox de aparecer, então isso é reforço — não corrige um bug reproduzível
+          // hoje, mas fecha a mesma brecha caso essa regra mude no futuro (ver AcolhimentoForm.tsx).
+          funcionario_id: a.funcionarioId || null,
+          responsavel_user_id: a.responsavelUserId || null,
           tutor_telefone: telPrincipal,
           tutor_telefone2: telSecundario,
           tutor_telefone_nome: telPrincipalNome,

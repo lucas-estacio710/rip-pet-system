@@ -7,10 +7,11 @@ import { useUnit } from '@/contexts/UnitContext'
 import { createClient } from '@/lib/supabase/client'
 import {
   User, ChevronDown, LogOut, Eye, Users, Settings, Crown, Shield,
-  Palette, Moon, Sun, UserCheck, Tag, ListTodo, Printer, Wrench
+  Palette, Moon, Sun, UserCheck, Tag, ListTodo, Printer, Wrench, Bell, BellOff
 } from 'lucide-react'
 import { useTheme } from '@/hooks/useTheme'
 import { THEMES, THEME_META, type Theme } from '@/lib/theme'
+import { usePushNotification } from '@/hooks/usePushNotification'
 import { ImpersonateModal } from './ImpersonateModal'
 
 const THEME_ICONS: Record<Theme, typeof Moon> = {
@@ -26,13 +27,21 @@ const ROLE_LABELS = {
 }
 
 export function UserMenu() {
-  const { userEmail, userName, currentRole, isSuperAdmin, impersonating, impersonatedEmail, startImpersonating, stopImpersonating } = useUnit()
+  const { userEmail, userName, currentRole, isSuperAdmin, currentUnit, impersonating, impersonatedEmail, startImpersonating, stopImpersonating } = useUnit()
   const [showImpersonate, setShowImpersonate] = useState(false)
   const { theme, setTheme } = useTheme()
   const router = useRouter()
   const supabase = createClient()
   const [isOpen, setIsOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+
+  // Notificações push são genéricas (1 inscrição do aparelho serve pra qualquer tipo de aviso
+  // — ficha nova, tarefa atribuída, tarefa concluída) — o botão vivia só em `/fichas`, então
+  // quem só usa `/tarefas` (perfil Operacional, que nem acessa Fichas) não tinha como ativar.
+  // Aqui no menu do usuário fica visível pra todo mundo, em qualquer tela.
+  const [pushUserId, setPushUserId] = useState<string | null>(null)
+  useEffect(() => { supabase.auth.getUser().then(({ data }) => setPushUserId(data.user?.id || null)) }, [supabase])
+  const { permission, isSubscribed, loading: pushLoading, subscribe, unsubscribe } = usePushNotification(pushUserId, currentUnit?.id || null)
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -260,6 +269,26 @@ export function UserMenu() {
               <span className="text-sm">Minha Conta</span>
             </Link>
           </div>
+
+          {/* Notificações */}
+          {permission !== 'unsupported' && (
+            <div style={{ borderBottom: '1px solid #334155' }}>
+              <button
+                onClick={() => (isSubscribed ? unsubscribe() : subscribe())}
+                disabled={pushLoading || permission === 'denied'}
+                className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors disabled:opacity-50"
+                style={{ color: '#e2e8f0' }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                {isSubscribed ? <Bell className="h-4 w-4" style={{ color: '#22c55e' }} /> : <BellOff className="h-4 w-4" style={{ color: '#94a3b8' }} />}
+                <span className="text-sm flex-1 text-left">Notificações</span>
+                <span className="text-xs" style={{ color: permission === 'denied' ? '#ef4444' : isSubscribed ? '#22c55e' : '#64748b' }}>
+                  {permission === 'denied' ? 'Bloqueado' : isSubscribed ? 'Ativadas' : 'Ativar'}
+                </span>
+              </button>
+            </div>
+          )}
 
           {/* Tema */}
           <div style={{ borderBottom: '1px solid #334155', padding: '8px 16px' }}>

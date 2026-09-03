@@ -27,17 +27,20 @@ export async function POST(request: NextRequest) {
   try {
     ensureVapid()
     const supabaseAdmin = getSupabaseAdmin()
-    const { title, body, url, unidadeId, userId } = await request.json()
+    const { title, body, url, unidadeId, userId, userIds } = await request.json()
 
     if (!title || !body) {
       return NextResponse.json({ error: 'title e body obrigatórios' }, { status: 400 })
     }
 
     // Buscar subscriptions: de um usuário específico (userId — ex: atribuição de tarefa),
-    // ou da unidade inteira (unidadeId — broadcast), ou todas se nenhum filtro vier.
+    // de uma lista de usuários (userIds — ex: gerente+concierge da unidade quando uma tarefa
+    // é concluída), da unidade inteira (unidadeId — broadcast), ou todas se nenhum filtro vier.
     let query = supabaseAdmin.from('push_subscriptions').select('*')
     if (userId) {
       query = query.eq('user_id', userId)
+    } else if (Array.isArray(userIds) && userIds.length > 0) {
+      query = query.in('user_id', userIds)
     } else if (unidadeId) {
       query = query.eq('unidade_id', unidadeId)
     }
