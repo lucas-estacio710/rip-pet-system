@@ -23,6 +23,9 @@ type UserPerfil = {
   is_default: boolean
   nome: string | null
   ativo: boolean
+  // true = este login é um dispositivo compartilhado (ex: celular do carro), não uma pessoa —
+  // ver migration 137.
+  eh_posicao: boolean
 }
 
 type UserRow = {
@@ -70,7 +73,7 @@ export default function AdminUsuariosPage() {
   const [formEmail, setFormEmail] = useState('')
   const [formPassword, setFormPassword] = useState('')
   const [formNome, setFormNome] = useState('')
-  const [formPerfis, setFormPerfis] = useState<{ unidade_id: string; role: UserRole; is_default: boolean }[]>([])
+  const [formPerfis, setFormPerfis] = useState<{ unidade_id: string; role: UserRole; is_default: boolean; eh_posicao: boolean }[]>([])
 
   const carregarUsuarios = useCallback(async () => {
     setLoading(true)
@@ -151,6 +154,7 @@ export default function AdminUsuariosPage() {
       unidade_id: p.unidade_id,
       role: p.role,
       is_default: p.is_default,
+      eh_posicao: p.eh_posicao,
     })))
     setShowModal(true)
   }
@@ -160,7 +164,7 @@ export default function AdminUsuariosPage() {
     const usedIds = new Set(formPerfis.map(p => p.unidade_id))
     const available = allUnidades.find(u => !usedIds.has(u.id))
     if (available) {
-      setFormPerfis([...formPerfis, { unidade_id: available.id, role: 'operador', is_default: formPerfis.length === 0 }])
+      setFormPerfis([...formPerfis, { unidade_id: available.id, role: 'operador', is_default: formPerfis.length === 0, eh_posicao: false }])
     }
   }
 
@@ -181,6 +185,16 @@ export default function AdminUsuariosPage() {
     } else {
       (updated[idx] as any)[field] = value
     }
+    setFormPerfis(updated)
+  }
+
+  // Posição só faz sentido pro cargo Operacional — trocar pra outro cargo desmarca sozinho,
+  // senão a flag ficaria escondida (o checkbox só aparece com role==='operacional') mas ainda
+  // marcada por baixo.
+  function updateRole(idx: number, role: UserRole) {
+    const updated = [...formPerfis]
+    updated[idx].role = role
+    if (role !== 'operacional') updated[idx].eh_posicao = false
     setFormPerfis(updated)
   }
 
@@ -489,6 +503,7 @@ export default function AdminUsuariosPage() {
                             <span className={`${cfg.color} ml-0.5`}>
                               <RoleIcon className="h-3 w-3 inline" /> {cfg.label}
                             </span>
+                            {p.eh_posicao && <span className="text-[9px] text-cyan-400">🚗 Posição</span>}
                             {p.is_default && <span className="text-[9px] text-emerald-400">(padrão)</span>}
                           </span>
                         )
@@ -659,48 +674,66 @@ export default function AdminUsuariosPage() {
 
                 <div className="space-y-2">
                   {formPerfis.map((perfil, idx) => (
-                    <div key={idx} className="flex items-center gap-2 p-2 rounded-lg" style={{ background: '#0f172a' }}>
-                      {/* Unidade */}
-                      <select
-                        value={perfil.unidade_id}
-                        onChange={e => updatePerfil(idx, 'unidade_id', e.target.value)}
-                        className="flex-1 text-sm py-1.5 px-2 rounded-lg outline-none"
-                        style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155' }}
-                      >
-                        {allUnidades.map(u => (
-                          <option key={u.id} value={u.id}>{u.nome}</option>
-                        ))}
-                      </select>
+                    <div key={idx} className="p-2 rounded-lg space-y-1.5" style={{ background: '#0f172a' }}>
+                      <div className="flex items-center gap-2">
+                        {/* Unidade */}
+                        <select
+                          value={perfil.unidade_id}
+                          onChange={e => updatePerfil(idx, 'unidade_id', e.target.value)}
+                          className="flex-1 text-sm py-1.5 px-2 rounded-lg outline-none"
+                          style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155' }}
+                        >
+                          {allUnidades.map(u => (
+                            <option key={u.id} value={u.id}>{u.nome}</option>
+                          ))}
+                        </select>
 
-                      {/* Role — cargo é cargo, sem trava por módulo aqui: quem decide se
-                          "Tarefas" aparece é o gate de sempre (FLS tela_tarefas + cb_operacional
-                          em Sidebar.tsx/tarefas/page.tsx). Sem módulo ativo, o Operacional só
-                          vê o aviso "módulo não ativo" — comportamento normal, não é erro. */}
-                      <select
-                        value={perfil.role}
-                        onChange={e => updatePerfil(idx, 'role', e.target.value)}
-                        className="w-32 text-sm py-1.5 px-2 rounded-lg outline-none"
-                        style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155' }}
-                      >
-                        <option value="operador">Concierge</option>
-                        <option value="gerente">Gerente</option>
-                        <option value="super_admin">Super Admin</option>
-                        <option value="operacional">Operacional</option>
-                      </select>
+                        {/* Role — cargo é cargo, sem trava por módulo aqui: quem decide se
+                            "Tarefas" aparece é o gate de sempre (FLS tela_tarefas + cb_operacional
+                            em Sidebar.tsx/tarefas/page.tsx). Sem módulo ativo, o Operacional só
+                            vê o aviso "módulo não ativo" — comportamento normal, não é erro. */}
+                        <select
+                          value={perfil.role}
+                          onChange={e => updateRole(idx, e.target.value as UserRole)}
+                          className="w-32 text-sm py-1.5 px-2 rounded-lg outline-none"
+                          style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155' }}
+                        >
+                          <option value="operador">Concierge</option>
+                          <option value="gerente">Gerente</option>
+                          <option value="super_admin">Super Admin</option>
+                          <option value="operacional">Operacional</option>
+                        </select>
 
-                      {/* Default */}
-                      <button
-                        onClick={() => updatePerfil(idx, 'is_default', true)}
-                        className={`p-1 rounded ${perfil.is_default ? 'text-emerald-400' : 'text-[var(--surface-400)]'}`}
-                        title={perfil.is_default ? 'Unidade padrão' : 'Definir como padrão'}
-                      >
-                        {perfil.is_default ? <ToggleRight className="h-5 w-5" /> : <ToggleLeft className="h-5 w-5" />}
-                      </button>
+                        {/* Default */}
+                        <button
+                          onClick={() => updatePerfil(idx, 'is_default', true)}
+                          className={`p-1 rounded ${perfil.is_default ? 'text-emerald-400' : 'text-[var(--surface-400)]'}`}
+                          title={perfil.is_default ? 'Unidade padrão' : 'Definir como padrão'}
+                        >
+                          {perfil.is_default ? <ToggleRight className="h-5 w-5" /> : <ToggleLeft className="h-5 w-5" />}
+                        </button>
 
-                      {/* Remover */}
-                      <button onClick={() => removePerfil(idx)} className="p-1 text-red-400 hover:text-red-300">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                        {/* Remover */}
+                        <button onClick={() => removePerfil(idx)} className="p-1 text-red-400 hover:text-red-300">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+
+                      {/* Posição: dispositivo compartilhado (ex: celular do carro) em vez de
+                          pessoa — só faz sentido pro cargo Operacional. Ver migration 137. */}
+                      {perfil.role === 'operacional' && (
+                        <label className="flex items-center gap-1.5 pl-1 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={perfil.eh_posicao}
+                            onChange={e => updatePerfil(idx, 'eh_posicao', e.target.checked)}
+                            className="h-3 w-3 rounded accent-cyan-500"
+                          />
+                          <span className="text-[11px]" style={{ color: '#67e8f9' }}>
+                            🚗 Esta é uma posição (dispositivo compartilhado), não uma pessoa
+                          </span>
+                        </label>
+                      )}
                     </div>
                   ))}
                 </div>
