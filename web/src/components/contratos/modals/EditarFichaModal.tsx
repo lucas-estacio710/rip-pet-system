@@ -49,13 +49,12 @@ type ContratoEdit = {
   estabelecimento?: { nome: string | null } | null
   funcionario_id: string | null
   responsavel_user_id: string | null
-  executado_por_funcionario_id: string | null
   observacoes: string | null
   unidade_id: string | null
 }
 
 type Funcionario = { id: string; nome: string }
-type Atribuivel = { user_id: string; nome: string | null; role: string; eh_posicao?: boolean }
+type Atribuivel = { user_id: string; nome: string | null; role: string }
 
 export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClose, onSaved }: Props) {
   const supabase = createClient()
@@ -86,12 +85,8 @@ export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClos
   const [petGenero, setPetGenero] = useState('')
   const [funcionarioId, setFuncionarioId] = useState('')
   const [responsavelUserId, setResponsavelUserId] = useState('')
-  const [executadoPorFuncionarioId, setExecutadoPorFuncionarioId] = useState('')
   const [certs, setCerts] = useState<string[]>(['', '', '', '', '', '', ''])
   const temOperacional = !!allUnidades.find(u => u.id === (contrato?.unidade_id || unidadeId))?.modulos_ativos?.includes('cb_operacional')
-  // Responsável escolhido é uma posição (dispositivo compartilhado) — exige assinatura de
-  // quem de fato executou (migration 137).
-  const responsavelEhPosicao = !!atribuiveis.find(a => a.user_id === responsavelUserId)?.eh_posicao
 
   // Carregar contrato + funcionários da unidade
   useEffect(() => {
@@ -102,7 +97,7 @@ export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClos
     ;(async () => {
       const { data: c } = await supabase
         .from('contratos')
-        .select('id, codigo, pet_nome, numero_lacre, data_acolhimento, tipo_cremacao, pet_especie, pet_raca, pet_cor, pet_idade_anos, pet_peso, pet_genero, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_nome_6, certificado_nome_7, clinica_coleta, estabelecimento_id, estabelecimento:estabelecimento_id(nome), funcionario_id, responsavel_user_id, executado_por_funcionario_id, observacoes, unidade_id')
+        .select('id, codigo, pet_nome, numero_lacre, data_acolhimento, tipo_cremacao, pet_especie, pet_raca, pet_cor, pet_idade_anos, pet_peso, pet_genero, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_nome_6, certificado_nome_7, clinica_coleta, estabelecimento_id, estabelecimento:estabelecimento_id(nome), funcionario_id, responsavel_user_id, observacoes, unidade_id')
         .eq('id', contratoId)
         .single()
       if (cancelado) return
@@ -127,7 +122,6 @@ export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClos
       setPetGenero(co?.pet_genero || '')
       setFuncionarioId(co?.funcionario_id || '')
       setResponsavelUserId(co?.responsavel_user_id || '')
-      setExecutadoPorFuncionarioId(co?.executado_por_funcionario_id || '')
       setCerts([
         co?.certificado_nome_1 || '', co?.certificado_nome_2 || '', co?.certificado_nome_3 || '',
         co?.certificado_nome_4 || '', co?.certificado_nome_5 || '', co?.certificado_nome_6 || '',
@@ -176,7 +170,6 @@ export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClos
         upd.pet_genero = petGenero || null
         upd.funcionario_id = funcionarioId || null
         upd.responsavel_user_id = responsavelUserId || null
-        upd.executado_por_funcionario_id = responsavelEhPosicao ? (executadoPorFuncionarioId || null) : null
         upd.certificado_nome_1 = certs[0]?.trim() || null
         upd.certificado_nome_2 = certs[1]?.trim() || null
         upd.certificado_nome_3 = certs[2]?.trim() || null
@@ -365,7 +358,7 @@ export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClos
                     <select value={responsavelUserId} onChange={(e) => setResponsavelUserId(e.target.value)} className="input w-full">
                       <option value="">— sem responsável —</option>
                       {atribuiveis.map(a => (
-                        <option key={a.user_id} value={a.user_id}>{a.eh_posicao ? `🚗 ${a.nome}` : a.nome}</option>
+                        <option key={a.user_id} value={a.user_id}>{a.nome}</option>
                       ))}
                     </select>
                   ) : (
@@ -375,19 +368,6 @@ export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClos
                         <option key={f.id} value={f.id}>{f.nome}</option>
                       ))}
                     </select>
-                  )}
-                  {/* Responsável é uma posição (dispositivo compartilhado) — exige assinatura
-                      de quem de fato executou (migration 137). */}
-                  {responsavelEhPosicao && (
-                    <div className="mt-2">
-                      <label className="text-caption text-[var(--shell-text-muted)] block mb-1">Quem executou?</label>
-                      <select value={executadoPorFuncionarioId} onChange={(e) => setExecutadoPorFuncionarioId(e.target.value)} className="input w-full">
-                        <option value="">Selecione...</option>
-                        {funcionarios.map(f => (
-                          <option key={f.id} value={f.id}>{f.nome}</option>
-                        ))}
-                      </select>
-                    </div>
                   )}
                 </div>
               </div>
@@ -400,7 +380,7 @@ export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClos
           <button onClick={onClose} className="btn-secondary flex-1">Cancelar</button>
           <button
             onClick={salvar}
-            disabled={loading || saving || !contrato || (modoSensivel && responsavelEhPosicao && !executadoPorFuncionarioId)}
+            disabled={loading || saving || !contrato}
             className="btn-primary flex-1 flex items-center justify-center gap-2"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}

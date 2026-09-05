@@ -620,7 +620,7 @@ function UnderlineTabs<T extends string>({ tabs, value, onChange }: {
 
 export default function TarefasPage() {
   const supabase = createClient()
-  const { currentUnit, currentRole, isSuperAdmin, isPosicao, userName, allUnidades, impersonating, impersonatedUserId } = useUnit()
+  const { currentUnit, currentRole, isSuperAdmin, userName, allUnidades, impersonating, impersonatedUserId } = useUnit()
   const { toast } = useToast()
 
   const podeAtribuir = isSuperAdmin || currentRole === 'gerente' || currentRole === 'operador'
@@ -644,16 +644,6 @@ export default function TarefasPage() {
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setRealUserId(data.user?.id || null))
   }, [supabase])
-
-  // Login atual é uma posição (dispositivo compartilhado, ex: celular do carro) — a conclusão
-  // de qualquer tarefa exige assinar quem de fato executou (migration 137). Carrega
-  // `funcionarios` só quando faz sentido (posição não precisa da lista senão).
-  const [funcionariosUnidade, setFuncionariosUnidade] = useState<{ id: string; nome: string }[]>([])
-  useEffect(() => {
-    if (!isPosicao || !currentUnit) return
-    supabase.from('funcionarios').select('id, nome').eq('unidade_id', currentUnit.id).eq('ativo', true).order('nome')
-      .then(({ data }) => setFuncionariosUnidade((data || []) as { id: string; nome: string }[]))
-  }, [supabase, isPosicao, currentUnit])
 
   // ── Minhas Tarefas ──────────────────────────────────────────────────────
   const [minhasTarefas, setMinhasTarefas] = useState<TarefaGrupo[]>([])
@@ -785,10 +775,6 @@ export default function TarefasPage() {
   const [concluindoSimples, setConcluindoSimples] = useState(false)
   const [anotacaoSimples, setAnotacaoSimples] = useState('')
   const [leuObservacao, setLeuObservacao] = useState(false)
-  // Login atual é uma posição (dispositivo compartilhado) — quem de fato executou essa
-  // tarefa, obrigatório nesse caso (migration 137). Compartilhado entre os 2 fluxos de
-  // conclusão (simples e remoção) — só um popup fica aberto por vez.
-  const [executadoPorFuncionarioId, setExecutadoPorFuncionarioId] = useState('')
   // Data de entrega: "agora" (hoje) ou "outra" (registrando depois) — só entrega usa (é `date`, sem hora).
   const [modoDataEntrega, setModoDataEntrega] = useState<'agora' | 'outra'>('agora')
   const [dataEntregaManual, setDataEntregaManual] = useState('')
@@ -796,10 +782,6 @@ export default function TarefasPage() {
   async function concluirTarefaSimples(tarefa: TarefaGrupo) {
     if (tarefa.tipo === 'entrega' && modoDataEntrega === 'outra' && !dataEntregaManual) {
       toast('Informe a data da entrega', 'error')
-      return
-    }
-    if (isPosicao && !executadoPorFuncionarioId) {
-      toast('Informe quem executou', 'error')
       return
     }
     setConcluindoSimples(true)
@@ -835,15 +817,10 @@ export default function TarefasPage() {
         } as never)
       }
 
-      // Login atual é uma posição (dispositivo compartilhado) — assina quem de fato executou
-      // (migration 137). Fica só em tarefas_operacionais: é por TAREFA, não é a mesma coisa
-      // que contratos.executado_por_funcionario_id (que é só do acolhimento).
-      const nomeExecutor = isPosicao ? funcionariosUnidade.find(f => f.id === executadoPorFuncionarioId)?.nome : null
       await supabase.from('tarefas_operacionais').update({
         status: 'concluida',
         concluido_em: new Date().toISOString(),
         anotacao_conclusao: anotacaoSimples.trim() || null,
-        executado_por_funcionario_id: isPosicao ? (executadoPorFuncionarioId || null) : null,
       } as never).in('id', tarefa.ids)
 
       const { data: { user } } = await supabase.auth.getUser()
@@ -853,7 +830,7 @@ export default function TarefasPage() {
         entidade_nome: tarefa.petNome,
         campo: 'conclusao',
         campo_label: 'Tarefa concluída',
-        valor_novo: `${rotulo} concluída por ${userName || 'Operacional'}${nomeExecutor ? ` (feito por: ${nomeExecutor})` : ''}`,
+        valor_novo: `${rotulo} concluída por ${userName || 'Operacional'}`,
         tipo: 'conclusao',
         alterado_por: user?.id || null,
         alterado_por_email: user?.email || null,
@@ -868,7 +845,6 @@ export default function TarefasPage() {
       setLeuObservacao(false)
       setModoDataEntrega('agora')
       setDataEntregaManual('')
-      setExecutadoPorFuncionarioId('')
       // carregarEmAndamento/carregarConcluidasRecentes já no-opam sozinhas se quem concluiu
       // não é podeAtribuir — sem custo extra pro Operacional comum, mas mantém a aba Atribuir
       // em dia quando a conclusão veio de lá (botão "Feito" do pool). Pool fica de fora — quem
@@ -970,7 +946,6 @@ export default function TarefasPage() {
   async function concluirRemocao(tarefa: TarefaGrupo, ficha: FichaRemocao) {
     if (!lacreRemocao.trim()) { setErroRemocao('Informe o lacre'); return }
     if (modoDataRemocao === 'outra' && !dataHoraRemocaoManual) { setErroRemocao('Informe a data/hora da remoção'); return }
-    if (isPosicao && !executadoPorFuncionarioId) { setErroRemocao('Informe quem executou'); return }
     setConcluindoRemocao(true)
     setErroRemocao(null)
     try {
@@ -982,10 +957,6 @@ export default function TarefasPage() {
         semLacre: false,
         dataHoraAcolhimento: dataHoraFinal,
         semDataHora: false,
-        // Login atual é uma posição (dispositivo compartilhado) — quem de fato executou o
-        // acolhimento (migration 137). criarContratoDeFicha lê isso e grava em
-        // contratos.executado_por_funcionario_id.
-        executadoPorFuncionarioId: isPosicao ? (executadoPorFuncionarioId || null) : null,
       }
       const { error: errUpdate } = await supabase.from('fichas').update({ op_dados: opAtualizado } as never).eq('id', ficha.id)
       if (errUpdate) throw new Error(errUpdate.message)
@@ -1019,13 +990,11 @@ export default function TarefasPage() {
         } as never)
       }
 
-      const nomeExecutor = isPosicao ? funcionariosUnidade.find(f => f.id === executadoPorFuncionarioId)?.nome : null
       await supabase.from('tarefas_operacionais').update({
         status: 'concluida',
         concluido_em: new Date().toISOString(),
         lacre: lacreRemocao.trim(),
         anotacao_conclusao: anotacaoRemocao.trim() || null,
-        executado_por_funcionario_id: isPosicao ? (executadoPorFuncionarioId || null) : null,
       } as never).eq('id', tarefa.id)
 
       const { data: { user } } = await supabase.auth.getUser()
@@ -1035,7 +1004,7 @@ export default function TarefasPage() {
         entidade_nome: ficha.nome_pet || '—',
         campo: 'conclusao',
         campo_label: 'Remoção concluída',
-        valor_novo: `Remoção concluída por ${userName || 'Operacional'} — lacre ${lacreRemocao.trim()} — contrato criado${nomeExecutor ? ` (feito por: ${nomeExecutor})` : ''}`,
+        valor_novo: `Remoção concluída por ${userName || 'Operacional'} — lacre ${lacreRemocao.trim()} — contrato criado`,
         tipo: 'conclusao',
         alterado_por: user?.id || null,
         alterado_por_email: user?.email || null,
@@ -1049,7 +1018,6 @@ export default function TarefasPage() {
       setAnotacaoRemocao('')
       setModoDataRemocao('agora')
       setDataHoraRemocaoManual('')
-      setExecutadoPorFuncionarioId('')
       await Promise.all([carregarMinhas(), carregarMinhasConcluidas()])
     } catch (err) {
       const msg = err instanceof ContratoValidationError ? err.message : (err instanceof Error ? err.message : 'Erro desconhecido')
@@ -2133,21 +2101,10 @@ export default function TarefasPage() {
                       <p className="text-[10px] text-[var(--surface-500)] mb-1">Ex.: Tutor acertou no cartão em 6x; Tutora pediu para cremar a toalha azul junto com o pet; Cremar ursinho de pelúcia junto.</p>
                       <textarea value={anotacaoRemocao} onChange={e => setAnotacaoRemocao(e.target.value)} rows={2} placeholder="Alguma observação sobre a remoção..." className="input w-full resize-none" />
                     </div>
-                    {/* Login atual é uma posição (dispositivo compartilhado) — exige assinar
-                        quem de fato executou (migration 137). */}
-                    {isPosicao && (
-                      <div>
-                        <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Quem executou? <span className="text-red-400">*</span></label>
-                        <select value={executadoPorFuncionarioId} onChange={e => setExecutadoPorFuncionarioId(e.target.value)} className="input w-full">
-                          <option value="">Selecione...</option>
-                          {funcionariosUnidade.map(f => (<option key={f.id} value={f.id}>{f.nome}</option>))}
-                        </select>
-                      </div>
-                    )}
                     {erroRemocao && <p className="text-xs text-red-400">{erroRemocao}</p>}
                     <button
                       onClick={() => concluirRemocao(tarefaAberta, ficha)}
-                      disabled={concluindoRemocao || !lacreRemocao.trim() || (modoDataRemocao === 'outra' && !dataHoraRemocaoManual) || (isPosicao && !executadoPorFuncionarioId)}
+                      disabled={concluindoRemocao || !lacreRemocao.trim() || (modoDataRemocao === 'outra' && !dataHoraRemocaoManual)}
                       className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-emerald-600 text-white font-semibold disabled:opacity-50"
                     >
                       {concluindoRemocao ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
@@ -2225,20 +2182,9 @@ export default function TarefasPage() {
                     <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Anotação (opcional)</label>
                     <textarea value={anotacaoSimples} onChange={e => setAnotacaoSimples(e.target.value)} rows={2} placeholder="Alguma observação..." className="input w-full resize-none" />
                   </div>
-                  {/* Login atual é uma posição (dispositivo compartilhado) — exige assinar
-                      quem de fato executou (migration 137). */}
-                  {isPosicao && (
-                    <div>
-                      <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Quem executou? <span className="text-red-400">*</span></label>
-                      <select value={executadoPorFuncionarioId} onChange={e => setExecutadoPorFuncionarioId(e.target.value)} className="input w-full">
-                        <option value="">Selecione...</option>
-                        {funcionariosUnidade.map(f => (<option key={f.id} value={f.id}>{f.nome}</option>))}
-                      </select>
-                    </div>
-                  )}
                   <button
                     onClick={() => concluirTarefaSimples(tarefaAberta)}
-                    disabled={concluindoSimples || (!!tarefaAberta.observacao_atribuicao && !leuObservacao) || (tarefaAberta.tipo === 'entrega' && modoDataEntrega === 'outra' && !dataEntregaManual) || (isPosicao && !executadoPorFuncionarioId)}
+                    disabled={concluindoSimples || (!!tarefaAberta.observacao_atribuicao && !leuObservacao) || (tarefaAberta.tipo === 'entrega' && modoDataEntrega === 'outra' && !dataEntregaManual)}
                     className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-emerald-600 text-white font-semibold disabled:opacity-50"
                   >
                     {concluindoSimples ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}

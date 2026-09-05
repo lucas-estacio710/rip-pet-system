@@ -31,9 +31,6 @@ export type UserPerfil = {
   role: UserRole
   is_default: boolean
   nome: string | null
-  // true = este login é um dispositivo compartilhado (ex: celular do carro), não uma pessoa —
-  // ver migration 137.
-  eh_posicao: boolean
 }
 
 type UnitContextType = {
@@ -44,9 +41,6 @@ type UnitContextType = {
   allUnidades: Unidade[]
   isLoading: boolean
   isSuperAdmin: boolean
-  // true = o login atual é uma posição (dispositivo compartilhado, ex: celular do carro), não
-  // uma pessoa. Ver migration 137.
-  isPosicao: boolean
   userName: string | null
   userEmail: string | null
 
@@ -57,7 +51,7 @@ type UnitContextType = {
   // telas que filtram por "sou eu" (ex: /tarefas "Minhas Tarefas", atribuido_a) precisam desse
   // id pra mostrar os dados de quem está sendo impersonado, não do super_admin logado.
   impersonatedUserId: string | null
-  startImpersonating: (userId: string, email: string, rpcPerfis?: { perfil_id: string; unidade_id?: string; unidade_nome: string; unidade_codigo: string; role: string; is_default: boolean; nome: string | null; ativo?: boolean; eh_posicao?: boolean }[]) => Promise<void>
+  startImpersonating: (userId: string, email: string, rpcPerfis?: { perfil_id: string; unidade_id?: string; unidade_nome: string; unidade_codigo: string; role: string; is_default: boolean; nome: string | null; ativo?: boolean }[]) => Promise<void>
   stopImpersonating: () => void
 
   // Ações
@@ -114,7 +108,7 @@ export function UnitProvider({ children }: { children: ReactNode }) {
     // Buscar perfis do usuário
     const { data: perfisData, error: perfisError } = await supabase
       .from('perfis')
-      .select('id, unidade_id, role, is_default, nome, ativo, eh_posicao')
+      .select('id, unidade_id, role, is_default, nome, ativo')
       .eq('user_id', user.id)
       .eq('ativo', true)
 
@@ -168,7 +162,6 @@ export function UnitProvider({ children }: { children: ReactNode }) {
           role: p.role as UserRole,
           is_default: p.is_default,
           nome: p.nome,
-          eh_posicao: !!p.eh_posicao,
         }
       })
       .filter(Boolean) as UserPerfil[]
@@ -280,7 +273,7 @@ export function UnitProvider({ children }: { children: ReactNode }) {
 
   // Impersonação: ver a ferramenta como outro usuário veria
   // rpcPerfis vem da RPC list_users_with_profiles (SECURITY DEFINER, sem RLS)
-  const startImpersonating = useCallback(async (userId: string, email: string, rpcPerfis?: { perfil_id: string; unidade_id?: string; unidade_nome: string; unidade_codigo: string; role: string; is_default: boolean; nome: string | null; ativo?: boolean; eh_posicao?: boolean }[]): Promise<void> => {
+  const startImpersonating = useCallback(async (userId: string, email: string, rpcPerfis?: { perfil_id: string; unidade_id?: string; unidade_nome: string; unidade_codigo: string; role: string; is_default: boolean; nome: string | null; ativo?: boolean }[]): Promise<void> => {
     if (!rpcPerfis || rpcPerfis.length === 0) {
       alert('Este usuário não tem nenhum perfil configurado.')
       return
@@ -320,7 +313,6 @@ export function UnitProvider({ children }: { children: ReactNode }) {
           role: p.role as UserRole,
           is_default: p.is_default,
           nome: p.nome,
-          eh_posicao: !!p.eh_posicao,
         }
       })
       .filter(Boolean) as UserPerfil[]
@@ -376,11 +368,6 @@ export function UnitProvider({ children }: { children: ReactNode }) {
     }
   }, [realUserData])
 
-  // Login atual é uma posição (dispositivo compartilhado, ex: celular do carro) — perfis.
-  // eh_posicao. Resolve pelo perfil ativo (currentUnit + currentRole); já correto durante
-  // impersonação, porque userPerfis/currentRole trocam junto. Ver migration 137.
-  const isPosicao = userPerfis.find(p => p.unidade.id === currentUnit?.id && p.role === currentRole)?.eh_posicao ?? false
-
   return (
     <UnitContext.Provider value={{
       currentUnit,
@@ -389,7 +376,6 @@ export function UnitProvider({ children }: { children: ReactNode }) {
       allUnidades,
       isLoading,
       isSuperAdmin: impersonating ? userPerfis.some(p => p.role === 'super_admin') : isSuperAdmin,
-      isPosicao,
       userName,
       userEmail,
       impersonating,

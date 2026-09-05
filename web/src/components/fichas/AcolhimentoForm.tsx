@@ -30,10 +30,6 @@ export type AcolhimentoData = {
   // user_id, `funcionarioId` fica vazio nesse caminho (ver contratos.responsavel_user_id).
   responsavelUserId: string
   semResponsavel: boolean
-  // Quando o Responsável escolhido é uma "posição" (perfis.eh_posicao — dispositivo
-  // compartilhado, não pessoa), quem de fato executou o acolhimento — obrigatório nesse caso,
-  // grava em contratos.executado_por_funcionario_id (mig 137).
-  executadoPorFuncionarioId: string
   // Data e Hora do Acolhimento
   dataHoraAcolhimento: string
   semDataHora: boolean
@@ -58,7 +54,6 @@ export const ACOLHIMENTO_INICIAL: AcolhimentoData = {
   funcionarioId: '',
   responsavelUserId: '',
   semResponsavel: false,
-  executadoPorFuncionarioId: '',
   dataHoraAcolhimento: '',
   semDataHora: false,
   lacre: '',
@@ -66,7 +61,7 @@ export const ACOLHIMENTO_INICIAL: AcolhimentoData = {
 }
 
 type Funcionario = { id: string; nome: string }
-type Atribuivel = { user_id: string; nome: string | null; role: string; eh_posicao?: boolean }
+type Atribuivel = { user_id: string; nome: string | null; role: string }
 type Estabelecimento = { id: string; nome: string; tipo?: string | null; cidade?: string | null }
 
 type Props = {
@@ -474,25 +469,13 @@ export default function AcolhimentoForm({
         ) : temOperacional ? (
           <select value={value.responsavelUserId} onChange={e => set({ responsavelUserId: e.target.value, ...(e.target.value ? { semResponsavel: false } : {}) })} className="input text-sm">
             <option value="">Selecione...</option>
-            {atribuiveis.map(a => (<option key={a.user_id} value={a.user_id}>{a.eh_posicao ? `🚗 ${a.nome}` : a.nome}</option>))}
+            {atribuiveis.map(a => (<option key={a.user_id} value={a.user_id}>{a.nome}</option>))}
           </select>
         ) : (
           <select value={value.funcionarioId} onChange={e => set({ funcionarioId: e.target.value, ...(e.target.value ? { semResponsavel: false } : {}) })} className="input text-sm">
             <option value="">Selecione...</option>
             {funcionarios.map(f => (<option key={f.id} value={f.id}>{f.nome}</option>))}
           </select>
-        )}
-        {/* Responsável escolhido é uma posição (dispositivo compartilhado) — quem de fato
-            executou não dá pra saber pelo login, precisa assinar aqui. Sem escape: revezamento
-            troca até de 15 em 15 minutos, não dá pra confiar em "quem está de turno". */}
-        {temOperacional && !value.semResponsavel && atribuiveis.find(a => a.user_id === value.responsavelUserId)?.eh_posicao && (
-          <div className="mt-2">
-            <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Quem executou? <span className="text-red-400">*</span></label>
-            <select value={value.executadoPorFuncionarioId} onChange={e => set({ executadoPorFuncionarioId: e.target.value })} className="input text-sm">
-              <option value="">Selecione...</option>
-              {funcionarios.map(f => (<option key={f.id} value={f.id}>{f.nome}</option>))}
-            </select>
-          </div>
         )}
       </div>
 

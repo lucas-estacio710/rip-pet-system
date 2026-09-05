@@ -53,13 +53,12 @@ export async function PUT(request: NextRequest) {
     }
 
     // Inserir novos perfis
-    const perfisToInsert = perfis.map((p: { unidade_id: string; role: string; is_default: boolean; eh_posicao?: boolean }) => ({
+    const perfisToInsert = perfis.map((p: { unidade_id: string; role: string; is_default: boolean }) => ({
       user_id,
       unidade_id: p.unidade_id,
       role: p.role,
       is_default: p.is_default,
       nome: nome || null,
-      eh_posicao: p.eh_posicao || false,
     }))
 
     const { error: insertError } = await supabaseAdmin

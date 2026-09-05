@@ -23,13 +23,7 @@ function iniciais(nome: string): string {
   return (partes[0][0] + partes[partes.length - 1][0]).toUpperCase()
 }
 
-// Contagem de contratos por funcionario_id no período (paginado — Supabase corta em 1000).
-// `responsavel_user_id IS NULL` é obrigatório aqui: sem isso, todo contrato de unidade com
-// cb_operacional (que usa responsavel_user_id em vez de funcionario_id, mig 123) cai no
-// bucket funcionario_id=null — contando 2x (uma vez certo pelo nome, via
-// countPorResponsavelUserId, outra errado em "(sem responsável)"). Achado pelo Lucas em
-// Santos: "(sem responsável)" mostrava 6, mas os 6 contratos tinham responsável de verdade,
-// só que via responsavel_user_id.
+// Contagem de contratos por funcionario_id no período (paginado — Supabase corta em 1000)
 async function countPorFuncionario(
   supabase: ReturnType<typeof createClient>,
   unidadeId: string,
@@ -44,7 +38,6 @@ async function countPorFuncionario(
       .from('contratos')
       .select('funcionario_id')
       .eq('unidade_id', unidadeId)
-      .is('responsavel_user_id', null)
       .range(offset, offset + PAGE - 1)
     const { data, error } = await filtroModo(base, modo, from, to)
     if (error) { console.error('[ResponsavelKPI]', error); break }
@@ -58,32 +51,29 @@ async function countPorFuncionario(
 // Mesma coisa por responsavel_user_id — unidades com cb_operacional (ver mig 123). Só
 // entram na contagem os contratos SEM funcionario_id (os dois nunca vêm juntos, ver
 // criar-contrato-de-ficha.ts), então soma-se ao mesmo ranking sem contar em dobro.
-// Retorna as linhas em vez de já agregar — precisa de `executado_por_funcionario_id` junto
-// pra decidir, linha a linha, se o responsável é uma posição (mig 137) e nesse caso trocar
-// a identidade pra quem de fato executou, em vez de contar pro nome da posição.
-async function buscarResponsavelUserId(
+async function countPorResponsavelUserId(
   supabase: ReturnType<typeof createClient>,
   unidadeId: string,
   modo: DashboardModo,
   from: Date,
   to: Date,
-): Promise<{ responsavel_user_id: string; executado_por_funcionario_id: string | null }[]> {
+): Promise<Map<string | null, number>> {
   const PAGE = 1000
-  const linhas: { responsavel_user_id: string; executado_por_funcionario_id: string | null }[] = []
+  const counts = new Map<string | null, number>()
   for (let offset = 0; ; offset += PAGE) {
     const base = supabase
       .from('contratos')
-      .select('responsavel_user_id, executado_por_funcionario_id')
+      .select('responsavel_user_id')
       .eq('unidade_id', unidadeId)
       .not('responsavel_user_id', 'is', null)
       .range(offset, offset + PAGE - 1)
     const { data, error } = await filtroModo(base, modo, from, to)
     if (error) { console.error('[ResponsavelKPI]', error); break }
-    const pagina = (data ?? []) as { responsavel_user_id: string; executado_por_funcionario_id: string | null }[]
-    linhas.push(...pagina)
-    if (pagina.length < PAGE) break
+    const rows = (data ?? []) as { responsavel_user_id: string | null }[]
+    for (const r of rows) counts.set(r.responsavel_user_id, (counts.get(r.responsavel_user_id) ?? 0) + 1)
+    if (rows.length < PAGE) break
   }
-  return linhas
+  return counts
 }
 
 export default function ResponsavelKPI({ range, comparePrev, modo }: Props) {
@@ -100,73 +90,36 @@ export default function ResponsavelKPI({ range, comparePrev, modo }: Props) {
 
     const prev = computePreviousRange(range)
     Promise.all([
-      supabase.from('funcionarios').select('id, nome, user_id').eq('unidade_id', currentUnit.id),
-      // SEM filtro de unidade: quem é responsável pelo acolhimento de um contrato de Santos
-      // pode ter o PRÓPRIO perfil cadastrado em outra unidade (super_admin, ou alguém que
-      // ajuda outra filial) — `responsavel_user_id` não tem nada a ver com onde a pessoa
-      // está cadastrada. Achado: Lucas (super_admin) tinha o perfil em São José dos Campos e
-      // aparecia "(sem responsável)" em contratos de Santos que ele mesmo atendeu. RLS de
-      // `perfis` já limita quem pode ler o quê (só o próprio, exceto super_admin) — filtrar
-      // por unidade aqui só quebrava esse caso, não protegia nada a mais.
-      supabase.from('perfis').select('user_id, nome, eh_posicao'),
+      supabase.from('funcionarios').select('id, nome').eq('unidade_id', currentUnit.id),
+      supabase.from('perfis').select('user_id, nome').eq('unidade_id', currentUnit.id),
       countPorFuncionario(supabase, currentUnit.id, modo, range.from, range.to),
-      buscarResponsavelUserId(supabase, currentUnit.id, modo, range.from, range.to),
+      countPorResponsavelUserId(supabase, currentUnit.id, modo, range.from, range.to),
       comparePrev
         ? countPorFuncionario(supabase, currentUnit.id, modo, prev.from, prev.to)
         : Promise.resolve(new Map<string | null, number>()),
       comparePrev
-        ? buscarResponsavelUserId(supabase, currentUnit.id, modo, prev.from, prev.to)
-        : Promise.resolve([] as { responsavel_user_id: string; executado_por_funcionario_id: string | null }[]),
+        ? countPorResponsavelUserId(supabase, currentUnit.id, modo, prev.from, prev.to)
+        : Promise.resolve(new Map<string | null, number>()),
     ]).then(([funcRes, perfisRes, curr, currResp, prevC, prevRespC]) => {
       if (cancelled) return
-      const funcionarios = (funcRes.data ?? []) as unknown as { id: string; nome: string; user_id: string | null }[]
-      const funcionarioPorId = new Map(funcionarios.map(f => [f.id, f]))
-      const perfis = (perfisRes.data ?? []) as unknown as { user_id: string; nome: string | null; eh_posicao?: boolean }[]
+      const funcionarios = (funcRes.data ?? []) as unknown as { id: string; nome: string }[]
+      const nomes = new Map(funcionarios.map(f => [f.id, f.nome]))
+      const perfis = (perfisRes.data ?? []) as unknown as { user_id: string; nome: string | null }[]
       const nomesPerfis = new Map(perfis.map(p => [p.user_id, p.nome]))
-      const ehPosicaoPorUserId = new Map(perfis.map(p => [p.user_id, !!p.eh_posicao]))
-
-      // Agrupa por IDENTIDADE, nunca por nome — o projeto já se queimou tentando "achar" a
-      // mesma pessoa comparando nome (funcionário duplicado da Kélvia, achado numa sessão
-      // anterior). `funcionarios.user_id` (mig 115) é o link EXPLÍCITO, feito por gente, de
-      // "essa pessoa da equipe É esse login" — funde os dois lados só quando esse vínculo
-      // existe de verdade. Achado testando: em Santos, "Kélvia Carolina" (funcionário) e
-      // "Kélvia Rosa" (perfil) são a mesma pessoa (vinculados), mas o nome nunca bateria; já
-      // "Ezequiel da Silva"/"Ezequiel Silva" não têm o vínculo — ficam como identidades
-      // separadas de propósito, em vez de arriscar fundir gente diferente por coincidência de
-      // nome parecido.
-      const porIdentidade = new Map<string, RankItem>()
-      const somar = (chave: string, nome: string, count: number, isPrev: boolean) => {
-        const item = porIdentidade.get(chave) ?? { nome, count: 0, prevCount: 0 }
+      const porNome = new Map<string, RankItem>()
+      const add = (id: string | null, count: number, isPrev: boolean, mapa: Map<string, string | null | undefined>) => {
+        const nome = id ? (mapa.get(id) ?? SEM_RESPONSAVEL) : SEM_RESPONSAVEL
+        const item = porNome.get(nome) ?? { nome, count: 0, prevCount: 0 }
         if (isPrev) item.prevCount += count
         else item.count += count
-        porIdentidade.set(chave, item)
+        porNome.set(nome, item)
       }
-      const addFuncionario = (funcId: string | null, count: number, isPrev: boolean) => {
-        const f = funcId ? funcionarioPorId.get(funcId) : null
-        if (!f) { somar('sem-responsavel', SEM_RESPONSAVEL, count, isPrev); return }
-        if (f.user_id) somar(`user:${f.user_id}`, nomesPerfis.get(f.user_id) || f.nome, count, isPrev)
-        else somar(`func:${f.id}`, f.nome, count, isPrev)
-      }
-      // Responsável é uma posição (perfis.eh_posicao, mig 137) — dispositivo compartilhado,
-      // então o nome dela não identifica ninguém. Conta pra quem de fato executou
-      // (executado_por_funcionario_id), reaproveitando addFuncionario — mesma regra de
-      // "funde por identidade, nunca por nome" de cima. Sem assinatura ainda (não devia
-      // acontecer, a conclusão exige) cai em "(sem responsável)" em vez de emprestar o nome
-      // da posição.
-      const addResponsavel = (row: { responsavel_user_id: string; executado_por_funcionario_id: string | null }, isPrev: boolean) => {
-        if (ehPosicaoPorUserId.get(row.responsavel_user_id)) {
-          if (row.executado_por_funcionario_id) addFuncionario(row.executado_por_funcionario_id, 1, isPrev)
-          else somar('sem-responsavel', SEM_RESPONSAVEL, 1, isPrev)
-          return
-        }
-        somar(`user:${row.responsavel_user_id}`, nomesPerfis.get(row.responsavel_user_id) || SEM_RESPONSAVEL, 1, isPrev)
-      }
-      curr.forEach((count, funcId) => addFuncionario(funcId, count, false))
-      prevC.forEach((count, funcId) => addFuncionario(funcId, count, true))
-      currResp.forEach(row => addResponsavel(row, false))
-      prevRespC.forEach(row => addResponsavel(row, true))
+      curr.forEach((count, funcId) => add(funcId, count, false, nomes))
+      prevC.forEach((count, funcId) => add(funcId, count, true, nomes))
+      currResp.forEach((count, userId) => add(userId, count, false, nomesPerfis))
+      prevRespC.forEach((count, userId) => add(userId, count, true, nomesPerfis))
 
-      const lista = Array.from(porIdentidade.values())
+      const lista = Array.from(porNome.values())
         .filter(i => i.count > 0 || i.prevCount > 0)
         .sort((a, b) => b.count - a.count || a.nome.localeCompare(b.nome))
       setItems(lista)
