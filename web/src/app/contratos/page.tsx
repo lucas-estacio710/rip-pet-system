@@ -4329,8 +4329,10 @@ ${petNome}`
                               <span className="text-base">📋</span>
                             </button>
                           )}
-                          {/* Botão Bypass - finalizar pulando etapas (FLS: btn_bypass) */}
-                          {['ativo', 'pinda'].includes(contrato.status) && isVisible(T, 'btn_bypass') && (
+                          {/* Botão Bypass - finalizar pulando etapas (FLS: btn_bypass). Bloqueado
+                              enquanto aguardando_acolhimento (mig 138) — o pet ainda nem foi
+                              buscado de verdade, não faz sentido finalizar a cremação dele. */}
+                          {['ativo', 'pinda'].includes(contrato.status) && !contrato.aguardando_acolhimento && isVisible(T, 'btn_bypass') && (
                             <button
                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setBypassContrato(contrato); setBypassDataCremacao(''); setBypassDataEntrega('') }}
                               className="flex items-center justify-center w-9 h-9 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors text-xs font-black"
@@ -4701,8 +4703,9 @@ ${petNome}`
                               <span className="text-sm">📋</span>
                             </button>
                           )}
-                          {/* Botão Bypass mobile (FLS: btn_bypass) */}
-                          {['ativo', 'pinda'].includes(contrato.status) && isVisible(T, 'btn_bypass') && (
+                          {/* Botão Bypass mobile (FLS: btn_bypass). Bloqueado enquanto
+                              aguardando_acolhimento — mesma razão da versão desktop. */}
+                          {['ativo', 'pinda'].includes(contrato.status) && !contrato.aguardando_acolhimento && isVisible(T, 'btn_bypass') && (
                             <button
                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setBypassContrato(contrato); setBypassDataCremacao(''); setBypassDataEntrega('') }}
                               className="flex items-center justify-center w-8 h-8 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors text-xs font-black"
@@ -5397,26 +5400,15 @@ ${petNome}`
       )}
 
       {/* Finalizar Ativação de Preventivo (mig 138) — conclui a tarefa atribuída pelo
-          AtivarModal: só agora o contrato de fato sai de `preventivo`. */}
+          AtivarModal. O contrato já é `ativo`/`pinda` desde a atribuição; aqui só
+          preenche data/hora, lacre e tira o "Em Acolhimento" — status não muda. */}
       {finalizarAtivacaoPVContrato && (
         <AtivacaoPVModal
           isOpen={!!finalizarAtivacaoPVContrato}
           onClose={() => setFinalizarAtivacaoPVContrato(null)}
           contrato={finalizarAtivacaoPVContrato}
           onSuccess={(updated) => {
-            if (statusFiltro && statusFiltro !== updated.status) {
-              setContratos(prev => prev.filter(c => c.id !== updated.id))
-              setTotal(prev => Math.max(0, prev - 1))
-            } else {
-              setContratos(prev => prev.map(c =>
-                c.id === updated.id ? { ...c, ...updated, aguardando_acolhimento: false } : c
-              ))
-            }
-            setStatusCounts(prev => ({
-              ...prev,
-              preventivo: Math.max(0, (prev.preventivo || 0) - 1),
-              [updated.status]: (prev[updated.status] || 0) + 1,
-            }))
+            setContratos(prev => prev.map(c => c.id === updated.id ? { ...c, ...updated } : c))
           }}
         />
       )}

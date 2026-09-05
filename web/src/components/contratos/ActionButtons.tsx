@@ -58,11 +58,13 @@ const HANDLER_MAP: Record<string, keyof ActionHandlers> = {
 }
 
 export default function ActionButtons({ contrato, handlers, layout, stopPropagation = true }: Props) {
-  // mig 138: Ativação de Preventivo já atribuída → troca "Ativar" por "Finalizar" (não faz
-  // sentido reabrir o AtivarModal de atribuição em cima de uma tarefa já pendente).
-  const visibleButtons = (VISIBILITY[contrato.status] || []).map(btn =>
-    btn === 'ativar' && contrato.aguardando_acolhimento ? 'finalizarAtivacaoPV' : btn
-  )
+  // mig 138: Ativação de Preventivo atribuída — o contrato já virou `ativo`/`pinda` na
+  // atribuição (AtivarModal), mas a remoção de verdade ainda não aconteceu. Trava TODOS os
+  // outros botões daquele status (ex: "Chegamos" seria prematuro — o pet nem foi buscado
+  // ainda) e mostra só "Finalizar", até a conclusão (AtivacaoPVModal) liberar o resto.
+  const visibleButtons = contrato.aguardando_acolhimento
+    ? ['finalizarAtivacaoPV']
+    : (VISIBILITY[contrato.status] || [])
   const hasTel = !!(contrato.tutor?.telefone || contrato.tutor_telefone)
 
   const handleClick = (handler: (() => void) | undefined, e: React.MouseEvent) => {

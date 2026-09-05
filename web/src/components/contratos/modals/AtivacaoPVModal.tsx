@@ -8,12 +8,14 @@ import { useUnit } from '@/contexts/UnitContext'
 // ============================================================================
 // AtivacaoPVModal — conclusão da tarefa "Ativar Preventivo" (mig 138).
 //
-// `AtivarModal` (unidade com cb_operacional) SEMPRE atribui, nunca completa —
-// deixa uma linha pendente em `tarefas_operacionais` (tipo='ativacao_pv',
-// contrato_id) e o contrato fica com `aguardando_acolhimento=true`, status
-// intocado (continua 'preventivo'). ESTE modal é quem de fato conclui:
-// pergunta Lacre + Data/Hora (+ Colaborador na posição, se for o caso) e só
-// aqui o contrato vira `ativo`/`pinda`.
+// `AtivarModal` (unidade com cb_operacional) atribui a tarefa E JÁ move o
+// contrato pra `ativo`/`pinda` na hora (decisão de 05/09, testando em
+// produção — ficar em `preventivo` até a conclusão deixava a tela de
+// Preventivos com um vazio sem o card aparecer em lugar nenhum). O contrato
+// fica travado com `aguardando_acolhimento=true` enquanto a tarefa não é
+// concluída. ESTE modal é quem conclui de verdade: pergunta Lacre + Data/Hora
+// (+ Colaborador na posição, se for o caso) — `status` NÃO muda mais aqui,
+// só `data_acolhimento`/`numero_lacre`/`aguardando_acolhimento`.
 //
 // Self-contido de propósito (mesmo padrão de EntregaModal.tsx) — usado em 2
 // lugares com a MESMA lógica: o popup de conclusão em /tarefas E o botão
@@ -35,12 +37,12 @@ type Props = {
   isOpen: boolean
   onClose: () => void
   contrato: ContratoMinimal
-  onSuccess?: (updated: { id: string; status: string; data_acolhimento: string; numero_lacre: string | null }) => void
+  onSuccess?: (updated: { id: string; data_acolhimento: string; numero_lacre: string | null; aguardando_acolhimento: false }) => void
 }
 
 export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess }: Props) {
   const supabase = createClient()
-  const { currentUnit, allUnidades, isPosicao } = useUnit()
+  const { currentUnit, isPosicao } = useUnit()
 
   const [tarefaId, setTarefaId] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(true)
@@ -98,13 +100,8 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess }
     try {
       const dataHoraIso = modoData === 'agora' ? new Date().toISOString() : new Date(dataHoraManual).toISOString()
 
-      // cb_cremacao_local (PI): ao concluir a ativação, vai direto pra 'pinda' (sem passar
-      // por 'ativo') — mesma regra de AtivarModal.tsx.
-      const unidade = allUnidades.find(u => u.id === unidadeId)
-      const novoStatus: 'ativo' | 'pinda' = unidade?.modulos_ativos?.includes('cb_cremacao_local') ? 'pinda' : 'ativo'
-
+      // status já virou 'ativo'/'pinda' na atribuição (AtivarModal.tsx) — não muda mais aqui.
       const { error: errContrato } = await supabase.from('contratos').update({
-        status: novoStatus,
         data_acolhimento: dataHoraIso,
         numero_lacre: lacre.trim(),
         executado_por_funcionario_id: isPosicao ? (executadoPorFuncionarioId || null) : null,
@@ -146,7 +143,7 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess }
         importante: true,
       } as never)
 
-      onSuccess?.({ id: contrato.id, status: novoStatus, data_acolhimento: dataHoraIso, numero_lacre: lacre.trim() })
+      onSuccess?.({ id: contrato.id, data_acolhimento: dataHoraIso, numero_lacre: lacre.trim(), aguardando_acolhimento: false })
       onClose()
     } catch (err) {
       console.error('Erro ao concluir Ativação de Preventivo:', err)

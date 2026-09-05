@@ -5247,7 +5247,7 @@ ${petNome}`
             onClose={() => setFinalizarAtivacaoPVOpen(false)}
             contrato={contrato}
             onSuccess={(updated) => {
-              setContrato(prev => prev ? { ...prev, ...updated, aguardando_acolhimento: false } : prev)
+              setContrato(prev => prev ? { ...prev, ...updated } : prev)
             }}
           />
           <EntregaModal

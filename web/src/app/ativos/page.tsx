@@ -34,6 +34,9 @@ type ContratoAtivo = {
   valor_total: number | null
   valor_pago: number | null
   numero_supinda: string | null
+  // Ativação de Preventivo atribuída, aguardando conclusão da remoção (mig 138) —
+  // contrato já é `ativo` mas a remoção ainda não aconteceu de verdade.
+  aguardando_acolhimento?: boolean
 }
 
 // Ícones de pet baseado em espécie e porte
@@ -297,9 +300,11 @@ export default function AtivosPage() {
               <div
                 key={contrato.id}
                 className={`rounded-lg shadow-sm border-2 hover:shadow-md transition-shadow ${
-                  contrato.tipo_cremacao === 'individual'
-                    ? 'bg-emerald-900/20 border-emerald-400'
-                    : 'bg-violet-900/20 border-violet-400'
+                  contrato.aguardando_acolhimento
+                    ? 'bg-violet-950/30 border-violet-500 border-dashed opacity-90'
+                    : contrato.tipo_cremacao === 'individual'
+                      ? 'bg-emerald-900/20 border-emerald-400'
+                      : 'bg-violet-900/20 border-violet-400'
                 }`}
               >
                 <div className="p-3">
@@ -353,6 +358,14 @@ export default function AtivosPage() {
                         }`}>
                           {contrato.tipo_cremacao === 'individual' ? 'IND' : 'COL'}
                         </span>
+                        {contrato.aguardando_acolhimento && (
+                          <span
+                            className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-500/20 text-violet-400 whitespace-nowrap"
+                            title="Ativação de Preventivo atribuída — aguardando conclusão da remoção"
+                          >
+                            🕐 Em Acolhimento
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5">
                         <span className="font-bold" style={{ backgroundColor: '#f1f5f9', color: '#475569', padding: '1px 5px', borderRadius: '4px' }}>{contrato.tutor?.nome || contrato.tutor_nome}</span>

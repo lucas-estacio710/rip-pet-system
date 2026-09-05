@@ -46,9 +46,10 @@ type Props = {
   onSuccess?: (updated: {
     id: string
     status: string
-    data_acolhimento: string
+    data_acolhimento: string | null
     local_coleta: string
     numero_lacre: string | null
+    aguardando_acolhimento?: boolean
   }) => void
 }
 
@@ -256,15 +257,23 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
       const telPrincipalNome = hasTel2 ? tel2NomeVal : tel1NomeVal
       const telSecundarioNome = hasTel2 ? tel1NomeVal : null
 
+      // cb_cremacao_local (PI): ao acionar PV, vai direto pra 'pinda' (sem passar por 'ativo').
+      // Checa modulos_ativos direto — hasModule() retorna true sempre pra super_admin.
+      const novoStatus: 'ativo' | 'pinda' = currentUnit?.modulos_ativos?.includes('cb_cremacao_local') ? 'pinda' : 'ativo'
+
       if (temOperacional) {
-        // Unidade com cb_operacional (mig 138): SEMPRE atribui, nunca completa aqui — a
-        // conclusão de verdade (status, data/hora, lacre, colaborador na posição) acontece
-        // depois, via AtivacaoPVModal (em /tarefas ou pelo botão "Finalizar" no
-        // pipeline/detalhe do contrato). Status/data_acolhimento/numero_lacre NÃO são
-        // tocados aqui — o contrato continua `preventivo` até a tarefa concluir.
+        // Unidade com cb_operacional (mig 138): atribui e JÁ sai de `preventivo` — o
+        // contrato aparece travado em /ativos (ou /pinda) com o badge "Em Acolhimento"
+        // enquanto a tarefa não é concluída. Decisão do Lucas (05/09, testando em
+        // produção): ficar em `preventivo` até a conclusão deixava a tela de Preventivos
+        // com um vazio (o card sumia do filtro por status, sem aparecer em lugar
+        // nenhum) e não refletia a realidade — a remoção JÁ foi disparada. A conclusão
+        // de verdade (data/hora, lacre, colaborador na posição) continua exclusiva do
+        // AtivacaoPVModal; aqui NÃO se toca data_acolhimento/numero_lacre.
         const { error } = await supabase
           .from('contratos')
           .update({
+            status: novoStatus,
             local_coleta: localColetaValor,
             clinica_coleta: clinicaColeta,
             estabelecimento_id: isClinica ? (resolvedEstabId || null) : null,
@@ -312,15 +321,20 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
           }
         }
 
+        onSuccess?.({
+          id: contrato.id,
+          status: novoStatus,
+          data_acolhimento: null,
+          local_coleta: localColetaValor || '',
+          numero_lacre: null,
+          aguardando_acolhimento: true,
+        })
+
         onClose()
         return
       }
 
       // Unidade SEM cb_operacional: comportamento de sempre, sem mudança — completa na hora.
-      // cb_cremacao_local (PI): ao acionar PV, vai direto pra 'pinda' (sem passar por 'ativo').
-      // Checa modulos_ativos direto — hasModule() retorna true sempre pra super_admin.
-      const novoStatus: 'ativo' | 'pinda' = currentUnit?.modulos_ativos?.includes('cb_cremacao_local') ? 'pinda' : 'ativo'
-
       const { error } = await supabase
         .from('contratos')
         .update({
