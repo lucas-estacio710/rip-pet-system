@@ -9,9 +9,6 @@ type ActionHandlers = {
   onFinalizadora?: () => void
   onAtivar?: () => void
   onEntrega?: () => void
-  // Ativação de Preventivo já atribuída (mig 138) — abre o popup de conclusão
-  // (AtivacaoPVModal) em vez do AtivarModal de atribuição.
-  onFinalizarAtivacaoPV?: () => void
 }
 
 type Props = {
@@ -19,8 +16,6 @@ type Props = {
     status: string
     tutor_telefone?: string | null
     tutor?: { telefone: string | null } | null
-    // mig 138 — true enquanto a Ativação de Preventivo está atribuída mas não concluída.
-    aguardando_acolhimento?: boolean
   }
   handlers: ActionHandlers
   layout: 'pipeline' | 'detail'
@@ -44,7 +39,6 @@ const BUTTON_CONFIG: Record<string, { emoji: string; emojiSecondary?: string; bg
   finalizadora: { emoji: 'FIN', emojiSecondary: '🙏', isText: true, bg: 'bg-emerald-600 text-white', hover: 'hover:bg-emerald-700', title: 'Finalizadora - mensagem de agradecimento' },
   ativar: { emoji: '✝️', bg: 'bg-red-900 text-white', hover: 'hover:bg-red-800', title: 'Ativar contrato preventivo' },
   entrega: { emoji: '📬', bg: 'bg-emerald-600 text-white', hover: 'hover:bg-emerald-700', title: 'Marcar entregue e finalizar' },
-  finalizarAtivacaoPV: { emoji: '📋', bg: 'bg-violet-600 text-white', hover: 'hover:bg-violet-700', title: 'Finalizar Ativação de Preventivo — aguardando remoção' },
 }
 
 const HANDLER_MAP: Record<string, keyof ActionHandlers> = {
@@ -54,17 +48,10 @@ const HANDLER_MAP: Record<string, keyof ActionHandlers> = {
   finalizadora: 'onFinalizadora',
   ativar: 'onAtivar',
   entrega: 'onEntrega',
-  finalizarAtivacaoPV: 'onFinalizarAtivacaoPV',
 }
 
 export default function ActionButtons({ contrato, handlers, layout, stopPropagation = true }: Props) {
-  // mig 138: Ativação de Preventivo atribuída — o contrato já virou `ativo`/`pinda` na
-  // atribuição (AtivarModal), mas a remoção de verdade ainda não aconteceu. Trava TODOS os
-  // outros botões daquele status (ex: "Chegamos" seria prematuro — o pet nem foi buscado
-  // ainda) e mostra só "Finalizar", até a conclusão (AtivacaoPVModal) liberar o resto.
-  const visibleButtons = contrato.aguardando_acolhimento
-    ? ['finalizarAtivacaoPV']
-    : (VISIBILITY[contrato.status] || [])
+  const visibleButtons = VISIBILITY[contrato.status] || []
   const hasTel = !!(contrato.tutor?.telefone || contrato.tutor_telefone)
 
   const handleClick = (handler: (() => void) | undefined, e: React.MouseEvent) => {

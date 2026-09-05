@@ -2213,6 +2213,57 @@ ${petNome}`
     )
   }
 
+  // Ativação de Preventivo atribuída, aguardando conclusão (mig 138) — tela travada: quem
+  // abrir o link direto não pode registrar pagamento, editar, emitir NF, etc. num contrato
+  // cuja remoção ainda nem aconteceu de verdade. Mesmo tratamento do card no pipeline, só
+  // que em página inteira (pedido do Lucas, 05/09) — só o essencial + "Finalizar" aqui.
+  if (contrato.aguardando_acolhimento) {
+    return (
+      <div className="max-w-4xl mx-auto pb-8">
+        <div className="mb-4">
+          <button
+            onClick={() => router.back()}
+            className="inline-flex items-center gap-2 text-slate-400 hover:text-slate-300 transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            <span className="text-sm">Voltar</span>
+          </button>
+        </div>
+        <div className="rounded-xl border-2 border-dashed border-violet-500/50 bg-[var(--surface-0)] p-8 flex flex-col items-center text-center gap-3">
+          <div className="w-16 h-16 rounded-full flex items-center justify-center bg-violet-500/10 text-3xl">
+            🕐
+          </div>
+          <div className="flex items-center gap-2 flex-wrap justify-center">
+            <span className="text-xl font-bold text-[var(--surface-800)]">{contrato.pet_nome}</span>
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 whitespace-nowrap">
+              Em Acolhimento
+            </span>
+          </div>
+          <p className="text-sm text-[var(--surface-500)]">{contrato.tutor?.nome || contrato.tutor_nome}</p>
+          <p className="text-sm text-[var(--surface-400)] max-w-sm">
+            Dados de tratativas serão abertos após finalização do acolhimento
+          </p>
+          <button
+            onClick={() => setFinalizarAtivacaoPVOpen(true)}
+            className="mt-2 flex items-center gap-2 px-5 py-2.5 rounded-lg bg-violet-600 text-white font-semibold hover:bg-violet-700 transition-colors"
+            title="Pet Acolhido — finalizar Ativação de Preventivo"
+          >
+            <span>📋</span>
+            <span>Pet Acolhido</span>
+          </button>
+        </div>
+        <AtivacaoPVModal
+          isOpen={finalizarAtivacaoPVOpen}
+          onClose={() => setFinalizarAtivacaoPVOpen(false)}
+          contrato={contrato}
+          onSuccess={(updated) => {
+            setContrato(prev => prev ? { ...prev, ...updated } : prev)
+          }}
+        />
+      </div>
+    )
+  }
+
   const petIcon = getPetIcon(contrato.pet_especie, contrato.pet_peso)
   const statusConfig = STATUS_CONFIG[contrato.status] || STATUS_CONFIG.ativo
   const valorTotal = (contrato.valor_plano || 0) + (contrato.valor_acessorios || 0) - (contrato.desconto_plano_unificado || 0) - (contrato.desconto_acessorios || 0) - (contrato.desconto_acessorios_ajuste || 0)
@@ -2437,14 +2488,6 @@ ${petNome}`
             <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${statusConfig.bg} ${statusConfig.color}`}>
               {statusConfig.label}
             </span>
-            {contrato.aguardando_acolhimento && (
-              <span
-                className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-violet-900/40 text-violet-300"
-                title="Ativação de Preventivo atribuída — aguardando conclusão da remoção"
-              >
-                🕐 Em Acolhimento
-              </span>
-            )}
             {contrato.supinda ? (
               <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-yellow-900/40 text-yellow-300" title="Encaminhamento de ida vinculado">
                 ↑ {contrato.supinda.numero} · {new Date(contrato.supinda.data + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
@@ -2745,7 +2788,6 @@ ${petNome}`
                 handlers={{
                   onAtivar: () => setAtivarModalOpen(true),
                   onEntrega: () => setEntregaModalOpen(true),
-                  onFinalizarAtivacaoPV: () => setFinalizarAtivacaoPVOpen(true),
                 }}
                 layout="detail"
                 stopPropagation={false}
@@ -5240,14 +5282,11 @@ ${petNome}`
             contrato={contrato}
             onSuccess={(updated) => {
               setContrato(prev => prev ? { ...prev, ...updated } : prev)
-            }}
-          />
-          <AtivacaoPVModal
-            isOpen={finalizarAtivacaoPVOpen}
-            onClose={() => setFinalizarAtivacaoPVOpen(false)}
-            contrato={contrato}
-            onSuccess={(updated) => {
-              setContrato(prev => prev ? { ...prev, ...updated } : prev)
+              // Atribuição (mig 138, unidade com cb_operacional) — o contrato fica bloqueado
+              // até a conclusão; o pipeline é onde esse estado "Em Acolhimento" é visível e
+              // tem o atalho "Finalizar" no card. Unidade sem cb_operacional completa na
+              // hora aqui mesmo — continua na tela do contrato, sem redirect.
+              if (updated.aguardando_acolhimento) router.push('/contratos')
             }}
           />
           <EntregaModal

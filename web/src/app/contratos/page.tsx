@@ -1123,7 +1123,7 @@ function ContratosContent() {
     const agruparPorSupinda = agruparSupinda && statusFiltro !== 'preventivo' && !fluxoLocal
 
     // Mesmo padrão da listagem: SELECT leve + enriquecimento paralelo
-    const SELECT_BUSCA = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
+    const SELECT_BUSCA = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, aguardando_acolhimento, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
     // Sanitiza: escapa wildcards SQL (% _) e caracteres reservados PostgREST (, ( ) : * \)
     // + limita 80 chars. Protege contra termo malicioso quebrar o filtro `or`.
     const t = sanitizeBuscaPostgrest(termoBusca)
@@ -3971,13 +3971,22 @@ ${petNome}`
             // nem em unidades com cb_cremacao_local (sem encaminhamento).
             const deveAgruparSupinda = agruparSupinda && statusFiltro !== 'preventivo' && !fluxoLocal
 
+            // Ativação de Preventivo em andamento (mig 138) sempre primeiro, seja qual for a
+            // ordenação escolhida — acabou de acontecer, não faz sentido enterrar lá embaixo
+            // por causa da data (que nem existe ainda pra esses). `0` = empate, cai pro
+            // critério normal de baixo.
+            const prioridadeAcolhimento = (a: Contrato, b: Contrato): number => {
+              if (!!a.aguardando_acolhimento === !!b.aguardando_acolhimento) return 0
+              return a.aguardando_acolhimento ? -1 : 1
+            }
+
             function renderSupindaGroup(lista: Contrato[], renderFn: (c: Contrato) => React.ReactNode) {
               if (!deveAgruparSupinda) {
                 // CEP é ordenação client-side (o servidor não calcula delta) —
                 // aplicar também no caminho SEM agrupamento por encaminhamento
                 const listaOrdenada = ordenacao === 'cep'
-                  ? [...lista].sort((a, b) => ordemAsc ? deltaCep(a) - deltaCep(b) : deltaCep(b) - deltaCep(a))
-                  : lista
+                  ? [...lista].sort((a, b) => prioridadeAcolhimento(a, b) || (ordemAsc ? deltaCep(a) - deltaCep(b) : deltaCep(b) - deltaCep(a)))
+                  : [...lista].sort(prioridadeAcolhimento)
                 return <div className="space-y-2">{listaOrdenada.map(renderFn)}</div>
               }
               // Agrupar por numero da supinda
@@ -4001,20 +4010,16 @@ ${petNome}`
               // Re-ordena contratos DENTRO de cada grupo pelo critério escolhido (com fallback p/ data_contrato)
               for (const g of grupos) {
                 if (ordenacao === 'data') {
-                  g.contratos.sort((a, b) => {
-                    const ta = dataEfetiva(a)
-                    const tb = dataEfetiva(b)
-                    return ordemAsc ? ta - tb : tb - ta
-                  })
+                  g.contratos.sort((a, b) => prioridadeAcolhimento(a, b) || (ordemAsc ? dataEfetiva(a) - dataEfetiva(b) : dataEfetiva(b) - dataEfetiva(a)))
                 } else if (ordenacao === 'nome') {
                   g.contratos.sort((a, b) => {
                     const na = (a.pet_nome || '').toLowerCase()
                     const nb = (b.pet_nome || '').toLowerCase()
-                    return ordemAsc ? na.localeCompare(nb) : nb.localeCompare(na)
+                    return prioridadeAcolhimento(a, b) || (ordemAsc ? na.localeCompare(nb) : nb.localeCompare(na))
                   })
                 } else if (ordenacao === 'cep') {
                   // asc = mais perto da unidade primeiro; sem CEP válido vai pro fim
-                  g.contratos.sort((a, b) => ordemAsc ? deltaCep(a) - deltaCep(b) : deltaCep(b) - deltaCep(a))
+                  g.contratos.sort((a, b) => prioridadeAcolhimento(a, b) || (ordemAsc ? deltaCep(a) - deltaCep(b) : deltaCep(b) - deltaCep(a)))
                 }
               }
 
@@ -4068,6 +4073,130 @@ ${petNome}`
               const dataBox = getDataBox(contrato.data_acolhimento)
               const petIcon = getPetIcon(contrato.pet_especie, contrato.pet_peso)
               const statusColors = STATUS_COLORS[contrato.status]
+
+              // Ativação de Preventivo atribuída, aguardando conclusão (mig 138) — card
+              // travado: nada de navegar pro detalhe (as tratativas ainda não existem de
+              // verdade), só o essencial + "Finalizar" ali mesmo. Reaproveita os MESMOS
+              // indicadores do card normal (peso, fonte de conhecimento, local de remoção,
+              // cor por IND/COL) — pedido do Lucas: não é "faltando dado", é "bloqueado
+              // de propósito", então o clock roxo substitui só o quadradinho da data.
+              if (contrato.aguardando_acolhimento) {
+                const isInd = contrato.tipo_cremacao === 'individual'
+                const { primeiro, resto } = separarPrimeiroNome(contrato.tutor?.nome || contrato.tutor_nome)
+                return (
+                  <div
+                    key={contrato.id}
+                    data-contrato-id={contrato.id}
+                    className="rounded-lg border-2 border-dashed shadow-sm opacity-90"
+                    style={{
+                      background: isInd
+                        ? 'linear-gradient(135deg, #10b981 0%, #6ee7b7 30%, transparent 70%)'
+                        : 'linear-gradient(135deg, #8b5cf6 0%, #c4b5fd 30%, transparent 70%)',
+                      borderColor: isInd ? '#10b981' : '#8b5cf6',
+                    }}
+                  >
+                    <div className="p-1.5 flex items-center gap-2 flex-wrap">
+                      {/* Slot da data — clock roxo no lugar do pulsante amarelo: aqui não é
+                          "faltando", é "bloqueado até concluir o acolhimento". */}
+                      <div className="flex-shrink-0 w-12 h-12 rounded-lg flex items-center justify-center text-xl bg-violet-900/40 text-violet-300" title="Aguardando conclusão do acolhimento">
+                        🕐
+                      </div>
+
+                      {/* Ícone do Pet — mesmo padrão do card normal */}
+                      <div className="flex-shrink-0 w-11 h-11 rounded-lg flex flex-col items-center justify-end p-0 pb-0.5 overflow-hidden" style={petIcon.style}>
+                        <span className="leading-none" style={{ fontSize: petIcon.emojiSize }}>{petIcon.emoji}</span>
+                        <span className="text-[7px] font-bold leading-none flex items-center gap-px">{getPetPorte(contrato.pet_peso) && <span className="font-black mr-0.5">{getPetPorte(contrato.pet_peso)}</span>}{contrato.pet_peso ? <><Weight className="h-2 w-2" />{contrato.pet_peso}</> : '-'}</span>
+                      </div>
+
+                      {/* Fonte de conhecimento */}
+                      {contrato.fonte_conhecimento?.nome && (() => {
+                        const isOutro = contrato.fonte_conhecimento.nome === 'Outro' && !!contrato.fonte_outro_especificar
+                        const titleText = contrato.seguradora
+                          ? `${contrato.fonte_conhecimento.nome}: ${contrato.seguradora}`
+                          : isOutro
+                            ? `Outro: ${contrato.fonte_outro_especificar}`
+                            : contrato.fonte_conhecimento.nome
+                        return (
+                          <div
+                            className="flex-shrink-0 w-10 h-10 rounded-lg flex flex-col items-center justify-center"
+                            style={FONTE_ICONS[contrato.fonte_conhecimento.nome]?.style || { background: 'linear-gradient(135deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', border: '1px solid #cbd5e1', color: '#64748b' }}
+                            title={titleText}
+                          >
+                            {FONTE_ICONS[contrato.fonte_conhecimento.nome]?.img ? (
+                              <img
+                                src={FONTE_ICONS[contrato.fonte_conhecimento.nome].img}
+                                alt={contrato.fonte_conhecimento.nome}
+                                className="w-5 h-5"
+                              />
+                            ) : (
+                              <span className="text-base leading-none">{FONTE_ICONS[contrato.fonte_conhecimento.nome]?.icon || '❓'}</span>
+                            )}
+                            {contrato.seguradora && (
+                              <span className="text-[7px] font-semibold leading-none mt-0.5 whitespace-nowrap" style={{ color: '#4338ca' }}>
+                                {contrato.seguradora}
+                              </span>
+                            )}
+                          </div>
+                        )
+                      })()}
+
+                      {/* Local de remoção */}
+                      {contrato.local_coleta && (
+                        <div
+                          className="flex-shrink-0 w-16 h-11 rounded-lg flex items-center justify-center text-center px-1"
+                          style={{
+                            background: 'linear-gradient(135deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)',
+                            color: contrato.local_coleta === 'Residência' ? '#1d4ed8' : contrato.local_coleta === 'Unidade' ? '#b45309' : '#7c3aed'
+                          }}
+                          title={contrato.clinica_coleta || contrato.local_coleta}>
+                          <span className="text-[10px] font-medium leading-tight break-words line-clamp-2">
+                            {contrato.local_coleta === 'Clínica' && contrato.clinica_coleta
+                              ? contrato.clinica_coleta
+                              : contrato.local_coleta}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Info principal */}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-base font-bold" style={{ background: 'linear-gradient(90deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', color: contrato.pet_genero === 'macho' ? '#1d4ed8' : '#db2777', padding: '1px 6px', borderRadius: '4px' }}>
+                            {contrato.pet_nome}
+                            {contrato.pet_genero && <span style={{ marginLeft: '3px', fontSize: '0.8rem' }}>{contrato.pet_genero === 'macho' ? '♂' : '♀'}</span>}
+                          </span>
+                          {(contrato.pet_raca || contrato.pet_cor) && (
+                            <span className="text-xs font-medium" style={{ background: 'linear-gradient(90deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', color: '#475569', padding: '1px 5px', borderRadius: '4px' }}>{[contrato.pet_raca, contrato.pet_cor].filter(Boolean).join(' | ')}</span>
+                          )}
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isInd ? 'bg-emerald-500 text-white' : 'bg-violet-500 text-white'}`}>
+                            {isInd ? 'IND' : 'COL'}
+                          </span>
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-500/20 text-violet-700 whitespace-nowrap">
+                            🕐 Em Acolhimento
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs mt-0.5">
+                          <span style={{ background: 'linear-gradient(90deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', padding: '1px 5px', borderRadius: '4px' }}>
+                            <span className="font-bold" style={{ color: '#6d28d9' }}>{primeiro}</span>
+                            {resto && <span className="font-normal" style={{ color: '#475569' }}> {resto}</span>}
+                          </span>
+                        </div>
+                        <p className="text-[11px] mt-1" style={{ color: '#475569' }}>
+                          Dados de tratativas serão abertos após finalização do acolhimento
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={() => abrirFinalizarAtivacaoPV(contrato)}
+                        className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 transition-colors"
+                        title="Pet Acolhido — finalizar Ativação de Preventivo"
+                      >
+                        <span>📋</span>
+                        <span className="hidden sm:inline">Pet Acolhido</span>
+                      </button>
+                    </div>
+                  </div>
+                )
+              }
 
               return (
                 <div
@@ -4217,14 +4346,6 @@ ${petNome}`
                           </span>
                         </Link>
                         {renderBadgesCompartilhamento(contrato)}
-                        {contrato.aguardando_acolhimento && (
-                          <span
-                            className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-400 whitespace-nowrap"
-                            title="Ativação de Preventivo atribuída — aguardando conclusão da remoção"
-                          >
-                            🕐 Em Acolhimento
-                          </span>
-                        )}
                         {(contrato.pet_raca || contrato.pet_cor) && (
                           <span className="text-xs font-medium" style={{ background: 'linear-gradient(90deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', color: '#475569', padding: '1px 5px', borderRadius: '4px' }}>{[contrato.pet_raca, contrato.pet_cor].filter(Boolean).join(' | ')}</span>
                         )}
@@ -4305,10 +4426,12 @@ ${petNome}`
                       <div className="flex flex-col items-end gap-1">
                         {isVisible(T, 'btn_alteracao_fase') && (
                         <div className="flex items-center gap-1">
-                          {/* Botão Ativar - só para preventivo, e só se ainda não foi atribuído
-                              (mig 138) — senão a gente reabriria o AtivarModal em cima de uma
-                              tarefa "Ativar Preventivo" já pendente pra alguém. */}
-                          {contrato.status === 'preventivo' && !contrato.aguardando_acolhimento && (
+                          {/* Botão Ativar - só para preventivo. Contrato com Ativação de
+                              Preventivo já atribuída (mig 138) nem chega aqui — vira status
+                              ativo/pinda na hora e cai no card travado (ver início de
+                              renderContrato), então esse botão não precisa mais se preocupar
+                              com isso. */}
+                          {contrato.status === 'preventivo' && (
                             <button
                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); abrirAtivarModal(contrato) }}
                               className="flex items-center justify-center w-9 h-9 bg-red-900 text-white rounded-full hover:bg-red-800 transition-colors"
@@ -4317,22 +4440,8 @@ ${petNome}`
                               <span className="text-base">✝️</span>
                             </button>
                           )}
-                          {/* Ativação de Preventivo atribuída, aguardando conclusão (mig 138) —
-                              "Finalizar" abre o mesmo popup de conclusão que /tarefas usa, pra
-                              quem esqueceu de ir lá, ou pro gerente/concierge regularizar. */}
-                          {contrato.aguardando_acolhimento && (
-                            <button
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); abrirFinalizarAtivacaoPV(contrato) }}
-                              className="flex items-center justify-center w-9 h-9 bg-violet-600 text-white rounded-full hover:bg-violet-700 transition-colors"
-                              title="Finalizar Ativação de Preventivo — aguardando remoção"
-                            >
-                              <span className="text-base">📋</span>
-                            </button>
-                          )}
-                          {/* Botão Bypass - finalizar pulando etapas (FLS: btn_bypass). Bloqueado
-                              enquanto aguardando_acolhimento (mig 138) — o pet ainda nem foi
-                              buscado de verdade, não faz sentido finalizar a cremação dele. */}
-                          {['ativo', 'pinda'].includes(contrato.status) && !contrato.aguardando_acolhimento && isVisible(T, 'btn_bypass') && (
+                          {/* Botão Bypass - finalizar pulando etapas (FLS: btn_bypass) */}
+                          {['ativo', 'pinda'].includes(contrato.status) && isVisible(T, 'btn_bypass') && (
                             <button
                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setBypassContrato(contrato); setBypassDataCremacao(''); setBypassDataEntrega('') }}
                               className="flex items-center justify-center w-9 h-9 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors text-xs font-black"
@@ -4527,14 +4636,6 @@ ${petNome}`
                           </span>
                         </Link>
                         {renderBadgesCompartilhamento(contrato)}
-                        {contrato.aguardando_acolhimento && (
-                          <span
-                            className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-400 whitespace-nowrap"
-                            title="Ativação de Preventivo atribuída — aguardando conclusão da remoção"
-                          >
-                            🕐 Em Acolhimento
-                          </span>
-                        )}
                         <div className="h-6 flex items-center">
                           {(contrato.pet_raca || contrato.pet_cor) && (
                             <span className="text-[10px] font-medium truncate max-w-[140px] h-6 flex items-center" style={{ background: 'linear-gradient(90deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', color: '#475569', padding: '0 5px', borderRadius: '4px' }}>{[contrato.pet_raca, contrato.pet_cor].filter(Boolean).join(' | ')}</span>
@@ -4685,7 +4786,7 @@ ${petNome}`
                         <div className="flex-1" />
                         {/* Botões Alteração Fase (FLS: btn_alteracao_fase) */}
                         {isVisible(T, 'btn_alteracao_fase') && (<>
-                          {contrato.status === 'preventivo' && !contrato.aguardando_acolhimento && (
+                          {contrato.status === 'preventivo' && (
                             <button
                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); abrirAtivarModal(contrato) }}
                               className="flex items-center justify-center w-8 h-8 bg-red-900 text-white rounded-full hover:bg-red-800 transition-colors"
@@ -4694,18 +4795,8 @@ ${petNome}`
                               <span className="text-sm">✝️</span>
                             </button>
                           )}
-                          {contrato.aguardando_acolhimento && (
-                            <button
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); abrirFinalizarAtivacaoPV(contrato) }}
-                              className="flex items-center justify-center w-8 h-8 bg-violet-600 text-white rounded-full hover:bg-violet-700 transition-colors"
-                              title="Finalizar Ativação de Preventivo — aguardando remoção"
-                            >
-                              <span className="text-sm">📋</span>
-                            </button>
-                          )}
-                          {/* Botão Bypass mobile (FLS: btn_bypass). Bloqueado enquanto
-                              aguardando_acolhimento — mesma razão da versão desktop. */}
-                          {['ativo', 'pinda'].includes(contrato.status) && !contrato.aguardando_acolhimento && isVisible(T, 'btn_bypass') && (
+                          {/* Botão Bypass mobile (FLS: btn_bypass) */}
+                          {['ativo', 'pinda'].includes(contrato.status) && isVisible(T, 'btn_bypass') && (
                             <button
                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setBypassContrato(contrato); setBypassDataCremacao(''); setBypassDataEntrega('') }}
                               className="flex items-center justify-center w-8 h-8 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors text-xs font-black"

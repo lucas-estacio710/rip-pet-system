@@ -227,12 +227,16 @@ export default function PreventivosPage() {
     setAtivarModal(true)
   }
 
-  function handleAtivarSuccess() {
+  function handleAtivarSuccess(updated: { aguardando_acolhimento?: boolean }) {
     const id = ativarContrato?.id
     setAtivarModal(false)
     setAtivarContrato(null)
-    // Pós-ativação: vai direto pro contrato no fluxo (não volta pra lista de preventivos)
-    if (id) router.push(`/contratos/${id}`)
+    // Atribuição (mig 138, unidade com cb_operacional) — o contrato fica bloqueado até a
+    // conclusão; o card "Em Acolhimento" com o atalho "Finalizar" vive no pipeline, não faz
+    // sentido abrir o detalhe. Unidade sem cb_operacional completa na hora — aí sim vai
+    // direto pro contrato no fluxo, como sempre foi.
+    if (updated.aguardando_acolhimento) router.push('/contratos')
+    else if (id) router.push(`/contratos/${id}`)
     else carregarContratos()
   }
 
