@@ -487,7 +487,7 @@ export default function AcolhimentoForm({
             troca até de 15 em 15 minutos, não dá pra confiar em "quem está de turno". */}
         {temOperacional && !value.semResponsavel && atribuiveis.find(a => a.user_id === value.responsavelUserId)?.eh_posicao && (
           <div className="mt-2">
-            <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Quem executou? <span className="text-red-400">*</span></label>
+            <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Colaborador na posição <span className="text-red-400">*</span></label>
             <select value={value.executadoPorFuncionarioId} onChange={e => set({ executadoPorFuncionarioId: e.target.value })} className="input text-sm">
               <option value="">Selecione...</option>
               {funcionarios.map(f => (<option key={f.id} value={f.id}>{f.nome}</option>))}

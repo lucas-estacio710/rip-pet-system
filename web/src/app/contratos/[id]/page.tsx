@@ -673,7 +673,7 @@ export default function ContratoDetalhe() {
     // quem de fato executou (migration 137).
     const respNovoEhPosicaoCheck = !!acolhAtribuiveisLista.find(a => a.user_id === acolhResponsavelUserIdInput)?.eh_posicao
     if (respNovoEhPosicaoCheck && !acolhExecutadoPorFuncionarioId) {
-      alert('Responsável escolhido é uma posição — preencha "Quem executou"')
+      alert('Responsável escolhido é uma posição — preencha "Colaborador na posição"')
       return
     }
     setAcolhSaving(true)
@@ -765,7 +765,7 @@ export default function ContratoDetalhe() {
           entidade_id: contrato.id,
           entidade_nome: contrato.codigo,
           campo: 'executado_por_funcionario_id',
-          campo_label: 'Quem executou (posição)',
+          campo_label: 'Colaborador na posição',
           valor_anterior: nomeAnteriorExec,
           valor_novo: nomeNovoExec,
           tipo: 'edicao',
@@ -2556,9 +2556,9 @@ ${petNome}`
                     onChange={e => setAcolhExecutadoPorFuncionarioId(e.target.value)}
                     disabled={acolhSaving}
                     className="text-xs px-2 py-0.5 rounded border border-amber-500/40 bg-[var(--surface-0)] text-[var(--surface-800)] max-w-[12rem]"
-                    title="Quem executou?"
+                    title="Colaborador na posição"
                   >
-                    <option value="">Quem executou?</option>
+                    <option value="">Colaborador na posição</option>
                     {acolhFuncionariosLista.map(f => (
                       <option key={f.id} value={f.id}>{f.nome}</option>
                     ))}

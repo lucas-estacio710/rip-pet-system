@@ -52,6 +52,8 @@ type TarefaRow = {
   observacao_atribuicao: string | null
   atribuido_em: string
   concluido_em?: string | null
+  // Colaborador que de fato executou, quando atribuido_a é uma posição (mig 137).
+  executado_por_funcionario_id?: string | null
 }
 
 type FichaRemocao = {
@@ -514,13 +516,15 @@ function PetMinhasCard({ petGroup, onAbrirTarefa }: {
 }
 
 // Mesmo card por pet, agora em "Concluídas 48h" — cada tipo com o próprio Desfazer.
-function PetConcluidasCard({ petGroup, onDesfazer, desfazendoId, nomePorId }: {
+function PetConcluidasCard({ petGroup, onDesfazer, desfazendoId, nomePorId, funcionarioNomePorId }: {
   petGroup: PetMinhasGroup
   onDesfazer: (t: TarefaGrupo) => void
   desfazendoId: string | null
   // Só passado em "Finalizadas" (Gestão de Tarefas — mistura gente diferente); em "Minhas
   // Tarefas" é sempre a própria pessoa, então fica implícito e não repete na tela.
   nomePorId?: Record<string, string>
+  // Colaborador que de fato executou, quando quem concluiu é uma posição (mig 137).
+  funcionarioNomePorId?: Record<string, string>
 }) {
   return (
     <div className="rounded-xl border border-[var(--surface-200)] p-3 space-y-2">
@@ -543,7 +547,7 @@ function PetConcluidasCard({ petGroup, onDesfazer, desfazendoId, nomePorId }: {
                   {info.label}{t.quantidade > 1 ? ` ×${t.quantidade}` : ''}
                 </span>
                 <span className="text-[10px] text-[var(--surface-500)]">
-                  ✅ {formatarDataHoraConclusao(t.concluido_em)}{nomePorId ? ` · ${nomePorId[t.atribuido_a] || '—'}` : ''}
+                  ✅ {formatarDataHoraConclusao(t.concluido_em)}{nomePorId ? ` · ${nomePorId[t.atribuido_a] || '—'}` : ''}{t.executado_por_funcionario_id && funcionarioNomePorId?.[t.executado_por_funcionario_id] ? ` (${funcionarioNomePorId[t.executado_por_funcionario_id]})` : ''}
                 </span>
               </div>
               <button
@@ -646,14 +650,15 @@ export default function TarefasPage() {
   }, [supabase])
 
   // Login atual é uma posição (dispositivo compartilhado, ex: celular do carro) — a conclusão
-  // de qualquer tarefa exige assinar quem de fato executou (migration 137). Carrega
-  // `funcionarios` só quando faz sentido (posição não precisa da lista senão).
+  // de qualquer tarefa exige assinar quem de fato executou (migration 137). `podeAtribuir`
+  // também precisa da lista pra resolver o nome do colaborador nos cards de Finalizadas —
+  // quem vê essa aba é gerente/concierge/super_admin, quase nunca a própria posição.
   const [funcionariosUnidade, setFuncionariosUnidade] = useState<{ id: string; nome: string }[]>([])
   useEffect(() => {
-    if (!isPosicao || !currentUnit) return
+    if ((!isPosicao && !podeAtribuir) || !currentUnit) return
     supabase.from('funcionarios').select('id, nome').eq('unidade_id', currentUnit.id).eq('ativo', true).order('nome')
       .then(({ data }) => setFuncionariosUnidade((data || []) as { id: string; nome: string }[]))
-  }, [supabase, isPosicao, currentUnit])
+  }, [supabase, isPosicao, podeAtribuir, currentUnit])
 
   // ── Minhas Tarefas ──────────────────────────────────────────────────────
   const [minhasTarefas, setMinhasTarefas] = useState<TarefaGrupo[]>([])
@@ -768,7 +773,7 @@ export default function TarefasPage() {
     const desde = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
     const { data } = await supabase
       .from('tarefas_operacionais')
-      .select('id, unidade_id, tipo, ficha_id, contrato_id, contrato_produto_id, atribuido_a, status, lacre, observacao_atribuicao, atribuido_em, concluido_em')
+      .select('id, unidade_id, tipo, ficha_id, contrato_id, contrato_produto_id, atribuido_a, status, lacre, observacao_atribuicao, atribuido_em, concluido_em, executado_por_funcionario_id')
       .eq('atribuido_a', userId)
       .eq('status', 'concluida')
       .gte('concluido_em', desde)
@@ -820,9 +825,14 @@ export default function TarefasPage() {
 
       const rotulo = tarefa.quantidade > 1 ? `${TIPO_INFO[tarefa.tipo].label} (×${tarefa.quantidade})` : TIPO_INFO[tarefa.tipo].label
 
+      // Login atual é uma posição (dispositivo compartilhado) — assina quem de fato executou
+      // (migration 137). Fica só em tarefas_operacionais: é por TAREFA, não é a mesma coisa
+      // que contratos.executado_por_funcionario_id (que é só do acolhimento).
+      const nomeExecutor = isPosicao ? funcionariosUnidade.find(f => f.id === executadoPorFuncionarioId)?.nome : null
+
       if (contratoId) {
         const { data: tipoTarefa } = await supabase.from('tarefa_tipos').select('id').eq('nome', 'Observação da Unidade').maybeSingle() as { data: { id: string } | null }
-        const partes = [`${rotulo} concluído por ${userName || 'Operacional'}.`]
+        const partes = [`${rotulo} concluído por ${userName || 'Operacional'}${nomeExecutor ? ` (colaborador na posição: ${nomeExecutor})` : ''}.`]
         if (tarefa.tipo === 'entrega' && modoDataEntrega === 'outra') partes.push(`Data de entrega registrada retroativa: ${new Date(dataEntregaManual + 'T00:00:00').toLocaleDateString('pt-BR')}.`)
         if (tarefa.observacao_atribuicao) partes.push(`Pedido específico confirmado: "${tarefa.observacao_atribuicao}".`)
         if (anotacaoSimples.trim()) partes.push(`Nota: ${anotacaoSimples.trim()}`)
@@ -835,10 +845,6 @@ export default function TarefasPage() {
         } as never)
       }
 
-      // Login atual é uma posição (dispositivo compartilhado) — assina quem de fato executou
-      // (migration 137). Fica só em tarefas_operacionais: é por TAREFA, não é a mesma coisa
-      // que contratos.executado_por_funcionario_id (que é só do acolhimento).
-      const nomeExecutor = isPosicao ? funcionariosUnidade.find(f => f.id === executadoPorFuncionarioId)?.nome : null
       await supabase.from('tarefas_operacionais').update({
         status: 'concluida',
         concluido_em: new Date().toISOString(),
@@ -853,7 +859,7 @@ export default function TarefasPage() {
         entidade_nome: tarefa.petNome,
         campo: 'conclusao',
         campo_label: 'Tarefa concluída',
-        valor_novo: `${rotulo} concluída por ${userName || 'Operacional'}${nomeExecutor ? ` (feito por: ${nomeExecutor})` : ''}`,
+        valor_novo: `${rotulo} concluída por ${userName || 'Operacional'}${nomeExecutor ? ` (colaborador na posição: ${nomeExecutor})` : ''}`,
         tipo: 'conclusao',
         alterado_por: user?.id || null,
         alterado_por_email: user?.email || null,
@@ -1004,9 +1010,11 @@ export default function TarefasPage() {
         true // responsavelEhOperacional — lacre já validado acima, obrigatório sem escape
       )
 
+      const nomeExecutor = isPosicao ? funcionariosUnidade.find(f => f.id === executadoPorFuncionarioId)?.nome : null
+
       {
         const { data: tipoTarefa } = await supabase.from('tarefa_tipos').select('id').eq('nome', 'Observação da Unidade').maybeSingle() as { data: { id: string } | null }
-        const partes = [`Remoção concluída por ${userName || 'Operacional'} — lacre ${lacreRemocao.trim()}.`]
+        const partes = [`Remoção concluída por ${userName || 'Operacional'}${nomeExecutor ? ` (colaborador na posição: ${nomeExecutor})` : ''} — lacre ${lacreRemocao.trim()}.`]
         if (modoDataRemocao === 'outra') partes.push(`Data/hora do acolhimento registrada retroativa: ${new Date(dataHoraFinal!).toLocaleString('pt-BR')}.`)
         if (tarefa.observacao_atribuicao) partes.push(`Pedido específico confirmado: "${tarefa.observacao_atribuicao}".`)
         if (anotacaoRemocao.trim()) partes.push(`Nota: ${anotacaoRemocao.trim()}`)
@@ -1019,7 +1027,6 @@ export default function TarefasPage() {
         } as never)
       }
 
-      const nomeExecutor = isPosicao ? funcionariosUnidade.find(f => f.id === executadoPorFuncionarioId)?.nome : null
       await supabase.from('tarefas_operacionais').update({
         status: 'concluida',
         concluido_em: new Date().toISOString(),
@@ -1035,7 +1042,7 @@ export default function TarefasPage() {
         entidade_nome: ficha.nome_pet || '—',
         campo: 'conclusao',
         campo_label: 'Remoção concluída',
-        valor_novo: `Remoção concluída por ${userName || 'Operacional'} — lacre ${lacreRemocao.trim()} — contrato criado${nomeExecutor ? ` (feito por: ${nomeExecutor})` : ''}`,
+        valor_novo: `Remoção concluída por ${userName || 'Operacional'} — lacre ${lacreRemocao.trim()} — contrato criado${nomeExecutor ? ` (colaborador na posição: ${nomeExecutor})` : ''}`,
         tipo: 'conclusao',
         alterado_por: user?.id || null,
         alterado_por_email: user?.email || null,
@@ -1116,6 +1123,16 @@ export default function TarefasPage() {
     acc[o.user_id] = o.nome || 'Sem nome'
     return acc
   }, {} as Record<string, string>)
+
+  // Resolve o colaborador que de fato executou, quando quem concluiu é uma posição (mig 137).
+  const funcionarioNomePorId = funcionariosUnidade.reduce((acc, f) => {
+    acc[f.id] = f.nome
+    return acc
+  }, {} as Record<string, string>)
+  const colaboradorSuffix = (t: TarefaGrupo) =>
+    t.executado_por_funcionario_id && funcionarioNomePorId[t.executado_por_funcionario_id]
+      ? ` (${funcionarioNomePorId[t.executado_por_funcionario_id]})`
+      : ''
 
   async function notificarAtribuicao(userId: string, tipoLabel: string, petNome: string, quantidade?: number) {
     try {
@@ -1275,7 +1292,7 @@ export default function TarefasPage() {
     const desde = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
     const { data } = await supabase
       .from('tarefas_operacionais')
-      .select('id, unidade_id, tipo, ficha_id, contrato_id, contrato_produto_id, atribuido_a, status, lacre, observacao_atribuicao, atribuido_em, concluido_em')
+      .select('id, unidade_id, tipo, ficha_id, contrato_id, contrato_produto_id, atribuido_a, status, lacre, observacao_atribuicao, atribuido_em, concluido_em, executado_por_funcionario_id')
       .eq('unidade_id', currentUnit.id)
       .eq('status', 'concluida')
       .gte('concluido_em', desde)
@@ -1712,13 +1729,13 @@ export default function TarefasPage() {
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
-                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)}</p>}
+                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)}{colaboradorSuffix(t)}</p>}
                     />
                   ))}
                 </TipoGroup>
                 <PersonalizadosGroup count={minhasConcluidasPetGroups.reduce((soma, g) => soma + g.itens.length, 0)} defaultAberto={false}>
                   {minhasConcluidasPetGroups.map(petGroup => (
-                    <PetConcluidasCard key={petGroup.contratoId} petGroup={petGroup} onDesfazer={desfazerConclusao} desfazendoId={desfazendoId} />
+                    <PetConcluidasCard key={petGroup.contratoId} petGroup={petGroup} onDesfazer={desfazerConclusao} desfazendoId={desfazendoId} funcionarioNomePorId={funcionarioNomePorId} />
                   ))}
                 </PersonalizadosGroup>
                 <TipoGroup tipo="entrega" count={(minhasConcluidasPorTipo.entrega || []).length} defaultAberto={false}>
@@ -1730,7 +1747,7 @@ export default function TarefasPage() {
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
-                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)}</p>}
+                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)}{colaboradorSuffix(t)}</p>}
                       acao={
                         <button
                           onClick={() => desfazerConclusao(t)}
@@ -1896,13 +1913,13 @@ export default function TarefasPage() {
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
-                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · {nomePorId[t.atribuido_a] || '—'}</p>}
+                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · {nomePorId[t.atribuido_a] || '—'}{colaboradorSuffix(t)}</p>}
                     />
                   ))}
                 </TipoGroup>
                 <PersonalizadosGroup count={concluidasPetGroups.reduce((soma, g) => soma + g.itens.length, 0)} defaultAberto={false}>
                   {concluidasPetGroups.map(petGroup => (
-                    <PetConcluidasCard key={petGroup.contratoId} petGroup={petGroup} onDesfazer={desfazerConclusao} desfazendoId={desfazendoId} nomePorId={nomePorId} />
+                    <PetConcluidasCard key={petGroup.contratoId} petGroup={petGroup} onDesfazer={desfazerConclusao} desfazendoId={desfazendoId} nomePorId={nomePorId} funcionarioNomePorId={funcionarioNomePorId} />
                   ))}
                 </PersonalizadosGroup>
                 <TipoGroup tipo="entrega" count={(concluidasPorTipo.entrega || []).length} defaultAberto={false}>
@@ -1914,7 +1931,7 @@ export default function TarefasPage() {
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
-                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · {nomePorId[t.atribuido_a] || '—'}</p>}
+                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · {nomePorId[t.atribuido_a] || '—'}{colaboradorSuffix(t)}</p>}
                       acao={
                         <button
                           onClick={() => desfazerConclusao(t)}
@@ -2137,7 +2154,7 @@ export default function TarefasPage() {
                         quem de fato executou (migration 137). */}
                     {isPosicao && (
                       <div>
-                        <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Quem executou? <span className="text-red-400">*</span></label>
+                        <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Colaborador na posição <span className="text-red-400">*</span></label>
                         <select value={executadoPorFuncionarioId} onChange={e => setExecutadoPorFuncionarioId(e.target.value)} className="input w-full">
                           <option value="">Selecione...</option>
                           {funcionariosUnidade.map(f => (<option key={f.id} value={f.id}>{f.nome}</option>))}
@@ -2229,7 +2246,7 @@ export default function TarefasPage() {
                       quem de fato executou (migration 137). */}
                   {isPosicao && (
                     <div>
-                      <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Quem executou? <span className="text-red-400">*</span></label>
+                      <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Colaborador na posição <span className="text-red-400">*</span></label>
                       <select value={executadoPorFuncionarioId} onChange={e => setExecutadoPorFuncionarioId(e.target.value)} className="input w-full">
                         <option value="">Selecione...</option>
                         {funcionariosUnidade.map(f => (<option key={f.id} value={f.id}>{f.nome}</option>))}

@@ -380,7 +380,7 @@ export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClos
                       de quem de fato executou (migration 137). */}
                   {responsavelEhPosicao && (
                     <div className="mt-2">
-                      <label className="text-caption text-[var(--shell-text-muted)] block mb-1">Quem executou?</label>
+                      <label className="text-caption text-[var(--shell-text-muted)] block mb-1">Colaborador na posição</label>
                       <select value={executadoPorFuncionarioId} onChange={(e) => setExecutadoPorFuncionarioId(e.target.value)} className="input w-full">
                         <option value="">Selecione...</option>
                         {funcionarios.map(f => (

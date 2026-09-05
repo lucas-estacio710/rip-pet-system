@@ -192,7 +192,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
       faltando.push('Endereço (Outro)')
     }
     if (!a.funcionarioId && !a.responsavelUserId) faltando.push('Responsável pelo acolhimento')
-    if (responsavelEhPosicao && !a.executadoPorFuncionarioId) faltando.push('Quem executou (responsável é uma posição)')
+    if (responsavelEhPosicao && !a.executadoPorFuncionarioId) faltando.push('Colaborador na posição')
     if (!a.dataHoraAcolhimento) faltando.push('Data e hora do acolhimento')
 
     if (faltando.length) {
