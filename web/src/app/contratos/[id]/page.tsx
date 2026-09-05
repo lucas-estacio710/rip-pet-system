@@ -1694,7 +1694,7 @@ export default function ContratoDetalhe() {
     const contratoId = params.id as string
     const { data, error } = await supabase
       .from('contratos')
-      .select('*, tutor:tutores(*), supinda:supindas!fk_contrato_supinda(numero, data), funcionario:funcionarios(nome), estabelecimento_coleta:estabelecimentos!contratos_estabelecimento_id_fkey(nome), contato:contatos!contratos_contato_id_fkey(nome, cargo), estabelecimento_indicacao:estabelecimentos!contratos_estabelecimento_indicacao_id_fkey(nome), unidade_remocao:unidades!contratos_unidade_remocao_id_fkey(id, codigo, nome), unidade_entrega:unidades!contratos_unidade_entrega_id_fkey(id, codigo, nome), contrato_gc(etapa, cinzas_prontas, certificado_pronto, contato_status)')
+      .select('*, tutor:tutores(*), supinda:supindas!fk_contrato_supinda(numero, data), funcionario:funcionarios!contratos_funcionario_id_fkey(nome), estabelecimento_coleta:estabelecimentos!contratos_estabelecimento_id_fkey(nome), contato:contatos!contratos_contato_id_fkey(nome, cargo), estabelecimento_indicacao:estabelecimentos!contratos_estabelecimento_indicacao_id_fkey(nome), unidade_remocao:unidades!contratos_unidade_remocao_id_fkey(id, codigo, nome), unidade_entrega:unidades!contratos_unidade_entrega_id_fkey(id, codigo, nome), contrato_gc(etapa, cinzas_prontas, certificado_pronto, contato_status)')
       .eq('id', contratoId)
       .single()
 

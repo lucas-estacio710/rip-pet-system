@@ -224,7 +224,7 @@ function Conteudo() {
       const ids = Array.from(selecoes.keys())
       const { data: full, error } = await supabase
         .from('contratos')
-        .select('*, tutor:tutores(*), funcionario:funcionarios(nome), estabelecimento_coleta:estabelecimentos!contratos_estabelecimento_id_fkey(nome), contrato_produtos(*, produto:produtos(*)), pagamentos(*), fichas(op_dados)')
+        .select('*, tutor:tutores(*), funcionario:funcionarios!contratos_funcionario_id_fkey(nome), estabelecimento_coleta:estabelecimentos!contratos_estabelecimento_id_fkey(nome), contrato_produtos(*, produto:produtos(*)), pagamentos(*), fichas(op_dados)')
         .in('id', ids)
       if (error || !full) throw new Error(error?.message || 'Erro ao carregar contratos')
 
