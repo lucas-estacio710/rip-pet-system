@@ -172,13 +172,13 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
         : !!acolhimento.clinicaTextoLivre.trim()) &&
     (acolhimento.localColeta !== 'outro' || !!acolhimento.enderecoOutro.trim())
 
-  // Responsável escolhido é uma posição (dispositivo compartilhado) — exige assinatura de
-  // quem de fato executou (ver AcolhimentoForm.tsx / migration 137).
-  const responsavelEhPosicao = !!atribuiveis.find(a => a.user_id === acolhimento.responsavelUserId)?.eh_posicao
-
-  // PV: pet morreu / foi acionado → local, responsável e data/hora obrigatórios (lacre não)
-  const podeAtivar = localOk && (!!acolhimento.funcionarioId || !!acolhimento.responsavelUserId) && !!acolhimento.dataHoraAcolhimento
-    && (!responsavelEhPosicao || !!acolhimento.executadoPorFuncionarioId)
+  // Unidade com cb_operacional (mig 138): Ativar Preventivo SEMPRE atribui — nunca completa
+  // na hora, nem quando o responsável escolhido sou eu mesmo. Data/hora, lacre e "Colaborador
+  // na posição" viram responsabilidade da conclusão da tarefa (AtivacaoPVModal), não daqui.
+  // PV: pet morreu / foi acionado → local e responsável são sempre obrigatórios; data/hora só
+  // fora do caminho de atribuição (unidade sem cb_operacional, comportamento de hoje intacto).
+  const podeAtivar = localOk && (!!acolhimento.funcionarioId || !!acolhimento.responsavelUserId)
+    && (temOperacional || !!acolhimento.dataHoraAcolhimento)
 
   async function salvarAtivacao() {
     const a = acolhimento
@@ -192,8 +192,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
       faltando.push('Endereço (Outro)')
     }
     if (!a.funcionarioId && !a.responsavelUserId) faltando.push('Responsável pelo acolhimento')
-    if (responsavelEhPosicao && !a.executadoPorFuncionarioId) faltando.push('Colaborador na posição')
-    if (!a.dataHoraAcolhimento) faltando.push('Data e hora do acolhimento')
+    if (!temOperacional && !a.dataHoraAcolhimento) faltando.push('Data e hora do acolhimento')
 
     if (faltando.length) {
       alert('Preencha os campos obrigatórios da ativação:\n\n• ' + faltando.join('\n• '))
@@ -257,6 +256,67 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
       const telPrincipalNome = hasTel2 ? tel2NomeVal : tel1NomeVal
       const telSecundarioNome = hasTel2 ? tel1NomeVal : null
 
+      if (temOperacional) {
+        // Unidade com cb_operacional (mig 138): SEMPRE atribui, nunca completa aqui — a
+        // conclusão de verdade (status, data/hora, lacre, colaborador na posição) acontece
+        // depois, via AtivacaoPVModal (em /tarefas ou pelo botão "Finalizar" no
+        // pipeline/detalhe do contrato). Status/data_acolhimento/numero_lacre NÃO são
+        // tocados aqui — o contrato continua `preventivo` até a tarefa concluir.
+        const { error } = await supabase
+          .from('contratos')
+          .update({
+            local_coleta: localColetaValor,
+            clinica_coleta: clinicaColeta,
+            estabelecimento_id: isClinica ? (resolvedEstabId || null) : null,
+            funcionario_id: a.funcionarioId || null,
+            responsavel_user_id: a.responsavelUserId || null,
+            tutor_telefone: telPrincipal,
+            tutor_telefone2: telSecundario,
+            tutor_telefone_nome: telPrincipalNome,
+            tutor_telefone2_nome: telSecundarioNome,
+            tutor_telefone_principal: 1,
+            aguardando_acolhimento: true,
+          } as never)
+          .eq('id', contrato.id)
+
+        if (error) throw error
+
+        const atribuidoA = a.responsavelUserId || null
+        if (atribuidoA) {
+          // Defesa contra clique duplo / reabrir o modal numa unidade já atribuída (o botão
+          // "Ativar" já some quando `aguardando_acolhimento=true` em 2 das 3 telas que chamam
+          // este modal, mas checar aqui protege as 3 de uma vez, sem depender do prop estar
+          // atualizado — mesmo padrão defensivo do `tarefaExistente` do TratativaModal.
+          const { data: tarefaExistente } = await supabase.from('tarefas_operacionais')
+            .select('id').eq('contrato_id', contrato.id).eq('tipo', 'ativacao_pv').eq('status', 'pendente').maybeSingle() as { data: { id: string } | null }
+          if (!tarefaExistente) {
+            const { data: { user } } = await supabase.auth.getUser()
+            await supabase.from('tarefas_operacionais').insert({
+              unidade_id: contrato.unidade_id || currentUnit?.id,
+              tipo: 'ativacao_pv',
+              contrato_id: contrato.id,
+              atribuido_a: atribuidoA,
+              atribuido_por: user?.id || null,
+            } as never)
+            // Notificação best-effort — mesmo padrão de notificarAtribuicaoRemocao do
+            // TratativaModal, sem await bloqueante pra não atrasar o fechamento do modal.
+            fetch('/api/push/send', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                userId: atribuidoA,
+                title: 'Ativar Preventivo atribuído',
+                body: `${contrato.pet_nome} — ${tutorNome}`,
+              }),
+            }).catch(() => {})
+          }
+        }
+
+        onClose()
+        return
+      }
+
+      // Unidade SEM cb_operacional: comportamento de sempre, sem mudança — completa na hora.
       // cb_cremacao_local (PI): ao acionar PV, vai direto pra 'pinda' (sem passar por 'ativo').
       // Checa modulos_ativos direto — hasModule() retorna true sempre pra super_admin.
       const novoStatus: 'ativo' | 'pinda' = currentUnit?.modulos_ativos?.includes('cb_cremacao_local') ? 'pinda' : 'ativo'
@@ -277,7 +337,6 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
           // hoje, mas fecha a mesma brecha caso essa regra mude no futuro (ver AcolhimentoForm.tsx).
           funcionario_id: a.funcionarioId || null,
           responsavel_user_id: a.responsavelUserId || null,
-          executado_por_funcionario_id: responsavelEhPosicao ? (a.executadoPorFuncionarioId || null) : null,
           tutor_telefone: telPrincipal,
           tutor_telefone2: telSecundario,
           tutor_telefone_nome: telPrincipalNome,
@@ -325,6 +384,11 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
               <p className="text-sm text-[var(--surface-500)]">
                 {contrato.pet_nome} &middot; {tutorNome}
               </p>
+              {temOperacional && (
+                <p className="text-[10px] text-amber-500 mt-0.5">
+                  Isso vai atribuir a remoção — a conclusão (data/hora, lacre) acontece depois, em /tarefas.
+                </p>
+              )}
             </div>
           </div>
           <button
@@ -348,8 +412,13 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
             telefoneBase={telefoneBase}
             tutorNome={tutorNome}
             // PV: pet já morreu e foi acionado → local, responsável e data/hora obrigatórios.
-            // Só o lacre pode ficar provisório.
+            // Só o lacre pode ficar provisório. `dataHora`/`lacre` ficam moot quando
+            // `esconderConclusao` esconde as seções por completo (mig 138).
             provisorios={{ local: false, responsavel: false, dataHora: false, lacre: true }}
+            // Unidade com cb_operacional: Ativar SEMPRE atribui — data/hora, lacre e
+            // colaborador na posição saem daqui, viram responsabilidade da conclusão da
+            // tarefa (ver AtivacaoPVModal). Ver migration 138.
+            esconderConclusao={temOperacional}
           />
         </div>
 
@@ -369,7 +438,12 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
             {salvando ? (
               <>
                 <span className="animate-spin">⏳</span>
-                Ativando...
+                {temOperacional ? 'Atribuindo...' : 'Ativando...'}
+              </>
+            ) : temOperacional ? (
+              <>
+                <span>📋</span>
+                Atribuir Remoção
               </>
             ) : (
               <>

@@ -90,6 +90,13 @@ type Props = {
    * são obrigatórios (passar false); só o lacre pode ficar provisório.
    */
   provisorios?: { local?: boolean; responsavel?: boolean; dataHora?: boolean; lacre?: boolean }
+  /**
+   * Ativação de PV (mig 138) sempre ATRIBUI, nunca completa na hora — Data/Hora, Lacre e
+   * "Colaborador na posição" viram responsabilidade exclusiva da conclusão da tarefa
+   * (`AtivacaoPVModal`), não fazem sentido aqui. `true` esconde as 3 seções por completo
+   * (não é o mesmo que `provisorios` — ali o campo continua visível, só vira opcional).
+   */
+  esconderConclusao?: boolean
 }
 
 // Formata telefone BR/estrangeiro pra exibição (réplica do TratativaModal).
@@ -160,6 +167,7 @@ export default function AcolhimentoForm({
   telefoneBase,
   tutorNome,
   provisorios,
+  esconderConclusao = false,
 }: Props) {
   // Helper pra patch parcial imutável
   const set = (patch: Partial<AcolhimentoData>) => onChange({ ...value, ...patch })
@@ -484,8 +492,10 @@ export default function AcolhimentoForm({
         )}
         {/* Responsável escolhido é uma posição (dispositivo compartilhado) — quem de fato
             executou não dá pra saber pelo login, precisa assinar aqui. Sem escape: revezamento
-            troca até de 15 em 15 minutos, não dá pra confiar em "quem está de turno". */}
-        {temOperacional && !value.semResponsavel && atribuiveis.find(a => a.user_id === value.responsavelUserId)?.eh_posicao && (
+            troca até de 15 em 15 minutos, não dá pra confiar em "quem está de turno".
+            Não se aplica quando `esconderConclusao` — isso vira pergunta da conclusão da
+            tarefa (mig 138), não da atribuição. */}
+        {!esconderConclusao && temOperacional && !value.semResponsavel && atribuiveis.find(a => a.user_id === value.responsavelUserId)?.eh_posicao && (
           <div className="mt-2">
             <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Colaborador na posição <span className="text-red-400">*</span></label>
             <select value={value.executadoPorFuncionarioId} onChange={e => set({ executadoPorFuncionarioId: e.target.value })} className="input text-sm">
@@ -497,6 +507,13 @@ export default function AcolhimentoForm({
       </div>
 
       {/* ── Data e Hora do Acolhimento ─────────────────────────────────── */}
+      {esconderConclusao ? (
+        <p className="text-[10px] text-[var(--surface-400)] leading-snug px-1">
+          Data/hora do acolhimento, lacre e (se for o caso) colaborador na posição são
+          preenchidos na conclusão da tarefa, não aqui.
+        </p>
+      ) : (
+        <>
       <div>
         <div className="flex items-center justify-between mb-1">
           <label className="text-xs font-medium text-[var(--surface-600)]">Data e Hora do Acolhimento <span className="text-red-400">*</span></label>
@@ -531,6 +548,8 @@ export default function AcolhimentoForm({
           <input type="text" value={value.lacre} onChange={e => set({ lacre: e.target.value })} placeholder="Número do lacre" className="input text-sm" />
         )}
       </div>
+      </>
+      )}
     </div>
   )
 }

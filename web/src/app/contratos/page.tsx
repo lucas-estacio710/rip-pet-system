@@ -26,6 +26,7 @@ import RescaldoModal from '@/components/contratos/modals/RescaldoModal'
 import CertificadoModal from '@/components/contratos/modals/CertificadoModal'
 import IndicacaoModal from '@/components/contratos/modals/IndicacaoModal'
 import AtivarModal from '@/components/contratos/modals/AtivarModal'
+import AtivacaoPVModal from '@/components/contratos/modals/AtivacaoPVModal'
 import FinalizadoraModal from '@/components/contratos/modals/FinalizadoraModal'
 import ChegamosModal from '@/components/contratos/modals/ChegamosModal'
 import ChegaramModal from '@/components/contratos/modals/ChegaramModal'
@@ -79,6 +80,9 @@ type Contrato = {
   data_contrato: string | null
   data_acolhimento: string | null
   numero_lacre: string | null
+  // Ativação de Preventivo (mig 138) — true enquanto a tarefa de remoção não foi concluída;
+  // contrato continua com status normal (preventivo), isso é só um flag de UI por cima.
+  aguardando_acolhimento?: boolean
   fonte_conhecimento: { nome: string } | null
   fonte_conhecimento_ids: string[] | null
   fonte_outro_especificar: string | null
@@ -384,6 +388,9 @@ function ContratosContent() {
   // Modal Ativar PV (preventivo → ativo)
   const [ativarModal, setAtivarModal] = useState(false)
   const [ativarContrato, setAtivarContrato] = useState<Contrato | null>(null)
+  // Ativação de Preventivo já atribuída (aguardando_acolhimento=true, mig 138) — "Finalizar"
+  // abre o mesmo popup de conclusão que /tarefas usa (AtivacaoPVModal).
+  const [finalizarAtivacaoPVContrato, setFinalizarAtivacaoPVContrato] = useState<Contrato | null>(null)
   const [ativarForm, setAtivarForm] = useState({
     data_acolhimento: '',
     hora_acolhimento: '',
@@ -995,7 +1002,7 @@ function ContratosContent() {
 
     // SELECT principal — só dados base + embeds leves essenciais (tutor + supinda + pagamentos).
     // Embeds pesados (contrato_produtos, contrato_gc, fonte_conhecimento) carregam em paralelo após.
-    const SELECT_CONTRATO = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
+    const SELECT_CONTRATO = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, aguardando_acolhimento, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
 
     // Helper para aplicar filtros comuns (unidade + status + compartilhados).
     // Tipo `any` aqui porque o builder do supabase-js encadeia tipos genéricos complexos
@@ -2627,6 +2634,11 @@ ${petNome}`
     if (sups) setSupindas(sups)
   }
 
+  // Ativação de Preventivo já atribuída — abre o popup de conclusão (mig 138)
+  function abrirFinalizarAtivacaoPV(contrato: Contrato) {
+    setFinalizarAtivacaoPVContrato(contrato)
+  }
+
   // Ativar PV - abre modal
   function abrirAtivarModal(contrato: Contrato) {
     setAtivarContrato(contrato)
@@ -4205,6 +4217,14 @@ ${petNome}`
                           </span>
                         </Link>
                         {renderBadgesCompartilhamento(contrato)}
+                        {contrato.aguardando_acolhimento && (
+                          <span
+                            className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-400 whitespace-nowrap"
+                            title="Ativação de Preventivo atribuída — aguardando conclusão da remoção"
+                          >
+                            🕐 Em Acolhimento
+                          </span>
+                        )}
                         {(contrato.pet_raca || contrato.pet_cor) && (
                           <span className="text-xs font-medium" style={{ background: 'linear-gradient(90deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', color: '#475569', padding: '1px 5px', borderRadius: '4px' }}>{[contrato.pet_raca, contrato.pet_cor].filter(Boolean).join(' | ')}</span>
                         )}
@@ -4285,14 +4305,28 @@ ${petNome}`
                       <div className="flex flex-col items-end gap-1">
                         {isVisible(T, 'btn_alteracao_fase') && (
                         <div className="flex items-center gap-1">
-                          {/* Botão Ativar - só para preventivo */}
-                          {contrato.status === 'preventivo' && (
+                          {/* Botão Ativar - só para preventivo, e só se ainda não foi atribuído
+                              (mig 138) — senão a gente reabriria o AtivarModal em cima de uma
+                              tarefa "Ativar Preventivo" já pendente pra alguém. */}
+                          {contrato.status === 'preventivo' && !contrato.aguardando_acolhimento && (
                             <button
                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); abrirAtivarModal(contrato) }}
                               className="flex items-center justify-center w-9 h-9 bg-red-900 text-white rounded-full hover:bg-red-800 transition-colors"
                               title="Ativar contrato preventivo"
                             >
                               <span className="text-base">✝️</span>
+                            </button>
+                          )}
+                          {/* Ativação de Preventivo atribuída, aguardando conclusão (mig 138) —
+                              "Finalizar" abre o mesmo popup de conclusão que /tarefas usa, pra
+                              quem esqueceu de ir lá, ou pro gerente/concierge regularizar. */}
+                          {contrato.aguardando_acolhimento && (
+                            <button
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); abrirFinalizarAtivacaoPV(contrato) }}
+                              className="flex items-center justify-center w-9 h-9 bg-violet-600 text-white rounded-full hover:bg-violet-700 transition-colors"
+                              title="Finalizar Ativação de Preventivo — aguardando remoção"
+                            >
+                              <span className="text-base">📋</span>
                             </button>
                           )}
                           {/* Botão Bypass - finalizar pulando etapas (FLS: btn_bypass) */}
@@ -4491,6 +4525,14 @@ ${petNome}`
                           </span>
                         </Link>
                         {renderBadgesCompartilhamento(contrato)}
+                        {contrato.aguardando_acolhimento && (
+                          <span
+                            className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-400 whitespace-nowrap"
+                            title="Ativação de Preventivo atribuída — aguardando conclusão da remoção"
+                          >
+                            🕐 Em Acolhimento
+                          </span>
+                        )}
                         <div className="h-6 flex items-center">
                           {(contrato.pet_raca || contrato.pet_cor) && (
                             <span className="text-[10px] font-medium truncate max-w-[140px] h-6 flex items-center" style={{ background: 'linear-gradient(90deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', color: '#475569', padding: '0 5px', borderRadius: '4px' }}>{[contrato.pet_raca, contrato.pet_cor].filter(Boolean).join(' | ')}</span>
@@ -4641,13 +4683,22 @@ ${petNome}`
                         <div className="flex-1" />
                         {/* Botões Alteração Fase (FLS: btn_alteracao_fase) */}
                         {isVisible(T, 'btn_alteracao_fase') && (<>
-                          {contrato.status === 'preventivo' && (
+                          {contrato.status === 'preventivo' && !contrato.aguardando_acolhimento && (
                             <button
                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); abrirAtivarModal(contrato) }}
                               className="flex items-center justify-center w-8 h-8 bg-red-900 text-white rounded-full hover:bg-red-800 transition-colors"
                               title="Ativar"
                             >
                               <span className="text-sm">✝️</span>
+                            </button>
+                          )}
+                          {contrato.aguardando_acolhimento && (
+                            <button
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); abrirFinalizarAtivacaoPV(contrato) }}
+                              className="flex items-center justify-center w-8 h-8 bg-violet-600 text-white rounded-full hover:bg-violet-700 transition-colors"
+                              title="Finalizar Ativação de Preventivo — aguardando remoção"
+                            >
+                              <span className="text-sm">📋</span>
                             </button>
                           )}
                           {/* Botão Bypass mobile (FLS: btn_bypass) */}
@@ -5340,6 +5391,31 @@ ${petNome}`
               ...prev,
               preventivo: Math.max(0, (prev.preventivo || 0) - 1),
               ativo: (prev.ativo || 0) + 1,
+            }))
+          }}
+        />
+      )}
+
+      {/* Finalizar Ativação de Preventivo (mig 138) — conclui a tarefa atribuída pelo
+          AtivarModal: só agora o contrato de fato sai de `preventivo`. */}
+      {finalizarAtivacaoPVContrato && (
+        <AtivacaoPVModal
+          isOpen={!!finalizarAtivacaoPVContrato}
+          onClose={() => setFinalizarAtivacaoPVContrato(null)}
+          contrato={finalizarAtivacaoPVContrato}
+          onSuccess={(updated) => {
+            if (statusFiltro && statusFiltro !== updated.status) {
+              setContratos(prev => prev.filter(c => c.id !== updated.id))
+              setTotal(prev => Math.max(0, prev - 1))
+            } else {
+              setContratos(prev => prev.map(c =>
+                c.id === updated.id ? { ...c, ...updated, aguardando_acolhimento: false } : c
+              ))
+            }
+            setStatusCounts(prev => ({
+              ...prev,
+              preventivo: Math.max(0, (prev.preventivo || 0) - 1),
+              [updated.status]: (prev[updated.status] || 0) + 1,
             }))
           }}
         />

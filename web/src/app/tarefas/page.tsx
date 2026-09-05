@@ -23,8 +23,9 @@ import { useToast } from '@/components/ui/Toast'
 import { criarContratoDeFicha, ContratoValidationError } from '@/lib/criar-contrato-de-ficha'
 import { gerarContratoPDF, contratoFilename } from '@/lib/contrato-pdf'
 import { hojeLocal, inputLocalParaIso } from '@/lib/date-local'
+import AtivacaoPVModal from '@/components/contratos/modals/AtivacaoPVModal'
 
-type TarefaTipo = 'remocao' | 'entrega' | 'molde_patinha' | 'carimbo' | 'pelo_extra' | 'pelinho'
+type TarefaTipo = 'remocao' | 'entrega' | 'molde_patinha' | 'carimbo' | 'pelo_extra' | 'pelinho' | 'ativacao_pv'
 
 const TIPO_INFO: Record<TarefaTipo, { label: string; icon: typeof HandHeart; cor: string }> = {
   remocao: { label: 'Acolhimento', icon: HandHeart, cor: '#0ea5e9' },
@@ -33,6 +34,9 @@ const TIPO_INFO: Record<TarefaTipo, { label: string; icon: typeof HandHeart; cor
   carimbo: { label: 'Tirar Carimbo', icon: Fingerprint, cor: '#f59e0b' },
   pelo_extra: { label: 'Tirar Pelo Extra', icon: Scissors, cor: '#ec4899' },
   pelinho: { label: 'Tirar Pelinho', icon: Feather, cor: '#14b8a6' },
+  // mig 138 — Ativação de Preventivo (AtivarModal sempre atribui, nunca completa na hora).
+  // contrato_id-based, igual entrega — nunca tem ficha_id.
+  ativacao_pv: { label: 'Ativar Preventivo', icon: ClipboardList, cor: '#8b5cf6' },
 }
 
 // Cor única do botão "Atribuir" em todo o pool — não usa mais a cor por tipo (que continua
@@ -164,7 +168,7 @@ function StatusBadge({ status }: { status: string }) {
 
 // Ordem fixa de exibição dos tipos em qualquer agrupamento (pool, minhas, em andamento,
 // concluídas) — Remoção sempre em primeiro, é sempre prioridade (decisão do Lucas, 01/09/2026).
-const ORDEM_TIPOS: TarefaTipo[] = ['remocao', 'entrega', 'molde_patinha', 'carimbo', 'pelo_extra', 'pelinho']
+const ORDEM_TIPOS: TarefaTipo[] = ['remocao', 'ativacao_pv', 'entrega', 'molde_patinha', 'carimbo', 'pelo_extra', 'pelinho']
 
 function agruparPorTipo<T extends { tipo: TarefaTipo }>(itens: T[]): Partial<Record<TarefaTipo, T[]>> {
   const acc: Partial<Record<TarefaTipo, T[]>> = {}
@@ -275,6 +279,7 @@ const PLACEHOLDER_PEDIDO: Record<TarefaTipo, string> = {
   carimbo: 'Pedido específico (ex: carimbo da patinha direita)...',
   pelo_extra: 'Pedido específico (ex: pelinho do pescoço)...',
   pelinho: 'Pedido específico (ex: 2 vidrinhos de pelinho)...',
+  ativacao_pv: 'Pedido específico...',
 }
 
 // Item do pool já agrupado por (tipo, contrato) — itemIds carrega os `contrato_produto_id`
@@ -322,7 +327,7 @@ type TarefaGrupo = TarefaEnriquecida & { ids: string[]; contratoProdutoIds: stri
 function agruparTarefas(tarefas: TarefaEnriquecida[]): TarefaGrupo[] {
   const grupos: Record<string, TarefaGrupo> = {}
   for (const t of tarefas) {
-    const chave = t.tipo === 'remocao' || t.tipo === 'entrega'
+    const chave = t.tipo === 'remocao' || t.tipo === 'entrega' || t.tipo === 'ativacao_pv'
       ? `${t.tipo}:${t.id}`
       : `${t.tipo}:${t.contratoIdResolvido}:${t.atribuido_a}:${t.status}`
     const existente = grupos[chave]
@@ -1187,6 +1192,14 @@ export default function TarefasPage() {
       // realmente vai fazer o trabalho — senão a Tratativa mostra um nome errado.
       // Direto por user_id (contratos.responsavel_user_id, mig 123) — não passa mais por
       // funcionarios pra isso.
+      // Ativação de Preventivo (mig 138): mesma sincronia, mas direto em contratos —
+      // AtivarModal grava responsavel_user_id no contrato (não numa ficha, não existe aqui).
+      if (tarefa.tipo === 'ativacao_pv' && tarefa.contratoIdResolvido) {
+        await supabase.from('contratos').update({
+          responsavel_user_id: novoId, funcionario_id: null,
+        } as never).eq('id', tarefa.contratoIdResolvido)
+      }
+
       if (tarefa.tipo === 'remocao' && tarefa.ficha_id) {
         const { data: fichaAtual } = await supabase.from('fichas').select('op_dados').eq('id', tarefa.ficha_id).maybeSingle() as { data: { op_dados: Record<string, unknown> | null } | null }
         await supabase.from('fichas').update({
@@ -1233,9 +1246,11 @@ export default function TarefasPage() {
   // ── Desatribuir — desfaz sem passar pra ninguém, o item volta pro pool "Pra atribuir"
   // (pedido do Lucas, 01/09/2026 — "Cancelar" soava como cancelar a atividade em si, não a
   // atribuição). Remoção fica de fora — a atribuição dela é o campo Responsável da Tratativa,
-  // não tem "pool" pra voltar.
+  // não tem "pool" pra voltar. Ativação de Preventivo (mig 138) pelo mesmo motivo — a
+  // atribuição vem do AtivarModal, não tem pool, e apagar a tarefa sem reverter
+  // `aguardando_acolhimento` deixaria o contrato preso "aguardando" pra sempre.
   async function cancelarAtribuicao(tarefa: TarefaGrupo) {
-    if (tarefa.tipo === 'remocao') return
+    if (tarefa.tipo === 'remocao' || tarefa.tipo === 'ativacao_pv') return
     const rotulo = tarefa.quantidade > 1 ? `${TIPO_INFO[tarefa.tipo].label} (×${tarefa.quantidade})` : TIPO_INFO[tarefa.tipo].label
     if (!confirm(`Desatribuir "${rotulo}" — ${tarefa.petNome}?`)) return
     setCancelandoId(tarefa.id)
@@ -1306,7 +1321,11 @@ export default function TarefasPage() {
   useEffect(() => { if (aba === 'atribuir') { carregarEmAndamento(); carregarConcluidasRecentes() } }, [aba, carregarEmAndamento, carregarConcluidasRecentes])
 
   async function desfazerConclusao(tarefa: TarefaConcluida) {
-    if (tarefa.tipo === 'remocao') return
+    // Ativação de Preventivo (mig 138) fica de fora do desfazer genérico, mesma decisão de
+    // `remocao` — reverter exigiria voltar status/data_acolhimento/numero_lacre e reabrir
+    // `aguardando_acolhimento`, fora do escopo desta função (que só sabe desfazer entrega e
+    // rescaldo).
+    if (tarefa.tipo === 'remocao' || tarefa.tipo === 'ativacao_pv') return
     const rotulo = tarefa.quantidade > 1 ? `${TIPO_INFO[tarefa.tipo].label} (×${tarefa.quantidade})` : TIPO_INFO[tarefa.tipo].label
     if (!confirm(`Desfazer a conclusão de "${rotulo}" — ${tarefa.petNome}?`)) return
     setDesfazendoId(tarefa.id)
@@ -1550,6 +1569,7 @@ export default function TarefasPage() {
       dataAcolhimento: c.data_acolhimento,
     })),
     remocao: [],
+    ativacao_pv: [],
     molde_patinha: agruparPool(poolRescaldo.filter(p => p.produto?.rescaldo_tipo === 'molde_patinha')),
     carimbo: agruparPool(poolRescaldo.filter(p => p.produto?.rescaldo_tipo === 'carimbo')),
     pelo_extra: agruparPool(poolRescaldo.filter(p => p.produto?.rescaldo_tipo === 'pelo_extra')),
@@ -1707,6 +1727,19 @@ export default function TarefasPage() {
                   )
                 })}
               </TipoGroup>
+              <TipoGroup tipo="ativacao_pv" count={(minhasPorTipo.ativacao_pv || []).length} defaultAberto={false}>
+                {(minhasPorTipo.ativacao_pv || []).map(t => (
+                  <TarefaCard
+                    key={t.id}
+                    tipo={t.tipo}
+                    statusBadge={t.statusContrato}
+                    petNome={t.petNome}
+                    tutorNome={t.tutorNome}
+                    acao={t.observacao_atribuicao ? <span className="text-base shrink-0" title="Tem pedido específico">📝</span> : undefined}
+                    onClick={() => abrirTarefaMinhas(t)}
+                  />
+                ))}
+              </TipoGroup>
             </>
           )}
           </>
@@ -1757,6 +1790,18 @@ export default function TarefasPage() {
                           {desfazendoId === t.id ? '...' : 'Desfazer'}
                         </button>
                       }
+                    />
+                  ))}
+                </TipoGroup>
+                <TipoGroup tipo="ativacao_pv" count={(minhasConcluidasPorTipo.ativacao_pv || []).length} defaultAberto={false}>
+                  {(minhasConcluidasPorTipo.ativacao_pv || []).map(t => (
+                    <TarefaCard
+                      key={t.id}
+                      tipo={t.tipo}
+                      lacre={t.lacreContrato || t.lacre}
+                      petNome={t.petNome}
+                      tutorNome={t.tutorNome}
+                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)}{colaboradorSuffix(t)}</p>}
                     />
                   ))}
                 </TipoGroup>
@@ -1944,6 +1989,18 @@ export default function TarefasPage() {
                     />
                   ))}
                 </TipoGroup>
+                <TipoGroup tipo="ativacao_pv" count={(concluidasPorTipo.ativacao_pv || []).length} defaultAberto={false}>
+                  {(concluidasPorTipo.ativacao_pv || []).map(t => (
+                    <TarefaCard
+                      key={t.id}
+                      tipo={t.tipo}
+                      lacre={t.lacreContrato || t.lacre}
+                      petNome={t.petNome}
+                      tutorNome={t.tutorNome}
+                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · {nomePorId[t.atribuido_a] || '—'}{colaboradorSuffix(t)}</p>}
+                    />
+                  ))}
+                </TipoGroup>
               </>
             )}
           </>
@@ -2019,8 +2076,28 @@ export default function TarefasPage() {
         )
       })()}
 
-      {/* Detalhe / conclusão de tarefa */}
-      {tarefaAberta && (
+      {/* Ativação de Preventivo (mig 138) — conclusão vive num modal próprio e self-contido
+          (AtivacaoPVModal), não no popup genérico abaixo: resolve sozinho a tarefa pendente
+          por contrato_id, sem precisar de fichasPorId (não tem ficha nenhuma envolvida). */}
+      {tarefaAberta && tarefaAberta.tipo === 'ativacao_pv' ? (
+        <AtivacaoPVModal
+          isOpen
+          onClose={fecharModalTarefa}
+          contrato={{
+            id: tarefaAberta.contratoIdResolvido || '',
+            pet_nome: tarefaAberta.petNome,
+            tutor_nome: tarefaAberta.tutorNome,
+            unidade_id: tarefaAberta.unidade_id,
+          }}
+          onSuccess={() => {
+            setTarefaAberta(null)
+            carregarMinhas()
+            carregarMinhasConcluidas()
+            carregarEmAndamento()
+            carregarConcluidasRecentes()
+          }}
+        />
+      ) : tarefaAberta && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => !concluindoRemocao && !concluindoSimples && fecharModalTarefa()}>
           <div className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto rounded-2xl p-4 space-y-4 bg-[var(--surface-0)]" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">

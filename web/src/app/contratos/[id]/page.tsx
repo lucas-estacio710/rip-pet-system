@@ -23,6 +23,7 @@ import RescaldoModal from '@/components/contratos/modals/RescaldoModal'
 import CertificadoModal from '@/components/contratos/modals/CertificadoModal'
 import IndicacaoModal from '@/components/contratos/modals/IndicacaoModal'
 import AtivarModal from '@/components/contratos/modals/AtivarModal'
+import AtivacaoPVModal from '@/components/contratos/modals/AtivacaoPVModal'
 import FinalizadoraModal from '@/components/contratos/modals/FinalizadoraModal'
 import ChegamosModal from '@/components/contratos/modals/ChegamosModal'
 import ChegaramModal from '@/components/contratos/modals/ChegaramModal'
@@ -210,6 +211,9 @@ type Contrato = {
   status: string
   data_contrato: string | null
   data_acolhimento: string | null
+  // Ativação de Preventivo (mig 138) — true enquanto a tarefa de remoção atribuída pelo
+  // AtivarModal não foi concluída; status continua o normal (preventivo), é só um flag de UI.
+  aguardando_acolhimento?: boolean
   funcionario_id: string | null
   funcionario?: { nome: string } | null
   responsavel_user_id: string | null
@@ -534,6 +538,8 @@ export default function ContratoDetalhe() {
   const [chegaramModalOpen, setChegaramModalOpen] = useState(false)
   const [finalizadoraModalOpen, setFinalizadoraModalOpen] = useState(false)
   const [ativarModalOpen, setAtivarModalOpen] = useState(false)
+  // Ativação de Preventivo já atribuída (mig 138) — "Finalizar" abre o popup de conclusão.
+  const [finalizarAtivacaoPVOpen, setFinalizarAtivacaoPVOpen] = useState(false)
   const [entregaModalOpen, setEntregaModalOpen] = useState(false)
   const [pelinhoModalOpen, setPelinhoModalOpen] = useState(false)
   const [certificadoModalOpen, setCertificadoModalOpen] = useState(false)
@@ -2431,6 +2437,14 @@ ${petNome}`
             <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${statusConfig.bg} ${statusConfig.color}`}>
               {statusConfig.label}
             </span>
+            {contrato.aguardando_acolhimento && (
+              <span
+                className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-violet-900/40 text-violet-300"
+                title="Ativação de Preventivo atribuída — aguardando conclusão da remoção"
+              >
+                🕐 Em Acolhimento
+              </span>
+            )}
             {contrato.supinda ? (
               <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-yellow-900/40 text-yellow-300" title="Encaminhamento de ida vinculado">
                 ↑ {contrato.supinda.numero} · {new Date(contrato.supinda.data + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
@@ -2731,6 +2745,7 @@ ${petNome}`
                 handlers={{
                   onAtivar: () => setAtivarModalOpen(true),
                   onEntrega: () => setEntregaModalOpen(true),
+                  onFinalizarAtivacaoPV: () => setFinalizarAtivacaoPVOpen(true),
                 }}
                 layout="detail"
                 stopPropagation={false}
@@ -5225,6 +5240,14 @@ ${petNome}`
             contrato={contrato}
             onSuccess={(updated) => {
               setContrato(prev => prev ? { ...prev, ...updated } : prev)
+            }}
+          />
+          <AtivacaoPVModal
+            isOpen={finalizarAtivacaoPVOpen}
+            onClose={() => setFinalizarAtivacaoPVOpen(false)}
+            contrato={contrato}
+            onSuccess={(updated) => {
+              setContrato(prev => prev ? { ...prev, ...updated, aguardando_acolhimento: false } : prev)
             }}
           />
           <EntregaModal
