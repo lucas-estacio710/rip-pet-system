@@ -213,6 +213,9 @@ type Contrato = {
   funcionario_id: string | null
   funcionario?: { nome: string } | null
   responsavel_user_id: string | null
+  // Quando responsavel_user_id/funcionario_id é uma posição (dispositivo compartilhado) —
+  // quem de fato executou o acolhimento. Ver migration 137.
+  executado_por_funcionario_id: string | null
   estabelecimento_id: string | null
   estabelecimento_coleta?: { nome: string } | null
   clinica_coleta: string | null
@@ -421,7 +424,11 @@ export default function ContratoDetalhe() {
   const [acolhFuncionariosLista, setAcolhFuncionariosLista] = useState<{ id: string; nome: string }[]>([])
   // cb_operacional: Responsável vem de quem já loga na unidade, não de funcionarios.
   const [acolhResponsavelUserIdInput, setAcolhResponsavelUserIdInput] = useState<string>('')
-  const [acolhAtribuiveisLista, setAcolhAtribuiveisLista] = useState<{ user_id: string; nome: string | null; role: string }[]>([])
+  const [acolhAtribuiveisLista, setAcolhAtribuiveisLista] = useState<{ user_id: string; nome: string | null; role: string; eh_posicao?: boolean }[]>([])
+  // Responsável escolhido é uma posição (dispositivo compartilhado) — exige assinatura de
+  // quem de fato executou (migration 137).
+  const [acolhExecutadoPorFuncionarioId, setAcolhExecutadoPorFuncionarioId] = useState<string>('')
+  const acolhResponsavelEhPosicao = !!acolhAtribuiveisLista.find(a => a.user_id === acolhResponsavelUserIdInput)?.eh_posicao
   const [acolhSaving, setAcolhSaving] = useState(false)
 
   // Editor inline de valor_plano
@@ -546,6 +553,7 @@ export default function ContratoDetalhe() {
   // cb_operacional: Responsável do acolhimento vem de perfis, não de funcionarios.
   const temOperacionalContrato = !!allUnidades.find(u => u.id === contrato?.unidade_id)?.modulos_ativos?.includes('cb_operacional')
   const [responsavelNomeResolvido, setResponsavelNomeResolvido] = useState<string | null>(null)
+  const [executadoPorNomeResolvido, setExecutadoPorNomeResolvido] = useState<string | null>(null)
   const podeAlterarDados = isSuperAdmin || currentRole === 'gerente'
   const { canEdit, isVisible } = useFieldPermission()
   const T = 'tela_contrato' // tela FLS (detalhe do contrato)
@@ -603,6 +611,7 @@ export default function ContratoDetalhe() {
     // Pré-preenche funcionário atual e carrega lista (ativos da unidade do contrato)
     setAcolhFuncIdInput(contrato.funcionario_id || '')
     setAcolhResponsavelUserIdInput(contrato.responsavel_user_id || '')
+    setAcolhExecutadoPorFuncionarioId(contrato.executado_por_funcionario_id || '')
     if (acolhFuncionariosLista.length === 0) {
       const { data: funcs } = await supabase
         .from('funcionarios')
@@ -614,7 +623,7 @@ export default function ContratoDetalhe() {
     }
     // cb_operacional: Responsável vem de quem já loga na unidade, não de funcionarios.
     if (temOperacionalContrato && acolhAtribuiveisLista.length === 0) {
-      const { data: atrib } = await supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: contrato.unidade_id } as never) as { data: { user_id: string; nome: string | null; role: string }[] | null }
+      const { data: atrib } = await supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: contrato.unidade_id } as never) as { data: { user_id: string; nome: string | null; role: string; eh_posicao?: boolean }[] | null }
       if (atrib) setAcolhAtribuiveisLista(atrib)
     }
 
@@ -660,6 +669,13 @@ export default function ContratoDetalhe() {
       alert('Preencha data E hora')
       return
     }
+    // Responsável escolhido é uma posição (dispositivo compartilhado) — exige assinatura de
+    // quem de fato executou (migration 137).
+    const respNovoEhPosicaoCheck = !!acolhAtribuiveisLista.find(a => a.user_id === acolhResponsavelUserIdInput)?.eh_posicao
+    if (respNovoEhPosicaoCheck && !acolhExecutadoPorFuncionarioId) {
+      alert('Responsável escolhido é uma posição — preencha "Quem executou"')
+      return
+    }
     setAcolhSaving(true)
     try {
       const dataHora = new Date(`${acolhDataInput}T${acolhHoraInput}:00`)
@@ -674,10 +690,14 @@ export default function ContratoDetalhe() {
       const funcNovo = acolhFuncIdInput || null
       const respAnterior = contrato.responsavel_user_id || null
       const respNovo = acolhResponsavelUserIdInput || null
+      const respNovoEhPosicao = !!acolhAtribuiveisLista.find(a => a.user_id === respNovo)?.eh_posicao
+      const execAnterior = contrato.executado_por_funcionario_id || null
+      const execNovo = respNovoEhPosicao ? (acolhExecutadoPorFuncionarioId || null) : null
 
       const update: Record<string, unknown> = { data_acolhimento: valorNovo }
       if (funcNovo !== funcAnterior) update.funcionario_id = funcNovo
       if (respNovo !== respAnterior) update.responsavel_user_id = respNovo
+      if (execNovo !== execAnterior) update.executado_por_funcionario_id = execNovo
 
       const { error } = await supabase
         .from('contratos')
@@ -736,6 +756,25 @@ export default function ContratoDetalhe() {
         } as never)
       }
 
+      // Log auditoria — quem de fato executou, quando responsável é posição (só se mudou)
+      if (execNovo !== execAnterior) {
+        const nomeAnteriorExec = acolhFuncionariosLista.find(f => f.id === execAnterior)?.nome || null
+        const nomeNovoExec = acolhFuncionariosLista.find(f => f.id === execNovo)?.nome || null
+        await supabase.from('historico_alteracoes').insert({
+          entidade: 'contratos',
+          entidade_id: contrato.id,
+          entidade_nome: contrato.codigo,
+          campo: 'executado_por_funcionario_id',
+          campo_label: 'Quem executou (posição)',
+          valor_anterior: nomeAnteriorExec,
+          valor_novo: nomeNovoExec,
+          tipo: 'edicao',
+          alterado_por: user?.id ?? null,
+          alterado_por_email: user?.email ?? null,
+        } as never)
+        setExecutadoPorNomeResolvido(nomeNovoExec)
+      }
+
       const nomeNovo = temOperacionalContrato
         ? (acolhAtribuiveisLista.find(a => a.user_id === respNovo)?.nome || null)
         : (acolhFuncionariosLista.find(f => f.id === funcNovo)?.nome || null)
@@ -744,6 +783,7 @@ export default function ContratoDetalhe() {
         data_acolhimento: valorNovo,
         funcionario_id: funcNovo,
         responsavel_user_id: respNovo,
+        executado_por_funcionario_id: execNovo,
         funcionario: funcNovo ? { nome: nomeNovo || prev.funcionario?.nome || '' } : null,
       } as typeof prev : prev)
       setAcolhEditing(false)
@@ -1709,6 +1749,15 @@ export default function ContratoDetalhe() {
       } else {
         setResponsavelNomeResolvido(null)
       }
+      // Responsável era uma posição (dispositivo compartilhado) — resolve o nome de quem
+      // de fato executou (migration 137). `funcionario:funcionarios(nome)` do select acima já
+      // é o embed de funcionario_id, não dá pra reaproveitar pra uma 2ª FK na mesma tabela.
+      if (c.executado_por_funcionario_id) {
+        const { data: exec } = await supabase.from('funcionarios').select('nome').eq('id', c.executado_por_funcionario_id).maybeSingle() as { data: { nome: string | null } | null }
+        setExecutadoPorNomeResolvido(exec?.nome || null)
+      } else {
+        setExecutadoPorNomeResolvido(null)
+      }
     }
     setLoading(false)
   }
@@ -2482,7 +2531,7 @@ ${petNome}`
                   >
                     <option value="">— sem responsável —</option>
                     {acolhAtribuiveisLista.map(a => (
-                      <option key={a.user_id} value={a.user_id}>{a.nome}</option>
+                      <option key={a.user_id} value={a.user_id}>{a.eh_posicao ? `🚗 ${a.nome}` : a.nome}</option>
                     ))}
                   </select>
                 ) : (
@@ -2499,9 +2548,25 @@ ${petNome}`
                     ))}
                   </select>
                 )}
+                {/* Responsável é uma posição (dispositivo compartilhado) — exige assinatura
+                    de quem de fato executou (migration 137). */}
+                {acolhResponsavelEhPosicao && (
+                  <select
+                    value={acolhExecutadoPorFuncionarioId}
+                    onChange={e => setAcolhExecutadoPorFuncionarioId(e.target.value)}
+                    disabled={acolhSaving}
+                    className="text-xs px-2 py-0.5 rounded border border-amber-500/40 bg-[var(--surface-0)] text-[var(--surface-800)] max-w-[12rem]"
+                    title="Quem executou?"
+                  >
+                    <option value="">Quem executou?</option>
+                    {acolhFuncionariosLista.map(f => (
+                      <option key={f.id} value={f.id}>{f.nome}</option>
+                    ))}
+                  </select>
+                )}
                 <button
                   onClick={salvarAcolhimento}
-                  disabled={acolhSaving || !acolhDataInput || !acolhHoraInput}
+                  disabled={acolhSaving || !acolhDataInput || !acolhHoraInput || (acolhResponsavelEhPosicao && !acolhExecutadoPorFuncionarioId)}
                   className="px-2 py-0.5 rounded text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {acolhSaving ? 'Salvando…' : 'Salvar'}
@@ -2556,6 +2621,14 @@ ${petNome}`
                 <>
                   <span className="text-[var(--surface-300)]">·</span>
                   <span>por <span className="font-semibold text-[var(--surface-600)]">{contrato.funcionario?.nome || responsavelNomeResolvido}</span></span>
+                </>
+              )}
+              {/* Responsável é uma posição (dispositivo compartilhado) — quem de fato
+                  executou (migration 137). */}
+              {executadoPorNomeResolvido && (
+                <>
+                  <span className="text-[var(--surface-300)]">·</span>
+                  <span title="Responsável é uma posição (dispositivo compartilhado) — quem de fato executou">🚗 assinado por <span className="font-semibold text-[var(--surface-600)]">{executadoPorNomeResolvido}</span></span>
                 </>
               )}
               {contrato.local_coleta && (() => {

@@ -183,7 +183,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([])
   // Unidade com cb_operacional: lista de quem já loga (super_admin/gerente/operador/operacional
   // da unidade) — fonte do picker de Responsável nesse caso, via listar_atribuiveis_operacional.
-  const [atribuiveis, setAtribuiveis] = useState<{ user_id: string; nome: string | null; role: string }[]>([])
+  const [atribuiveis, setAtribuiveis] = useState<{ user_id: string; nome: string | null; role: string; eh_posicao?: boolean }[]>([])
   const [tutorExistente, setTutorExistente] = useState<TutorExistente>(null)
   const [tutorChecked, setTutorChecked] = useState(false)
 
@@ -351,6 +351,11 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   // Responsável escolhido é um usuário de verdade (perfil ativo)? Só então a remoção vira
   // tarefa (ver processarFicha) e o lacre passa a ser obrigatório sem escape.
   const responsavelEscolhidoEhOperacional = temOperacional && !!responsavelUserId
+  // Responsável escolhido é uma posição (dispositivo compartilhado, perfis.eh_posicao) — exige
+  // assinatura de quem de fato executou (mig 137). Contrato nasce direto aqui, sem conclusão
+  // separada depois — a pergunta tem que acontecer agora.
+  const responsavelEhPosicao = !!atribuiveis.find(a => a.user_id === responsavelUserId)?.eh_posicao
+  const [executadoPorFuncionarioId, setExecutadoPorFuncionarioId] = useState('')
   // Telefone — operador confirma ou adiciona secundário
   const [telefoneConfirmado, setTelefoneConfirmado] = useState(false)
   const [telefone1Nome, setTelefone1Nome] = useState('')
@@ -556,6 +561,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       if (op.codigoManual) setCodigoManual(true)
       if (op.funcionarioId) setFuncionarioId(String(op.funcionarioId))
       if (op.responsavelUserId) setResponsavelUserId(String(op.responsavelUserId))
+      if (op.executadoPorFuncionarioId) setExecutadoPorFuncionarioId(String(op.executadoPorFuncionarioId))
       if (op.semResponsavel) setSemResponsavel(true)
       if (op.localColeta) setLocalColeta(op.localColeta as typeof localColeta)
       if (op.enderecoOutro) setEnderecoOutro(String(op.enderecoOutro))
@@ -669,6 +675,9 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         // onChange), então por construção só sobra valor aqui quando é pra valer.
         funcionarioId: funcionarioId || null,
         responsavelUserId: responsavelUserId || null,
+        // Só preenchido de verdade quando o responsável é uma posição (dispositivo
+        // compartilhado) — ver responsavelEhPosicao/migration 137.
+        executadoPorFuncionarioId: responsavelEhPosicao ? (executadoPorFuncionarioId || null) : null,
         semResponsavel,
         localColeta,
         enderecoOutro: enderecoOutro || null,
@@ -766,6 +775,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         // nome, ele vale — nunca existe um cenário em que descartar uma escolha real é certo.
         funcionarioId: funcionarioId || null,
         responsavelUserId: responsavelUserId || null,
+        executadoPorFuncionarioId: responsavelEhPosicao ? (executadoPorFuncionarioId || null) : null,
         localColeta,
         enderecoOutro: enderecoOutro || null,
         estabId,
@@ -869,7 +879,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         // Mesmo ajuste de `criarContrato()` acima — nome escolhido sempre vale, não some por
         // causa da flag `semResponsavel` (ver comentário lá pro caso real que isso causou).
         funcionarioId: funcionarioId || null,
-        responsavelUserId: responsavelUserId || null, semResponsavel,
+        responsavelUserId: responsavelUserId || null,
+        executadoPorFuncionarioId: responsavelEhPosicao ? (executadoPorFuncionarioId || null) : null, semResponsavel,
         localColeta, enderecoOutro: enderecoOutro || null, semLocal,
         clinicaTextoLivre: clinicaTextoLivre || null, estabId, estabNome: estabNome || null, autonomo,
         dataHoraAcolhimento: dataHoraAcolhimento || null, semDataHora,
@@ -910,7 +921,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   // Telefone OK = (confirmou número da ficha + apelido) OU (informou número alternativo + nome/relação)
   const telefoneOk = (telefoneConfirmado && !!telefone1Nome.trim()) || (mostrarTelefone2 && !!telefone2.trim() && !!telefone2Nome.trim())
   const localOk = semLocal || !!localColeta
-  const responsavelOk = semResponsavel || !!funcionarioId || !!responsavelUserId
+  const responsavelOk = semResponsavel || ((!!funcionarioId || !!responsavelUserId) && (!responsavelEhPosicao || !!executadoPorFuncionarioId))
   const dataHoraOk = semDataHora || !!dataHoraAcolhimento
   const lacreOk = semLacre || !!lacre.trim()
   const valorOk = !!valorPlano.trim()
@@ -925,7 +936,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   // acabar com pet sem lacre no pipeline; ver `criarContratoDeFicha`).
   const fluxoValido = isPreventivo
     ? (telefoneOk && valorOk && fonteOk)  // PV: pet vivo, sem acolhimento
-    : (telefoneOk && !!localColeta && (!!funcionarioId || !!responsavelUserId) && !!dataHoraAcolhimento && lacreOk && valorOk && fonteOk)
+    : (telefoneOk && !!localColeta && (!!funcionarioId || !!responsavelUserId) && (!responsavelEhPosicao || !!executadoPorFuncionarioId) && !!dataHoraAcolhimento && lacreOk && valorOk && fonteOk)
 
   const footer = somenteLeitura ? (
     /* Modo somente leitura (recebidas) — Cancelar, Fechar e Processar */
@@ -988,6 +999,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         if (!telefoneOk) faltam.push('Telefone')
         if (!isPreventivo && !localColeta) faltam.push('Local de Acolhimento')
         if (!isPreventivo && !funcionarioId && !responsavelUserId) faltam.push('Responsável')
+        if (!isPreventivo && responsavelEhPosicao && !executadoPorFuncionarioId) faltam.push('Quem executou (responsável é uma posição)')
         if (!isPreventivo && !dataHoraAcolhimento) faltam.push('Data/Hora')
         if (!valorPlano.trim()) faltam.push('Valor do Plano')
         if (!fonteOk) faltam.push('Como nos conheceu')
@@ -1518,7 +1530,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                   {temOperacional ? (
                     <select value={responsavelUserId} onChange={e => { setResponsavelUserId(e.target.value); if (e.target.value) setSemResponsavel(false) }} className="input text-sm">
                       <option value="">Selecione...</option>
-                      {atribuiveis.map(a => (<option key={a.user_id} value={a.user_id}>{a.nome}</option>))}
+                      {atribuiveis.map(a => (<option key={a.user_id} value={a.user_id}>{a.eh_posicao ? `🚗 ${a.nome}` : a.nome}</option>))}
                     </select>
                   ) : (
                     <select value={funcionarioId} onChange={e => { setFuncionarioId(e.target.value); if (e.target.value) setSemResponsavel(false) }} className="input text-sm">
@@ -1528,6 +1540,15 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                   )}
                   {temOperacional && atribuiveis.length === 0 && (
                     <p className="text-[10px] text-amber-500 mt-1">Ninguém com login ainda nesta unidade.</p>
+                  )}
+                  {responsavelEhPosicao && (
+                    <div className="mt-2">
+                      <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Quem executou? <span className="text-red-400">*</span></label>
+                      <select value={executadoPorFuncionarioId} onChange={e => setExecutadoPorFuncionarioId(e.target.value)} className="input text-sm">
+                        <option value="">Selecione...</option>
+                        {funcionarios.map(f => (<option key={f.id} value={f.id}>{f.nome}</option>))}
+                      </select>
+                    </div>
                   )}
                 </div>
               )}
@@ -1966,7 +1987,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               ) : temOperacional ? (
                 <select value={responsavelUserId} onChange={e => setResponsavelUserId(e.target.value)} className="input text-sm">
                   <option value="">Selecione...</option>
-                  {atribuiveis.map(a => (<option key={a.user_id} value={a.user_id}>{a.nome}</option>))}
+                  {atribuiveis.map(a => (<option key={a.user_id} value={a.user_id}>{a.eh_posicao ? `🚗 ${a.nome}` : a.nome}</option>))}
                 </select>
               ) : (
                 <select value={funcionarioId} onChange={e => setFuncionarioId(e.target.value)} className="input text-sm">
@@ -1976,6 +1997,15 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               )}
               {!semResponsavel && temOperacional && atribuiveis.length === 0 && (
                 <p className="text-[10px] text-amber-500 mt-1">Ninguém com login ainda nesta unidade.</p>
+              )}
+              {!semResponsavel && responsavelEhPosicao && (
+                <div className="mt-2">
+                  <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Quem executou? <span className="text-red-400">*</span></label>
+                  <select value={executadoPorFuncionarioId} onChange={e => setExecutadoPorFuncionarioId(e.target.value)} className="input text-sm">
+                    <option value="">Selecione...</option>
+                    {funcionarios.map(f => (<option key={f.id} value={f.id}>{f.nome}</option>))}
+                  </select>
+                </div>
               )}
             </div>
 

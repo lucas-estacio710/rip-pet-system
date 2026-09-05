@@ -83,6 +83,10 @@ export async function criarContratoDeFicha(
   // Unidade com cb_operacional: Responsável vem direto de perfis (auth.users), sem passar por
   // funcionarios — ver contratos.responsavel_user_id (mig 123). Nunca os dois preenchidos juntos.
   const responsavelUserId = str('responsavelUserId') || null
+  // Quando o responsável é uma posição (dispositivo compartilhado, perfis.eh_posicao) — quem
+  // de fato executou o acolhimento. Quem chama (TratativaModal, ou o gatilho de /tarefas) já
+  // validou isso antes de chegar aqui; ver migration 137.
+  const executadoPorFuncionarioId = str('executadoPorFuncionarioId') || null
   const localColeta = str('localColeta') as 'residencia' | 'clinica' | 'unidade' | 'outro' | ''
   const enderecoOutro = str('enderecoOutro')
   const estabId = str('estabId') || null
@@ -247,6 +251,7 @@ export async function criarContratoDeFicha(
     contato_id: resolvedContatoId || null, estabelecimento_id: resolvedEstabId || null,
     funcionario_id: funcionarioId || null,
     responsavel_user_id: responsavelUserId || null,
+    executado_por_funcionario_id: executadoPorFuncionarioId,
     fonte_conhecimento_id: fonteConhecimentoId,
     fonte_conhecimento_ids: fonteConhecimentoIds.length > 0 ? fonteConhecimentoIds : null,
     fonte_outro_especificar: ficha.como_conheceu?.includes('Outro') ? (ficha.outro_especificar?.trim() || null) : null,

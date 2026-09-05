@@ -69,7 +69,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
   const [salvando, setSalvando] = useState(false)
 
   const [funcionarios, setFuncionarios] = useState<{ id: string; nome: string }[]>([])
-  const [atribuiveis, setAtribuiveis] = useState<{ user_id: string; nome: string | null; role: string }[]>([])
+  const [atribuiveis, setAtribuiveis] = useState<{ user_id: string; nome: string | null; role: string; eh_posicao?: boolean }[]>([])
   const [estabelecimentos, setEstabelecimentos] = useState<Estab[]>([])
 
   const telefoneBase = contrato.tutor?.telefone || contrato.tutor_telefone || ''
@@ -123,13 +123,13 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
     // Pré-preenche o Acolhimento com o que já está gravado no contrato (só ajustar se preciso)
     supabase
       .from('contratos')
-      .select('local_coleta, clinica_coleta, estabelecimento_id, funcionario_id, responsavel_user_id, numero_lacre, data_acolhimento, tutor_telefone_nome, tutor_telefone2, tutor_telefone2_nome, estab:estabelecimentos!estabelecimento_id(nome)')
+      .select('local_coleta, clinica_coleta, estabelecimento_id, funcionario_id, responsavel_user_id, executado_por_funcionario_id, numero_lacre, data_acolhimento, tutor_telefone_nome, tutor_telefone2, tutor_telefone2_nome, estab:estabelecimentos!estabelecimento_id(nome)')
       .eq('id', contrato.id)
       .single()
       .then(({ data }) => {
         const c = data as {
           local_coleta: string | null; clinica_coleta: string | null; estabelecimento_id: string | null
-          funcionario_id: string | null; responsavel_user_id: string | null; numero_lacre: string | null; data_acolhimento: string | null
+          funcionario_id: string | null; responsavel_user_id: string | null; executado_por_funcionario_id: string | null; numero_lacre: string | null; data_acolhimento: string | null
           tutor_telefone_nome: string | null; tutor_telefone2: string | null; tutor_telefone2_nome: string | null
           estab: { nome: string } | null
         } | null
@@ -155,6 +155,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
           enderecoOutro: localColeta === 'outro' ? (c.clinica_coleta || '') : '',
           funcionarioId: c.funcionario_id || '',
           responsavelUserId: c.responsavel_user_id || '',
+          executadoPorFuncionarioId: c.executado_por_funcionario_id || '',
           dataHoraAcolhimento: c.data_acolhimento ? isoParaDatetimeLocal(c.data_acolhimento) : dataHoraAgora,
           lacre: c.numero_lacre || '',
         })
@@ -171,8 +172,13 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
         : !!acolhimento.clinicaTextoLivre.trim()) &&
     (acolhimento.localColeta !== 'outro' || !!acolhimento.enderecoOutro.trim())
 
+  // Responsável escolhido é uma posição (dispositivo compartilhado) — exige assinatura de
+  // quem de fato executou (ver AcolhimentoForm.tsx / migration 137).
+  const responsavelEhPosicao = !!atribuiveis.find(a => a.user_id === acolhimento.responsavelUserId)?.eh_posicao
+
   // PV: pet morreu / foi acionado → local, responsável e data/hora obrigatórios (lacre não)
   const podeAtivar = localOk && (!!acolhimento.funcionarioId || !!acolhimento.responsavelUserId) && !!acolhimento.dataHoraAcolhimento
+    && (!responsavelEhPosicao || !!acolhimento.executadoPorFuncionarioId)
 
   async function salvarAtivacao() {
     const a = acolhimento
@@ -186,6 +192,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
       faltando.push('Endereço (Outro)')
     }
     if (!a.funcionarioId && !a.responsavelUserId) faltando.push('Responsável pelo acolhimento')
+    if (responsavelEhPosicao && !a.executadoPorFuncionarioId) faltando.push('Quem executou (responsável é uma posição)')
     if (!a.dataHoraAcolhimento) faltando.push('Data e hora do acolhimento')
 
     if (faltando.length) {
@@ -270,6 +277,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
           // hoje, mas fecha a mesma brecha caso essa regra mude no futuro (ver AcolhimentoForm.tsx).
           funcionario_id: a.funcionarioId || null,
           responsavel_user_id: a.responsavelUserId || null,
+          executado_por_funcionario_id: responsavelEhPosicao ? (a.executadoPorFuncionarioId || null) : null,
           tutor_telefone: telPrincipal,
           tutor_telefone2: telSecundario,
           tutor_telefone_nome: telPrincipalNome,
