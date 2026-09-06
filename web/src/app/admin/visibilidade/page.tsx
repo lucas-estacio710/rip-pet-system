@@ -224,7 +224,13 @@ export default function VisibilidadePage() {
 
     // Batch upsert
     if (toUpsert.length > 0) {
-      await supabase.from('field_permissions').upsert(toUpsert as never, { onConflict: 'unidade_id,tela,campo,role' })
+      // ⚠️ `tela` FORA do onConflict (mig 140). Ela é rótulo de agrupamento, não
+      // identidade — e como o valor gravado aqui vem do catálogo, não batia com o
+      // que migrations antigas tinham escrito: o upsert não colidia e inseria uma
+      // SEGUNDA linha para a mesma pessoa e campo. Com duas linhas, `loadPerms`
+      // (que também ignora `tela`) exibia uma das duas sem critério — era o
+      // "salvo e volta aleatório" relatado em 05/09/2026.
+      await supabase.from('field_permissions').upsert(toUpsert as never, { onConflict: 'unidade_id,campo,role' })
     }
 
     if (logEntries.length > 0) {
