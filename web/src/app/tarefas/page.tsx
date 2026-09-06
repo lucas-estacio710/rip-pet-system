@@ -25,18 +25,25 @@ import { gerarContratoPDF, contratoFilename } from '@/lib/contrato-pdf'
 import { hojeLocal, inputLocalParaIso } from '@/lib/date-local'
 import AtivacaoPVModal from '@/components/contratos/modals/AtivacaoPVModal'
 
-type TarefaTipo = 'remocao' | 'entrega' | 'molde_patinha' | 'carimbo' | 'pelo_extra' | 'pelinho' | 'ativacao_pv'
+// `entrega_pendente` NÃO é um tipo real de `tarefas_operacionais.tipo` (a constraint do banco
+// nem aceita esse valor) — é uma CHAVE DE EXIBIÇÃO só, calculada por `chaveExibicao()` a partir
+// de `tipo:'entrega'` + `statusContrato==='pendente'`. Nunca gravar isso no banco.
+type TarefaTipo = 'remocao' | 'entrega' | 'molde_patinha' | 'carimbo' | 'pelo_extra' | 'pelinho' | 'ativacao_pv' | 'entrega_pendente'
 
 const TIPO_INFO: Record<TarefaTipo, { label: string; icon: typeof HandHeart; cor: string }> = {
-  remocao: { label: 'Acolhimento', icon: HandHeart, cor: '#0ea5e9' },
-  entrega: { label: 'Realizar Entrega', icon: PackageCheck, cor: '#22c55e' },
+  remocao: { label: 'Acolhimento', icon: HandHeart, cor: '#ef4444' },
+  entrega: { label: 'Realizar Entrega', icon: PackageCheck, cor: '#0ea5e9' },
   molde_patinha: { label: 'Tirar Molde', icon: PawPrint, cor: '#a855f7' },
   carimbo: { label: 'Tirar Carimbo', icon: Fingerprint, cor: '#f59e0b' },
   pelo_extra: { label: 'Tirar Pelo Extra', icon: Scissors, cor: '#ec4899' },
   pelinho: { label: 'Tirar Pelinho', icon: Feather, cor: '#14b8a6' },
   // mig 138 — Ativação de Preventivo (AtivarModal sempre atribui, nunca completa na hora).
   // contrato_id-based, igual entrega — nunca tem ficha_id.
-  ativacao_pv: { label: 'Ativar Preventivo', icon: ClipboardList, cor: '#8b5cf6' },
+  ativacao_pv: { label: 'Acolhimento de Preventivo', icon: ClipboardList, cor: '#ec4899' },
+  // Mesmo ícone/estrutura de "Realizar Entrega" — só filtra contrato.status==='pendente' (que já
+  // significa "parado", ver FLOW) pra separar da fila normal, pedido do Lucas: "pra não ficarmos
+  // olhando sempre pra elas". Fica por último em ORDEM_TIPOS de propósito — menor prioridade.
+  entrega_pendente: { label: 'Realizar Entrega Pendente', icon: PackageCheck, cor: '#8783a0' },
 }
 
 // Cor única do botão "Atribuir" em todo o pool — não usa mais a cor por tipo (que continua
@@ -168,13 +175,23 @@ function StatusBadge({ status }: { status: string }) {
 
 // Ordem fixa de exibição dos tipos em qualquer agrupamento (pool, minhas, em andamento,
 // concluídas) — Remoção sempre em primeiro, é sempre prioridade (decisão do Lucas, 01/09/2026).
-const ORDEM_TIPOS: TarefaTipo[] = ['remocao', 'ativacao_pv', 'entrega', 'molde_patinha', 'carimbo', 'pelo_extra', 'pelinho']
+// `entrega_pendente` sempre por ÚLTIMO — é a fila de menor prioridade, de propósito.
+const ORDEM_TIPOS: TarefaTipo[] = ['remocao', 'ativacao_pv', 'entrega', 'molde_patinha', 'carimbo', 'pelo_extra', 'pelinho', 'entrega_pendente']
 
-function agruparPorTipo<T extends { tipo: TarefaTipo }>(itens: T[]): Partial<Record<TarefaTipo, T[]>> {
+// Chave de EXIBIÇÃO (não é o `tipo` real gravado no banco) — separa "Realizar Entrega" de
+// "Realizar Entrega Pendente" pelo status do CONTRATO (contrato 'pendente' = parado, ver FLOW),
+// não por status da tarefa. Passar sempre como `chaveDe` em `agruparPorTipo` pra quem lida com
+// tarefas de entrega — sem isso a fila pendente antiga volta a se misturar com a fila nova.
+function chaveExibicao(t: { tipo: TarefaTipo; statusContrato?: string }): TarefaTipo {
+  return t.tipo === 'entrega' && t.statusContrato === 'pendente' ? 'entrega_pendente' : t.tipo
+}
+
+function agruparPorTipo<T extends { tipo: TarefaTipo }>(itens: T[], chaveDe: (t: T) => TarefaTipo = t => t.tipo): Partial<Record<TarefaTipo, T[]>> {
   const acc: Partial<Record<TarefaTipo, T[]>> = {}
   for (const t of itens) {
-    if (!acc[t.tipo]) acc[t.tipo] = []
-    acc[t.tipo]!.push(t)
+    const chave = chaveDe(t)
+    if (!acc[chave]) acc[chave] = []
+    acc[chave]!.push(t)
   }
   return acc
 }
@@ -280,6 +297,7 @@ const PLACEHOLDER_PEDIDO: Record<TarefaTipo, string> = {
   pelo_extra: 'Pedido específico (ex: pelinho do pescoço)...',
   pelinho: 'Pedido específico (ex: 2 vidrinhos de pelinho)...',
   ativacao_pv: 'Pedido específico...',
+  entrega_pendente: 'Pedido específico (ex: Tutor pediu pra entregar na Rua das Palmeiras, 245 em vez do endereço cadastrado)...',
 }
 
 // Item do pool já agrupado por (tipo, contrato) — itemIds carrega os `contrato_produto_id`
@@ -420,7 +438,7 @@ function PersonalizadosGroup({ count, children, defaultAberto = true }: { count:
     <div>
       <button type="button" onClick={() => setAberto(a => !a)} className="w-full flex items-center gap-1.5 mb-1.5">
         <span className="text-sm">💎</span>
-        <h4 className="text-[11px] font-bold uppercase tracking-wide text-purple-400">Personalizados</h4>
+        <h4 className="text-[11px] font-bold uppercase tracking-wide text-amber-400">Personalizados</h4>
         <span className="text-[10px] text-[var(--surface-400)]">({count})</span>
         {aberto ? <ChevronUp className="h-3 w-3 text-[var(--surface-400)]" /> : <ChevronDown className="h-3 w-3 text-[var(--surface-400)]" />}
       </button>
@@ -1562,12 +1580,14 @@ export default function TarefasPage() {
 
   // Agrupamentos por TIPO — mesma fonte de dados de sempre (poolEntrega/poolRescaldo/
   // emAndamento/concluidasRecentes), só reorganizados pra render em etapa → tipo.
+  const poolEntregaMapeado: PoolItemData[] = poolEntrega.map(c => ({
+    key: c.id, itemIds: [c.id], quantidade: 1, petNome: c.pet_nome, tutorNome: c.tutor_nome, status: c.status, lacre: c.numero_lacre,
+    enderecoResumo: [c.tutor_endereco, c.tutor_bairro, c.tutor_cidade].filter(Boolean).join(' - ') || undefined,
+    dataAcolhimento: c.data_acolhimento,
+  }))
   const poolItensPorTipo: Record<TarefaTipo, PoolItemData[]> = {
-    entrega: poolEntrega.map(c => ({
-      key: c.id, itemIds: [c.id], quantidade: 1, petNome: c.pet_nome, tutorNome: c.tutor_nome, status: c.status, lacre: c.numero_lacre,
-      enderecoResumo: [c.tutor_endereco, c.tutor_bairro, c.tutor_cidade].filter(Boolean).join(' - ') || undefined,
-      dataAcolhimento: c.data_acolhimento,
-    })),
+    entrega: poolEntregaMapeado.filter(item => item.status !== 'pendente'),
+    entrega_pendente: poolEntregaMapeado.filter(item => item.status === 'pendente'),
     remocao: [],
     ativacao_pv: [],
     molde_patinha: agruparPool(poolRescaldo.filter(p => p.produto?.rescaldo_tipo === 'molde_patinha')),
@@ -1592,12 +1612,12 @@ export default function TarefasPage() {
     return ordenarPorAcolhimento(Object.values(porContrato))
   })()
 
-  const minhasPorTipo = agruparPorTipo(ordenarPorAcolhimento(minhasTarefas))
+  const minhasPorTipo = agruparPorTipo(ordenarPorAcolhimento(minhasTarefas), chaveExibicao)
   const minhasPetGroups = ordenarPorAcolhimento(agruparPorPet(minhasTarefas.filter(t => TIPOS_PERSONALIZADOS.includes(t.tipo))))
-  const minhasConcluidasPorTipo = agruparPorTipo(ordenarPorAcolhimento(minhasConcluidas))
+  const minhasConcluidasPorTipo = agruparPorTipo(ordenarPorAcolhimento(minhasConcluidas), chaveExibicao)
   const minhasConcluidasPetGroups = ordenarPorAcolhimento(agruparPorPet(minhasConcluidas.filter(t => TIPOS_PERSONALIZADOS.includes(t.tipo))))
-  const andamentoPorTipo = agruparPorTipo(ordenarPorAcolhimento(emAndamento))
-  const concluidasPorTipo = agruparPorTipo(ordenarPorAcolhimento(concluidasRecentes))
+  const andamentoPorTipo = agruparPorTipo(ordenarPorAcolhimento(emAndamento), chaveExibicao)
+  const concluidasPorTipo = agruparPorTipo(ordenarPorAcolhimento(concluidasRecentes), chaveExibicao)
   const concluidasPetGroups = ordenarPorAcolhimento(agruparPorPet(concluidasRecentes.filter(t => TIPOS_PERSONALIZADOS.includes(t.tipo))))
 
   function abrirTarefaMinhas(t: TarefaGrupo) {
@@ -1727,6 +1747,34 @@ export default function TarefasPage() {
                   )
                 })}
               </TipoGroup>
+              <TipoGroup tipo="entrega_pendente" count={(minhasPorTipo.entrega_pendente || []).length} defaultAberto={false}>
+                {(minhasPorTipo.entrega_pendente || []).map(t => {
+                  const contrato = t.contrato_id ? contratosPorId[t.contrato_id] : null
+                  const petNome = contrato?.pet_nome || t.petNome
+                  const tutorNome = contrato?.tutor_nome || t.tutorNome
+                  const enderecoCompleto = contrato ? [contrato.tutor_endereco, contrato.tutor_bairro, contrato.tutor_cidade].filter(Boolean).join(' - ') : ''
+                  const saldo = contrato ? calcularSaldoPendente(contrato).saldoTotal : 0
+                  return (
+                    <TarefaCard
+                      key={t.id}
+                      tipo="entrega_pendente"
+                      statusBadge={t.statusContrato}
+                      lacre={t.lacreContrato || t.lacre}
+                      petNome={petNome}
+                      tutorNome={tutorNome}
+                      quantidade={t.quantidade}
+                      linhaExtra={enderecoCompleto ? <p className="text-xs text-[var(--surface-500)] line-clamp-2 mt-0.5">📍 {enderecoCompleto}</p> : undefined}
+                      acao={(t.observacao_atribuicao || saldo > 0) ? (
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          {t.observacao_atribuicao && <span className="text-base" title="Tem pedido específico">📝</span>}
+                          {saldo > 0 && <span className="text-sm font-bold text-emerald-500" title={`Saldo em aberto: R$ ${saldo.toFixed(2)}`}>$</span>}
+                        </div>
+                      ) : undefined}
+                      onClick={() => abrirTarefaMinhas(t)}
+                    />
+                  )
+                })}
+              </TipoGroup>
               <TipoGroup tipo="ativacao_pv" count={(minhasPorTipo.ativacao_pv || []).length} defaultAberto={false}>
                 {(minhasPorTipo.ativacao_pv || []).map(t => (
                   <TarefaCard
@@ -1776,6 +1824,28 @@ export default function TarefasPage() {
                     <TarefaCard
                       key={t.id}
                       tipo={t.tipo}
+                      lacre={t.lacreContrato || t.lacre}
+                      petNome={t.petNome}
+                      tutorNome={t.tutorNome}
+                      quantidade={t.quantidade}
+                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)}{colaboradorSuffix(t)}</p>}
+                      acao={
+                        <button
+                          onClick={() => desfazerConclusao(t)}
+                          disabled={desfazendoId === t.id}
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white shrink-0 bg-red-600 disabled:opacity-50"
+                        >
+                          {desfazendoId === t.id ? '...' : 'Desfazer'}
+                        </button>
+                      }
+                    />
+                  ))}
+                </TipoGroup>
+                <TipoGroup tipo="entrega_pendente" count={(minhasConcluidasPorTipo.entrega_pendente || []).length} defaultAberto={false}>
+                  {(minhasConcluidasPorTipo.entrega_pendente || []).map(t => (
+                    <TarefaCard
+                      key={t.id}
+                      tipo="entrega_pendente"
                       lacre={t.lacreContrato || t.lacre}
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}
@@ -1859,6 +1929,18 @@ export default function TarefasPage() {
                     />
                   ))}
                 </TipoGroup>
+                <TipoGroup tipo="entrega_pendente" count={poolItensPorTipo.entrega_pendente.length} defaultAberto={false}>
+                  {poolItensPorTipo.entrega_pendente.map(item => (
+                    <PoolItem
+                      key={item.key}
+                      tipo="entrega_pendente"
+                      item={item}
+                      onAbrirAtribuir={poolItem => setAtribuirModalItem({ tipo: 'entrega', item: poolItem })}
+                      onMarcarFeito={poolItem => marcarFeitoDireto('entrega', { contratoId: poolItem.key, unidadeId: currentUnit!.id }, `entrega_pendente:${poolItem.key}`)}
+                      marcandoFeitoId={marcandoFeitoId}
+                    />
+                  ))}
+                </TipoGroup>
               </>
             )}
             </>
@@ -1880,7 +1962,7 @@ export default function TarefasPage() {
                     return (
                       <div key={t.id}>
                         <TarefaCard
-                          tipo={t.tipo}
+                          tipo={tipo}
                           lacre={t.lacreContrato || t.lacre}
                           petNome={t.petNome}
                           tutorNome={t.tutorNome}
@@ -1972,6 +2054,28 @@ export default function TarefasPage() {
                     <TarefaCard
                       key={t.id}
                       tipo={t.tipo}
+                      lacre={t.lacreContrato || t.lacre}
+                      petNome={t.petNome}
+                      tutorNome={t.tutorNome}
+                      quantidade={t.quantidade}
+                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · {nomePorId[t.atribuido_a] || '—'}{colaboradorSuffix(t)}</p>}
+                      acao={
+                        <button
+                          onClick={() => desfazerConclusao(t)}
+                          disabled={desfazendoId === t.id}
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white shrink-0 bg-red-600 disabled:opacity-50"
+                        >
+                          {desfazendoId === t.id ? '...' : 'Desfazer'}
+                        </button>
+                      }
+                    />
+                  ))}
+                </TipoGroup>
+                <TipoGroup tipo="entrega_pendente" count={(concluidasPorTipo.entrega_pendente || []).length} defaultAberto={false}>
+                  {(concluidasPorTipo.entrega_pendente || []).map(t => (
+                    <TarefaCard
+                      key={t.id}
+                      tipo="entrega_pendente"
                       lacre={t.lacreContrato || t.lacre}
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}

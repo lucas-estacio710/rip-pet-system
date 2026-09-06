@@ -101,14 +101,6 @@ export default function ResponsavelKPI({ range, comparePrev, modo }: Props) {
     const prev = computePreviousRange(range)
     Promise.all([
       supabase.from('funcionarios').select('id, nome, user_id').eq('unidade_id', currentUnit.id),
-      // SEM filtro de unidade: quem é responsável pelo acolhimento de um contrato de Santos
-      // pode ter o PRÓPRIO perfil cadastrado em outra unidade (super_admin, ou alguém que
-      // ajuda outra filial) — `responsavel_user_id` não tem nada a ver com onde a pessoa
-      // está cadastrada. Achado: Lucas (super_admin) tinha o perfil em São José dos Campos e
-      // aparecia "(sem responsável)" em contratos de Santos que ele mesmo atendeu. RLS de
-      // `perfis` já limita quem pode ler o quê (só o próprio, exceto super_admin) — filtrar
-      // por unidade aqui só quebrava esse caso, não protegia nada a mais.
-      supabase.from('perfis').select('user_id, nome, eh_posicao'),
       countPorFuncionario(supabase, currentUnit.id, modo, range.from, range.to),
       buscarResponsavelUserId(supabase, currentUnit.id, modo, range.from, range.to),
       comparePrev
@@ -117,11 +109,32 @@ export default function ResponsavelKPI({ range, comparePrev, modo }: Props) {
       comparePrev
         ? buscarResponsavelUserId(supabase, currentUnit.id, modo, prev.from, prev.to)
         : Promise.resolve([] as { responsavel_user_id: string; executado_por_funcionario_id: string | null }[]),
-    ]).then(([funcRes, perfisRes, curr, currResp, prevC, prevRespC]) => {
+    ]).then(async ([funcRes, curr, currResp, prevC, prevRespC]) => {
       if (cancelled) return
       const funcionarios = (funcRes.data ?? []) as unknown as { id: string; nome: string; user_id: string | null }[]
       const funcionarioPorId = new Map(funcionarios.map(f => [f.id, f]))
-      const perfis = (perfisRes.data ?? []) as unknown as { user_id: string; nome: string | null; eh_posicao?: boolean }[]
+
+      // SEM filtro de unidade: quem é responsável pelo acolhimento de um contrato de Santos
+      // pode ter o PRÓPRIO perfil cadastrado em outra unidade (super_admin, ou alguém que
+      // ajuda outra filial) — `responsavel_user_id` não tem nada a ver com onde a pessoa
+      // está cadastrada. Achado: Lucas (super_admin) tinha o perfil em São José dos Campos e
+      // aparecia "(sem responsável)" em contratos de Santos que ele mesmo atendeu.
+      //
+      // NÃO dá pra fazer `SELECT * FROM perfis` direto: a RLS de `perfis` só deixa cada login
+      // ler o PRÓPRIO perfil, mesmo sendo super_admin (a policy promete o contrário, mas na
+      // prática o EXISTS auto-referente nunca resolve — mesma armadilha da RPC
+      // `listar_atribuiveis_operacional`, mig 118). `resolver_nomes_perfis` (mig 139) é a RPC
+      // dedicada a isso — só pede a lista de IDs que precisa, sem exigir super_admin.
+      const idsNecessarios = Array.from(new Set([
+        ...currResp.map(r => r.responsavel_user_id),
+        ...prevRespC.map(r => r.responsavel_user_id),
+        ...funcionarios.filter(f => f.user_id).map(f => f.user_id as string),
+      ]))
+      const { data: perfisRes } = idsNecessarios.length > 0
+        ? await supabase.rpc('resolver_nomes_perfis' as never, { p_user_ids: idsNecessarios } as never) as { data: { user_id: string; nome: string | null; eh_posicao: boolean | null }[] | null }
+        : { data: [] as { user_id: string; nome: string | null; eh_posicao: boolean | null }[] }
+      if (cancelled) return
+      const perfis = (perfisRes ?? []) as unknown as { user_id: string; nome: string | null; eh_posicao?: boolean }[]
       const nomesPerfis = new Map(perfis.map(p => [p.user_id, p.nome]))
       const ehPosicaoPorUserId = new Map(perfis.map(p => [p.user_id, !!p.eh_posicao]))
 

@@ -398,11 +398,6 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
               <p className="text-sm text-[var(--surface-500)]">
                 {contrato.pet_nome} &middot; {tutorNome}
               </p>
-              {temOperacional && (
-                <p className="text-[10px] text-amber-500 mt-0.5">
-                  Isso vai atribuir a remoção — a conclusão (data/hora, lacre) acontece depois, em /tarefas.
-                </p>
-              )}
             </div>
           </div>
           <button

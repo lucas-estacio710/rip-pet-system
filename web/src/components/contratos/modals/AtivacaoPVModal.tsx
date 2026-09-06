@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { X } from 'lucide-react'
+import { X, MapPin, Navigation } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 
@@ -33,6 +33,31 @@ type ContratoMinimal = {
   tutor?: { nome: string } | null
 }
 
+// Info de acolhimento (pet/tutor/local/endereço) que a remoção normal (`tarefas/page.tsx`,
+// tipo 'remocao') já mostra antes do formulário — achado faltando aqui (mig 138 nasceu só
+// com o formulário de conclusão): quem vai buscar o pet de um preventivo abria a tarefa e
+// não tinha nem o endereço, nem Waze/Maps pra chegar lá. Busca à parte (não vem do prop
+// `contrato`, que os 3 chamadores passam com formatos diferentes) — mesmo padrão
+// "self-contido" do resto do modal. Sem "Gerar PDF do Contrato": aqui o contrato já existe
+// há tempos, não é o documento recém-fechado da remoção emergencial.
+type InfoAcolhimento = {
+  pet_especie: string | null
+  pet_raca: string | null
+  pet_cor: string | null
+  pet_peso: number | null
+  local_coleta: string | null
+  clinica_coleta: string | null
+  estab: { nome: string } | null
+  // `contratos` NÃO tem tutor_numero/tutor_complemento/tutor_estado como colunas próprias
+  // (achado testando: 42703, coluna não existe) — `tutor_endereco` já vem com número e
+  // complemento embutidos no texto (ex: "Avenida X, 342 - casa 02").
+  tutor_endereco: string | null
+  tutor_bairro: string | null
+  tutor_cidade: string | null
+  tutor_telefone: string | null
+  tutor_telefone_nome: string | null
+}
+
 type Props = {
   isOpen: boolean
   onClose: () => void
@@ -47,6 +72,7 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess }
   const [tarefaId, setTarefaId] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(true)
   const [funcionarios, setFuncionarios] = useState<{ id: string; nome: string }[]>([])
+  const [info, setInfo] = useState<InfoAcolhimento | null>(null)
 
   const [lacre, setLacre] = useState('')
   const [modoData, setModoData] = useState<'agora' | 'outra'>('agora')
@@ -86,11 +112,44 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess }
       supabase.from('funcionarios').select('id, nome').eq('unidade_id', unidadeId).eq('ativo', true).order('nome')
         .then(({ data }) => setFuncionarios((data || []) as { id: string; nome: string }[]))
     }
+
+    supabase.from('contratos')
+      .select('pet_especie, pet_raca, pet_cor, pet_peso, local_coleta, clinica_coleta, estab:estabelecimentos!estabelecimento_id(nome), tutor_endereco, tutor_bairro, tutor_cidade, tutor_telefone, tutor_telefone_nome')
+      .eq('id', contrato.id)
+      .maybeSingle()
+      .then(({ data }) => setInfo((data as unknown as InfoAcolhimento | null) || null))
   }, [isOpen, contrato.id, unidadeId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!isOpen) return null
 
   const podeConcluir = !!lacre.trim() && (modoData === 'agora' || !!dataHoraManual) && (!isPosicao || !!executadoPorFuncionarioId)
+
+  // Onde buscar o pet — mesma lógica da remoção normal (`tarefas/page.tsx`), adaptada pros
+  // campos do CONTRATO (aqui não tem ficha/op_dados, o local já foi decidido na atribuição).
+  const petDetalhe = info ? [info.pet_especie, info.pet_raca, info.pet_cor, info.pet_peso ? `${info.pet_peso}kg` : null].filter(Boolean).join(' · ') : ''
+  let localLabel = ''
+  let enderecoNavegavel = ''
+  let semTraslado = false
+  if (info) {
+    const enderecoResidencia = info.tutor_endereco
+      ? [info.tutor_endereco, info.tutor_bairro, info.tutor_cidade].filter(Boolean).join(' - ')
+      : ''
+    if (info.local_coleta === 'Clínica') {
+      localLabel = 'Clínica / Hospital'
+      enderecoNavegavel = info.estab?.nome || info.clinica_coleta || ''
+    } else if (info.local_coleta === 'Outro') {
+      localLabel = 'Outro endereço'
+      enderecoNavegavel = info.clinica_coleta || ''
+    } else if (info.local_coleta === 'Unidade') {
+      localLabel = 'Unidade R.I.P. Pet'
+      semTraslado = true
+    } else {
+      localLabel = 'Residência'
+      enderecoNavegavel = enderecoResidencia
+    }
+  }
+  const wazeUrl = enderecoNavegavel ? `https://waze.com/ul?q=${encodeURIComponent(enderecoNavegavel)}&navigate=yes` : null
+  const gmapsUrl = enderecoNavegavel ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(enderecoNavegavel)}` : null
 
   async function concluir() {
     if (!podeConcluir) return
@@ -110,7 +169,21 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess }
       if (errContrato) throw errContrato
 
       const { data: { user } } = await supabase.auth.getUser()
-      const nomeExecutor = isPosicao ? funcionarios.find(f => f.id === executadoPorFuncionarioId)?.nome : null
+      // Quem fez de verdade: se é posição, o colaborador escolhido; senão, o próprio login que
+      // está concluindo (não dá pra ler o perfil de OUTRA pessoa aqui — mesma armadilha de RLS
+      // resolvida em contratos/[id]/page.tsx — mas o PRÓPRIO perfil sempre pode, por isso não
+      // precisa de RPC neste caso). Achado testando: sem isso, a observação e o "por X" no
+      // detalhe do contrato ficavam mudos pra qualquer login normal (não-posição).
+      let nomeExecutor: string | null = null
+      if (isPosicao) {
+        nomeExecutor = funcionarios.find(f => f.id === executadoPorFuncionarioId)?.nome || null
+      } else if (user?.id) {
+        const { data: meuPerfil } = await supabase.from('perfis').select('nome').eq('user_id', user.id).limit(1).maybeSingle() as { data: { nome: string | null } | null }
+        nomeExecutor = meuPerfil?.nome || user.email || null
+      }
+      const sufixoExecutor = nomeExecutor
+        ? (isPosicao ? ` (colaborador na posição: ${nomeExecutor})` : ` — por ${nomeExecutor}`)
+        : ''
 
       if (tarefaId) {
         await supabase.from('tarefas_operacionais').update({
@@ -128,7 +201,7 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess }
         entidade_nome: contrato.pet_nome,
         campo: 'status',
         campo_label: 'Ativação de Preventivo concluída',
-        valor_novo: `Remoção concluída — lacre ${lacre.trim()}${nomeExecutor ? ` (colaborador na posição: ${nomeExecutor})` : ''}`,
+        valor_novo: `Remoção concluída — lacre ${lacre.trim()}${sufixoExecutor}`,
         tipo: 'conclusao',
         alterado_por: user?.id ?? null,
         alterado_por_email: user?.email ?? null,
@@ -138,7 +211,11 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess }
       const { data: tipoTarefaObs } = await supabase.from('tarefa_tipos').select('id').eq('nome', 'Observação da Unidade').maybeSingle() as { data: { id: string } | null }
       await supabase.from('tarefas').insert({
         contrato_id: contrato.id,
-        descricao: `Ativação de Preventivo concluída — lacre ${lacre.trim()}${nomeExecutor ? ` (colaborador na posição: ${nomeExecutor})` : ''}.${anotacao.trim() ? ` Nota: ${anotacao.trim()}` : ''}`,
+        // `unidade_id` é o que faz o badge da observação mostrar a sigla da unidade (ex:
+        // "ST") em vez de "??" — achado testando: sem isso, `ObservacoesCard.tsx` não acha
+        // `tarefa.unidade` no join e cai no fallback.
+        unidade_id: unidadeId,
+        descricao: `Ativação de Preventivo concluída — lacre ${lacre.trim()}${sufixoExecutor}.${anotacao.trim() ? ` Nota: ${anotacao.trim()}` : ''}`,
         tipo_id: tipoTarefaObs?.id || null,
         importante: true,
       } as never)
@@ -179,18 +256,43 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess }
           <div className="p-6 text-center text-sm text-[var(--surface-400)]">Carregando...</div>
         ) : (
           <div className="p-4 space-y-3">
+            {info && (
+              <div className="p-3 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)] space-y-1">
+                <p className="text-sm"><strong className="text-[var(--surface-700)]">Pet:</strong> {contrato.pet_nome?.toUpperCase()}</p>
+                {petDetalhe && <p className="text-xs text-[var(--surface-500)]">{petDetalhe}</p>}
+                <p className="text-sm"><strong className="text-[var(--surface-700)]">Tutor:</strong> {tutorNome}</p>
+                <p className="text-sm"><strong className="text-[var(--surface-700)]">Contato:</strong> {info.tutor_telefone_nome || tutorNome}{info.tutor_telefone ? ` · ${info.tutor_telefone}` : ''}</p>
+                <p className="text-sm"><strong className="text-[var(--surface-700)]">Local:</strong> {localLabel}</p>
+                {enderecoNavegavel && <p className="text-sm"><strong className="text-[var(--surface-700)]">Endereço:</strong> {enderecoNavegavel}</p>}
+                {semTraslado && <p className="text-xs text-[var(--surface-500)]">Tutor já trouxe o pet até a unidade — sem deslocamento.</p>}
+              </div>
+            )}
+
+            {(wazeUrl || gmapsUrl) && (
+              <div className="grid grid-cols-2 gap-2">
+                {wazeUrl && (
+                  <a href={wazeUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 py-2.5 rounded-lg bg-sky-600 text-white text-sm font-semibold">
+                    <MapPin className="h-4 w-4" />Waze
+                  </a>
+                )}
+                {gmapsUrl && (
+                  <a href={gmapsUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold">
+                    <Navigation className="h-4 w-4" />Google Maps
+                  </a>
+                )}
+              </div>
+            )}
+
             <div>
               <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Número do Lacre <span className="text-red-400">*</span></label>
               <input type="text" value={lacre} onChange={e => setLacre(e.target.value)} placeholder="Número do lacre" className="input text-sm w-full" />
             </div>
 
             <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-medium text-[var(--surface-600)]">Data e Hora do Acolhimento <span className="text-red-400">*</span></label>
-                <div className="flex items-center gap-1 bg-[var(--surface-100)] rounded px-1">
-                  <button type="button" onClick={() => setModoData('agora')} className={`px-2 py-0.5 rounded text-[11px] transition-colors ${modoData === 'agora' ? 'bg-[var(--surface-0)] text-emerald-500 font-medium' : 'text-[var(--surface-400)]'}`}>Agora</button>
-                  <button type="button" onClick={() => setModoData('outra')} className={`px-2 py-0.5 rounded text-[11px] transition-colors ${modoData === 'outra' ? 'bg-[var(--surface-0)] text-emerald-500 font-medium' : 'text-[var(--surface-400)]'}`}>Outra</button>
-                </div>
+              <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Data e Hora do Acolhimento <span className="text-red-400">*</span></label>
+              <div className="flex items-center gap-1 bg-[var(--surface-100)] rounded px-1 w-fit mb-1.5">
+                <button type="button" onClick={() => setModoData('agora')} className={`px-2 py-0.5 rounded text-[11px] transition-colors ${modoData === 'agora' ? 'bg-[var(--surface-0)] text-emerald-500 font-medium' : 'text-[var(--surface-400)]'}`}>Agora</button>
+                <button type="button" onClick={() => setModoData('outra')} className={`px-2 py-0.5 rounded text-[11px] transition-colors ${modoData === 'outra' ? 'bg-[var(--surface-0)] text-emerald-500 font-medium' : 'text-[var(--surface-400)]'}`}>Outra</button>
               </div>
               {modoData === 'outra' && (
                 <input type="datetime-local" step="1800" value={dataHoraManual} onChange={e => setDataHoraManual(e.target.value)} className="input text-sm w-full" />
