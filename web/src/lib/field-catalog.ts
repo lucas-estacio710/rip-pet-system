@@ -111,21 +111,23 @@ export const OBJETOS: ChildItemDef[] = [
 // ============================================
 export const CAMPOS_BOTOES: ChildItemDef[] = [
   // --- PIPELINE ---
-  { key: 'btn_farois', tela: 'tela_pipeline', label: 'Faróis Pipeline', desc: 'Todos os faróis do kanban (pelinho, urna, certificado, foto, pagamento, protocolo, rescaldo)', modo: 'toggle' },
-  { key: 'btn_mensagens', tela: 'tela_pipeline', label: 'Mensagens Personalizadas', desc: '3-way: Pipeline ↔ Contrato. Pet Grato, Chegamos, Chegaram, Finalizadora', modo: 'toggle' },
-  { key: 'btn_alteracao_fase', tela: 'tela_pipeline', label: 'Botões Alteração Fase', desc: '3-way: Pipeline ↔ Contrato. Ativar, Pinda, Marcar Entregue', modo: 'toggle' },
-  { key: 'btn_fluxo_retorno', tela: 'tela_pipeline', label: 'Fluxo Retorno', desc: 'Indicador de complexidade de montagem', modo: 'toggle' },
   { key: 'btn_ordenar_cep', tela: 'tela_pipeline', label: 'Ordenar por CEP (proximidade)', desc: 'Toggle 📏 CEP na barra de ordenação: ordena por |CEP do contrato − CEP da unidade| (mais perto primeiro). Exige unidades.cep preenchido (mig 102). Piloto Santos — hidden nas demais unidades via seed da mig 102.', modo: 'toggle' },
   { key: 'btn_bypass', tela: 'tela_pipeline', label: 'Bypass (B)', desc: 'Finalizar contrato pulando encaminhamento e GC. Temporário.', modo: 'toggle' },
 
   // --- PREVENTIVOS ---
   { key: 'btn_farol_pagamento', tela: 'tela_preventivos', label: 'Farol de Pagamento', desc: 'Indicador Pago/Parcial/A pagar no card de preventivo', modo: 'toggle' },
 
-  // --- CONTRATO DETALHE (3-way: mesma key = mesmo toggle do pipeline) ---
-  { key: 'btn_farois', tela: 'tela_contrato', label: 'Faróis Pipeline', desc: '3-way: Pipeline ↔ Contrato', modo: 'toggle' },
-  { key: 'btn_mensagens', tela: 'tela_contrato', label: 'Mensagens Personalizadas', desc: '3-way: Pipeline ↔ Contrato', modo: 'toggle' },
-  { key: 'btn_alteracao_fase', tela: 'tela_contrato', label: 'Botões Alteração Fase', desc: '3-way: Pipeline ↔ Contrato', modo: 'toggle' },
-  { key: 'btn_fluxo_retorno', tela: 'tela_contrato', label: 'Fluxo Retorno', desc: '3-way: Pipeline ↔ Contrato. Complexidade + Protocolo', modo: 'toggle' },
+  // --- CONTRATO DETALHE ---
+  // ⚠️ Os quatro primeiros valem TAMBÉM no pipeline. Eles tinham entrada dupla
+  // (uma aqui, outra em tela_pipeline) com a ideia de permitir esconder o botão
+  // num lugar e mostrar no outro — o "3-way". Isso NUNCA funcionou: o hook
+  // `useFieldPermission` recebe a tela como `_tela` e a ignora, buscando só pelo
+  // campo. Com as duas entradas gravando linhas diferentes, o valor exibido saía
+  // por sorteio (ver mig 140). Uma entrada só, um controle só, os dois lugares.
+  { key: 'btn_farois', tela: 'tela_contrato', label: 'Faróis (pipeline e contrato)', desc: 'Todos os faróis: pelinho, urna, certificado, foto, pagamento, protocolo, rescaldo. Vale nos DOIS lugares', modo: 'toggle' },
+  { key: 'btn_mensagens', tela: 'tela_contrato', label: 'Mensagens Personalizadas', desc: 'Pet Grato, Chegamos, Chegaram, Finalizadora. Vale nos DOIS lugares (pipeline e contrato)', modo: 'toggle' },
+  { key: 'btn_alteracao_fase', tela: 'tela_contrato', label: 'Botões Alteração Fase', desc: 'Ativar, Pinda, Marcar Entregue. Vale nos DOIS lugares (pipeline e contrato)', modo: 'toggle' },
+  { key: 'btn_fluxo_retorno', tela: 'tela_contrato', label: 'Fluxo Retorno', desc: 'Indicador de complexidade de montagem + Protocolo. Vale nos DOIS lugares (pipeline e contrato)', modo: 'toggle' },
   { key: 'btn_compartilhar', tela: 'tela_contrato', label: 'Compartilhar', desc: 'Botão 🔄 compartilhar remoção/entrega com outra unidade', modo: 'toggle' },
   { key: 'valor_plano', tela: 'tela_contrato', label: 'Valor do Plano', desc: 'Edição inline (lápis) do valor_plano no card Financeiro' },
   { key: 'pagamento_completo', tela: 'tela_contrato', label: 'Pagamento Completo', desc: 'Detalhes avançados no modal de pagamento: bandeira do cartão + nº de identificação da transação (maquininha). Oculto = modo Pagamento Simples (só método e valor).', modo: 'toggle' },
