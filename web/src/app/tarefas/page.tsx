@@ -1210,9 +1210,10 @@ export default function TarefasPage() {
       // realmente vai fazer o trabalho — senão a Tratativa mostra um nome errado.
       // Direto por user_id (contratos.responsavel_user_id, mig 123) — não passa mais por
       // funcionarios pra isso.
-      // Ativação de Preventivo (mig 138): mesma sincronia, mas direto em contratos —
-      // AtivarModal grava responsavel_user_id no contrato (não numa ficha, não existe aqui).
-      if (tarefa.tipo === 'ativacao_pv' && tarefa.contratoIdResolvido) {
+      // Ativação de Preventivo (mig 138) e Acolhimento NOVO (fase 2, TratativaModal): mesma
+      // sincronia, mas direto em contratos — os dois já nascem com o contrato pronto (não
+      // existe ficha nesse ponto), diferente da remoção ANTIGA (ficha_id-based) logo abaixo.
+      if ((tarefa.tipo === 'ativacao_pv' || (tarefa.tipo === 'remocao' && !tarefa.ficha_id)) && tarefa.contratoIdResolvido) {
         await supabase.from('contratos').update({
           responsavel_user_id: novoId, funcionario_id: null,
         } as never).eq('id', tarefa.contratoIdResolvido)
@@ -2183,7 +2184,7 @@ export default function TarefasPage() {
       {/* Ativação de Preventivo (mig 138) — conclusão vive num modal próprio e self-contido
           (AtivacaoPVModal), não no popup genérico abaixo: resolve sozinho a tarefa pendente
           por contrato_id, sem precisar de fichasPorId (não tem ficha nenhuma envolvida). */}
-      {tarefaAberta && tarefaAberta.tipo === 'ativacao_pv' ? (
+      {tarefaAberta && (tarefaAberta.tipo === 'ativacao_pv' || (tarefaAberta.tipo === 'remocao' && !!tarefaAberta.contrato_id)) ? (
         <AtivacaoPVModal
           isOpen
           onClose={fecharModalTarefa}
@@ -2193,6 +2194,7 @@ export default function TarefasPage() {
             tutor_nome: tarefaAberta.tutorNome,
             unidade_id: tarefaAberta.unidade_id,
           }}
+          tarefaTipo={tarefaAberta.tipo === 'ativacao_pv' ? 'ativacao_pv' : 'remocao'}
           onSuccess={() => {
             setTarefaAberta(null)
             carregarMinhas()

@@ -4258,7 +4258,7 @@ ${petNome}`
                       <button
                         onClick={() => abrirFinalizarAtivacaoPV(contrato)}
                         className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 transition-colors"
-                        title="Pet Acolhido — finalizar Ativação de Preventivo"
+                        title={`Pet Acolhido — finalizar ${contrato.tipo_plano === 'preventivo' ? 'Ativação de Preventivo' : 'Acolhimento'}`}
                       >
                         <span>📋</span>
                         <span className="hidden sm:inline">Pet Acolhido</span>
@@ -5617,6 +5617,7 @@ ${petNome}`
           isOpen={!!finalizarAtivacaoPVContrato}
           onClose={() => setFinalizarAtivacaoPVContrato(null)}
           contrato={finalizarAtivacaoPVContrato}
+          tarefaTipo={finalizarAtivacaoPVContrato.tipo_plano === 'preventivo' ? 'ativacao_pv' : 'remocao'}
           onSuccess={(updated) => {
             setContratos(prev => prev.map(c => c.id === updated.id ? { ...c, ...updated } : c))
           }}

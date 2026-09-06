@@ -67,7 +67,15 @@ export async function criarContratoDeFicha(
   // Funcionário comum (não promovido) mantém o comportamento de sempre ("sem lacre
   // provisoriamente"). Decisão de produto: essa exigência é parte do módulo pago de
   // Operacional/motorista, não vale de graça pra quem não tem o módulo.
-  responsavelEhOperacional = false
+  responsavelEhOperacional = false,
+  // fase 2 (EM/TratativaModal, mesmo mecanismo do Ativar Preventivo/mig 138): true faz o
+  // contrato nascer com aguardando_acolhimento=true e data_acolhimento/numero_lacre NULOS —
+  // essas 2 perguntas viram conclusão de tarefa (AtivacaoPVModal), não mais requisito pra
+  // criar o contrato. Local/Responsável continuam obrigatórios sempre. Só quem chama passando
+  // true é TratativaModal.tsx (unidade com cb_operacional); o gatilho de /tarefas
+  // (concluirRemocao) nunca passa isso — ali o contrato só nasce na hora que lacre/data JÁ
+  // foram preenchidos.
+  aguardarAcolhimento = false
 ): Promise<{ contratoId: string }> {
   if (ficha.contrato_id) {
     throw new ContratoValidationError('Esta ficha já virou contrato')
@@ -116,14 +124,16 @@ export async function criarContratoDeFicha(
   // quando o responsável é um Operacional de verdade (ver parâmetro `responsavelEhOperacional`).
   const telefoneOk = telefoneConfirmado || (usarTelefone2ComoPrincipal && !!telefone2 && !!telefone2Nome)
   const fonteOk = !!(ficha.como_conheceu && ficha.como_conheceu.length > 0)
-  const lacreOk = responsavelEhOperacional ? !!lacre.trim() : (semLacre || !!lacre.trim())
+  const lacreOk = aguardarAcolhimento ? true : (responsavelEhOperacional ? !!lacre.trim() : (semLacre || !!lacre.trim()))
   const faltam: string[] = []
   if (!telefoneOk) faltam.push('Telefone')
   if (!isPreventivo) {
     if (!localColeta) faltam.push('Local de Acolhimento')
     if (!funcionarioId && !responsavelUserId) faltam.push('Responsável')
-    if (!dataHoraAcolhimento) faltam.push('Data/Hora')
-    if (!lacreOk) faltam.push('Lacre')
+    if (!aguardarAcolhimento) {
+      if (!dataHoraAcolhimento) faltam.push('Data/Hora')
+      if (!lacreOk) faltam.push('Lacre')
+    }
   }
   if (!valorPlano.trim()) faltam.push('Valor do Plano')
   if (!fonteOk) faltam.push('Como nos conheceu')
@@ -256,7 +266,8 @@ export async function criarContratoDeFicha(
     fonte_conhecimento_ids: fonteConhecimentoIds.length > 0 ? fonteConhecimentoIds : null,
     fonte_outro_especificar: ficha.como_conheceu?.includes('Outro') ? (ficha.outro_especificar?.trim() || null) : null,
     data_contrato: dataContrato,
-    data_acolhimento: dataHoraAcolhimento ? new Date(dataHoraAcolhimento).toISOString() : null,
+    data_acolhimento: aguardarAcolhimento ? null : (dataHoraAcolhimento ? new Date(dataHoraAcolhimento).toISOString() : null),
+    aguardando_acolhimento: aguardarAcolhimento,
     valor_plano: valorPlano ? parseFloat(valorPlano) : null,
     desconto_plano_unificado: (() => {
       const d = parseFloat(descontoPreVenda) || 0
@@ -284,7 +295,7 @@ export async function criarContratoDeFicha(
       localColeta === 'residencia' ? ficha.cep
       : localColeta === 'clinica' ? (estabEndereco?.cep || null)
       : null,
-    numero_lacre: lacre.trim() || null,
+    numero_lacre: aguardarAcolhimento ? null : (lacre.trim() || null),
     seguradora: temSeguradora && seguradoraNome.trim() ? seguradoraNome.trim() : null,
     observacoes: ficha.observacoes || null,
     descricao_contrato: detalhamentoPlano.trim() || null,

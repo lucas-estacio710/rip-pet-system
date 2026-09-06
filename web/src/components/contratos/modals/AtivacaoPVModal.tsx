@@ -23,6 +23,12 @@ import { useUnit } from '@/contexts/UnitContext'
 // de Atividades, ou pro gerente/concierge regularizar por quem executou).
 // Resolve a tarefa pendente sozinho (por `contrato_id`) — não precisa que o
 // chamador já saiba o id da linha em `tarefas_operacionais`.
+//
+// Fase 2 (TratativaModal/EM): generalizado via `tarefaTipo` pra também concluir
+// tarefas `remocao` NOVAS (contrato_id-based, nascidas direto no "Iniciar
+// Fluxo" — não confundir com a `remocao` ANTIGA, ficha_id-based, que continua
+// concluindo pelo popup genérico de /tarefas). Default `'ativacao_pv'` — zero
+// mudança de comportamento pra quem já chamava sem passar essa prop.
 // ============================================================================
 
 type ContratoMinimal = {
@@ -63,11 +69,14 @@ type Props = {
   onClose: () => void
   contrato: ContratoMinimal
   onSuccess?: (updated: { id: string; data_acolhimento: string; numero_lacre: string | null; aguardando_acolhimento: false }) => void
+  tarefaTipo?: 'ativacao_pv' | 'remocao'
 }
 
-export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess }: Props) {
+export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, tarefaTipo = 'ativacao_pv' }: Props) {
   const supabase = createClient()
   const { currentUnit, isPosicao } = useUnit()
+  const rotulo = tarefaTipo === 'ativacao_pv' ? 'Ativação de Preventivo' : 'Acolhimento'
+  const concluidoTexto = tarefaTipo === 'ativacao_pv' ? 'concluída' : 'concluído'
 
   const [tarefaId, setTarefaId] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(true)
@@ -100,7 +109,7 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess }
       .from('tarefas_operacionais')
       .select('id')
       .eq('contrato_id', contrato.id)
-      .eq('tipo', 'ativacao_pv')
+      .eq('tipo', tarefaTipo)
       .eq('status', 'pendente')
       .maybeSingle()
       .then(({ data }: { data: { id: string } | null }) => {
@@ -118,7 +127,7 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess }
       .eq('id', contrato.id)
       .maybeSingle()
       .then(({ data }) => setInfo((data as unknown as InfoAcolhimento | null) || null))
-  }, [isOpen, contrato.id, unidadeId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isOpen, contrato.id, unidadeId, tarefaTipo]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!isOpen) return null
 
@@ -200,7 +209,7 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess }
         entidade_id: contrato.id,
         entidade_nome: contrato.pet_nome,
         campo: 'status',
-        campo_label: 'Ativação de Preventivo concluída',
+        campo_label: `${rotulo} ${concluidoTexto}`,
         valor_novo: `Remoção concluída — lacre ${lacre.trim()}${sufixoExecutor}`,
         tipo: 'conclusao',
         alterado_por: user?.id ?? null,
@@ -215,10 +224,31 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess }
         // "ST") em vez de "??" — achado testando: sem isso, `ObservacoesCard.tsx` não acha
         // `tarefa.unidade` no join e cai no fallback.
         unidade_id: unidadeId,
-        descricao: `Ativação de Preventivo concluída — lacre ${lacre.trim()}${sufixoExecutor}.${anotacao.trim() ? ` Nota: ${anotacao.trim()}` : ''}`,
+        descricao: `${rotulo} ${concluidoTexto} — lacre ${lacre.trim()}${sufixoExecutor}.${anotacao.trim() ? ` Nota: ${anotacao.trim()}` : ''}`,
         tipo_id: tipoTarefaObs?.id || null,
         importante: true,
       } as never)
+
+      // Notificação de conclusão pro gerente/concierge da unidade — lacuna achada testando
+      // (toda outra conclusão em /tarefas já notifica; este modal nunca notificou, nem no PV
+      // nem agora no Acolhimento novo). Mesmo padrão de `notificarConclusaoUnidade`
+      // (tarefas/page.tsx) mas duplicado aqui, porque aquela função é privada daquele arquivo
+      // e este modal é self-contido de propósito (chamado de 3 telas diferentes).
+      if (unidadeId) {
+        try {
+          const { data: atribuiveis } = await supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: unidadeId } as never) as { data: { user_id: string; role: string }[] | null }
+          const destinatarios = (atribuiveis || [])
+            .filter(p => (p.role === 'gerente' || p.role === 'operador') && p.user_id !== user?.id)
+            .map(p => p.user_id)
+          if (destinatarios.length > 0) {
+            await fetch('/api/push/send', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userIds: destinatarios, title: '✅ Tarefa concluída', body: `${rotulo} — ${contrato.pet_nome}`, url: '/tarefas' }),
+            })
+          }
+        } catch { /* push é best-effort — não trava o fluxo se falhar */ }
+      }
 
       onSuccess?.({ id: contrato.id, data_acolhimento: dataHoraIso, numero_lacre: lacre.trim(), aguardando_acolhimento: false })
       onClose()
@@ -243,7 +273,7 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess }
           <div className="flex items-center gap-2">
             <span className="text-xl">📋</span>
             <div>
-              <h3 className="font-bold text-[var(--surface-800)]">Finalizar Ativação de Preventivo</h3>
+              <h3 className="font-bold text-[var(--surface-800)]">Finalizar {rotulo}</h3>
               <p className="text-sm text-[var(--surface-500)]">{contrato.pet_nome} &middot; {tutorNome}</p>
             </div>
           </div>

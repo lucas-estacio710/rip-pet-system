@@ -711,22 +711,12 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
 
       if (errUpdate) throw new Error(`Erro ao salvar: ${errUpdate.message}`)
 
-      // Responsável é um Operacional de verdade → vira atribuição de tarefa de remoção
-      // (a própria escolha do responsável JÁ é a atribuição — sem tela de pool separada).
-      if (responsavelEscolhidoEhOperacional && responsavelUserId) {
-        const { data: tarefaExistente } = await supabase.from('tarefas_operacionais')
-          .select('id').eq('ficha_id', ficha.id).eq('status', 'pendente').maybeSingle() as { data: { id: string } | null }
-        if (!tarefaExistente) {
-          await supabase.from('tarefas_operacionais').insert({
-            unidade_id: ficha.unidade_id,
-            tipo: 'remocao',
-            ficha_id: ficha.id,
-            atribuido_a: responsavelUserId,
-            atribuido_por: user?.id || null,
-          } as never)
-          await notificarAtribuicaoRemocao(responsavelUserId, ficha.nome_pet || 'um pet')
-        }
-      }
+      // 🔴 Fase 2 (mesmo mecanismo do Ativar Preventivo/mig 138): NÃO despacha mais o
+      // Responsável aqui. Escolher um nome em "Processar"/"Salvar Pendências" (os botões
+      // permissivos, que aceitam local/valor ainda provisórios) despachava a pessoa ANTES do
+      // negócio estar fechado com o cliente — o "problema mais fundo" identificado na fase 1.
+      // A atribuição de verdade agora só acontece dentro de `criarContrato()` ("Iniciar
+      // Fluxo"), quando telefone+local+responsável+valor+fonte já estão TODOS confirmados.
 
       toast('Ficha processada!', 'success')
       onClose('processada')
@@ -790,6 +780,11 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         usarTelefone2ComoPrincipal,
       }
 
+      // Fase 2 (mesmo mecanismo do Ativar Preventivo/mig 138): unidade com cb_operacional faz
+      // o contrato nascer "aguardando acolhimento" — completo em tudo, menos Data/Hora e
+      // Lacre, que viram pergunta da CONCLUSÃO da tarefa (não desta tela).
+      const aguardarAcolhimento = temOperacional && !isPreventivo
+
       const { contratoId } = await criarContratoDeFicha(
         supabase,
         { ...f, op_dados: opDadosParaContrato },
@@ -800,8 +795,25 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
           modulos_ativos: currentUnit?.modulos_ativos || [],
         },
         userName || 'Operador',
-        responsavelEscolhidoEhOperacional
+        responsavelEscolhidoEhOperacional,
+        aguardarAcolhimento
       )
+
+      // A ATRIBUIÇÃO de verdade (fase 2): contrato já nasceu completo (valor, local,
+      // responsável), só falta acolher. Cria a tarefa contrato_id-based (contrato já existe,
+      // diferente da tarefa ficha_id-based antiga) e notifica quem foi escolhido — mesmo
+      // padrão do AtivarModal na Ativação de Preventivo.
+      if (aguardarAcolhimento && responsavelUserId) {
+        const { data: { user: userAtual } } = await supabase.auth.getUser()
+        await supabase.from('tarefas_operacionais').insert({
+          unidade_id: ficha.unidade_id,
+          tipo: 'remocao',
+          contrato_id: contratoId,
+          atribuido_a: responsavelUserId,
+          atribuido_por: userAtual?.id || null,
+        } as never)
+        await notificarAtribuicaoRemocao(responsavelUserId, ficha.nome_pet || 'um pet')
+      }
 
       // Se a ficha tinha remoção pendente pro Operacional (Responsável era Operacional —
       // processarFicha() já tinha criado a tarefa), fecha ela aqui: o contrato acabou de
@@ -838,7 +850,12 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         } as never)
       }
 
-      toast('Contrato criado com sucesso!', 'success')
+      toast(
+        aguardarAcolhimento
+          ? `Contrato criado — aguardando confirmação da remoção por ${atribuiveis.find(a => a.user_id === responsavelUserId)?.nome || 'alguém'}.`
+          : 'Contrato criado com sucesso!',
+        'success'
+      )
       onSuccess(contratoId)
     } catch (err: unknown) {
       const message = err instanceof ContratoValidationError ? err.message : (err instanceof Error ? err.message : 'Erro desconhecido')
@@ -883,21 +900,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       }
       await supabase.from('fichas').update({ op_dados: opDados } as never).eq('id', ficha.id)
 
-      if (responsavelEscolhidoEhOperacional && responsavelUserId) {
-        const { data: tarefaExistente } = await supabase.from('tarefas_operacionais')
-          .select('id').eq('ficha_id', ficha.id).eq('status', 'pendente').maybeSingle() as { data: { id: string } | null }
-        if (!tarefaExistente) {
-          const { data: { user } } = await supabase.auth.getUser()
-          await supabase.from('tarefas_operacionais').insert({
-            unidade_id: ficha.unidade_id,
-            tipo: 'remocao',
-            ficha_id: ficha.id,
-            atribuido_a: responsavelUserId,
-            atribuido_por: user?.id || null,
-          } as never)
-          await notificarAtribuicaoRemocao(responsavelUserId, ficha.nome_pet || 'um pet')
-        }
-      }
+      // 🔴 Fase 2: mesma remoção do despacho prematuro de `processarFicha()` acima — ver
+      // comentário lá. A atribuição só acontece em `criarContrato()` ("Iniciar Fluxo").
 
       toast('Alterações salvas!', 'success')
     } catch (err: unknown) {
@@ -916,16 +920,25 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   const lacreOk = semLacre || !!lacre.trim()
   const valorOk = !!valorPlano.trim()
   const fonteOk = !!(ficha?.como_conheceu && ficha.como_conheceu.length > 0)
+  // Unidade com cb_operacional (fase 2, mesmo mecanismo do Ativar Preventivo/mig 138):
+  // Data/Hora do Acolhimento e Lacre saem do bloco de acolhimento inteiro — viram pergunta da
+  // CONCLUSÃO da tarefa (AtivacaoPVModal, via /tarefas ou botão "Finalizar"), não da atribuição
+  // aqui. Local e Responsável continuam obrigatórios sempre, com ou sem o módulo.
   const acolhimentoValido = isPreventivo
     ? (telefoneOk && valorOk)  // PV: sem acolhimento (local/responsável/data/lacre escondidos)
+    : temOperacional
+    ? (telefoneOk && localOk && responsavelOk && valorOk)
     : (telefoneOk && localOk && responsavelOk && dataHoraOk && lacreOk && valorOk)
 
-  // Iniciar Fluxo: mais rigoroso — local, responsável, data/hora e fonte de conhec. NÃO podem
-  // ser provisórios (só lacre pode, e só ENQUANTO o responsável não for um Operacional de
-  // verdade — quando for, o lacre passa a ser obrigatório sem escape, decisão de produto pra
-  // acabar com pet sem lacre no pipeline; ver `criarContratoDeFicha`).
+  // Iniciar Fluxo: mais rigoroso — local, responsável e fonte de conhec. NÃO podem ser
+  // provisórios. Sem o módulo, data/hora e lacre também não podem ser provisórios (só lacre
+  // pode ficar "sem lacre provisoriamente" ENQUANTO o responsável não for um Operacional de
+  // verdade — ver `criarContratoDeFicha`). COM o módulo, data/hora e lacre nem aparecem aqui —
+  // ver comentário acima.
   const fluxoValido = isPreventivo
     ? (telefoneOk && valorOk && fonteOk)  // PV: pet vivo, sem acolhimento
+    : temOperacional
+    ? (telefoneOk && !!localColeta && !!responsavelUserId && valorOk && fonteOk)
     : (telefoneOk && !!localColeta && (!!funcionarioId || !!responsavelUserId) && !!dataHoraAcolhimento && lacreOk && valorOk && fonteOk)
 
   const footer = somenteLeitura ? (
@@ -989,7 +1002,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         if (!telefoneOk) faltam.push('Telefone')
         if (!isPreventivo && !localColeta) faltam.push('Local de Acolhimento')
         if (!isPreventivo && !funcionarioId && !responsavelUserId) faltam.push('Responsável')
-        if (!isPreventivo && !dataHoraAcolhimento) faltam.push('Data/Hora')
+        if (!isPreventivo && !temOperacional && !dataHoraAcolhimento) faltam.push('Data/Hora')
         if (!valorPlano.trim()) faltam.push('Valor do Plano')
         if (!fonteOk) faltam.push('Como nos conheceu')
         const labelBtn = isPreventivo ? 'Criar Contrato' : 'Iniciar Fluxo'
@@ -1533,14 +1546,16 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                 </div>
               )}
 
-              {semDataHora && (
+              {/* Fase 2: com o módulo, Data/Hora e Lacre nem existem mais no bloco de
+                  acolhimento — não faz sentido reabri-los aqui como "campo pendente". */}
+              {semDataHora && !temOperacional && (
                 <div>
                   <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Data e Hora do Acolhimento</label>
                   <input type="datetime-local" step="1800" value={dataHoraAcolhimento} onChange={e => setDataHoraAcolhimento(e.target.value)} className="input text-sm" />
                 </div>
               )}
 
-              {semLacre && (
+              {semLacre && !temOperacional && (
                 <div>
                   <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Número do Lacre</label>
                   <input type="text" value={lacre} onChange={e => setLacre(e.target.value)} placeholder="Número do lacre" className="input text-sm" />
@@ -1980,37 +1995,50 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               )}
             </div>
 
-            {/* Data e Hora do Acolhimento */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-medium text-[var(--surface-600)]">Data e Hora do Acolhimento <span className="text-red-400">*</span></label>
-                <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                  <input type="checkbox" checked={semDataHora} onChange={e => { setSemDataHora(e.target.checked); if (e.target.checked) setDataHoraAcolhimento('') }} className="h-3 w-3 rounded accent-amber-500" />
-                  <span className="text-[10px] text-amber-500">Sem data/hora provisoriamente</span>
-                </label>
+            {temOperacional ? (
+              // Fase 2 (mesmo mecanismo do Ativar Preventivo/mig 138): Data/Hora do
+              // Acolhimento e Lacre saem inteiramente daqui — viram pergunta da CONCLUSÃO da
+              // tarefa (AtivacaoPVModal, via /tarefas ou botão "Finalizar" no contrato), não
+              // da atribuição. Mesmo texto/padrão de `AcolhimentoForm.tsx` (esconderConclusao).
+              <p className="text-[10px] text-[var(--surface-400)] leading-snug px-1 sm:col-span-2">
+                Data/hora do acolhimento e número do lacre são preenchidos na conclusão da
+                tarefa (em /tarefas ou pelo botão &quot;Finalizar&quot; no contrato), não aqui.
+              </p>
+            ) : (
+              <>
+              {/* Data e Hora do Acolhimento */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-medium text-[var(--surface-600)]">Data e Hora do Acolhimento <span className="text-red-400">*</span></label>
+                  <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                    <input type="checkbox" checked={semDataHora} onChange={e => { setSemDataHora(e.target.checked); if (e.target.checked) setDataHoraAcolhimento('') }} className="h-3 w-3 rounded accent-amber-500" />
+                    <span className="text-[10px] text-amber-500">Sem data/hora provisoriamente</span>
+                  </label>
+                </div>
+                {semDataHora ? (
+                  <div className="px-3 py-2 rounded-lg bg-amber-900/10 border border-amber-500/30 text-xs text-amber-400">A definir</div>
+                ) : (
+                  <input type="datetime-local" step="1800" value={dataHoraAcolhimento} onChange={e => { setDataHoraAcolhimento(e.target.value); if (e.target.value) setSemDataHora(false) }} className="input text-sm" />
+                )}
               </div>
-              {semDataHora ? (
-                <div className="px-3 py-2 rounded-lg bg-amber-900/10 border border-amber-500/30 text-xs text-amber-400">A definir</div>
-              ) : (
-                <input type="datetime-local" step="1800" value={dataHoraAcolhimento} onChange={e => { setDataHoraAcolhimento(e.target.value); if (e.target.value) setSemDataHora(false) }} className="input text-sm" />
-              )}
-            </div>
 
-            {/* Lacre */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-medium text-[var(--surface-600)]">Número do Lacre <span className="text-red-400">*</span></label>
-                <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                  <input type="checkbox" checked={semLacre} onChange={e => { setSemLacre(e.target.checked); if (e.target.checked) setLacre('') }} className="h-3 w-3 rounded accent-amber-500" />
-                  <span className="text-[10px] text-amber-500">Sem lacre provisoriamente</span>
-                </label>
+              {/* Lacre */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-medium text-[var(--surface-600)]">Número do Lacre <span className="text-red-400">*</span></label>
+                  <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                    <input type="checkbox" checked={semLacre} onChange={e => { setSemLacre(e.target.checked); if (e.target.checked) setLacre('') }} className="h-3 w-3 rounded accent-amber-500" />
+                    <span className="text-[10px] text-amber-500">Sem lacre provisoriamente</span>
+                  </label>
+                </div>
+                {semLacre ? (
+                  <div className="px-3 py-2 rounded-lg bg-amber-900/10 border border-amber-500/30 text-xs text-amber-400">A definir — preencher depois no contrato</div>
+                ) : (
+                  <input type="text" value={lacre} onChange={e => setLacre(e.target.value)} placeholder="Número do lacre" className="input text-sm" />
+                )}
               </div>
-              {semLacre ? (
-                <div className="px-3 py-2 rounded-lg bg-amber-900/10 border border-amber-500/30 text-xs text-amber-400">A definir — preencher depois no contrato</div>
-              ) : (
-                <input type="text" value={lacre} onChange={e => setLacre(e.target.value)} placeholder="Número do lacre" className="input text-sm" />
-              )}
-            </div>
+              </>
+            )}
             </>)}
 
           </div>
