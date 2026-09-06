@@ -79,10 +79,36 @@ export default function VisibilidadePage() {
   }
 
   async function loadPerms() {
-    // Carrega TUDO de todas as unidades e roles de uma vez
-    const { data } = await supabase.from('field_permissions').select('unidade_id, campo, role, permissao')
+    // 🔴 PAGINADO — e não é preciosismo.
+    //
+    // Este select dizia "carrega TUDO" e não carregava: o PostgREST devolve no
+    // máximo 1000 linhas por requisição, e a tabela passou de 1.026. As 26
+    // linhas que ficavam de fora chegavam à tela como "sem configuração", que no
+    // modo toggle é lido como VISÍVEL — então uma unidade `hidden` no banco
+    // aparecia com o olho aberto.
+    //
+    // Pior: sem `order`, o Postgres não garante QUAIS mil linhas voltam. A cada
+    // recarga o conjunto podia mudar, e a tela mostrava um estado diferente do
+    // anterior sem ninguém ter tocado em nada. Era o "salvo e volta aleatório".
+    //
+    // E contaminava a escrita também: `originalPerms` sai daqui, então o salvar
+    // comparava contra um estado que não era o do banco.
+    //
+    // `order('id')` é obrigatório: sem ordem estável, paginar pula e repete linhas.
+    type Row = { unidade_id: string; campo: string; role: string; permissao: string }
+    const linhas: Row[] = []
+    for (let off = 0; off < 20000; off += 1000) {
+      const { data: pagina } = await supabase.from('field_permissions')
+        .select('unidade_id, campo, role, permissao')
+        .order('id')
+        .range(off, off + 999)
+      const page = (pagina || []) as Row[]
+      linhas.push(...page)
+      if (page.length < 1000) break
+    }
+
     const map: Record<string, PermissionLevel> = {}
-    for (const row of (data || []) as { unidade_id: string; campo: string; role: string; permissao: string }[]) {
+    for (const row of linhas) {
       map[`${row.unidade_id}:${row.role}:${row.campo}`] = row.permissao as PermissionLevel
     }
     setPerms(map)
