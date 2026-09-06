@@ -85,6 +85,13 @@ export const OBJETOS: ChildItemDef[] = [
 
   // Fichas
   { key: 'cb_padronizacao_clinicas', tela: 'tela_fichas', label: 'Padronização Clínicas', desc: 'Autocomplete de estabelecimentos no processamento de ficha', moduloPago: true },
+  // Preferência de operação, não módulo vendido — mas mesmo mecanismo (liga por unidade
+  // inteira, escreve em unidades.modulos_ativos). Santos prefere adicionar pelinho manual
+  // (PelinhoModal) só quando o tutor pede; Pinda/Campinas querem todo contrato já nascer com
+  // 1 pelinho pendente. Farol (contrato-tags.ts) e pool de /tarefas já leem contrato_produtos
+  // direto, sem cache — inserir a linha em criar-contrato-de-ficha.ts já basta, zero código
+  // extra nos dois. Ver CHANGELOG.md.
+  { key: 'cb_pelinho_inicial', tela: 'tela_fichas', label: 'Pelinho Inicial (automático)', desc: 'Todo contrato já nasce com 1 pelinho incluído em contrato_produtos, pronto pra rescaldo — farol some do vermelho e o item já aparece no pool de /tarefas (Personalizados) pra atribuir, sem precisar adicionar manualmente pelo PelinhoModal.', moduloPago: true },
 
   // Pipeline — comportamentos opcionais por unidade
   { key: 'cb_cremacao_local', tela: 'tela_pipeline', label: 'Cremação Local (sem encaminhamento)', desc: 'Unidade co-localizada com o crematório (ex: PI). Contratos nascem direto em status=pinda; GC criado automático; auto-retorno quando GC vira disponível. Sem supinda. Ver FLOW.md §7.1.', moduloPago: true },

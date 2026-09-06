@@ -326,6 +326,27 @@ export async function criarContratoDeFicha(
     .single() as { data: { id: string } | null; error: { message: string } | null }
   if (errContrato) throw new Error(`Erro ao criar contrato: ${errContrato.message}`)
 
+  // Pelinho Inicial (por unidade, `cb_pelinho_inicial` em modulos_ativos) — o contrato já nasce
+  // com 1 pelinho em contrato_produtos, indistinguível de alguém tendo adicionado na hora pelo
+  // PelinhoModal. Farol (contrato-tags.ts) e o pool de /tarefas leem contrato_produtos direto,
+  // sem cache — não precisa de mais nada pra eles reagirem.
+  if (unidade.modulos_ativos.includes('cb_pelinho_inicial')) {
+    const { data: produtoPelinho } = await supabase
+      .from('produtos').select('id, preco').eq('codigo', '0004')
+      .single() as { data: { id: string; preco: number | null } | null }
+    if (produtoPelinho) {
+      await supabase.from('contrato_produtos').insert({
+        contrato_id: contrato!.id,
+        produto_id: produtoPelinho.id,
+        quantidade: 1,
+        valor: produtoPelinho.preco || 0,
+        separado: false,
+        is_reserva_pv: false,
+        rescaldo_feito: false,
+      } as never)
+    }
+  }
+
   const opPrev = (ficha.op_dados || {}) as Record<string, unknown>
   const opReconciliado = {
     ...opPrev,
