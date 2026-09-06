@@ -24,10 +24,11 @@ import {
   fmtBRL, fmtData, mesParaData, rotuloMes,
   type DeflatorTipo, type ItemRepasse, type Permuta,
 } from '@/lib/repasse'
+import { hojeISO } from '@/lib/financeiro'
 import { saveAs } from 'file-saver'
 
-type Empresa = { id: string; apelido: string; cnpj: string }
 type UnidadePagante = { id: string; nome: string; codigo: string }
+type ContaSimples = { id: string; nome: string }
 
 /** Mesmo esquema de cores do GC / Visibilidade / Funcionários */
 const UNIT_COLORS: Record<string, string> = {
@@ -59,10 +60,6 @@ type RepasseSalvo = {
   pago_em: string | null
 }
 
-/** Contas do plano usadas pelas duas pernas do acerto (mig 133). */
-const CONTA_ACERTO_DESPESA = '9.1.02'
-const CONTA_ACERTO_RECEITA = '9.1.01'
-
 const mesAtual = () => new Date().toISOString().slice(0, 7)
 
 export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?: boolean }) {
@@ -75,8 +72,6 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
 
   const [unidadeId, setUnidadeId] = useState('')
   const [mes, setMes] = useState(mesAtual())
-  const [empresaId, setEmpresaId] = useState('')
-  const [empresas, setEmpresas] = useState<Empresa[]>([])
   const [itens, setItens] = useState<ItemRepasse[]>([])
   const [carregando, setCarregando] = useState(false)
   const [fechando, setFechando] = useState(false)
@@ -89,6 +84,14 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
   const [permValor, setPermValor] = useState('')
   const [permDirecao, setPermDirecao] = useState<'abate' | 'acresce'>('abate')
   const descRef = useRef<HTMLInputElement>(null)   // volta o foco pra encadear lançamentos
+  // Pagar o repasse: as duas contas da transferência, e o dia em que ela ocorreu.
+  const [pagarAberto, setPagarAberto] = useState(false)
+  const [pagando, setPagando] = useState(false)
+  const [contaOrigem, setContaOrigem] = useState('')    // conta da unidade
+  const [contaDestino, setContaDestino] = useState('')  // conta da Matriz
+  const [dataPagto, setDataPagto] = useState(hojeISO())
+  const [contasUnidade, setContasUnidade] = useState<ContaSimples[]>([])
+  const [contasMatriz, setContasMatriz] = useState<ContaSimples[]>([])
   // Resumo do mês por unidade — alimenta o valor que aparece em cada aba
   const [resumo, setResumo] = useState<Map<string, { qtd: number; valor: number; fechado: boolean }>>(new Map())
 
@@ -126,13 +129,23 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
       })
   }, [supabase])
 
+  // ⚠️ A carga de `fin_empresas` saiu junto com o seletor de CNPJ (02/09/2026):
+  // o CNPJ é DERIVADO da conta em que o dinheiro entra (mig 121/128), não uma
+  // escolha do fechamento.
+
+  // As contas das duas pontas da transferência do repasse. Conta de legado fica
+  // de fora: ela é histórico congelado, não recebe nem paga nada novo (mig 127).
   useEffect(() => {
-    supabase.from('fin_empresas').select('id, apelido, cnpj').eq('ativa', true).order('ordem')
-      .then(({ data }) => {
-        setEmpresas((data as Empresa[]) || [])
-        if (data?.length && !empresaId) setEmpresaId(data[0].id)
-      })
-  }, [supabase]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (!pagarAberto) return
+    const carregar = async (uid: string, set: (c: ContaSimples[]) => void) => {
+      if (!uid) return set([])
+      const { data } = await supabase.from('contas').select('id, nome')
+        .eq('unidade_id', uid).eq('ativo', true).eq('legado', false).order('nome')
+      set((data as ContaSimples[]) || [])
+    }
+    void carregar(unidadeId, setContasUnidade)
+    void carregar(matrizId, setContasMatriz)
+  }, [pagarAberto, unidadeId, matrizId, supabase])
 
   // Resumo do mês inteiro (todas as unidades) — o número que cada aba mostra.
   // Fechado: usa `vw_repasse_totais`, que JÁ desconta/soma as permutas.
@@ -170,6 +183,44 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
 
   useEffect(() => { void carregarResumo() }, [carregarResumo])
 
+  /**
+   * As cobranças entre esta unidade e a Matriz que ainda não foram compensadas.
+   *
+   * Elas nasceram em OUTRAS telas — no lançamento de uma compra feita para a
+   * unidade, no recebimento de um cliente dela em outro caixa — e ficaram
+   * esperando um fechamento. Aqui é onde o fechamento as encontra.
+   *
+   * Só entram as RECONHECIDAS: uma cobrança que a unidade ainda não respondeu,
+   * ou que recusou, não pode ser embutida na conta que ela vai pagar. É a
+   * diferença entre cobrar e impor.
+   */
+  const cobrancasEmAberto = useCallback(async (): Promise<Permuta[]> => {
+    if (!unidadeId || !matrizId) return []
+    const { data } = await supabase
+      .from('fin_cobrancas')
+      .select('id, descricao, valor, unidade_credora, unidade_devedora, lancamento_aceite_id, lancamento_origem_id')
+      .eq('status', 'aceita')
+      .is('repasse_id', null)
+      .or(`and(unidade_credora.eq.${matrizId},unidade_devedora.eq.${unidadeId}),` +
+          `and(unidade_credora.eq.${unidadeId},unidade_devedora.eq.${matrizId})`)
+      .order('data')
+
+    type C = {
+      id: string; descricao: string | null; valor: number
+      unidade_credora: string; unidade_devedora: string
+      lancamento_aceite_id: string | null; lancamento_origem_id: string | null
+    }
+    return ((data as C[]) || []).map(c => ({
+      id: c.id,
+      descricao: c.descricao || 'Acerto',
+      valor: Number(c.valor),
+      // A Matriz cobrando ACRESCE o que a unidade paga; o contrário ABATE.
+      direcao: c.unidade_credora === matrizId ? 'acresce' : 'abate',
+      lancamento_receita_id: c.lancamento_aceite_id,
+      lancamento_despesa_id: c.lancamento_origem_id,
+    })) as Permuta[]
+  }, [supabase, unidadeId, matrizId])
+
   const buscar = useCallback(async () => {
     if (!unidadeId || !mes) return
     setCarregando(true)
@@ -200,7 +251,7 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
         .select('id, descricao, valor, direcao, lancamento_receita_id, lancamento_despesa_id')
         .eq('repasse_id', (jaTem as RepasseSalvo).id)
         .order('created_at')
-      setPermutas(((perms as Permuta[]) || []))
+      setPermutas([...((perms as Permuta[]) || []), ...(await cobrancasEmAberto())])
     } else {
       const { data: eleg, error } = await supabase
         .from('vw_repasse_elegivel')
@@ -224,10 +275,11 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
           deflator_motivo: null,
         })),
       )
+      setPermutas(await cobrancasEmAberto())
     }
     setCarregando(false)
     setBuscou(true)
-  }, [supabase, unidadeId, mes, toast])
+  }, [supabase, unidadeId, mes, toast, cobrancasEmAberto])
 
   // Trocar de aba (ou de mês) já carrega — sem botão intermediário
   useEffect(() => {
@@ -350,17 +402,19 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
       )
       if (e2) throw new Error(e2.message)
 
-      // Acertos ainda em memória (lançados antes de existir repasse) vão junto agora.
-      const pendentes = permutas.filter(p => p.id?.startsWith('tmp-'))
-      if (pendentes.length) {
-        await supabase.from('fin_repasse_permutas').insert(
-          pendentes.map(p => ({
-            repasse_id: repasseId,
-            descricao: p.descricao,
-            valor: p.valor,
-            direcao: p.direcao,
-          })),
-        )
+      // ⚠️ O bloco que gravava acertos "em memória" (id `tmp-…`) saiu junto com
+      // a mudança de `addPermuta`: o acerto não nasce mais dentro do repasse,
+      // nasce como cobrança e é o fechamento que a consome.
+
+      // As cobranças reconhecidas em aberto são COMPENSADAS por este fechamento:
+      // é o encontro de contas. Só as que a unidade reconheceu chegam até aqui
+      // (`cobrancasEmAberto` filtra por `status = 'aceita'`), então nada entra na
+      // conta dela sem que ela tenha concordado antes.
+      const aCompensar = (await cobrancasEmAberto()).map(p => p.id).filter(Boolean)
+      if (aCompensar.length) {
+        await supabase.from('fin_cobrancas')
+          .update({ repasse_id: repasseId, status: 'liquidada' })
+          .in('id', aCompensar)
       }
 
       // O custo real da cremação volta pro contrato — é pra isso que o campo existe.
@@ -384,123 +438,56 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
     }
   }
 
-  // Acertos podem ser lançados ANTES de fechar: enquanto não há repasse gravado,
-  // ficam em memória (id temporário `tmp-…`) e vão pro banco junto no fechamento.
+  /**
+   * O acerto lançado aqui vira uma COBRANÇA EMITIDA — não entra no total ainda.
+   *
+   * Antes, ele nascia direto dentro do repasse e a unidade descobria a dívida
+   * quando recebia a planilha. Agora a Matriz emite e a unidade reconhece; só
+   * então o valor passa a contar. Se ela recusar, volta para quem lançou.
+   *
+   * ⚠️ É por isso que o acerto **não aparece no total no mesmo instante**. Isso
+   * é a mudança, não uma falha: cobrança não respondida ainda não é dívida.
+   */
   async function addPermuta() {
     const v = Number(permValor)
     if (!permDesc.trim() || !v || v <= 0) return toast('Informe descrição e valor', 'error')
+    if (!matrizId || !unidadeId) return toast('Escolha a unidade', 'error')
 
-    // Sem repasse ainda? Salva o repasse primeiro — assim o acerto já nasce
-    // gravado e trocar de aba não perde nada.
-    let repasseId = existente?.id
-    if (!repasseId) {
-      const novo = await salvar(true)
-      if (!novo) return toast('Salve o repasse antes (sem pets no mês?)', 'error')
-      repasseId = novo
-    }
-
-    const { data, error } = await supabase
-      .from('fin_repasse_permutas')
-      .insert({ repasse_id: repasseId, descricao: permDesc.trim(), valor: v, direcao: permDirecao })
-      .select('id, descricao, valor, direcao')
-      .single()
+    // 'acresce' = a unidade deve mais → a Matriz é a credora.
+    // 'abate'   = a unidade pagou algo da Matriz → a unidade é a credora.
+    const matrizCobra = permDirecao === 'acresce'
+    const { error } = await supabase.from('fin_cobrancas').insert({
+      unidade_credora: matrizCobra ? matrizId : unidadeId,
+      unidade_devedora: matrizCobra ? unidadeId : matrizId,
+      tipo: 'despesa_rateada',
+      valor: v,
+      data: hojeISO(),
+      descricao: permDesc.trim(),
+      status: 'emitida',
+      criado_por_nome: userName || null,
+    })
     if (error) return toast(error.message, 'error')
-    setPermutas(p => [...p, data as unknown as Permuta])
+
     setPermDesc(''); setPermValor('')
     descRef.current?.focus()   // pronto pro próximo, sem tirar a mão do teclado
-    void carregarResumo()   // a aba precisa refletir o acerto na hora
-    toast('Acerto lançado', 'success')
+    toast(`Acerto enviado para ${nomeUnidade} reconhecer`, 'success')
   }
 
-  /**
-   * TRANSFORMA O ACERTO EM LANÇAMENTO — as duas pernas.
-   *
-   * Um encontro de contas entre as duas empresas é DESPESA de um lado e RECEITA
-   * do outro. Enquanto isso não é gerado, o acerto só mexe no total cobrado e o
-   * valor não existe na DRE de ninguém — some do resultado do grupo.
-   *
-   *   abate   → a Matriz DEVE à unidade: despesa na Matriz, receita na unidade
-   *   acresce → a unidade deve mais:     despesa na unidade, receita na Matriz
-   *
-   * Os ids gravados são a trava contra gerar duas vezes.
-   */
-  async function gerarLancamentos(p: Permuta) {
-    if (!p.id || p.id.startsWith('tmp-')) return toast('Salve o repasse antes', 'error')
-    if (p.lancamento_receita_id && p.lancamento_despesa_id) return toast('Já foi gerado', 'error')
-    if (!matrizId) return toast('Matriz não encontrada', 'error')
+  // ⚠️ `gerarLancamentos` foi REMOVIDA (02/09/2026). Ela criava as duas pernas
+  // contábeis a partir de um clique da MATRIZ — inclusive a perna que ia para a
+  // DRE da unidade. Era a última porta pela qual uma empresa escrevia no livro
+  // da outra. As pernas agora nascem quando a unidade RECONHECE a cobrança, em
+  // `CobrancasCard`. Ver FLOW §9.5.
 
-    // 'abate' = a Matriz deve à unidade, então a despesa é da Matriz.
-    const abate = p.direcao === 'abate'
-    const unidadeDespesa = abate ? matrizId : unidadeId
-    const unidadeReceita = abate ? unidadeId : matrizId
-    const quando = mesParaData(mes)
-    const texto = `Acerto ${rotuloMes(quando)} · ${p.descricao}`
-
-    const base = {
-      valor: Number(p.valor),
-      data_competencia: quando,
-      data_caixa: null,          // o dinheiro anda no encontro de contas, não agora
-      status: 'pendente',
-      origem: 'sistema',
-      descricao: texto,
-      criado_por_nome: userName || null,
-    }
-
-    // 🔴 As duas pernas PRECISAM de `conta_id`. Sem ela, a DRE cai no
-    // `coalesce(grupo_dre,'outras_despesas')` com sinal −1 e as DUAS pernas
-    // SUBTRAEM — um acerto de R$ 5.000 tirava R$ 10.000 do resultado do grupo.
-    // A defesa existe na view (mig 111 trata `outras_receitas` com sinal +1);
-    // faltava o chamador acioná-la.
-    const { data: contas2 } = await supabase.from('fin_contas')
-      .select('id, codigo, nome, grupo_dre')
-      .in('codigo', [CONTA_ACERTO_DESPESA, CONTA_ACERTO_RECEITA])
-    const achar = (cod: string) =>
-      ((contas2 as { id: string; codigo: string; nome: string }[]) || []).find(c => c.codigo === cod)
-    const cDesp = achar(CONTA_ACERTO_DESPESA)
-    const cRec = achar(CONTA_ACERTO_RECEITA)
-    if (!cDesp || !cRec) {
-      return toast('Faltam as contas de acerto no plano de contas (rodar a migration)', 'error')
-    }
-
-    const { data, error } = await supabase.from('fin_lancamentos').insert([
-      { ...base, unidade_id: unidadeDespesa,
-        conta_id: cDesp.id, conta_codigo: cDesp.codigo, conta_nome: cDesp.nome },
-      { ...base, unidade_id: unidadeReceita,
-        conta_id: cRec.id, conta_codigo: cRec.codigo, conta_nome: cRec.nome },
-    ]).select('id')
-    if (error) return toast(error.message, 'error')
-
-    const ids = (data as { id: string }[]) || []
-    const { error: e2 } = await supabase.from('fin_repasse_permutas').update({
-      lancamento_despesa_id: ids[0]?.id || null,
-      lancamento_receita_id: ids[1]?.id || null,
-    }).eq('id', p.id)
-    if (e2) return toast(e2.message, 'error')
-
-    setPermutas(ps => ps.map(x => x.id === p.id
-      ? { ...x, lancamento_despesa_id: ids[0]?.id, lancamento_receita_id: ids[1]?.id } : x))
-    toast('Acerto virou lançamento nas duas empresas', 'success')
-  }
 
   async function removerPermuta(id?: string) {
     if (!id) return
-    if (id.startsWith('tmp-')) return setPermutas(p => p.filter(x => x.id !== id))
     const { error } = await supabase.from('fin_repasse_permutas').delete().eq('id', id)
     if (error) return toast(error.message, 'error')
     setPermutas(p => p.filter(x => x.id !== id))
     void carregarResumo()
   }
 
-  async function definirEmpresa(id: string) {
-    if (!existente) return
-    const { error } = await supabase
-      .from('fin_repasses')
-      .update({ empresa_id: id || null })
-      .eq('id', existente.id)
-    if (error) return toast(error.message, 'error')
-    setExistente({ ...existente, empresa_id: id || null })
-    toast(id ? 'CNPJ definido' : 'CNPJ removido', 'success')
-  }
 
   async function marcar(campo: 'enviado_em' | 'pago_em') {
     if (!existente) return
@@ -512,6 +499,43 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
     if (error) return toast(error.message, 'error')
     toast(campo === 'enviado_em' ? 'Marcado como enviado' : 'Marcado como pago', 'success')
     void buscar()
+  }
+
+  /**
+   * PAGO = O DINHEIRO ANDOU. Marcar como pago passa a registrar a transferência
+   * no caixa das duas empresas: sai da conta da unidade, entra na da Matriz.
+   *
+   * Antes, "pago" era só uma etiqueta no repasse — o caixa da unidade continuava
+   * mostrando o dinheiro que ela já tinha mandado embora, e o da Matriz não
+   * mostrava o que tinha recebido. O repasse é a maior movimentação do mês entre
+   * as empresas; ficar fora do caixa fazia os dois extratos mentirem juntos.
+   *
+   * É `fin_movimentos`, não lançamento: o custo da cremação já está na DRE da
+   * unidade por competência (mig 114). Lançar aqui contaria duas vezes.
+   */
+  async function confirmarPagamento() {
+    if (!existente) return
+    if (!contaOrigem || !contaDestino) return toast('Escolha as duas contas', 'error')
+    setPagando(true)
+    try {
+      const { error } = await supabase.from('fin_movimentos').insert({
+        unidade_id: unidadeId,
+        tipo: 'transferencia',
+        conta_id: contaOrigem,        // sai da unidade
+        conta_destino_id: contaDestino, // entra na Matriz
+        data: dataPagto || hojeISO(),
+        valor: totais.aPagar,
+        descricao: `Repasse ${rotuloMes(mesParaData(mes))} · ${nomeUnidade}`,
+        criado_por_nome: userName || null,
+      })
+      if (error) throw new Error(error.message)
+      await marcar('pago_em')
+      setPagarAberto(false)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Falha ao registrar', 'error')
+    } finally {
+      setPagando(false)
+    }
   }
 
   function baixarPlanilha() {
@@ -656,21 +680,15 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
                 {existente.status}
                 {existente.enviado_em && ` · env ${fmtData(existente.enviado_em)}`}
                 {existente.pago_em && ` · pago ${fmtData(existente.pago_em)}`}
-                <select
-                  value={existente.empresa_id || ''}
-                  onChange={e => void definirEmpresa(e.target.value)}
-                  disabled={somenteLeitura}
-                  className="input text-xs w-24 py-0.5 ml-1 disabled:opacity-70"
-                  title="CNPJ que recebe"
-                >
-                  <option value="">CNPJ…</option>
-                  {empresas.map(e => <option key={e.id} value={e.id}>{e.apelido}</option>)}
-                </select>
+                {/* ⚠️ O seletor de CNPJ saiu daqui (02/09/2026). O CNPJ não é
+                    escolhido: ele é DERIVADO da conta em que o dinheiro entra
+                    (mig 121/128). Perguntar de novo abria espaço para o repasse
+                    dizer um CNPJ e o extrato mostrar outro. */}
                 {existente.status === 'aberto' && !somenteLeitura && (
                   <button onClick={() => void marcar('enviado_em')} className="underline hover:text-[var(--surface-700)]">enviado</button>
                 )}
                 {existente.status !== 'pago' && !somenteLeitura && (
-                  <button onClick={() => void marcar('pago_em')} className="underline hover:text-[var(--surface-700)]">pago</button>
+                  <button onClick={() => setPagarAberto(true)} className="underline hover:text-[var(--surface-700)]">pago</button>
                 )}
               </span>
             )}
@@ -711,30 +729,20 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
                       </span>
                       <span className="flex-1 min-w-0 text-sm text-[var(--surface-800)] truncate">
                         {p.descricao}
-                        {p.id?.startsWith('tmp-') && (
-                          <span className="text-[10px] text-[var(--surface-400)] ml-1">(grava ao fechar)</span>
-                        )}
                       </span>
                       <span className="text-mono text-sm text-[var(--surface-700)]">{fmtBRL(p.valor)}</span>
-                      {!somenteLeitura && (
-                        p.lancamento_receita_id && p.lancamento_despesa_id ? (
-                          <span
-                            className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
-                            style={{ background: 'rgba(16,185,129,0.14)', color: '#10b981' }}
-                            title="Já virou despesa numa empresa e receita na outra"
-                          >
-                            lançado
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => void gerarLancamentos(p)}
-                            title="Gera a despesa numa empresa e a receita na outra — sem isso o valor não entra em DRE nenhuma"
-                            className="text-[10px] px-1.5 py-0.5 rounded-full border shrink-0 text-[var(--brand-500)]"
-                            style={{ borderColor: 'var(--surface-300)' }}
-                          >
-                            gerar lançamento
-                          </button>
-                        )
+                      {/* ⚠️ O botão "gerar lançamento" saiu (02/09/2026). As duas
+                          pernas agora nascem no RECONHECIMENTO da cobrança, na
+                          unidade — não num clique da Matriz aqui. Era a última
+                          porta pela qual a Matriz escrevia no livro do outro. */}
+                      {p.lancamento_receita_id && p.lancamento_despesa_id && (
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
+                          style={{ background: 'rgba(16,185,129,0.14)', color: '#10b981' }}
+                          title="Já é despesa numa empresa e receita na outra"
+                        >
+                          lançado
+                        </span>
                       )}
                       {!somenteLeitura && !p.lancamento_receita_id && (
                         <button onClick={() => void removerPermuta(p.id)} className="text-[var(--surface-400)] hover:text-red-400 text-xs px-1">
@@ -1005,6 +1013,65 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
           </p>
         </>
       )}
+
+      {/* PAGAR O REPASSE — o dinheiro anda, e o caixa das duas empresas precisa
+          saber. Duas contas e uma data: nada além disso é perguntado, porque
+          nada além disso o sistema não consegue deduzir. */}
+      <Modal
+        isOpen={pagarAberto}
+        onClose={() => setPagarAberto(false)}
+        title="Registrar o pagamento do repasse"
+        footer={
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setPagarAberto(false)} className="btn-secondary text-sm">Cancelar</button>
+            <button onClick={() => void confirmarPagamento()} disabled={pagando} className="btn-primary text-sm">
+              {pagando
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> Registrando…</>
+                : <><Check className="h-4 w-4" /> Confirmar</>}
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-[var(--surface-600)]">
+            {nomeUnidade} paga{' '}
+            <span className="text-mono text-[var(--surface-800)]">{fmtBRL(totais.aPagar)}</span>{' '}
+            à Matriz. Sai do caixa de uma e entra no da outra.
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-[var(--surface-500)] block mb-1">
+                Saiu desta conta ({nomeUnidade})
+              </label>
+              <select value={contaOrigem} onChange={e => setContaOrigem(e.target.value)}
+                      className="input text-sm w-full">
+                <option value="">Escolher…</option>
+                {contasUnidade.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-[var(--surface-500)] block mb-1">Entrou nesta conta (Matriz)</label>
+              <select value={contaDestino} onChange={e => setContaDestino(e.target.value)}
+                      className="input text-sm w-full">
+                <option value="">Escolher…</option>
+                {contasMatriz.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs text-[var(--surface-500)] block mb-1">Quando</label>
+            <input type="date" value={dataPagto} onChange={e => setDataPagto(e.target.value)}
+                   className="input text-sm w-full sm:w-48" />
+          </div>
+
+          <p className="text-[11px] text-[var(--surface-400)]">
+            Isto move dinheiro, não altera resultado: o custo das cremações já
+            está na DRE da unidade pelo mês do acolhimento.
+          </p>
+        </div>
+      </Modal>
     </div>
   )
 }

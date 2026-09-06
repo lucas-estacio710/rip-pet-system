@@ -103,6 +103,7 @@ export const OBJETOS: ChildItemDef[] = [
   { key: 'obj_fin_caixa', tela: 'tela_financeiro', label: 'Caixa', desc: 'Aba do fluxo de caixa: saldo por conta, extrato e movimentos (transferência, fatura de cartão, aporte) — mig 124' },
   { key: 'obj_fin_dre', tela: 'tela_financeiro', label: 'DRE', desc: 'Aba do resultado do mês: receita, custo, despesas e investimentos (mig 111)' },
   { key: 'obj_fin_contas', tela: 'tela_financeiro', label: 'Contas', desc: 'Aba de cadastro das contas de onde o dinheiro sai/entra (Inter, Granito, Dinheiro). Escopo por unidade' },
+  { key: 'obj_fin_acertos', tela: 'tela_financeiro', label: 'Acertos entre unidades', desc: 'Bloco no topo de Lançamentos: cobranças de outra unidade esperando reconhecimento, as que você lançou e o saldo com cada unidade (mig 135). Ocultar tira a caixa de entrada — as cobranças continuam sendo criadas' },
 ]
 
 // ============================================
@@ -158,6 +159,7 @@ export const CAMPOS_BOTOES: ChildItemDef[] = [
   // Sem row = edit, então a Matriz não precisa de configuração nenhuma.
   { key: 'btn_caixa_editar', tela: 'tela_financeiro', label: 'Lançar movimento de caixa', desc: 'Registrar transferência, pagamento de fatura, aporte. Em leitura, a aba só mostra saldo e extrato' },
   { key: 'btn_contas_editar', tela: 'tela_financeiro', label: 'Editar contas', desc: 'Criar, renomear, desativar e excluir conta. Em leitura, a aba só lista' },
+  { key: 'btn_lancamento_aprovar', tela: 'tela_financeiro', label: 'Conferir lançamentos', desc: 'Fila "Aguardando conferência" no topo de Lançamentos: conferir (não muda valor) e rejeitar (tira o lançamento da DRE e do caixa). Ocultar esconde a fila — os lançamentos continuam nascendo pendentes e contando normalmente' },
   { key: 'btn_repasse_editar', tela: 'tela_financeiro', label: 'Editar repasse', desc: 'Aplicar deflator, lançar acertos, fechar o repasse e marcar enviado/pago. Só a Matriz — as unidades ficam em leitura (mig 112)' },
 ]
 

@@ -17,8 +17,10 @@ import * as Icons from 'lucide-react'
 import { Plus, Loader2, X, Check, Trash2, Flame } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
+import { useFieldPermission } from '@/hooks/useFieldPermission'
 import Modal from '@/components/ui/Modal'
-import EmptyState from '@/components/ui/EmptyState'
+import CobrancasCard from './CobrancasCard'
+import RevisaoCard from './RevisaoCard'
 import {
   fmtBRL, fmtData, hojeISO, limitesDoMes
 } from '@/lib/financeiro'
@@ -47,6 +49,7 @@ type Lancamento = {
   categoria_id: string | null
   conta_pagamento_id: string | null   // de qual conta saiu — alimenta o caixa
   natureza: string | null        // opex/capex — reabre o form fiel ao gravado
+  observacoes: string | null     // motivo, quando rejeitado na fila de revisão
   rateio_meses: number | null    // idem, pro checkbox "cobre mais de um mês"
   fin_categorias?: { nome: string; icone: string | null } | null
 }
@@ -82,7 +85,8 @@ export default function LancamentosTab() {
   // Tabelas fin_* ainda não estão em types/database.ts
   const supabase = supabaseTipado as unknown as SupabaseClient
   const { toast } = useToast()
-  const { currentUnit, hasModule, userName } = useUnit()
+  const { currentUnit, userName } = useUnit()
+  const { isVisible } = useFieldPermission()
 
   const [mes, setMes] = useState(mesAtual())
   const [categorias, setCategorias] = useState<Categoria[]>([])
@@ -117,6 +121,15 @@ export default function LancamentosTab() {
   const [rateado, setRateado] = useState(false)
   const [meses, setMeses] = useState('12')
   const [salvando, setSalvando] = useState(false)
+
+  // COMPRA EXTERNA — "paguei algo que é de outra unidade".
+  // O gasto sai do caixa DAQUI, mas o custo é de lá. Em vez de lançar na DRE da
+  // outra unidade por conta própria (o que o repasse fazia, e que o Lucas com
+  // razão achou esquisito), emite-se uma cobrança que ela reconhece ou recusa.
+  // Ver docs/COBRANCAS_ENTRE_UNIDADES.md.
+  const [paraOutra, setParaOutra] = useState('')      // id da unidade que consumiu
+  const [unidades, setUnidades] = useState<{ id: string; codigo: string; nome: string }[]>([])
+  const [recarregarCobrancas, setRecarregarCobrancas] = useState(0)
 
   const catSelecionada = categorias.find(c => c.id === catId)
 
@@ -175,7 +188,7 @@ export default function LancamentosTab() {
     const { ini, fim } = limitesDoMes(mes)
     const { data } = await supabase
       .from('fin_lancamentos')
-      .select('id, descricao, valor, data_competencia, data_caixa, metodo_pagamento, conta_pagamento_id, status, fornecedor_nome, categoria_id, natureza, rateio_meses, fin_categorias(nome, icone)')
+      .select('id, descricao, valor, data_competencia, data_caixa, metodo_pagamento, conta_pagamento_id, status, observacoes, fornecedor_nome, categoria_id, natureza, rateio_meses, fin_categorias(nome, icone)')
       .eq('unidade_id', currentUnit.id)
       .gte('data_competencia', ini)
       .lte('data_competencia', fim)
@@ -210,6 +223,15 @@ export default function LancamentosTab() {
 
   useEffect(() => { void carregarContas() }, [carregarContas])
 
+  // As outras unidades do grupo — destino possível de uma compra externa.
+  useEffect(() => {
+    if (!currentUnit?.id) return
+    supabase
+      .from('unidades').select('id, codigo, nome')
+      .eq('ativa', true).neq('id', currentUnit.id).order('nome')
+      .then(({ data }) => setUnidades((data as unknown as { id: string; codigo: string; nome: string }[]) || []))
+  }, [supabase, currentUnit?.id])
+
   /** Cria a conta na hora — sem isso a unidade fica travada esperando cadastro. */
   async function criarConta(nome: string) {
     const limpo = nome.trim()
@@ -236,6 +258,7 @@ export default function LancamentosTab() {
     setRateado(false); setMeses('12')
     setDataCaixa(''); setContaId(''); setNovaConta(null)
     setBusca(''); setNivel1(null); setNivel2(null)
+    setParaOutra('')
     setAberto(false)
     setEditandoId(null)
   }
@@ -294,18 +317,48 @@ export default function LancamentosTab() {
         rateio_meses: rateado ? Math.max(1, Math.min(120, Number(meses) || 1)) : 1,
       }
 
-      const { error } = editandoId
-        ? await supabase.from('fin_lancamentos').update(campos).eq('id', editandoId)
-        : await supabase.from('fin_lancamentos').insert({
-            ...campos,
-            unidade_id: currentUnit.id,
-            status: 'pendente',
-            origem: 'manual',
+      if (editandoId) {
+        const { error } = await supabase.from('fin_lancamentos').update(campos).eq('id', editandoId)
+        if (error) throw new Error(error.message)
+      } else {
+        const { data: novo, error } = await supabase.from('fin_lancamentos').insert({
+          ...campos,
+          unidade_id: currentUnit.id,
+          status: 'pendente',
+          origem: 'manual',
+          criado_por_nome: userName || null,
+        }).select('id').single()
+        if (error) throw new Error(error.message)
+
+        // COMPRA EXTERNA: o gasto sai do caixa daqui e o custo é de lá. Emite a
+        // cobrança, que a outra unidade reconhece ou recusa. Enquanto ela não
+        // responde, a despesa fica AQUI — é assim que tem de ser: quem comprou
+        // carrega o custo até que o outro assuma. Ver docs/COBRANCAS_ENTRE_UNIDADES.md.
+        if (paraOutra) {
+          const { error: e2 } = await supabase.from('fin_cobrancas').insert({
+            unidade_credora: currentUnit.id,     // quem pagou, tem a receber
+            unidade_devedora: paraOutra,         // quem consumiu, deve
+            tipo: 'despesa_rateada',
+            valor: v,
+            data: data_competencia,
+            descricao: descricao.trim() || fornecedor.trim() || caminhoDe(catId),
+            categoria_id: catId,                 // a classificação viaja junto
+            status: 'emitida',
+            lancamento_origem_id: (novo as { id: string }).id,
             criado_por_nome: userName || null,
           })
-      if (error) throw new Error(error.message)
+          if (e2) throw new Error(e2.message)
+          setRecarregarCobrancas(n => n + 1)
+        }
+      }
 
-      toast(editandoId ? `Lançamento atualizado — ${fmtBRL(v)}` : `Lançado ${fmtBRL(v)}`, 'success')
+      const alvo = unidades.find(u => u.id === paraOutra)
+      toast(
+        editandoId ? `Lançamento atualizado — ${fmtBRL(v)}`
+          : alvo ? `Lançado ${fmtBRL(v)} — ${alvo.nome} vai receber o acerto`
+          : `Lançado ${fmtBRL(v)}`,
+        'success'
+      )
       limpar()
       void carregar()
     } catch (e) {
@@ -328,6 +381,21 @@ export default function LancamentosTab() {
 
   return (
     <div className="animate-fade-in space-y-3">
+      {/* ACERTOS ENTRE UNIDADES — fica no topo porque uma cobrança que ninguém
+          vê não é cobrança. Recarrega quando um lançamento emite uma nova.
+          Ocultar por FLS tira só a caixa de entrada: as cobranças continuam
+          nascendo, e quem fechar o repasse ainda as encontra. */}
+      {isVisible('tela_financeiro', 'obj_fin_acertos') && (
+        <CobrancasCard key={recarregarCobrancas} onMudou={() => void carregar()} />
+      )}
+
+      {/* FILA DE REVISÃO — o que ainda ninguém conferiu. Some sozinha quando não
+          há pendente. Não filtra por mês: um lançamento de junho não conferido
+          precisa continuar aparecendo em setembro. */}
+      {isVisible('tela_financeiro', 'btn_lancamento_aprovar') && (
+        <RevisaoCard key={`rev-${recarregarCobrancas}`} onMudou={() => void carregar()} />
+      )}
+
       {/* Cabeçalho compacto */}
       <div className="flex flex-wrap items-center gap-3">
         <input
@@ -416,13 +484,35 @@ export default function LancamentosTab() {
                 <p className="text-sm text-[var(--surface-800)] truncate">
                   {l.fin_categorias?.nome || 'Sem categoria'}
                   {l.fornecedor_nome && <span className="text-[var(--surface-500)]"> · {l.fornecedor_nome}</span>}
+                  {/* Só os estados que dizem algo. `pendente` é o normal — todo
+                      lançamento nasce assim, e um selo em toda linha vira ruído;
+                      quem cobra conferência é a fila no topo. */}
+                  {l.status === 'rejeitado' && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full ml-1.5 align-middle"
+                          style={{ background: 'rgba(239,68,68,0.14)', color: '#ef4444' }}
+                          title="Fora da DRE e do caixa">
+                      rejeitado
+                    </span>
+                  )}
+                  {l.status === 'aprovado' && (
+                    <Check className="h-3 w-3 inline-block ml-1.5 align-middle text-emerald-400" />
+                  )}
                 </p>
                 <p className="text-xs text-[var(--surface-500)] truncate">
                   {fmtData(l.data_competencia)}
                   {l.descricao && ` · ${l.descricao}`}
+                  {l.status === 'rejeitado' && l.observacoes && ` · ${l.observacoes}`}
                 </p>
               </div>
-              <span className="text-mono text-sm text-[var(--surface-800)] shrink-0">{fmtBRL(l.valor)}</span>
+              <span
+                className="text-mono text-sm shrink-0"
+                style={{
+                  color: l.status === 'rejeitado' ? 'var(--surface-400)' : 'var(--surface-800)',
+                  textDecoration: l.status === 'rejeitado' ? 'line-through' : undefined,
+                }}
+              >
+                {fmtBRL(l.valor)}
+              </span>
               <button
                 onClick={e => { e.stopPropagation(); void excluir(l.id) }}
                 title="Excluir"
@@ -640,6 +730,39 @@ export default function LancamentosTab() {
                 )}
               </div>
           </div>
+
+          {/* COMPRA EXTERNA — "esse gasto é de outra unidade".
+              Só aparece no lançamento novo: mudar o destino de uma cobrança já
+              emitida deixaria a outra ponta com um documento órfão. Para
+              corrigir, exclui-se e lança de novo. */}
+          {!editandoId && unidades.length > 0 && (
+            <div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox" checked={!!paraOutra}
+                  onChange={e => setParaOutra(e.target.checked ? (unidades[0]?.id || '') : '')}
+                  className="h-4 w-4 accent-emerald-500"
+                />
+                <span className="text-xs text-[var(--surface-600)]">Comprei para outra unidade</span>
+              </label>
+
+              {paraOutra && (
+                <div className="mt-2 pl-6 space-y-1.5">
+                  <select
+                    value={paraOutra} onChange={e => setParaOutra(e.target.value)}
+                    className="input text-sm w-full sm:w-64"
+                  >
+                    {unidades.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
+                  </select>
+                  <p className="text-[11px] text-[var(--surface-400)]">
+                    O pagamento sai daqui e o custo vai para lá — depois que a
+                    unidade reconhecer o acerto. Até isso acontecer, a despesa
+                    permanece nesta unidade.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Rateio: o gasto cobre mais de um mês? (seguro anual, anuidade…) */}
           <div>

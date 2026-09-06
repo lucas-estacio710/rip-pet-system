@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { contaPadraoPara, contasQueAceitam } from '@/lib/financeiro'
+import { contaPadraoPara, contasQueAceitam, taxaDaVenda } from '@/lib/financeiro'
 import FichaRemocao from '@/components/fichas/FichaRemocao'
 import { captureElementAsBlob, fichaFilename, gerarFichaPDFA4Duplicada, nomeFicha } from '@/lib/ficha-generator'
 import EditarFichaModal from '@/components/contratos/modals/EditarFichaModal'
@@ -126,14 +126,6 @@ type Conta = {
   nome: string
   entradas: string[] | null                  // métodos que esta conta recebe (mig 122)
   preferencial_recebimento: boolean | null   // já vem escolhida no acerto
-}
-
-type TaxaCartao = {
-  id: string
-  tipo: string
-  nome: string
-  percentual: number
-  ordem: number
 }
 
 type Pagamento = {
@@ -368,7 +360,6 @@ export default function ContratoDetalhe() {
   // Mega Pagamento (quitar saldo / novo pagamento / editar)
   const [megaPagamentoModal, setMegaPagamentoModal] = useState(false)
   const [megaPagamentoEditando, setMegaPagamentoEditando] = useState<Pagamento | null>(null)
-  const [taxasCartao, setTaxasCartao] = useState<TaxaCartao[]>([])
   const [megaPagamentoForm, setMegaPagamentoForm] = useState({
     valorPlano: '',
     descontoPlano: '',
@@ -555,7 +546,7 @@ export default function ContratoDetalhe() {
   const [todasUnidades, setTodasUnidades] = useState<{ id: string; codigo: string; nome: string }[]>([])
 
   const supabase = createClient()
-  const { hasModule, currentUnit, currentRole, isSuperAdmin, allUnidades } = useUnit()
+  const { hasModule, currentUnit, currentRole, isSuperAdmin, allUnidades, userName } = useUnit()
   // cb_operacional: Responsável do acolhimento vem de perfis, não de funcionarios.
   const temOperacionalContrato = !!allUnidades.find(u => u.id === contrato?.unidade_id)?.modulos_ativos?.includes('cb_operacional')
   const [responsavelNomeResolvido, setResponsavelNomeResolvido] = useState<string | null>(null)
@@ -1036,15 +1027,12 @@ export default function ContratoDetalhe() {
     if (data) setContas(data as unknown as Conta[])
   }
 
-  async function carregarTaxasCartao() {
-    const { data } = await supabase
-      .from('taxas_cartao')
-      .select('id, tipo, nome, percentual, ordem')
-      .eq('ativo', true)
-      .order('ordem')
-
-    if (data) setTaxasCartao(data)
-  }
+  // ⚠️ `carregarTaxasCartao` foi REMOVIDA (lia `taxas_cartao`, global). A taxa
+  // agora vem da CONTA em que o dinheiro cai, por `taxaDaVenda` (mig 134) — a
+  // mesma função do pipeline, para os dois caminhos não divergirem. Era esse o
+  // defeito: este modal gravava `valor_liquido = valor`, sem taxa nenhuma,
+  // enquanto o pipeline descontava; a mesma venda entrava no caixa por dois
+  // valores diferentes conforme a tela em que foi registrada.
 
   function abrirPagamentoModal(pagamento?: Pagamento) {
     if (pagamento) {
@@ -1086,6 +1074,17 @@ export default function ContratoDetalhe() {
     // Desconto não vive mais no pagamento (campo deprecated). Vive em contratos.desconto_plano_unificado
     // ou desconto_acessorios_ajuste. Pagamento agora é só entrada de caixa.
 
+    // A taxa vem da CONTA em que o dinheiro cai (mig 134) — mesma função do
+    // pipeline. Sem tabela cadastrada, `percentual` é 0 e o valor entra cheio:
+    // não se inventa taxa.
+    // A taxa por maquininha vale só para quem tem o módulo financeiro; as demais
+    // seguem na tabela global, como hoje (ver lib/financeiro.ts).
+    const { percentual } = await taxaDaVenda(
+      supabase, pagamentoForm.conta_id || null, pagamentoForm.metodo, pagamentoForm.parcelas,
+      null, hasModule('tela_financeiro'),
+    )
+    const taxa = Math.round(valor * (percentual / 100) * 100) / 100
+
     const dados = {
       contrato_id: params.id,
       tipo: pagamentoForm.tipo,
@@ -1093,11 +1092,15 @@ export default function ContratoDetalhe() {
       conta_id: pagamentoForm.conta_id || null,
       valor,
       desconto: 0,
-      valor_liquido: valor,
+      taxa: taxa > 0 ? taxa : null,
+      valor_liquido_sem_taxa: valor,
+      valor_liquido: valor - taxa,
       parcelas: pagamentoForm.parcelas,
       is_seguradora: pagamentoForm.is_seguradora,
       data_pagamento: pagamentoForm.data_pagamento,
       mes_competencia: pagamentoForm.data_pagamento?.substring(0, 7).replace('-', '/'),
+      // Quem registrou (mig 133) — só na criação; editar não reescreve o autor.
+      ...(editandoPagamento ? {} : { criado_por: (await supabase.auth.getUser()).data.user?.id || null }),
     }
 
     let error
@@ -1111,7 +1114,37 @@ export default function ContratoDetalhe() {
       const result = await supabase
         .from('pagamentos')
         .insert(dados as never)
+        .select('id')
+        .single()
       error = result.error
+
+      // ACERTO EXTERNO — o dinheiro caiu aqui, mas o contrato é de outra unidade.
+      //
+      // Acontece todo dia: o tutor de Campinas liga para Santos e paga no pix de
+      // Santos. Quem tem o dinheiro é Santos; a receita é de Campinas (ela vem de
+      // `contratos`, e por isso nunca se desloca). O que faltava era registrar a
+      // dívida que nasce disso — foi assim que 864 pagamentos de outras unidades
+      // acabaram nas contas de Santos sem nenhum acerto correspondente.
+      //
+      // Nada se pergunta ao operador: ele responde o que sabe (recebi no meu pix)
+      // e a cobrança nasce sozinha. Ver docs/COBRANCAS_ENTRE_UNIDADES.md.
+      if (!error && hasModule('tela_financeiro')
+          && contrato?.unidade_id && currentUnit?.id
+          && contrato.unidade_id !== currentUnit.id) {
+        const pagoId = (result.data as { id: string } | null)?.id || null
+        await supabase.from('fin_cobrancas').insert({
+          unidade_credora: contrato.unidade_id,   // dona do contrato: tem a receber
+          unidade_devedora: currentUnit.id,       // recebeu o dinheiro: deve
+          tipo: 'recebimento_terceiro',
+          valor,
+          data: pagamentoForm.data_pagamento || hojeLocal(),
+          descricao: `Recebimento do contrato ${contrato.codigo || ''}`.trim(),
+          status: 'emitida',
+          pagamento_id: pagoId,
+          conta_id: pagamentoForm.conta_id || null,   // onde o dinheiro caiu
+          criado_por_nome: userName || null,
+        } as never)
+      }
     }
 
     if (!error) {
@@ -1389,9 +1422,7 @@ export default function ContratoDetalhe() {
       })
     }
     setMegaPagamentoModal(true)
-    if (taxasCartao.length === 0) {
-      await carregarTaxasCartao()
-    }
+    if (contas.length === 0) await carregarContas()
   }
 
   // Salvar mega pagamento (bifurca em múltiplos pagamentos)
@@ -1423,21 +1454,6 @@ export default function ContratoDetalhe() {
       ? hojeLocal()
       : megaPagamentoForm.data_pagamento
 
-    // IDs fixos das contas (sincronizados com migrar_legado.py)
-    const CONTAS = {
-      pix: '1124d3d0-f525-450c-92d7-739e70a42cb0',      // Inter
-      cartao: 'c102eed4-5318-492a-a6c5-f794483f9639',   // Granito
-      dinheiro: 'e4b0636c-2241-4911-b444-359e83e39674', // Dinheiro
-    }
-    const contaId = CONTAS[megaPagamentoForm.metodo as keyof typeof CONTAS] || null
-
-    // Buscar percentual da taxa selecionada (bandeira_parcelas: master_debito, visa_2x, etc)
-    const tipoTaxa = megaPagamentoForm.bandeira && megaPagamentoForm.parcelas
-      ? `${megaPagamentoForm.bandeira}_${megaPagamentoForm.parcelas}`
-      : ''
-    const tipoSelecionado = taxasCartao.find(t => t.tipo === tipoTaxa)
-    const taxaPercentual = tipoSelecionado?.percentual || 0
-
     // Parcelas (extrair: debito -> 1, 1x -> 1, 6x -> 6, etc)
     let parcelas = 1
     if (megaPagamentoForm.parcelas && megaPagamentoForm.parcelas !== 'debito') {
@@ -1454,6 +1470,23 @@ export default function ContratoDetalhe() {
     const metodoBanco = megaPagamentoForm.metodo === 'cartao'
       ? (megaPagamentoForm.parcelas === 'debito' ? 'debito' : 'credito')
       : megaPagamentoForm.metodo
+
+    // 🐛 TERCEIRA cópia do bug dos UUIDs chumbados. Aqui havia as MESMAS três
+    // contas de SANTOS fixas no código (Inter, Granito, Dinheiro) — o mesmo
+    // defeito corrigido no pipeline pela mig 122, que ninguém tinha visto viver
+    // também neste arquivo. Toda unidade que registrasse o recebimento por aqui
+    // gravava na conta de outra filial, em silêncio. Agora sai do cadastro.
+    if (contas.length === 0) await carregarContas()
+    const contaId = contaPadraoPara(contas, metodoBanco) || null
+
+    // A taxa é da MAQUININHA, não do sistema (mig 134) — mesma função das
+    // outras telas. Sem tabela cadastrada, entra cheio; não se inventa taxa.
+    const temFinanceiro = hasModule('tela_financeiro')
+    const { percentual: taxaPercentual } = await taxaDaVenda(
+      supabase, contaId, metodoBanco, parcelas,
+      megaPagamentoForm.metodo === 'cartao' ? megaPagamentoForm.bandeira : null,
+      temFinanceiro,
+    )
 
     // ===========================
     // Modo "Plano fechado" (override): user informa total + plano puro;
@@ -1513,6 +1546,11 @@ export default function ContratoDetalhe() {
       taxaAcessorio = taxaTotal * (liquidoAcessorio / liquidoTotal)
     }
 
+    // Quem registrou o recebimento (mig 133) — a coluna existia e nenhum dos
+    // caminhos a preenchia: 0 de 4.010 pagamentos. Sem isso, um recebimento
+    // errado não tem a quem perguntar.
+    const criadoPor = (await supabase.auth.getUser()).data.user?.id || null
+
     const pagamentosParaCriar = []
 
     // Bandeira do cartão (se for cartão)
@@ -1535,6 +1573,7 @@ export default function ContratoDetalhe() {
         bandeira: bandeira,
         data_pagamento: dataPagamento,
         mes_competencia: dataPagamento?.substring(0, 7).replace('-', '/'),
+        criado_por: criadoPor,
       })
     }
 
@@ -1555,6 +1594,7 @@ export default function ContratoDetalhe() {
         bandeira: bandeira,
         data_pagamento: dataPagamento,
         mes_competencia: dataPagamento?.substring(0, 7).replace('-', '/'),
+        criado_por: criadoPor,
       })
     }
 
@@ -1630,6 +1670,27 @@ export default function ContratoDetalhe() {
         alert(`Erro ao salvar: ${error.message}`)
       } else {
         console.log('Pagamentos salvos:', data)
+
+        // ACERTO EXTERNO — o dinheiro caiu aqui e o contrato é de outra unidade.
+        // Nasce sozinho: quem registra responde só o que sabe (recebi no meu
+        // pix). Ver docs/COBRANCAS_ENTRE_UNIDADES.md e FLOW §9.5.
+        if (temFinanceiro && contrato?.unidade_id && currentUnit?.id
+            && contrato.unidade_id !== currentUnit.id) {
+          const total = pagamentosParaCriar.reduce((s, p) => s + Number(p.valor || 0), 0)
+          await supabase.from('fin_cobrancas' as never).insert({
+            unidade_credora: contrato.unidade_id,   // dona do contrato: tem a receber
+            unidade_devedora: currentUnit.id,       // recebeu o dinheiro: deve
+            tipo: 'recebimento_terceiro',
+            valor: total,
+            data: dataPagamento,
+            descricao: `Recebimento do contrato ${contrato.codigo || ''}`.trim(),
+            status: 'emitida',
+            pagamento_id: (data as { id: string }[] | null)?.[0]?.id || null,
+            conta_id: contaId,
+            criado_por_nome: userName || null,
+          } as never)
+        }
+
         await carregarPagamentos()
         setMegaPagamentoModal(false)
       }
@@ -1748,10 +1809,16 @@ export default function ContratoDetalhe() {
       const c = data as Contrato
       setContrato(c)
       // Responsável via login (cb_operacional) não vem embutido no select acima — resolve o
-      // nome à parte (perfis.user_id não tem FK direta pra contratos.responsavel_user_id).
+      // nome à parte. NÃO dá pra ler `perfis` direto (nem sendo super_admin): a policy
+      // `perfis_select` (mig 041) usa um EXISTS auto-referente pra liberar super_admin, e essa
+      // subquery na prática nunca resolve (mesma armadilha que já tinha exigido a RPC
+      // `listar_atribuiveis_operacional`, mig 118). `resolver_nomes_perfis` (mig 139) é
+      // dedicada a isso e não depende do responsável estar cadastrado NESTA unidade — o
+      // Responsável pode ter o perfil em outra filial (super_admin, ou quem ajuda outra
+      // unidade), caso que `listar_atribuiveis_operacional` (escopado por unidade) não cobre.
       if (c.responsavel_user_id) {
-        const { data: perfil } = await supabase.from('perfis').select('nome').eq('user_id', c.responsavel_user_id).eq('unidade_id', c.unidade_id).maybeSingle() as { data: { nome: string | null } | null }
-        setResponsavelNomeResolvido(perfil?.nome || null)
+        const { data: perfis } = await supabase.rpc('resolver_nomes_perfis' as never, { p_user_ids: [c.responsavel_user_id] } as never) as { data: { user_id: string; nome: string | null }[] | null }
+        setResponsavelNomeResolvido(perfis?.[0]?.nome || null)
       } else {
         setResponsavelNomeResolvido(null)
       }
@@ -4400,6 +4467,24 @@ ${petNome}`
                   />
                 </div>
               </div>
+
+              {/* Contrato de outra unidade: o dinheiro fica aqui, a receita é de lá.
+                  Avisa antes de gravar, para o operador não achar que é receita
+                  desta unidade — e para ele saber que um acerto será gerado. */}
+              {!editandoPagamento && hasModule('tela_financeiro')
+                && contrato?.unidade_id && currentUnit?.id
+                && contrato.unidade_id !== currentUnit.id && (
+                <div className="flex items-start gap-2 px-3 py-2 rounded-lg text-xs"
+                     style={{ background: 'rgba(245,158,11,0.10)', color: '#f59e0b' }}>
+                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>
+                    Este contrato é de{' '}
+                    {allUnidades.find(u => u.id === contrato.unidade_id)?.nome || 'outra unidade'}.
+                    O dinheiro entra na conta desta unidade e um acerto é enviado
+                    para que a receita fique com a unidade dona do contrato.
+                  </span>
+                </div>
+              )}
 
               {/* Parcelas e Seguradora */}
               <div className="grid grid-cols-2 gap-3">

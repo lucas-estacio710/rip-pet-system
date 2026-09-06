@@ -2,14 +2,14 @@
 
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { FileText, Search, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ArrowUp, ArrowDown, Star, X, Printer, XCircle, Plus, Weight, Copy, Check, Clock, CheckCheck, CalendarClock, SearchCheck, Flame, CheckCircle2, Loader2 } from 'lucide-react'
+import { FileText, Search, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ArrowUp, ArrowDown, Star, X, Printer, XCircle, Plus, Weight, Copy, Check, Clock, CheckCheck, CalendarClock, SearchCheck, Flame, CheckCircle2, Loader2, AlertTriangle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { sanitizeBuscaPostgrest } from '@/lib/sanitize'
 import Link from 'next/link'
 import { useDebounce } from '@/hooks/useDebounce'
 import { ProtocoloData, montarProtocoloData, normalizarProtocoloData } from '@/components/protocolo/protocolo-utils'
 import { computeAllTags, getPagamentoPendente, TAG_STATE_STYLES, type ComputedTag } from '@/lib/contrato-tags'
-import { contaPadraoPara, type ContaEscolhivel } from '@/lib/financeiro'
+import { contaPadraoPara, taxaDaVenda, fmtBRL, type ContaEscolhivel } from '@/lib/financeiro'
 import ProtocoloEditorModal from '@/components/protocolo/ProtocoloEditorModal'
 import { printProtocolos } from '@/components/protocolo/ProtocoloPrint'
 import InteractiveTags from '@/components/contratos/InteractiveTags'
@@ -272,7 +272,7 @@ function calcFinanceiroProtocolo(
 function ContratosContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const { currentUnit, allUnidades, isLoading: unitLoading, hasModule } = useUnit()
+  const { currentUnit, allUnidades, isLoading: unitLoading, hasModule, userName } = useUnit()
   const { isVisible } = useFieldPermission()
   const T = 'tela_pipeline'
 
@@ -465,7 +465,9 @@ function ContratosContent() {
   // Modal Mega Pagamento (igual ao da ficha)
   const [megaPagamentoModal, setMegaPagamentoModal] = useState(false)
   const [megaPagamentoContrato, setMegaPagamentoContrato] = useState<Contrato | null>(null)
-  const [taxasCartao, setTaxasCartao] = useState<Array<{ id: string; tipo: string; nome: string; percentual: number; ordem: number }>>([])
+  // Taxa da maquininha em que o dinheiro vai cair (mig 134). `cadastrada: false`
+  // = taxa DESCONHECIDA, não zero — o modal avisa e o valor entra cheio.
+  const [taxaVenda, setTaxaVenda] = useState<{ percentual: number; cadastrada: boolean } | null>(null)
   // Contas DESTA unidade, com o que cada uma recebe (mig 122). Substitui os UUIDs
   // que estavam chumbados aqui — ver comentário em `processarMegaPagamento`.
   const [contasUnidade, setContasUnidade] = useState<ContaEscolhivel[]>([])
@@ -2246,15 +2248,10 @@ Gratidão eterna!
     }
   }
 
-  // Funções do Mega Pagamento
-  async function carregarTaxasCartao() {
-    const { data } = await supabase
-      .from('taxas_cartao')
-      .select('id, tipo, nome, percentual, ordem')
-      .eq('ativo', true)
-      .order('ordem')
-    if (data) setTaxasCartao(data)
-  }
+  // ⚠️ `carregarTaxasCartao` foi REMOVIDA: lia `taxas_cartao`, que é global e
+  // valia para o sistema inteiro — com três adquirentes na operação (Rede,
+  // InterPag, Infinity), a venda de uma unidade saía descontada com a taxa da
+  // maquininha de outra. A taxa agora vem da CONTA, por `taxaDaVenda` (mig 134).
 
   /** Contas da unidade logada — a escolha do mega pagamento sai daqui. */
   async function carregarContasUnidade() {
@@ -2296,11 +2293,30 @@ Gratidão eterna!
       dataHoje: false,
       data_pagamento: '',
     })
+    setTaxaVenda(null)
     setMegaPagamentoModal(true)
-    if (taxasCartao.length === 0) {
-      await carregarTaxasCartao()
-    }
   }
+
+  /**
+   * Consulta a taxa da maquininha assim que dá pra saber qual é — para o
+   * operador ver o desconto ANTES de gravar, e ser avisado quando aquela
+   * máquina ainda não tem tabela cadastrada.
+   */
+  useEffect(() => {
+    if (!megaPagamentoModal) return
+    const metodo = megaPagamentoForm.metodo === 'cartao'
+      ? (megaPagamentoForm.parcelas === 'debito' ? 'debito' : 'credito')
+      : megaPagamentoForm.metodo
+    if (metodo !== 'credito' && metodo !== 'debito') { setTaxaVenda(null); return }
+    const m = megaPagamentoForm.parcelas?.match(/(\d+)x/)
+    const conta = contaPadraoPara(contasUnidade, metodo) || null
+    let cancelado = false
+    void taxaDaVenda(supabase, conta, metodo, m ? parseInt(m[1]) : 1,
+      megaPagamentoForm.bandeira, hasModule('tela_financeiro'))
+      .then(r => { if (!cancelado) setTaxaVenda(r) })
+    return () => { cancelado = true }
+  }, [megaPagamentoModal, megaPagamentoForm.metodo, megaPagamentoForm.parcelas,
+      megaPagamentoForm.bandeira, contasUnidade, supabase, hasModule])
 
   async function salvarMegaPagamento() {
     if (!megaPagamentoContrato) return
@@ -2332,12 +2348,6 @@ Gratidão eterna!
     const mesCompetencia = dataPagamento ? `${dataPagamento.slice(0, 4)}/${dataPagamento.slice(5, 7)}` : null
 
 
-    const tipoTaxa = megaPagamentoForm.bandeira && megaPagamentoForm.parcelas
-      ? `${megaPagamentoForm.bandeira}_${megaPagamentoForm.parcelas}`
-      : null
-    const tipoSelecionado = taxasCartao.find(t => t.tipo === tipoTaxa)
-    const taxaPercentual = tipoSelecionado?.percentual || 0
-
     let parcelas = 1
     if (megaPagamentoForm.parcelas && megaPagamentoForm.parcelas !== 'debito') {
       const match = megaPagamentoForm.parcelas.match(/(\d+)x/)
@@ -2357,6 +2367,23 @@ Gratidão eterna!
     // qual é a preferencial (mig 122), e a escolha respeita a unidade logada.
     const contaId = contaPadraoPara(contasUnidade, metodoBanco) || null
 
+    // A TAXA É DA MAQUININHA, NÃO DO SISTEMA (mig 134).
+    //
+    // Antes vinha de `taxas_cartao`, que é global — então a venda na Rede de
+    // Campinas era descontada com a taxa da InterPag de Santos. A busca agora
+    // parte da CONTA em que o dinheiro cai, e é a mesma função que o detalhe do
+    // contrato usa: uma porta só, dois caminhos que não podem divergir.
+    //
+    // Sem taxa cadastrada o valor entra CHEIO — não se inventa percentual. Três
+    // das seis maquininhas estão assim, e o modal avisa antes de gravar.
+    // ⚠️ A taxa por maquininha vale só para quem TEM o módulo financeiro. As
+    // demais unidades seguem na tabela global, exatamente como hoje — elas não
+    // contrataram nada e não têm como cadastrar a tabela da máquina delas.
+    const temFinanceiro = hasModule('tela_financeiro')
+    const { percentual: taxaPercentual } = await taxaDaVenda(
+      supabase, contaId, metodoBanco, parcelas, bandeira, temFinanceiro,
+    )
+
     // Valores
     const valorPlano = megaPagamentoForm.valorPlano ? parseFloat(megaPagamentoForm.valorPlano) : 0
     const descontoPlano = megaPagamentoForm.descontoPlanoAtivo && megaPagamentoForm.descontoPlano ? parseFloat(megaPagamentoForm.descontoPlano) : 0
@@ -2365,6 +2392,12 @@ Gratidão eterna!
     const valorAcessorio = megaPagamentoForm.valorAcessorio ? parseFloat(megaPagamentoForm.valorAcessorio) : 0
     const descontoAcessorio = megaPagamentoForm.descontoAcessorioAtivo && megaPagamentoForm.descontoAcessorio ? parseFloat(megaPagamentoForm.descontoAcessorio) : 0
     const valorBrutoAcessorio = valorAcessorio - descontoAcessorio
+
+    // Quem registrou o recebimento (mig 133). A coluna existia desde 30/08 e
+    // nenhum dos dois caminhos a preenchia — 0 de 4.010 pagamentos. Sem isso,
+    // um recebimento errado não tem a quem perguntar.
+    const { data: { user } } = await supabase.auth.getUser()
+    const criadoPor = user?.id || null
 
     const pagamentosParaInserir = []
 
@@ -2386,6 +2419,7 @@ Gratidão eterna!
         is_seguradora: false,
         data_pagamento: dataPagamento,
         mes_competencia: mesCompetencia,
+        criado_por: criadoPor,
       })
     }
 
@@ -2407,6 +2441,7 @@ Gratidão eterna!
         is_seguradora: false,
         data_pagamento: dataPagamento,
         mes_competencia: mesCompetencia,
+        criado_por: criadoPor,
       })
     }
 
@@ -2419,12 +2454,47 @@ Gratidão eterna!
     const { data: novosPagamentos, error } = await supabase
       .from('pagamentos')
       .insert(pagamentosParaInserir as never)
-      .select('tipo, valor')
+      .select('id, tipo, valor')
 
     if (error) {
       console.error('Erro ao salvar pagamento:', error)
       alert('Erro ao salvar pagamento')
     } else {
+      // ACERTO EXTERNO — o dinheiro caiu aqui, mas o contrato é de outra unidade.
+      //
+      // Acontece todo dia: o tutor de Campinas liga para Santos e paga no pix de
+      // Santos. Quem fica com o dinheiro é Santos; a receita é de Campinas (ela
+      // é lida de `contratos` e por isso nunca se desloca). O que faltava era
+      // registrar a dívida que nasce disso — foi assim que 864 pagamentos de
+      // outras unidades foram parar nas contas de Santos sem acerto nenhum.
+      //
+      // Nada se pergunta ao operador: ele responde o que sabe (recebi no meu
+      // pix) e a cobrança nasce sozinha, para a outra unidade reconhecer.
+      // Ver docs/COBRANCAS_ENTRE_UNIDADES.md.
+      // Só a unidade que ESTÁ REGISTRANDO precisa ter o módulo — quem cobra pode
+      // não ter ainda, e tudo bem: a cobrança fica gravada esperando, e aparece
+      // no dia em que aquela unidade contratar. Deixar de registrar seria pior;
+      // é o dinheiro dela parado na conta de outra filial sem rastro nenhum, que
+      // foi exatamente como 864 pagamentos foram parar nas contas de Santos.
+      const unidadeDoContrato = megaPagamentoContrato.unidade_id
+      if (temFinanceiro
+          && unidadeDoContrato && currentUnit?.id && unidadeDoContrato !== currentUnit.id) {
+        const total = pagamentosParaInserir.reduce((s, p) => s + Number(p.valor || 0), 0)
+        // `fin_cobrancas` (mig 135) ainda não está em types/database.ts
+        await supabase.from('fin_cobrancas' as never).insert({
+          unidade_credora: unidadeDoContrato,   // dona do contrato: tem a receber
+          unidade_devedora: currentUnit.id,     // recebeu o dinheiro: deve
+          tipo: 'recebimento_terceiro',
+          valor: total,
+          data: dataPagamento,
+          descricao: `Recebimento do contrato ${megaPagamentoContrato.codigo || ''}`.trim(),
+          status: 'emitida',
+          pagamento_id: (novosPagamentos as { id: string }[] | null)?.[0]?.id || null,
+          conta_id: contaId,                    // onde o dinheiro caiu
+          criado_por_nome: userName || null,
+        } as never)
+      }
+
       // Atualizar lista de contratos com novos pagamentos
       setContratos(prev => prev.map(c => {
         if (c.id === megaPagamentoContrato.id) {
@@ -5034,6 +5104,55 @@ ${petNome}`
 
             {/* Form compacto */}
             <div className="p-3 space-y-3">
+              {/* Contrato de outra unidade: o dinheiro fica aqui, a receita é de
+                  lá. Avisar antes de gravar evita que o operador conte como
+                  receita desta unidade — e explica o acerto que vai nascer. */}
+              {hasModule('tela_financeiro')
+                && megaPagamentoContrato.unidade_id && currentUnit?.id
+                && megaPagamentoContrato.unidade_id !== currentUnit.id && (
+                <div className="flex items-start gap-2 px-3 py-2 rounded-lg text-xs bg-amber-500/10 text-amber-400">
+                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>
+                    Contrato de{' '}
+                    {allUnidades.find(u => u.id === megaPagamentoContrato.unidade_id)?.nome || 'outra unidade'}.
+                    O dinheiro entra na conta desta unidade e um acerto é enviado
+                    para que a receita fique com a unidade dona do contrato.
+                  </span>
+                </div>
+              )}
+
+              {/* A TAXA DA MAQUININHA (mig 134). Mostrar antes de gravar é o que
+                  separa "o sistema descontou algo" de "eu sei quanto entra".
+                  Sem tabela cadastrada, o valor entra CHEIO e isso é dito em
+                  voz alta — número incompleto e visível é melhor que número
+                  plausível e errado. */}
+              {taxaVenda && (
+                taxaVenda.cadastrada ? (
+                  taxaVenda.percentual > 0 && (
+                    <p className="text-xs text-slate-400">
+                      Taxa da maquininha: <span className="text-slate-300">{taxaVenda.percentual}%</span>
+                      {' · '}entra{' '}
+                      <span className="text-slate-300">
+                        {fmtBRL(
+                          ((parseFloat(megaPagamentoForm.valorPlano) || 0)
+                            + (parseFloat(megaPagamentoForm.valorAcessorio) || 0))
+                          * (1 - taxaVenda.percentual / 100),
+                        )}
+                      </span>
+                    </p>
+                  )
+                ) : (
+                  <div className="flex items-start gap-2 px-3 py-2 rounded-lg text-xs bg-amber-500/10 text-amber-400">
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>
+                      Esta maquininha ainda não tem tabela de taxas cadastrada —
+                      o valor será registrado cheio, sem desconto. Cadastre em
+                      Financeiro › Contas para o líquido ficar correto.
+                    </span>
+                  </div>
+                )
+              )}
+
               {/* Plano e Acessório lado a lado */}
               <div className="grid grid-cols-2 gap-2">
                 {/* Plano */}

@@ -44,6 +44,7 @@ type Saldo = {
   unidades_extras: string[] | null   // outras unidades que usam a conta (mig 128)
   produto: string | null             // maquininha / cartao_credito / … (mig 130)
   liquidacao_dias: number | null
+  caixa_desde: string | null         // desde quando o extrato vale (mig 136)
 }
 type Linha = {
   conta_id: string; data: string; tipo: string
@@ -104,6 +105,13 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
   const [data, setData] = useState(hojeISO())
   const [descricao, setDescricao] = useState('')
   const [salvando, setSalvando] = useState(false)
+
+  // Conferência do saldo contra o extrato do banco — a "boca do saldo".
+  const [confConta, setConfConta] = useState<Saldo | null>(null)
+  const [confSaldo, setConfSaldo] = useState('')     // o que o extrato mostra
+  const [confData, setConfData] = useState(hojeISO())
+  const [confMotivo, setConfMotivo] = useState('')
+  const [confSalvando, setConfSalvando] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!currentUnit?.id) return
@@ -167,6 +175,78 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
     setData(hojeISO())
     setDescricao(`Liquidação ${maq.nome}`)
     setAberto(true)
+  }
+
+  /**
+   * CONFERIR O SALDO CONTRA O EXTRATO — a "boca do saldo".
+   *
+   * A pessoa não calcula diferença nenhuma: ela olha o extrato do banco, digita
+   * o saldo que está lá, e o sistema grava o ajuste que falta. Pedir a diferença
+   * seria pedir uma conta que a pessoa não tem por que fazer — e que ela erraria
+   * de sinal metade das vezes.
+   *
+   * Na PRIMEIRA vez é uma abertura de caixa: além do ajuste, grava
+   * `contas.caixa_desde`, e a partir dali o histórico anterior sai do extrato.
+   * É como o caixa "começa do zero" sem que nenhum pagamento seja apagado.
+   */
+  function abrirConferencia(s: Saldo) {
+    setConfConta(s)
+    setConfSaldo('')
+    setConfData(s.caixa_desde ? hojeISO() : hojeISO())
+    setConfMotivo('')
+  }
+
+  async function salvarConferencia() {
+    if (!confConta || !currentUnit?.id) return
+    const real = Number(confSaldo)
+    if (confSaldo.trim() === '' || Number.isNaN(real)) return toast('Informe o saldo do extrato', 'error')
+
+    const abertura = !confConta.caixa_desde
+    // Numa abertura, o histórico anterior sai de cena: o saldo passa a ser SÓ o
+    // que for informado, então o ajuste é o valor cheio. Numa conferência de
+    // rotina, o ajuste é apenas a diferença que falta.
+    const diferenca = abertura ? real : real - Number(confConta.saldo || 0)
+
+    if (!abertura && Math.abs(diferenca) < 0.005) {
+      // Bate com o extrato: não há o que gravar. Movimento de zero seria ruído
+      // no extrato e a constraint do banco o rejeitaria de todo modo.
+      toast('O saldo já bate com o extrato', 'success')
+      return setConfConta(null)
+    }
+
+    setConfSalvando(true)
+    try {
+      if (abertura) {
+        const { error } = await supabase.from('contas')
+          .update({ caixa_desde: confData }).eq('id', confConta.conta_id)
+        if (error) throw new Error(error.message)
+      }
+      if (Math.abs(diferenca) >= 0.005) {
+        const { error } = await supabase.from('fin_movimentos').insert({
+          unidade_id: currentUnit.id,
+          tipo: 'ajuste',
+          conta_id: confConta.conta_id,
+          conta_destino_id: null,
+          data: confData,
+          // ⚠️ O ajuste guarda o SINAL (mig 136). Nos outros tipos o valor é
+          // sempre positivo e o tipo diz a direção; aqui o extrato pode estar
+          // acima ou abaixo, e é o sinal que carrega essa informação.
+          valor: Number(diferenca.toFixed(2)),
+          descricao: abertura
+            ? `Abertura de caixa · ${confConta.nome}`
+            : `Ajuste de saldo · ${confMotivo.trim() || 'conferência com o extrato'}`,
+          criado_por_nome: userName || null,
+        })
+        if (error) throw new Error(error.message)
+      }
+      toast(abertura ? 'Caixa aberto' : `Saldo ajustado em ${fmtBRL(diferenca)}`, 'success')
+      setConfConta(null)
+      void carregar()
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Falha ao ajustar', 'error')
+    } finally {
+      setConfSalvando(false)
+    }
   }
 
   function limpar() {
@@ -332,6 +412,31 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
                   entrou {fmtBRL(s.entradas)} · saiu {fmtBRL(s.saidas)}
                 </p>
               )}
+
+              {/* CONFERIR CONTRA O EXTRATO — a "boca do saldo".
+                  Conta sem `caixa_desde` nunca foi conferida: o número é a soma
+                  de tudo que já entrou, sem nenhuma saída, e quase certamente
+                  não é o que está no banco. Dizer isso é mais honesto que
+                  exibir o número liso e deixar a pessoa acreditar nele. */}
+              {!somenteLeitura && !s.legado && (
+                <div className="flex items-center gap-2 mt-1">
+                  {!s.caixa_desde && (
+                    <span
+                      className="text-[9px] px-1 py-0.5 rounded-full shrink-0"
+                      style={{ background: 'rgba(245,158,11,0.14)', color: '#f59e0b' }}
+                      title="O saldo é a soma de todo o histórico e nunca foi conferido contra o extrato do banco."
+                    >
+                      não conferido
+                    </span>
+                  )}
+                  <span
+                    onClick={e => { e.stopPropagation(); abrirConferencia(s) }}
+                    className="text-[10px] text-[var(--brand-500)] underline cursor-pointer"
+                  >
+                    {s.caixa_desde ? 'conferir' : 'abrir caixa'}
+                  </span>
+                </div>
+              )}
             </button>
           )
         })}
@@ -483,6 +588,111 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
             />
           </div>
         </div>
+      </Modal>
+
+      {/* CONFERIR COM O EXTRATO — pergunta o saldo real, calcula o resto.
+          Pedir a diferença seria pedir uma conta que a pessoa não tem por que
+          fazer, e que ela erraria de sinal metade das vezes. */}
+      <Modal
+        isOpen={!!confConta}
+        onClose={() => setConfConta(null)}
+        title={confConta?.caixa_desde ? 'Conferir com o extrato' : 'Abrir o caixa desta conta'}
+        footer={
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setConfConta(null)} className="btn-secondary text-sm">Cancelar</button>
+            <button onClick={() => void salvarConferencia()} disabled={confSalvando} className="btn-primary text-sm">
+              {confSalvando
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> Salvando…</>
+                : <><Check className="h-4 w-4" /> {confConta?.caixa_desde ? 'Ajustar' : 'Abrir'}</>}
+            </button>
+          </div>
+        }
+      >
+        {confConta && (() => {
+          const abertura = !confConta.caixa_desde
+          const real = Number(confSaldo)
+          const temValor = confSaldo.trim() !== '' && !Number.isNaN(real)
+          const dif = abertura ? real : real - Number(confConta.saldo || 0)
+          return (
+            <div className="space-y-4">
+              {abertura ? (
+                <p className="text-sm text-[var(--surface-600)]">
+                  O saldo de <strong>{confConta.nome}</strong> hoje é a soma de tudo
+                  que já entrou, sem nenhuma saída — {fmtBRL(confConta.saldo)} — e
+                  quase certamente não é o que está no banco. Informe o saldo real
+                  e a partir de que dia o extrato passa a valer.
+                  {' '}O histórico anterior sai do caixa; <strong>nenhum pagamento
+                  é apagado</strong>, e o Dashboard e a DRE não mudam.
+                </p>
+              ) : (
+                <p className="text-sm text-[var(--surface-600)]">
+                  O sistema mostra{' '}
+                  <span className="text-mono text-[var(--surface-800)]">{fmtBRL(confConta.saldo)}</span>{' '}
+                  em <strong>{confConta.nome}</strong>. Informe o que o extrato mostra.
+                </p>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-[var(--surface-500)] block mb-1">
+                    Saldo no extrato
+                  </label>
+                  <div className="flex items-center rounded-[var(--radius-md)] border overflow-hidden"
+                       style={{ borderColor: 'var(--surface-300)', background: 'var(--surface-0)' }}>
+                    <span className="text-sm text-[var(--surface-400)] pl-2">R$</span>
+                    <input
+                      autoFocus type="number" step="0.01" value={confSaldo}
+                      onChange={e => setConfSaldo(e.target.value)}
+                      placeholder="0,00"
+                      className="w-full bg-transparent border-0 outline-none text-sm text-mono px-2 py-2 text-[var(--surface-800)]"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-[var(--surface-500)] block mb-1">
+                    {abertura ? 'O extrato vale a partir de' : 'Data do ajuste'}
+                  </label>
+                  <input type="date" value={confData} onChange={e => setConfData(e.target.value)}
+                         className="input text-sm w-full" />
+                </div>
+              </div>
+
+              {/* O número que vai ser gravado, à vista antes de confirmar. */}
+              {temValor && !abertura && (
+                <p className="text-sm">
+                  {Math.abs(dif) < 0.005 ? (
+                    <span className="text-emerald-400">Bate com o extrato — nada a ajustar.</span>
+                  ) : (
+                    <>
+                      <span className="text-[var(--surface-500)]">Ajuste de </span>
+                      <span className="text-mono" style={{ color: dif > 0 ? '#10b981' : '#ef4444' }}>
+                        {dif > 0 ? '+' : '−'}{fmtBRL(Math.abs(dif))}
+                      </span>
+                    </>
+                  )}
+                </p>
+              )}
+
+              {!abertura && (
+                <div>
+                  <label className="text-xs text-[var(--surface-500)] block mb-1">
+                    O que explica a diferença
+                  </label>
+                  <input
+                    value={confMotivo} onChange={e => setConfMotivo(e.target.value)}
+                    placeholder="Ex.: tarifa do banco que não foi lançada"
+                    className="input text-sm w-full"
+                  />
+                  <p className="text-[11px] text-[var(--surface-400)] mt-1">
+                    O ajuste aparece no extrato como uma linha, com este texto.
+                    Ele corrige o caixa e <strong>não</strong> mexe no resultado:
+                    reconhecer dinheiro que já existia não é receita.
+                  </p>
+                </div>
+              )}
+            </div>
+          )
+        })()}
       </Modal>
     </div>
   )

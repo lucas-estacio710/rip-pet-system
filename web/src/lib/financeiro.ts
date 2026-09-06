@@ -222,6 +222,89 @@ export function acharTaxa(
   return { percentual: achada?.percentual ?? 0, prazoDias: achada?.prazo_dias ?? 0 }
 }
 
+/**
+ * Busca no banco a taxa daquela maquininha e devolve o líquido — **a única
+ * porta** que as telas de recebimento devem usar.
+ *
+ * Existe porque a mig 134 resolveu o dado e não o consumo: a taxa passou a ser
+ * por conta, mas o pipeline e o detalhe do contrato continuaram lendo a tabela
+ * global `taxas_cartao`. O líquido de uma venda na Rede de Campinas saía
+ * calculado com a taxa da InterPag de Santos.
+ *
+ * `cadastrada = false` significa **taxa desconhecida, não taxa zero**. O valor
+ * entra cheio e a tela avisa — um número visivelmente incompleto é melhor que um
+ * plausível e errado. Três das seis maquininhas do grupo estão nesse estado de
+ * propósito: ninguém conferiu as tabelas da Rede nem da Infinity.
+ */
+export async function taxaDaVenda(
+  // `unknown` de propósito: os chamadores usam o client TIPADO, e as tabelas
+  // fin_* ainda não estão em types/database.ts — tipar aqui obrigaria cada
+  // chamador a um cast, que é ruído sem ganho.
+  cliente: unknown,
+  contaId: string | null,
+  metodo: string,
+  parcelas = 1,
+  bandeira?: string | null,
+  /**
+   * A unidade tem o módulo financeiro? (`hasModule('tela_financeiro')`)
+   *
+   * ⚠️ NÃO é preciosismo: o módulo é vendido por unidade, e hoje **sete das oito
+   * estão sem ele**. Sem esta trava, publicar a taxa por maquininha mudaria o
+   * `valor_liquido` gravado por Campinas, São José e Pinda — que não contrataram
+   * nada e não têm como cadastrar a tabela da máquina delas, porque a aba Contas
+   * não abre. Elas continuam exatamente como hoje.
+   */
+  comModuloFinanceiro = true,
+): Promise<{ percentual: number; prazoDias: number; cadastrada: boolean }> {
+  const vazio = { percentual: 0, prazoDias: 0, cadastrada: false }
+  // Pix e dinheiro não passam por adquirente: não há taxa a buscar.
+  if (metodo !== 'credito' && metodo !== 'debito') {
+    return { ...vazio, cadastrada: true }
+  }
+
+  const supabase = cliente as {
+    rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown }>
+    from: (t: string) => {
+      select: (c: string) => {
+        eq: (c: string, v: unknown) => {
+          eq: (c: string, v: unknown) => { maybeSingle: () => Promise<{ data: unknown }> }
+        }
+      }
+    }
+  }
+
+  // ── Unidade SEM o módulo: a tabela global, como sempre foi ────────────────
+  // Uma porta só, com dois caminhos dentro dela — e não duas funções que
+  // divergem com o tempo, que era justamente o defeito que a mig 134 encerrou.
+  if (!comModuloFinanceiro) {
+    // `taxas_cartao.tipo` é `{bandeira}_{parcela}`: master_debito, visa_2x…
+    const sufixo = metodo === 'debito' ? 'debito' : `${Math.max(parcelas || 1, 1)}x`
+    const tipo = `${(bandeira || 'master').toLowerCase()}_${sufixo}`
+    const { data } = await supabase.from('taxas_cartao')
+      .select('percentual').eq('tipo', tipo).eq('ativo', true).maybeSingle()
+    const p = (data as { percentual: number } | null)?.percentual
+    return {
+      percentual: Number(p ?? 0),
+      prazoDias: metodo === 'debito' ? 1 : 30,
+      // `cadastrada: true` de propósito — não há o que a unidade cadastrar, e o
+      // aviso de "falta cadastrar" mandaria gente a uma tela que não abre.
+      cadastrada: true,
+    }
+  }
+
+  // ── Unidade COM o módulo: a tabela da maquininha em que o dinheiro cai ────
+  if (!contaId) return { ...vazio, cadastrada: true }
+  const { data } = await supabase.rpc('taxa_da_conta', {
+    p_conta_id: contaId,
+    p_modalidade: metodo,
+    p_parcelas: Math.max(parcelas || 1, 1),
+    p_bandeira: bandeira || null,
+  })
+  const linha = (data as { percentual: number; prazo_dias: number }[] | null)?.[0]
+  if (!linha) return vazio
+  return { percentual: Number(linha.percentual), prazoDias: Number(linha.prazo_dias), cadastrada: true }
+}
+
 /** Quanto entra na conta e quando. `taxa` é o que o adquirente retém. */
 export function liquidoDaVenda(
   valor: number, taxas: TaxaConta[],
