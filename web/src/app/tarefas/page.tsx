@@ -65,6 +65,8 @@ type TarefaRow = {
   concluido_em?: string | null
   // Colaborador que de fato executou, quando atribuido_a é uma posição (mig 137).
   executado_por_funcionario_id?: string | null
+  // Nota livre escrita na conclusão — só existe (não-null) em tarefas já concluídas.
+  anotacao_conclusao?: string | null
 }
 
 type FichaRemocao = {
@@ -272,10 +274,21 @@ function TarefaCard({ tipo, statusBadge, lacre, petNome, tutorNome, quantidade, 
     </>
   )
   if (onClick) {
+    // `role="button"` em vez de `<button>` de verdade — os cards clicáveis quase sempre têm
+    // botão de ação de verdade dentro (Atribuir/Reatribuir/Desatribuir/Desfazer/Feito), e
+    // `<button>` dentro de `<button>` é HTML inválido (clique fica imprevisível). Os botões
+    // internos precisam de `e.stopPropagation()` senão disparam a ação E abrem o popup do card.
     return (
-      <button onClick={onClick} className="w-full flex items-center gap-3 p-3 rounded-xl border-2 shadow-sm hover:shadow-md transition-all text-left" style={{ borderColor: info.cor + '55', background: info.cor + '0d' }}>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onClick}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
+        className="w-full flex items-center gap-3 p-3 rounded-xl border-2 shadow-sm hover:shadow-md transition-all text-left cursor-pointer"
+        style={{ borderColor: info.cor + '55', background: info.cor + '0d' }}
+      >
         {conteudo}
-      </button>
+      </div>
     )
   }
   return (
@@ -406,17 +419,18 @@ function PoolItem({ tipo, item, onAbrirAtribuir, onMarcarFeito, marcandoFeitoId 
       tutorNome={item.tutorNome}
       quantidade={item.quantidade}
       linhaExtra={item.enderecoResumo ? <p className="text-xs text-[var(--surface-500)] line-clamp-2 mt-0.5">📍 {item.enderecoResumo}</p> : undefined}
+      onClick={() => onAbrirAtribuir(item)}
       acao={
         <div className="flex flex-col items-stretch gap-2 shrink-0">
           <button
-            onClick={() => onAbrirAtribuir(item)}
+            onClick={e => { e.stopPropagation(); onAbrirAtribuir(item) }}
             className="flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white"
             style={{ background: AZUL_ROYAL }}
           >
             <UserPlus className="h-3.5 w-3.5" />Atribuir
           </button>
           <button
-            onClick={() => onMarcarFeito(item)}
+            onClick={e => { e.stopPropagation(); onMarcarFeito(item) }}
             disabled={marcandoFeitoId === marcandoKey}
             className="flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-emerald-600 disabled:opacity-50"
             title="Já fiz — abre a tela de conclusão (com data, se for entrega antiga)"
@@ -472,20 +486,28 @@ function PetPoolCard({ petGroup, onAbrirAtribuir, onMarcarFeito, marcandoFeitoId
           const Icon = info.icon
           const marcandoKey = `${tipo}:${item.key}`
           return (
-            <div key={tipo} className="flex items-center gap-2 py-1.5 px-2 rounded-lg" style={{ background: info.cor + '0d' }}>
+            <div
+              key={tipo}
+              role="button"
+              tabIndex={0}
+              onClick={() => onAbrirAtribuir(tipo, item)}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onAbrirAtribuir(tipo, item) } }}
+              className="flex items-center gap-2 py-1.5 px-2 rounded-lg cursor-pointer"
+              style={{ background: info.cor + '0d' }}
+            >
               <Icon className="h-3.5 w-3.5 shrink-0" style={{ color: info.cor }} />
               <span className="text-xs font-semibold flex-1 truncate" style={{ color: info.cor }}>
                 {info.label}{item.quantidade > 1 ? ` ×${item.quantidade}` : ''}
               </span>
               <button
-                onClick={() => onAbrirAtribuir(tipo, item)}
+                onClick={e => { e.stopPropagation(); onAbrirAtribuir(tipo, item) }}
                 className="px-2 py-1 rounded-md text-[11px] font-semibold text-white shrink-0"
                 style={{ background: AZUL_ROYAL }}
               >
                 Atribuir
               </button>
               <button
-                onClick={() => onMarcarFeito(tipo, item)}
+                onClick={e => { e.stopPropagation(); onMarcarFeito(tipo, item) }}
                 disabled={marcandoFeitoId === marcandoKey}
                 className="px-2 py-1 rounded-md text-[11px] font-semibold text-white bg-emerald-600 disabled:opacity-50 shrink-0"
               >
@@ -538,11 +560,11 @@ function PetMinhasCard({ petGroup, onAbrirTarefa }: {
   )
 }
 
-// Mesmo card por pet, agora em "Concluídas 48h" — cada tipo com o próprio Desfazer.
-function PetConcluidasCard({ petGroup, onDesfazer, desfazendoId, nomePorId, funcionarioNomePorId }: {
+// Mesmo card por pet, agora em "Concluídas 48h" — cada tipo abre o próprio recibo (Desfazer
+// mora dentro do popup, não solto na linha — Visualizar Tarefa, 10/09/2026).
+function PetConcluidasCard({ petGroup, onAbrirRecibo, nomePorId, funcionarioNomePorId }: {
   petGroup: PetMinhasGroup
-  onDesfazer: (t: TarefaGrupo) => void
-  desfazendoId: string | null
+  onAbrirRecibo: (t: TarefaGrupo) => void
   // Só passado em "Finalizadas" (Gestão de Tarefas — mistura gente diferente); em "Minhas
   // Tarefas" é sempre a própria pessoa, então fica implícito e não repete na tela.
   nomePorId?: Record<string, string>
@@ -563,7 +585,15 @@ function PetConcluidasCard({ petGroup, onDesfazer, desfazendoId, nomePorId, func
           const info = TIPO_INFO[t.tipo]
           const Icon = info.icon
           return (
-            <div key={t.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg" style={{ background: info.cor + '0d' }}>
+            <div
+              key={t.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => onAbrirRecibo(t)}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onAbrirRecibo(t) } }}
+              className="flex items-center gap-2 py-1.5 px-2 rounded-lg cursor-pointer"
+              style={{ background: info.cor + '0d' }}
+            >
               <Icon className="h-3.5 w-3.5 shrink-0" style={{ color: info.cor }} />
               <div className="flex-1 min-w-0">
                 <span className="text-xs font-semibold truncate block" style={{ color: info.cor }}>
@@ -573,13 +603,6 @@ function PetConcluidasCard({ petGroup, onDesfazer, desfazendoId, nomePorId, func
                   ✅ {formatarDataHoraConclusao(t.concluido_em)}{nomePorId ? ` · ${nomePorId[t.atribuido_a] || '—'}` : ''}{t.executado_por_funcionario_id && funcionarioNomePorId?.[t.executado_por_funcionario_id] ? ` (${funcionarioNomePorId[t.executado_por_funcionario_id]})` : ''}
                 </span>
               </div>
-              <button
-                onClick={() => onDesfazer(t)}
-                disabled={desfazendoId === t.id}
-                className="px-2 py-1 rounded-md text-[11px] font-semibold text-white bg-red-600 disabled:opacity-50 shrink-0"
-              >
-                {desfazendoId === t.id ? '...' : 'Desfazer'}
-              </button>
             </div>
           )
         })}
@@ -796,7 +819,7 @@ export default function TarefasPage() {
     const desde = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
     const { data } = await supabase
       .from('tarefas_operacionais')
-      .select('id, unidade_id, tipo, ficha_id, contrato_id, contrato_produto_id, atribuido_a, status, lacre, observacao_atribuicao, atribuido_em, concluido_em, executado_por_funcionario_id')
+      .select('id, unidade_id, tipo, ficha_id, contrato_id, contrato_produto_id, atribuido_a, status, lacre, observacao_atribuicao, atribuido_em, concluido_em, executado_por_funcionario_id, anotacao_conclusao')
       .eq('atribuido_a', userId)
       .eq('status', 'concluida')
       .gte('concluido_em', desde)
@@ -853,9 +876,18 @@ export default function TarefasPage() {
       // que contratos.executado_por_funcionario_id (que é só do acolhimento).
       const nomeExecutor = isPosicao ? funcionariosUnidade.find(f => f.id === executadoPorFuncionarioId)?.nome : null
 
+      // Visualizar Tarefa (10/09/2026): "Gestão → Em Andamento" agora abre este mesmo popup
+      // pra tarefa de QUALQUER pessoa, não só a própria — sem isso, um gerente regularizando
+      // por outra pessoa aparecia no histórico como se tivesse feito o trabalho ele mesmo, sem
+      // registro de em nome de quem.
+      const { data: { user } } = await supabase.auth.getUser()
+      const emNomeDe = tarefa.atribuido_a && user?.id && tarefa.atribuido_a !== user.id
+        ? ` (em nome de ${operacionais.find(o => o.user_id === tarefa.atribuido_a)?.nome || 'quem estava com a tarefa'})`
+        : ''
+
       if (contratoId) {
         const { data: tipoTarefa } = await supabase.from('tarefa_tipos').select('id').eq('nome', 'Observação da Unidade').maybeSingle() as { data: { id: string } | null }
-        const partes = [`${rotulo} concluído por ${userName || 'Operacional'}${nomeExecutor ? ` (colaborador na posição: ${nomeExecutor})` : ''}.`]
+        const partes = [`${rotulo} concluído por ${userName || 'Operacional'}${emNomeDe}${nomeExecutor ? ` (colaborador na posição: ${nomeExecutor})` : ''}.`]
         if (tarefa.tipo === 'entrega' && modoDataEntrega === 'outra') partes.push(`Data de entrega registrada retroativa: ${new Date(dataEntregaManual + 'T00:00:00').toLocaleDateString('pt-BR')}.`)
         if (tarefa.observacao_atribuicao) partes.push(`Pedido específico confirmado: "${tarefa.observacao_atribuicao}".`)
         if (anotacaoSimples.trim()) partes.push(`Nota: ${anotacaoSimples.trim()}`)
@@ -875,14 +907,13 @@ export default function TarefasPage() {
         executado_por_funcionario_id: isPosicao ? (executadoPorFuncionarioId || null) : null,
       } as never).in('id', tarefa.ids)
 
-      const { data: { user } } = await supabase.auth.getUser()
       await supabase.from('historico_alteracoes').insert({
         entidade: 'tarefa_operacional',
         entidade_id: tarefa.id,
         entidade_nome: tarefa.petNome,
         campo: 'conclusao',
         campo_label: 'Tarefa concluída',
-        valor_novo: `${rotulo} concluída por ${userName || 'Operacional'}${nomeExecutor ? ` (colaborador na posição: ${nomeExecutor})` : ''}`,
+        valor_novo: `${rotulo} concluída por ${userName || 'Operacional'}${emNomeDe}${nomeExecutor ? ` (colaborador na posição: ${nomeExecutor})` : ''}`,
         tipo: 'conclusao',
         alterado_por: user?.id || null,
         alterado_por_email: user?.email || null,
@@ -1035,9 +1066,16 @@ export default function TarefasPage() {
 
       const nomeExecutor = isPosicao ? funcionariosUnidade.find(f => f.id === executadoPorFuncionarioId)?.nome : null
 
+      // Visualizar Tarefa (10/09/2026): mesmo racional de concluirTarefaSimples — "Gestão →
+      // Em Andamento" pode abrir esta tela pra tarefa de outra pessoa.
+      const { data: { user } } = await supabase.auth.getUser()
+      const emNomeDe = tarefa.atribuido_a && user?.id && tarefa.atribuido_a !== user.id
+        ? ` (em nome de ${operacionais.find(o => o.user_id === tarefa.atribuido_a)?.nome || 'quem estava com a tarefa'})`
+        : ''
+
       {
         const { data: tipoTarefa } = await supabase.from('tarefa_tipos').select('id').eq('nome', 'Observação da Unidade').maybeSingle() as { data: { id: string } | null }
-        const partes = [`Remoção concluída por ${userName || 'Operacional'}${nomeExecutor ? ` (colaborador na posição: ${nomeExecutor})` : ''} — lacre ${lacreRemocao.trim()}.`]
+        const partes = [`Remoção concluída por ${userName || 'Operacional'}${emNomeDe}${nomeExecutor ? ` (colaborador na posição: ${nomeExecutor})` : ''} — lacre ${lacreRemocao.trim()}.`]
         if (modoDataRemocao === 'outra') partes.push(`Data/hora do acolhimento registrada retroativa: ${new Date(dataHoraFinal!).toLocaleString('pt-BR')}.`)
         if (tarefa.observacao_atribuicao) partes.push(`Pedido específico confirmado: "${tarefa.observacao_atribuicao}".`)
         if (anotacaoRemocao.trim()) partes.push(`Nota: ${anotacaoRemocao.trim()}`)
@@ -1058,14 +1096,13 @@ export default function TarefasPage() {
         executado_por_funcionario_id: isPosicao ? (executadoPorFuncionarioId || null) : null,
       } as never).eq('id', tarefa.id)
 
-      const { data: { user } } = await supabase.auth.getUser()
       await supabase.from('historico_alteracoes').insert({
         entidade: 'tarefa_operacional',
         entidade_id: tarefa.id,
         entidade_nome: ficha.nome_pet || '—',
         campo: 'conclusao',
         campo_label: 'Remoção concluída',
-        valor_novo: `Remoção concluída por ${userName || 'Operacional'} — lacre ${lacreRemocao.trim()} — contrato criado${nomeExecutor ? ` (colaborador na posição: ${nomeExecutor})` : ''}`,
+        valor_novo: `Remoção concluída por ${userName || 'Operacional'}${emNomeDe} — lacre ${lacreRemocao.trim()} — contrato criado${nomeExecutor ? ` (colaborador na posição: ${nomeExecutor})` : ''}`,
         tipo: 'conclusao',
         alterado_por: user?.id || null,
         alterado_por_email: user?.email || null,
@@ -1318,6 +1355,9 @@ export default function TarefasPage() {
   const [concluidasRecentes, setConcluidasRecentes] = useState<TarefaConcluida[]>([])
   const [loadingConcluidas, setLoadingConcluidas] = useState(false)
   const [desfazendoId, setDesfazendoId] = useState<string | null>(null)
+  // Visualizar Tarefa (10/09/2026): recibo somente-leitura ao clicar num card já concluído
+  // (Minhas ou Gestão) — o "Desfazer" que antes ficava solto no card mora dentro do popup.
+  const [tarefaRecibo, setTarefaRecibo] = useState<TarefaGrupo | null>(null)
 
   const carregouConcluidasAntes = useRef(false)
   const carregarConcluidasRecentes = useCallback(async () => {
@@ -1326,7 +1366,7 @@ export default function TarefasPage() {
     const desde = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
     const { data } = await supabase
       .from('tarefas_operacionais')
-      .select('id, unidade_id, tipo, ficha_id, contrato_id, contrato_produto_id, atribuido_a, status, lacre, observacao_atribuicao, atribuido_em, concluido_em, executado_por_funcionario_id')
+      .select('id, unidade_id, tipo, ficha_id, contrato_id, contrato_produto_id, atribuido_a, status, lacre, observacao_atribuicao, atribuido_em, concluido_em, executado_por_funcionario_id, anotacao_conclusao')
       .eq('unidade_id', currentUnit.id)
       .eq('status', 'concluida')
       .gte('concluido_em', desde)
@@ -1812,12 +1852,13 @@ export default function TarefasPage() {
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
                       linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)}{colaboradorSuffix(t)}</p>}
+                      onClick={() => setTarefaRecibo(t)}
                     />
                   ))}
                 </TipoGroup>
                 <PersonalizadosGroup count={minhasConcluidasPetGroups.reduce((soma, g) => soma + g.itens.length, 0)} defaultAberto={false}>
                   {minhasConcluidasPetGroups.map(petGroup => (
-                    <PetConcluidasCard key={petGroup.contratoId} petGroup={petGroup} onDesfazer={desfazerConclusao} desfazendoId={desfazendoId} funcionarioNomePorId={funcionarioNomePorId} />
+                    <PetConcluidasCard key={petGroup.contratoId} petGroup={petGroup} onAbrirRecibo={setTarefaRecibo} funcionarioNomePorId={funcionarioNomePorId} />
                   ))}
                 </PersonalizadosGroup>
                 <TipoGroup tipo="entrega" count={(minhasConcluidasPorTipo.entrega || []).length} defaultAberto={false}>
@@ -1830,15 +1871,7 @@ export default function TarefasPage() {
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
                       linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)}{colaboradorSuffix(t)}</p>}
-                      acao={
-                        <button
-                          onClick={() => desfazerConclusao(t)}
-                          disabled={desfazendoId === t.id}
-                          className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white shrink-0 bg-red-600 disabled:opacity-50"
-                        >
-                          {desfazendoId === t.id ? '...' : 'Desfazer'}
-                        </button>
-                      }
+                      onClick={() => setTarefaRecibo(t)}
                     />
                   ))}
                 </TipoGroup>
@@ -1852,15 +1885,7 @@ export default function TarefasPage() {
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
                       linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)}{colaboradorSuffix(t)}</p>}
-                      acao={
-                        <button
-                          onClick={() => desfazerConclusao(t)}
-                          disabled={desfazendoId === t.id}
-                          className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white shrink-0 bg-red-600 disabled:opacity-50"
-                        >
-                          {desfazendoId === t.id ? '...' : 'Desfazer'}
-                        </button>
-                      }
+                      onClick={() => setTarefaRecibo(t)}
                     />
                   ))}
                 </TipoGroup>
@@ -1873,6 +1898,7 @@ export default function TarefasPage() {
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}
                       linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)}{colaboradorSuffix(t)}</p>}
+                      onClick={() => setTarefaRecibo(t)}
                     />
                   ))}
                 </TipoGroup>
@@ -1969,10 +1995,11 @@ export default function TarefasPage() {
                           tutorNome={t.tutorNome}
                           quantidade={t.quantidade}
                           linhaExtra={<p className="text-xs text-[var(--surface-500)] truncate mt-0.5">Com {nomeAtual} · <span className={corIdade}>{horasParado < 1 ? 'agora' : `${Math.floor(horasParado)}h`}</span></p>}
+                          onClick={() => abrirTarefaMinhas(t)}
                           acao={
                             <div className="flex flex-col items-stretch gap-2 shrink-0">
                               <button
-                                onClick={() => setReatribuindoId(reatribuindoId === t.id ? null : t.id)}
+                                onClick={e => { e.stopPropagation(); setReatribuindoId(reatribuindoId === t.id ? null : t.id) }}
                                 className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white"
                                 style={{ background: '#64748b' }}
                               >
@@ -1980,7 +2007,7 @@ export default function TarefasPage() {
                               </button>
                               {t.tipo !== 'remocao' && (
                                 <button
-                                  onClick={() => cancelarAtribuicao(t)}
+                                  onClick={e => { e.stopPropagation(); cancelarAtribuicao(t) }}
                                   disabled={cancelandoId === t.id}
                                   className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-red-600 disabled:opacity-50"
                                   title="Volta pro pool 'Pra atribuir', sem passar pra ninguém"
@@ -1992,7 +2019,7 @@ export default function TarefasPage() {
                           }
                         />
                         {reatribuindoId === t.id && (
-                          <div className="mt-1.5 ml-1 flex gap-1.5">
+                          <div className="mt-1.5 ml-1 flex gap-1.5" onClick={e => e.stopPropagation()}>
                             <select
                               value={novoOperacional[t.id] || ''}
                               onChange={e => setNovoOperacional(prev => ({ ...prev, [t.id]: e.target.value }))}
@@ -2042,12 +2069,13 @@ export default function TarefasPage() {
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
                       linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · {nomePorId[t.atribuido_a] || '—'}{colaboradorSuffix(t)}</p>}
+                      onClick={() => setTarefaRecibo(t)}
                     />
                   ))}
                 </TipoGroup>
                 <PersonalizadosGroup count={concluidasPetGroups.reduce((soma, g) => soma + g.itens.length, 0)} defaultAberto={false}>
                   {concluidasPetGroups.map(petGroup => (
-                    <PetConcluidasCard key={petGroup.contratoId} petGroup={petGroup} onDesfazer={desfazerConclusao} desfazendoId={desfazendoId} nomePorId={nomePorId} funcionarioNomePorId={funcionarioNomePorId} />
+                    <PetConcluidasCard key={petGroup.contratoId} petGroup={petGroup} onAbrirRecibo={setTarefaRecibo} nomePorId={nomePorId} funcionarioNomePorId={funcionarioNomePorId} />
                   ))}
                 </PersonalizadosGroup>
                 <TipoGroup tipo="entrega" count={(concluidasPorTipo.entrega || []).length} defaultAberto={false}>
@@ -2060,15 +2088,7 @@ export default function TarefasPage() {
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
                       linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · {nomePorId[t.atribuido_a] || '—'}{colaboradorSuffix(t)}</p>}
-                      acao={
-                        <button
-                          onClick={() => desfazerConclusao(t)}
-                          disabled={desfazendoId === t.id}
-                          className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white shrink-0 bg-red-600 disabled:opacity-50"
-                        >
-                          {desfazendoId === t.id ? '...' : 'Desfazer'}
-                        </button>
-                      }
+                      onClick={() => setTarefaRecibo(t)}
                     />
                   ))}
                 </TipoGroup>
@@ -2082,15 +2102,7 @@ export default function TarefasPage() {
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
                       linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · {nomePorId[t.atribuido_a] || '—'}{colaboradorSuffix(t)}</p>}
-                      acao={
-                        <button
-                          onClick={() => desfazerConclusao(t)}
-                          disabled={desfazendoId === t.id}
-                          className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white shrink-0 bg-red-600 disabled:opacity-50"
-                        >
-                          {desfazendoId === t.id ? '...' : 'Desfazer'}
-                        </button>
-                      }
+                      onClick={() => setTarefaRecibo(t)}
                     />
                   ))}
                 </TipoGroup>
@@ -2103,6 +2115,7 @@ export default function TarefasPage() {
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}
                       linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · {nomePorId[t.atribuido_a] || '—'}{colaboradorSuffix(t)}</p>}
+                      onClick={() => setTarefaRecibo(t)}
                     />
                   ))}
                 </TipoGroup>
@@ -2147,7 +2160,27 @@ export default function TarefasPage() {
                   {item.lacre ? `${item.lacre} — ${item.petNome}` : item.petNome}
                 </p>
                 <p className="text-xs text-[var(--surface-500)]">{item.tutorNome}</p>
+                {item.enderecoResumo && <p className="text-xs text-[var(--surface-500)] mt-1">📍 {item.enderecoResumo}</p>}
               </div>
+
+              {item.enderecoResumo && (
+                <div className="grid grid-cols-2 gap-2">
+                  <a
+                    href={`https://waze.com/ul?q=${encodeURIComponent(item.enderecoResumo)}&navigate=yes`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-2 py-2 rounded-lg bg-sky-600 text-white text-xs font-semibold"
+                  >
+                    <MapPin className="h-3.5 w-3.5" />Waze
+                  </a>
+                  <a
+                    href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(item.enderecoResumo)}`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-2 py-2 rounded-lg bg-emerald-600 text-white text-xs font-semibold"
+                  >
+                    <Navigation className="h-3.5 w-3.5" />Google Maps
+                  </a>
+                </div>
+              )}
 
               <select
                 value={operacionalEscolhido[formKey] || ''}
@@ -2450,6 +2483,71 @@ export default function TarefasPage() {
           </div>
         </div>
       )}
+
+      {/* Recibo de tarefa Finalizada — somente leitura (Visualizar Tarefa, 10/09/2026). Todo
+          dado já está em memória (petNome/tutorNome/nomePorId/funcionarioNomePorId), sem query
+          nova — exceto anotacao_conclusao, que passou a entrar no select de carregarMinhas/
+          ConcluidasRecentes só pra isto. Desfazer mora aqui dentro (saiu do card) — pra
+          remocao/ativacao_pv nem aparece, `desfazerConclusao` já faz early-return pros dois. */}
+      {tarefaRecibo && (() => {
+        const info = TIPO_INFO[tarefaRecibo.tipo]
+        const Icon = info.icon
+        const lacre = tarefaRecibo.lacreContrato || tarefaRecibo.lacre
+        const podeDesfazer = tarefaRecibo.tipo !== 'remocao' && tarefaRecibo.tipo !== 'ativacao_pv'
+        return (
+          <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setTarefaRecibo(null)}>
+            <div className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto rounded-2xl p-4 space-y-4 bg-[var(--surface-0)]" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between">
+                <h2 className="text-base font-bold text-[var(--surface-800)] flex items-center gap-2">
+                  <Icon className="h-5 w-5" style={{ color: info.cor }} />
+                  {info.label}
+                  {tarefaRecibo.quantidade > 1 && (
+                    <span className="text-xs font-bold px-1.5 py-0.5 rounded-full text-white" style={{ background: info.cor }}>×{tarefaRecibo.quantidade}</span>
+                  )}
+                </h2>
+                <button onClick={() => setTarefaRecibo(null)} className="p-1 rounded-lg hover:bg-[var(--surface-100)]">
+                  <X className="h-5 w-5 text-[var(--surface-400)]" />
+                </button>
+              </div>
+
+              <div className="p-3 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)] space-y-1">
+                <p className="text-sm font-semibold text-[var(--surface-800)]">
+                  {lacre ? `${lacre} — ${tarefaRecibo.petNome}` : tarefaRecibo.petNome}
+                </p>
+                <p className="text-xs text-[var(--surface-500)]">{tarefaRecibo.tutorNome}</p>
+                <p className="text-xs text-[var(--surface-500)]">
+                  ✅ Concluído em {formatarDataHoraConclusao(tarefaRecibo.concluido_em)} · {nomePorId[tarefaRecibo.atribuido_a] || 'Você'}
+                  {tarefaRecibo.executado_por_funcionario_id && funcionarioNomePorId[tarefaRecibo.executado_por_funcionario_id] ? ` (${funcionarioNomePorId[tarefaRecibo.executado_por_funcionario_id]})` : ''}
+                </p>
+              </div>
+
+              {tarefaRecibo.observacao_atribuicao && (
+                <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/40">
+                  <p className="text-xs font-bold uppercase tracking-wide text-amber-500 mb-0.5">📝 Pedido específico de quem atribuiu</p>
+                  <p className="text-sm text-[var(--surface-700)]">{tarefaRecibo.observacao_atribuicao}</p>
+                </div>
+              )}
+
+              {tarefaRecibo.anotacao_conclusao && (
+                <div className="p-3 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)]">
+                  <p className="text-xs font-bold uppercase tracking-wide text-[var(--surface-500)] mb-0.5">Anotação de conclusão</p>
+                  <p className="text-sm text-[var(--surface-700)]">{tarefaRecibo.anotacao_conclusao}</p>
+                </div>
+              )}
+
+              {podeDesfazer && (
+                <button
+                  onClick={() => desfazerConclusao(tarefaRecibo)}
+                  disabled={desfazendoId === tarefaRecibo.id}
+                  className="w-full py-2.5 rounded-lg text-sm font-semibold text-white bg-red-600 disabled:opacity-50"
+                >
+                  {desfazendoId === tarefaRecibo.id ? 'Desfazendo...' : 'Desfazer'}
+                </button>
+              )}
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
