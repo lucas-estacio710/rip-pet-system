@@ -68,7 +68,7 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
   // então o client tipado infere `never`. Client destipado só para elas.
   const supabase = supabaseTipado as unknown as SupabaseClient
   const { toast } = useToast()
-  const { userName } = useUnit()
+  const { userName, currentUnit, isSuperAdmin } = useUnit()
 
   const [unidadeId, setUnidadeId] = useState('')
   const [mes, setMes] = useState(mesAtual())
@@ -100,9 +100,20 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
   // Matriz — que precisa cobrar de TODAS as filiais, inclusive onde não tem perfil.
   // Por isso a lista vem direto do banco, e SÓ nesta tela (não mexer no contexto
   // global, senão vaza unidade em telas que devem continuar escopadas).
+  //
+  // 🔴 O bypass tratava só metade do problema. Ele abria a lista para a Matriz e
+  // **esquecia de fechá-la para todo mundo**: uma gerente de Santos via as abas
+  // das oito filiais e, dentro de cada uma, a planilha inteira — pets, tutores,
+  // lacres e o valor que aquela unidade paga. O FLS `btn_repasse_editar` a
+  // deixava em leitura, mas leitura de tudo. Isso é informação comercial de
+  // outra filial, e o `podeVerTodas` abaixo é a outra metade que faltava.
+  // Achado pelo Lucas em 12/09/2026, logado como a gerente de Santos.
   const [unidadesPagantes, setUnidadesPagantes] = useState<UnidadePagante[]>([])
   // A Matriz é a contraparte de todo acerto — é ela que recebe ou deve.
   const [matrizId, setMatrizId] = useState('')
+
+  /** Só quem COBRA vê as outras. A unidade consulta a própria conta e mais nada. */
+  const podeVerTodas = isSuperAdmin || !!currentUnit?.is_matriz
   const nomeUnidade = unidadesPagantes.find(u => u.id === unidadeId)?.nome || ''
 
   useEffect(() => {
@@ -124,10 +135,12 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
             // MÓDULO e não pelo código — se outra unidade virar co-localizada,
             // já sai daqui sozinha.
             .filter(u => !(u.modulos_ativos || []).includes('cb_cremacao_local'))
+            // Quem não cobra vê só a si mesma.
+            .filter(u => podeVerTodas || u.id === currentUnit?.id)
             .map(({ id, nome, codigo }) => ({ id, nome, codigo })),
         )
       })
-  }, [supabase])
+  }, [supabase, podeVerTodas, currentUnit?.id])
 
   // ⚠️ A carga de `fin_empresas` saiu junto com o seletor de CNPJ (02/09/2026):
   // o CNPJ é DERIVADO da conta em que o dinheiro entra (mig 121/128), não uma
@@ -155,20 +168,26 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
     const alvo = mesParaData(mes)
     const eleg: { unidade_id: string; valor_tabela: number }[] = []
     for (let off = 0; off < 6000; off += 1000) {
-      const { data } = await supabase
+      // O resumo alimenta o valor de cada aba E o total do cabeçalho. Sem o
+      // mesmo escopo das abas, a unidade continuaria lendo no topo da tela
+      // quanto o grupo inteiro deve — que é o dado que se quis esconder.
+      let q = supabase
         .from('vw_repasse_elegivel')
         .select('unidade_id, valor_tabela')
         .eq('mes_referencia', alvo)
-        .range(off, off + 999)
+      if (!podeVerTodas && currentUnit?.id) q = q.eq('unidade_id', currentUnit.id)
+      const { data } = await q.range(off, off + 999)
       const page = (data as { unidade_id: string; valor_tabela: number }[]) || []
       eleg.push(...page)
       if (page.length < 1000) break
     }
-    const { data: fech } = await supabase
+    let qf = supabase
       .from('vw_repasse_totais')
       .select('unidade_id, qtd_pets, total_a_pagar, status')
       .eq('mes_referencia', alvo)
       .neq('status', 'cancelado')
+    if (!podeVerTodas && currentUnit?.id) qf = qf.eq('unidade_id', currentUnit.id)
+    const { data: fech } = await qf
 
     const m = new Map<string, { qtd: number; valor: number; fechado: boolean }>()
     eleg.forEach(e => {
@@ -179,7 +198,7 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
       m.set(f.unidade_id, { qtd: f.qtd_pets, valor: Number(f.total_a_pagar || 0), fechado: true })
     })
     setResumo(m)
-  }, [mes, supabase])
+  }, [mes, supabase, podeVerTodas, currentUnit?.id])
 
   useEffect(() => { void carregarResumo() }, [carregarResumo])
 
