@@ -300,12 +300,14 @@ export default function FichasPage() {
     setLoading(false)
   }
 
-  function handleSuccess(contratoId: string) {
+  function handleSuccess(contratoId: string, aguardarAcolhimento?: boolean) {
     setFichaModal(null)
     setFiltro('contrato_criado')
     carregarFichas()
     carregarContagens()
-    router.push(`/contratos/${contratoId}`)
+    // Contrato "aguardando acolhimento" (fase 2, cb_operacional): a tela do contrato fica
+    // travada sem nada útil pra ver agora — manda pro pipeline em vez de abrir ela.
+    router.push(aguardarAcolhimento ? '/contratos' : `/contratos/${contratoId}`)
   }
 
   function formatarTel(tel: string | null | undefined): string {

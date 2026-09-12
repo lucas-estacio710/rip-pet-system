@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { X, MapPin, Navigation, ExternalLink, FileDown, Loader2 } from 'lucide-react'
+import { X, MapPin, Navigation, FileDown, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import { baixarContratoPDF } from '@/lib/contrato-pdf-download'
@@ -47,12 +47,16 @@ type ContratoMinimal = {
 // `contrato`, que os 3 chamadores passam com formatos diferentes) — mesmo padrão
 // "self-contido" do resto do modal.
 //
-// "Gerar PDF do Contrato" só aparece pra `tarefaTipo==='remocao'` (fase 2, EM) — o contrato
+// "Baixar Contrato" (PDF) só aparece pra `tarefaTipo==='remocao'` (fase 2, EM) — o contrato
 // acabou de nascer minutos antes, no "Iniciar Fluxo", e esse popup costuma ser a primeira
 // vez que alguém baixa o documento pra entregar/assinar com o tutor. Pra `ativacao_pv` (PV)
 // não faz sentido: o contrato existe há tempos, o PDF já foi gerado/entregue muito antes da
 // ativação — reaproveita `baixarContratoPDF` (mesmo helper de contratos/[id] e do pipeline,
 // já resolve ficha/tutor/unidade e decide EM×PV sozinho).
+//
+// Sem link "Ver Contrato" de propósito: quem mais abre esse popup é Operacional/posição, que
+// não tem acesso a `/contratos/[id]` (LayoutWrapper.tsx só deixa esse perfil ver /tarefas) —
+// o link nunca funcionaria pra quem mais precisa dele.
 type InfoAcolhimento = {
   pet_especie: string | null
   pet_raca: string | null
@@ -297,9 +301,6 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
             <div>
               <h3 className="font-bold text-[var(--surface-800)]">Finalizar {rotulo}</h3>
               <p className="text-sm text-[var(--surface-500)]">{contrato.pet_nome} &middot; {tutorNome}</p>
-              <a href={`/contratos/${contrato.id}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-500 hover:underline mt-0.5">
-                Ver Contrato <ExternalLink className="h-3 w-3" />
-              </a>
             </div>
           </div>
           <button onClick={onClose} className="p-1 hover:bg-[var(--surface-100)] rounded-full transition-colors">
@@ -342,10 +343,10 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
               <button
                 onClick={gerarPdf}
                 disabled={gerandoPdf}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-[var(--surface-200)] text-sm font-semibold text-[var(--surface-600)] disabled:opacity-50"
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-red-600 text-white text-sm font-semibold disabled:opacity-50"
               >
                 {gerandoPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
-                Gerar PDF do Contrato
+                Baixar Contrato
               </button>
             )}
 

@@ -87,7 +87,10 @@ type Props = {
   isOpen: boolean
   onClose: (resultado?: 'processada' | 'contrato') => void
   ficha: Ficha | null
-  onSuccess: (contratoId: string) => void
+  // 2º parâmetro true quando o contrato nasceu "aguardando acolhimento" (fase 2, unidade com
+  // cb_operacional) — quem chama usa isso pra decidir aterrissar no pipeline em vez do
+  // detalhe do contrato (que fica travado, sem nada útil pra ver nesse momento).
+  onSuccess: (contratoId: string, aguardarAcolhimento?: boolean) => void
   onRetornarPendente?: () => void
   onReprocessar?: (ficha: Ficha) => void
   onAtualizar?: () => void
@@ -858,7 +861,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
           : 'Contrato criado com sucesso!',
         'success'
       )
-      onSuccess(contratoId)
+      onSuccess(contratoId, aguardarAcolhimento)
     } catch (err: unknown) {
       const message = err instanceof ContratoValidationError ? err.message : (err instanceof Error ? err.message : 'Erro desconhecido')
       toast(message, 'error')
