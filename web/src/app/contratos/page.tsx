@@ -1,8 +1,8 @@
 'use client'
 
-import { Suspense, useEffect, useRef, useState } from 'react'
+import { Fragment, Suspense, useEffect, useRef, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { FileText, Search, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ArrowUp, ArrowDown, Star, X, Printer, XCircle, Plus, Weight, Copy, Check, Clock, CheckCheck, CalendarClock, SearchCheck, Flame, CheckCircle2, Loader2, AlertTriangle } from 'lucide-react'
+import { FileText, Search, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ArrowUp, ArrowDown, Star, X, Printer, XCircle, Plus, Weight, Copy, Check, Clock, CheckCheck, CalendarClock, SearchCheck, Flame, CheckCircle2, Loader2, AlertTriangle, PawPrint, Tag, DollarSign, User, Calendar, Move, Hand, MoreVertical, Pencil, Trash2, Unlink, Truck, Package } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { sanitizeBuscaPostgrest } from '@/lib/sanitize'
 import Link from 'next/link'
@@ -18,6 +18,7 @@ import ActionButtons from '@/components/contratos/ActionButtons'
 import EntregaModal from '@/components/contratos/modals/EntregaModal'
 import { useUnit } from '@/contexts/UnitContext'
 import ProdutosFilterBar from '@/components/ui/ProdutosFilterBar'
+import Modal from '@/components/ui/Modal'
 import { Skeleton } from '@/components/ui/Skeleton'
 import EmptyState from '@/components/ui/EmptyState'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
@@ -119,8 +120,21 @@ type Contrato = {
   protocolo_data: ProtocoloData | null
   // Data de entrega
   data_entrega: string | null
+  data_leva_pinda: string | null   // data em que o pet foi levado a Pinda (linha do tempo do GC, etapa 5)
   // GC (Gerenciamento de Cremações)
-  contrato_gc: { etapa: string; cinzas_prontas: boolean; certificado_pronto: boolean; contato_status: string | null } | null
+  // As 4 datas entraram na etapa 5: a linha do tempo do GC mostra DD/mmm embaixo de cada
+  // passo concluído, e `data_agendamento` vira a previsão de cremação (§9.3).
+  contrato_gc: {
+    etapa: string
+    cinzas_prontas: boolean
+    certificado_pronto: boolean
+    contato_status: string | null
+    contato_tutor_em: string | null
+    data_agendamento: string | null
+    data_recebimento: string | null
+    data_cremacao: string | null
+    data_disponivel: string | null
+  } | null
   // Compartilhamento entre unidades
   unidade_remocao_id: string | null
   unidade_remocao: { id: string; codigo: string; nome: string } | null
@@ -179,7 +193,11 @@ type Supinda = {
   numero: string
   data: string
   responsavel: string | null
-  status: 'planejada' | 'em_andamento' | 'retornada' | null
+  // ENUM `status_supinda` real do banco (mig 082). O type antes dizia
+  // `'planejada' | 'em_andamento' | 'retornada'` — dois valores que NÃO existem; nunca
+  // deu erro porque nada no arquivo lia este campo até a etapa 3/4 do fluxo novo.
+  // `embarcada` é legado da mig 066, sem uso.
+  status: 'planejada' | 'embarcada_ida' | 'ida_finalizada' | 'finalizada' | 'embarcada' | null
   quantidade_pets: number | null
   peso_total: number | null
 }
@@ -210,6 +228,50 @@ const STATUS_FLOW = [
   { key: 'pendente', label: 'Pendente', short: 'PEN', color: 'purple', icon: '⏳' },
   { key: 'finalizado', label: 'Finalizado', short: 'FIN', color: 'gray', icon: '✅' },
 ]
+
+// Cor da unidade — usada no badge do número da viagem no card de encaminhamento (§9.1 do
+// plano). Mesma paleta de /encaminhamentos, /gc, /agenda e RepasseTab; a constante é
+// repetida em cada tela desde sempre, e centralizá-la é refactor de outra frente.
+const UNIT_COLORS: Record<string, string> = {
+  ST: '#7c3aed', SP: '#ef4444', CP: '#22c55e', SJ: '#cbd5e1',
+  RS: '#f59e0b', PA: '#ec4899', PI: '#06b6d4', MA: '#f97316',
+}
+
+/** Um pet na conferência do "Enviar para Matriz" (§9.2). Lido do BANCO, não do state —
+ *  é a lista que o operador confere antes de uma ação que não se desfaz. */
+type PetDaViagem = {
+  id: string
+  pet_nome: string | null
+  numero_lacre: string | null
+  tipo_cremacao: string | null
+  tutor_nome: string | null
+  tutor: { nome: string | null } | null
+  status: string | null
+}
+
+/** Um pet pronto no Nicho, na tela de trazer de volta (§9.5). Lido do BANCO. */
+type PetNoNicho = {
+  id: string
+  pet_nome: string | null
+  numero_lacre: string | null
+  tipo_cremacao: string | null
+  tutor_nome: string | null
+  tutor: { nome: string | null } | null
+  supinda_id: string | null
+  supinda: { numero: string; data: string | null } | null
+  contrato_gc: { cinzas_prontas: boolean; certificado_pronto: boolean; data_cremacao: string | null } | null
+}
+
+/** `2026-09-06` → `06/set/26`. Fatia a string em vez de `new Date()` porque
+ *  `supindas.data` é `date` PURO — `new Date('2026-09-06')` é lido como meia-noite
+ *  UTC e volta um dia atrás em BRT. Foi esse o bug da aba Evolução em 02/09/2026. */
+function formatarDataViagem(dataStr: string | null | undefined): string {
+  if (!dataStr) return 'sem data'
+  const [a, m, d] = dataStr.slice(0, 10).split('-')
+  if (!a || !m || !d) return 'sem data'
+  const meses = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+  return `${d}/${meses[parseInt(m, 10) - 1] || '?'}/${a.slice(2)}`
+}
 
 const STATUS_COLORS: Record<string, { bg: string; border: string; text: string; activeBg: string; activeGlow: string }> = {
   preventivo: {
@@ -293,6 +355,67 @@ function ContratosContent() {
   // Importante: NÃO usar hasModule() — ele retorna true pra super_admin sempre. Aqui é
   // comportamento de fluxo, não visibilidade — checar modulos_ativos da unidade atual direto.
   const fluxoLocal = !!currentUnit?.modulos_ativos?.includes('cb_cremacao_local')
+
+  // ─── NOVO FLUXO DE ENCAMINHAMENTO (docs/ENCAMINHAMENTO_NO_PIPELINE.md) ───────────
+  // Interruptor de ROLLOUT, uma unidade por vez (mig 142 seeda `hidden` em todas).
+  // Ligado: o pipeline monta, despacha e traz de volta o encaminhamento; a
+  // /encaminhamentos vira leitura. Desligado: tudo exatamente como sempre foi.
+  // ⚠️ super_admin é `edit` por hardcode — o Lucas vê o fluxo novo em TODA unidade,
+  // inclusive nas que ainda não foram treinadas. É proposital (é como ele testa),
+  // mas significa que ele e o gerente da mesma unidade veem telas diferentes.
+  // ⚠️ PI (cb_cremacao_local) não entra: lá não existe encaminhamento (§4.5).
+  const encPipeline = isVisible(T, 'obj_enc_pipeline') && !fluxoLocal
+
+  // As 3 etapas que agrupam por viagem no fluxo novo. `finalizado` fica de fora de
+  // propósito — ver `cargaTotalDaEtapa` em carregarContratos().
+  const ETAPAS_AGRUPADAS = ['ativo', 'pinda', 'retorno']
+
+  // Cor da unidade ativa — badge do número da viagem, anel de seleção e borda da barra
+  // de seleção. No escopo do componente porque a barra do celular vive fora da IIFE
+  // que renderiza a lista.
+  const corUnidadeAtual = UNIT_COLORS[currentUnit?.codigo || ''] || '#6366f1'
+  const textoBadgeUnidadeAtual = currentUnit?.codigo === 'SJ' ? '#334155' : '#fff'
+
+  // Teto da carga total de uma etapa. Fica ABAIXO do limite de 1000 do PostgREST de
+  // propósito: assim o corte é NOSSO e detectável (comparando com o `count` exato),
+  // em vez do corte mudo do servidor — que foi o que escondeu o SP47 por semanas.
+  // Folga real hoje: a maior etapa agrupada tem 264 contratos (SJ em retorno).
+  const LIMITE_CARGA_TOTAL = 900
+  // Quantos a etapa tem de verdade quando a carga total não coube (null = coube).
+  const [truncadoEm, setTruncadoEm] = useState<number | null>(null)
+  // Etapa carregada inteira (sem paginar) — ver o bloco em carregarContratos().
+  const cargaTotalDaEtapa = encPipeline && ETAPAS_AGRUPADAS.includes(statusFiltro)
+  // Cards de encaminhamento expandidos (por número da viagem). Fechados por padrão:
+  // o card É o resumo; os pets abrem sob demanda.
+  const [encAbertos, setEncAbertos] = useState<Set<string>>(new Set())
+  // ── Gesto de incluir pet numa viagem (etapa 2) ──
+  const [petArrastando, setPetArrastando] = useState<string | null>(null)   // desktop: drag
+  const [encAlvo, setEncAlvo] = useState<string | null>(null)               // viagem sob o cursor
+  const [petsSelecionados, setPetsSelecionados] = useState<Set<string>>(new Set()) // mobile: long-press
+  const [vinculando, setVinculando] = useState(false)
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const longPressDisparou = useRef(false)
+  // ── Criar / editar viagem no próprio pipeline (etapa 3) ──
+  // `encEditando = null` com o form aberto significa CRIAR; com id, editar aquela viagem.
+  const [encFormAberto, setEncFormAberto] = useState(false)
+  const [encEditando, setEncEditando] = useState<{ id: string; numero: string } | null>(null)
+  const [encForm, setEncForm] = useState({ numero: '', data: '', responsavel: '', observacoes: '' })
+  const [encFormPets, setEncFormPets] = useState<Contrato[]>([])
+  const [salvandoEnc, setSalvandoEnc] = useState(false)
+  const [menuViagem, setMenuViagem] = useState<string | null>(null)   // número da viagem com o menu "⋯" aberto
+  // ── Enviar para a Matriz (etapa 4) — o botão irreversível ──
+  const [enviarModal, setEnviarModal] = useState<{ id: string; numero: string; data: string | null } | null>(null)
+  const [enviarPets, setEnviarPets] = useState<PetDaViagem[]>([])
+  const [enviarCarregando, setEnviarCarregando] = useState(false)
+  const [enviando, setEnviando] = useState(false)
+  // ── Nicho + Trazer da Matriz (etapas 6 e 7) ──
+  const [nichoAberto, setNichoAberto] = useState(false)
+  const [trazerAberto, setTrazerAberto] = useState(false)
+  const [trazerPets, setTrazerPets] = useState<PetNoNicho[]>([])
+  const [trazerDatas, setTrazerDatas] = useState<Record<string, string>>({})       // contrato_id → data de volta
+  const [trazerPresencial, setTrazerPresencial] = useState<Set<string>>(new Set()) // quem o tutor buscou em Pinda
+  const [trazerCarregando, setTrazerCarregando] = useState(false)
+  const [trazendo, setTrazendo] = useState(false)
 
   // Ordenação por proximidade de CEP (delta |CEP do contrato − CEP da unidade|).
   // Heurística: CEPs numericamente próximos tendem a ser geograficamente próximos
@@ -856,6 +979,10 @@ function ContratosContent() {
     if (loading || carregandoMais) return
     if (contratos.length >= total) return  // já carregou tudo
     if (buscaDebounced.trim()) return  // busca ativa não tem scroll infinito
+    // Etapa carregada inteira não pagina: a query ignora `pagina`, então subir a
+    // página aqui só recarregaria a mesma lista em loop. Se veio truncada, o aviso
+    // no topo é a saída — não mais scroll.
+    if (cargaTotalDaEtapa) return
 
     const sentinel = sentinelRef.current
     if (!sentinel) return
@@ -865,7 +992,7 @@ function ContratosContent() {
     }, { rootMargin: '400px' })
     obs.observe(sentinel)
     return () => obs.disconnect()
-  }, [loading, carregandoMais, contratos.length, total, buscaDebounced])
+  }, [loading, carregandoMais, contratos.length, total, buscaDebounced, cargaTotalDaEtapa])
 
   // Contar compartilhados (ativo a pendente) em background
   useEffect(() => {
@@ -955,7 +1082,7 @@ function ContratosContent() {
     // 2. contrato_gc
     supabase
       .from('contrato_gc')
-      .select('contrato_id, etapa, cinzas_prontas, certificado_pronto, contato_status')
+      .select('contrato_id, etapa, cinzas_prontas, certificado_pronto, contato_status, contato_tutor_em, data_agendamento, data_recebimento, data_cremacao, data_disponivel')
       .in('contrato_id', idsList)
       .then(({ data, error }) => {
         if (error || !data) return
@@ -1002,9 +1129,25 @@ function ContratosContent() {
     // e unidades com cb_cremacao_local também não (não há encaminhamento — todos seriam "sem").
     const agruparPorSupinda = agruparSupinda && statusFiltro !== 'preventivo' && !fluxoLocal
 
+    // 🔴 CARGA TOTAL DA ETAPA — a trava que faz o placar do card ser verdade.
+    //
+    // No fluxo novo o card mostra "12 pets · 10 pagos · 12 com lacre" e o botão
+    // "Enviar para Matriz" age sobre a viagem inteira. Com a paginação de 30, uma
+    // viagem chega PARTIDA entre páginas (SP já mandou 40+ num encaminhamento só, e
+    // o maior aberto hoje tem 25 pets) — o placar contaria só o pedaço que chegou e
+    // mentiria com cara de número conferido. É a família do incidente SP47.
+    //
+    // Medido no banco em 06/09/2026 — contratos por unidade em cada etapa:
+    //   ativo: SP 34 (maior) · pinda: SJ 134 · retorno: SJ 264 · finalizado: ST 1.640
+    // As 3 primeiras cabem folgadas; `finalizado` estouraria o teto de 1000 do
+    // PostgREST — por isso ele NÃO entra aqui e segue paginando como sempre
+    // (também não agrupa: encaminhamento de pet já entregue não diz nada).
+    //   → a condição vive no escopo do componente (`cargaTotalDaEtapa`), porque o
+    //     IntersectionObserver do scroll infinito também precisa dela.
+
     // SELECT principal — só dados base + embeds leves essenciais (tutor + supinda + pagamentos).
     // Embeds pesados (contrato_produtos, contrato_gc, fonte_conhecimento) carregam em paralelo após.
-    const SELECT_CONTRATO = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, aguardando_acolhimento, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
+    const SELECT_CONTRATO = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, aguardando_acolhimento, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, data_leva_pinda, unidade_remocao_id, unidade_entrega_id, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
 
     // Helper para aplicar filtros comuns (unidade + status + compartilhados).
     // Tipo `any` aqui porque o builder do supabase-js encadeia tipos genéricos complexos
@@ -1024,7 +1167,36 @@ function ContratosContent() {
     }
 
     try {
-      if (agruparPorSupinda) {
+      if (cargaTotalDaEtapa) {
+        // ============================================
+        // ETAPA INTEIRA, SEM PAGINAR (fluxo novo — ativo / pinda / retorno)
+        // ============================================
+        // Uma query só: o agrupamento por viagem e o placar precisam de TODOS os pets
+        // da etapa, senão contam pedaço. Ordenação fica toda no client (renderSupindaGroup).
+        let query = supabase.from('contratos').select(SELECT_CONTRATO, { count: 'exact' })
+        query = aplicarFiltros(query)
+        query = query.order(campoOrdem, { ascending, nullsFirst: false })
+
+        const { data, error, count } = await query.range(0, LIMITE_CARGA_TOTAL - 1)
+        if (minhaBuscaId !== buscaIdRef.current) return
+        if (error) throw error
+
+        const arr = (data || []) as Contrato[]
+        setContratos(arr)
+        setTotal(count ?? arr.length)
+
+        // 🔴 Guard de truncamento — a lição do SP47 é que a lista curta NÃO avisa.
+        // Se a etapa passar do teto, o placar e o "Enviar para Matriz" passariam a
+        // trabalhar sobre um recorte, em silêncio. Aqui isso vira erro visível.
+        if ((count ?? 0) > arr.length) {
+          console.error('[carregarContratos] ETAPA TRUNCADA', { statusFiltro, carregados: arr.length, total: count })
+          setTruncadoEm(count ?? arr.length)
+        } else {
+          setTruncadoEm(null)
+        }
+
+        if (arr.length > 0) enriquecerContratos(arr, minhaBuscaId)
+      } else if (agruparPorSupinda) {
         // ============================================
         // 2 QUERIES: sem encaminhamento (todos no topo) + com encaminhamento (paginado)
         // ============================================
@@ -1125,7 +1297,7 @@ function ContratosContent() {
     const agruparPorSupinda = agruparSupinda && statusFiltro !== 'preventivo' && !fluxoLocal
 
     // Mesmo padrão da listagem: SELECT leve + enriquecimento paralelo
-    const SELECT_BUSCA = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, aguardando_acolhimento, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, unidade_remocao_id, unidade_entrega_id, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
+    const SELECT_BUSCA = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, aguardando_acolhimento, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, data_leva_pinda, unidade_remocao_id, unidade_entrega_id, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
     // Sanitiza: escapa wildcards SQL (% _) e caracteres reservados PostgREST (, ( ) : * \)
     // + limita 80 chars. Protege contra termo malicioso quebrar o filtro `or`.
     const t = sanitizeBuscaPostgrest(termoBusca)
@@ -1573,6 +1745,165 @@ function ContratosContent() {
           {etapaLabels[etapa] || etapa}
         </span>
       </span>
+    )
+  }
+
+  // ─── CARD DO NICHO (etapa 6, §9.4) ──────────────────────────────────────────
+  // O que está PRONTO pra unidade buscar na Matriz. Sempre no fim da etapa Pinda, e
+  // sempre presente — é o lugar fixo pra onde o operador olha.
+  // ⚠️ Sem "mais antigo": foi proposto nos mockups e RECUSADO pelo Lucas.
+  function renderCardNicho(pets: Contrato[], renderFn: (c: Contrato) => React.ReactNode): React.ReactNode {
+    const total = pets.length
+    const comCinzas = pets.filter(c => c.contrato_gc?.cinzas_prontas).length
+    const comCertificado = pets.filter(c => c.contrato_gc?.certificado_pronto).length
+    return (
+      <div className="rounded-lg border-2" style={{ background: 'var(--surface-0)', borderColor: total > 0 ? '#22c55e' : 'var(--surface-200)' }}>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setNichoAberto(a => !a)}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setNichoAberto(a => !a) } }}
+          className="px-3 py-3 flex items-center gap-3 cursor-pointer hover:opacity-90"
+        >
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 text-[14px] font-bold text-[var(--surface-700)]">
+              <Package className="h-4 w-4 flex-shrink-0" />
+              Nicho {currentUnit?.nome || ''}
+            </div>
+            <div className="text-[12px] text-[var(--surface-400)] mt-0.5">
+              {total === 0
+                ? 'Nada pronto para buscar ainda'
+                : `${total} pronto${total !== 1 ? 's' : ''} — ${comCinzas} com cinzas, ${comCertificado} com certificado`}
+            </div>
+          </div>
+          <span className="text-[26px] font-black tabular-nums flex-shrink-0" style={{ color: total > 0 ? '#22c55e' : 'var(--surface-300)' }}>{total}</span>
+          <ChevronDown className={`h-5 w-5 flex-shrink-0 text-[var(--surface-400)] transition-transform ${nichoAberto ? 'rotate-180' : ''}`} />
+        </div>
+        {total > 0 && (
+          <div className="px-3 pb-3">
+            <button
+              onClick={abrirTrazerDaMatriz}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700"
+            >
+              <Truck className="h-4 w-4" />Trazer da Matriz
+            </button>
+          </div>
+        )}
+        {/* Clicar abre a visão de sempre do pipeline — os mesmos cards com faróis e
+            informações (§3.2). O resumo é atalho, não substituto. */}
+        {nichoAberto && total > 0 && (
+          <div className="px-3 pb-3 space-y-2 border-t pt-3" style={{ borderColor: 'var(--surface-200)' }}>
+            {pets.map(renderFn)}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ─── LINHA DO TEMPO DO GC (etapa 5, §9.3) ───────────────────────────────────
+  // É a AMPLIAÇÃO de `renderGCStatusBadges` — mesmas cores e mesmos rótulos, agora com
+  // as duas trilhas abertas e a data de cada passo cumprido.
+  //
+  // 🔴 Os passos são FIXOS: 3 no contato, 4 na etapa, sempre, mesmo os já vencidos.
+  // Foi o Lucas quem pegou isso ("pq vc tirou o 'A chamar' quando ja contatado?"): com
+  // número variável de passos, dois pets ficam impossíveis de comparar de relance.
+  //
+  // 🔴 `A Chamar` e `Provisionado` nascem CONCLUÍDOS, com a data do encaminhamento.
+  // O verde aqui não é "tarefa cumprida", é "o relógio começou a correr" — o gestor lê
+  // "está para chamar desde o dia tal". É o ponto que mais importa nesta tela, e o
+  // motivo de ela existir: dar às unidades visibilidade do trabalho da Matriz.
+  function renderLinhaDoTempoGC(contrato: Contrato): React.ReactNode {
+    const gc = contrato.contrato_gc
+    if (!gc) return null
+    const etapa = gc.etapa || 'provisionado'
+    const contatoSt = gc.contato_status || null
+    // Data em que o pet entrou em Pinda — é o "relógio começou" dos dois primeiros passos.
+    const dataIda = contrato.data_leva_pinda || null
+
+    /** `2026-09-06T14:30:00Z` → `06/set`. Para `timestamptz` usa a data LOCAL (a lição da
+     *  mig 113 / do bug da aba Evolução: `slice(0,10)` devolve o dia em UTC). */
+    const dd = (iso: string | null | undefined): string | undefined => {
+      if (!iso) return undefined
+      const d = iso.length <= 10 ? new Date(`${iso}T12:00:00`) : new Date(iso)
+      if (isNaN(d.getTime())) return undefined
+      const meses = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+      return `${String(d.getDate()).padStart(2, '0')}/${meses[d.getMonth()]}`
+    }
+
+    const ordemEtapa = ['provisionado', 'recebido', 'cremado', 'disponivel']
+    const iEtapa = Math.max(0, ordemEtapa.indexOf(etapa))
+    const ordemContato = [null, 'contatado', 'agendado']
+    const iContato = Math.max(0, ordemContato.indexOf(contatoSt))
+
+    // Previsão de cremação: só com o pet já RECEBIDO e agendamento marcado. O carimbo de
+    // `data_cremacao` herda `data_agendamento` (GCAcaoModal.tsx:635-637), então a
+    // previsão mostrada é exatamente a data que vai ser registrada.
+    let prev: string | undefined
+    if (etapa === 'recebido' && gc.data_agendamento) {
+      const d = new Date(gc.data_agendamento)
+      if (!isNaN(d.getTime())) {
+        prev = `prev. ${dd(gc.data_agendamento)} ${String(d.getHours()).padStart(2, '0')}h`
+      }
+    }
+
+    const trilhaContato = [
+      { rotulo: 'A Chamar', cor: '#94a3b8', data: dd(dataIda) },
+      { rotulo: 'Contatado', cor: '#a7f3d0', data: dd(gc.contato_tutor_em) },
+      { rotulo: 'Agendado', cor: '#1a73e8', data: dd(gc.data_agendamento) },
+    ]
+    const trilhaEtapa = [
+      { rotulo: 'Provisionado', cor: '#64748b', data: dd(dataIda) },
+      { rotulo: 'Recebido', cor: '#3b82f6', data: dd(gc.data_recebimento) },
+      { rotulo: 'Cremado', cor: '#eab308', data: dd(gc.data_cremacao), previsao: prev },
+      { rotulo: 'Finalizado', cor: '#22c55e', data: dd(gc.data_disponivel) },
+    ]
+
+    const trilha = (
+      titulo: string,
+      passos: { rotulo: string; cor: string; data?: string; previsao?: string }[],
+      indiceAtual: number,
+    ) => (
+      <div className="flex items-start gap-1.5">
+        <span className="text-[9px] font-semibold uppercase text-[var(--surface-400)] w-11 flex-shrink-0 pt-1">{titulo}</span>
+        <div className="flex items-start flex-1 min-w-0">
+          {passos.map((passo, i) => {
+            const cumprido = i <= indiceAtual
+            return (
+              <Fragment key={passo.rotulo}>
+                {i > 0 && (
+                  // A linha entre dois passos só fica colorida depois de VENCIDA.
+                  <div className="h-px flex-1 mt-[7px] mx-0.5" style={{ background: cumprido ? passos[i].cor : 'var(--surface-200)' }} />
+                )}
+                <div className="flex flex-col items-center flex-shrink-0" style={{ minWidth: 52 }}>
+                  <span
+                    className={`w-3.5 h-3.5 rounded-full border-2 ${cumprido ? '' : 'animate-pulse'}`}
+                    style={{
+                      background: cumprido ? passo.cor : 'transparent',
+                      borderColor: cumprido ? passo.cor : 'var(--surface-300)',
+                    }}
+                  />
+                  <span className="text-[9px] leading-tight mt-0.5 text-center" style={{ color: cumprido ? 'var(--surface-600)' : 'var(--surface-400)' }}>
+                    {passo.rotulo}
+                  </span>
+                  {passo.data && cumprido && (
+                    <span className="text-[9px] leading-tight tabular-nums text-[var(--surface-400)]">{passo.data}</span>
+                  )}
+                  {passo.previsao && !cumprido && (
+                    <span className="text-[9px] leading-tight italic text-amber-500">{passo.previsao}</span>
+                  )}
+                </div>
+              </Fragment>
+            )
+          })}
+        </div>
+      </div>
+    )
+
+    return (
+      <div className="space-y-1.5">
+        {trilha('Contato', trilhaContato, iContato)}
+        {trilha('Etapa', trilhaEtapa, iEtapa)}
+      </div>
     )
   }
 
@@ -2258,7 +2589,7 @@ Gratidão eterna!
     if (!currentUnit?.id) return
     const { data } = await supabase
       .from('contas')
-      .select('id, entradas, preferencial_recebimento')
+      .select('id, entradas, preferencial_recebimento, produto')
       .eq('ativo', true)
       .eq('unidade_id', currentUnit.id)
       .eq('legado', false)          // conta de legado não recebe pagamento novo
@@ -3094,10 +3425,15 @@ ${petNome}`
   // Calcula próximo número de supinda com prefixo da unidade
   async function getProximoNumeroSupinda(): Promise<string> {
     const prefixo = currentUnit?.codigo || 'ST'
-    const { data: supindasUnidade } = await supabase
+    let q = supabase
       .from('supindas')
       .select('numero')
       .like('numero', `${prefixo}%`)
+    // Filtra por unidade além do prefixo. Os dois coincidem hoje (o número nasce com o
+    // código da unidade), mas "confiar no prefixo" é exatamente a query sem escopo que
+    // virou a segunda porta do incidente SP47 (§10.5, armadilha 7).
+    if (currentUnit) q = q.eq('unidade_id', currentUnit.id)
+    const { data: supindasUnidade } = await q
 
     const maxNum = (supindasUnidade || []).reduce((max, s) => {
       const num = parseInt((s as { numero: string }).numero.replace(prefixo, ''), 10)
@@ -3231,6 +3567,425 @@ ${petNome}`
         } as never)
         .eq('id', supindaId)
     }
+  }
+
+  // ─── Incluir pet(s) numa viagem — o gesto central da etapa Ativo (§3.1) ──────
+  // Vale para os dois gestos: arrastar (desktop) e segurar+tocar (mobile).
+  async function vincularAoEncaminhamento(contratoIds: string[], supindaId: string) {
+    if (contratoIds.length === 0 || vinculando) return
+    setVinculando(true)
+    try {
+      // ⚠️ O estado da viagem vem do BANCO no momento do gesto, nunca do embed que
+      // está na tela — que pode ter minutos de idade. Se outra pessoa despachou a
+      // viagem nesse meio-tempo, o pet entraria numa viagem que já saiu e ficaria
+      // preso em `ativo` para sempre: foi assim que o Shu, em Campinas, ficou parado
+      // desde abril (§3.1, "pet que chega depois espera a próxima").
+      const { data: sup, error: errSup } = await supabase
+        .from('supindas').select('id, numero, status').eq('id', supindaId).maybeSingle()
+      if (errSup || !sup) {
+        alert(`Não deu pra conferir o encaminhamento: ${errSup?.message || 'não encontrado'}\n\nNada foi alterado.`)
+        return
+      }
+      const viagem = sup as { id: string; numero: string; status: string | null }
+      if (viagem.status !== 'planejada') {
+        alert(`O encaminhamento ${viagem.numero} já partiu — não dá mais para incluir pets nele.\n\nEste pet entra na próxima viagem.`)
+        await carregarContratos()
+        return
+      }
+
+      const { error } = await supabase.from('contratos')
+        .update({ supinda_id: viagem.id } as never).in('id', contratoIds)
+      if (error) {
+        alert(`Erro ao incluir no ${viagem.numero}: ${error.message}\n\nNada foi alterado.`)
+        return
+      }
+
+      // Recalcula do banco (nunca soma incremental — armadilha 6 do §10.5): esses 2
+      // campos não alimentam o placar daqui, que é calculado, mas a /encaminhamentos
+      // ainda os lê e mostraria número errado.
+      await recalcularEstatisticasSupinda(viagem.id)
+
+      setPetsSelecionados(new Set())
+      setPetArrastando(null)
+      setEncAlvo(null)
+      await carregarContratos()
+    } finally {
+      setVinculando(false)
+    }
+  }
+
+  // ─── Criar / editar a viagem no próprio pipeline (etapa 3, §3.1) ────────────
+  async function abrirNovoEncaminhamento() {
+    const numero = await getProximoNumeroSupinda()
+    setEncEditando(null)
+    setEncFormPets([])
+    setEncForm({ numero, data: hojeLocal(), responsavel: userName || '', observacoes: '' })
+    setEncFormAberto(true)
+  }
+
+  async function abrirEdicaoEncaminhamento(supindaId: string, numero: string) {
+    setMenuViagem(null)
+    // Lê do banco, não do embed da tela: observações não vêm no SELECT do pipeline,
+    // e data/responsável podem ter mudado desde que a lista carregou.
+    const { data, error } = await supabase
+      .from('supindas').select('id, numero, data, responsavel, observacoes, status').eq('id', supindaId).maybeSingle()
+    if (error || !data) {
+      alert(`Não deu pra abrir o ${numero}: ${error?.message || 'não encontrado'}`)
+      return
+    }
+    const s = data as { id: string; numero: string; data: string | null; responsavel: string | null; observacoes: string | null; status: string | null }
+    setEncEditando({ id: s.id, numero: s.numero })
+    setEncFormPets(contratos.filter(c => c.supinda?.id === s.id))
+    setEncForm({
+      numero: s.numero,
+      data: (s.data || '').slice(0, 10),
+      responsavel: s.responsavel || '',
+      observacoes: s.observacoes || '',
+    })
+    setEncFormAberto(true)
+  }
+
+  async function salvarEncaminhamento() {
+    if (!currentUnit || !encForm.data || salvandoEnc) return
+    setSalvandoEnc(true)
+    try {
+      if (encEditando) {
+        const { error } = await supabase.from('supindas').update({
+          data: encForm.data,
+          responsavel: encForm.responsavel.trim() || null,
+          observacoes: encForm.observacoes.trim() || null,
+        } as never).eq('id', encEditando.id)
+        if (error) { alert(`Erro ao salvar o ${encEditando.numero}: ${error.message}`); return }
+      } else {
+        // ⚠️ O número é regerado no SALVAR, não reaproveitado do que apareceu ao abrir o
+        // form: entre abrir e salvar, outra pessoa pode ter criado uma viagem e levado
+        // aquele número.
+        //
+        // E `supindas.numero` é **UNIQUE** (mig 001, `numero INTEGER UNIQUE NOT NULL`;
+        // a coluna virou texto depois, mas `ALTER COLUMN TYPE` preserva a constraint —
+        // conferido nos dados: 522 viagens, zero número repetido). Ou seja, a colisão
+        // não passa em silêncio: ela FALHA com `23505`. Então aqui há retry — regera e
+        // tenta de novo, em vez de mandar o operador clicar de novo por um número que
+        // ele nem escolheu.
+        let erroFinal: { message: string; code?: string } | null = null
+        for (let tentativa = 0; tentativa < 3; tentativa++) {
+          const numero = await getProximoNumeroSupinda()
+          const { error } = await supabase.from('supindas').insert({
+            numero,
+            data: encForm.data,
+            responsavel: encForm.responsavel.trim() || null,
+            observacoes: encForm.observacoes.trim() || null,
+            status: 'planejada',
+            quantidade_pets: 0,
+            peso_total: 0,
+            unidade_id: currentUnit.id,
+          } as never)
+          if (!error) { erroFinal = null; break }
+          erroFinal = error
+          // 23505 = unique_violation. Qualquer outro erro não melhora tentando de novo.
+          if (error.code !== '23505') break
+        }
+        if (erroFinal) { alert(`Erro ao criar o encaminhamento: ${erroFinal.message}`); return }
+      }
+      setEncFormAberto(false)
+      await carregarContratos()
+    } finally {
+      setSalvandoEnc(false)
+    }
+  }
+
+  /** Tira UM pet da viagem (volta a ser pet solto). Só pela edição — o gesto de
+   *  arrastar inclui, nunca remove, pra não desfazer trabalho por engano. */
+  async function desvincularPet(contratoId: string, supindaId: string) {
+    const { error } = await supabase.from('contratos').update({ supinda_id: null } as never).eq('id', contratoId)
+    if (error) { alert(`Erro ao tirar o pet do encaminhamento: ${error.message}`); return }
+    await recalcularEstatisticasSupinda(supindaId)
+    setEncFormPets(prev => prev.filter(c => c.id !== contratoId))
+    await carregarContratos()
+  }
+
+  async function excluirEncaminhamento() {
+    if (!encEditando) return
+    const n = encFormPets.length
+    const aviso = n > 0
+      ? `Excluir o encaminhamento ${encEditando.numero}?\n\nOs ${n} pet${n > 1 ? 's' : ''} vinculado${n > 1 ? 's voltam' : ' volta'} para a fila, sem encaminhamento. Nenhum contrato é apagado.`
+      : `Excluir o encaminhamento ${encEditando.numero}?\n\n(está vazio)`
+    if (!confirm(aviso)) return
+    setSalvandoEnc(true)
+    try {
+      // Desvincula ANTES de apagar a viagem: se o delete falhar, os pets já estão
+      // livres e dá pra repetir — o contrário deixaria contrato apontando pra uma
+      // supinda que não existe mais. É a mesma ordem do "mover antes de fechar" (§10.5).
+      const { error: errDesv } = await supabase.from('contratos').update({ supinda_id: null } as never).eq('supinda_id', encEditando.id)
+      if (errDesv) { alert(`Erro ao liberar os pets: ${errDesv.message}\n\nO encaminhamento NÃO foi excluído.`); return }
+      const { error } = await supabase.from('supindas').delete().eq('id', encEditando.id)
+      if (error) { alert(`Os pets foram liberados, mas o encaminhamento não pôde ser excluído: ${error.message}`); return }
+      setEncFormAberto(false)
+      await carregarContratos()
+    } finally {
+      setSalvandoEnc(false)
+    }
+  }
+
+  // ─── Enviar para a Matriz (etapa 4) ─────────────────────────────────────────
+  const CAMPOS_PET_VIAGEM = 'id, pet_nome, numero_lacre, tipo_cremacao, tutor_nome, tutor:tutores(nome), status'
+
+  /** Lê do BANCO os pets da viagem. Usada tanto pra montar a conferência quanto pra
+   *  reconferir no instante do envio — nunca se confia no que está na tela. */
+  async function lerPetsDaViagem(supindaId: string): Promise<PetDaViagem[] | null> {
+    const { data, error } = await supabase.from('contratos')
+      .select(CAMPOS_PET_VIAGEM).eq('supinda_id', supindaId).eq('status', 'ativo')
+    if (error) {
+      alert(`Não deu pra ler os pets da viagem: ${error.message}\n\nNada foi alterado.`)
+      return null
+    }
+    return (data || []) as unknown as PetDaViagem[]
+  }
+
+  async function abrirEnvioParaMatriz(supindaId: string, numero: string) {
+    setMenuViagem(null)
+    setEnviarCarregando(true)
+    setEnviarModal({ id: supindaId, numero, data: null })
+    const { data: sup } = await supabase.from('supindas').select('data, status').eq('id', supindaId).maybeSingle()
+    const s = sup as { data: string | null; status: string | null } | null
+    const pets = await lerPetsDaViagem(supindaId)
+    setEnviarCarregando(false)
+    if (!pets) { setEnviarModal(null); return }
+    if (s && s.status !== 'planejada') {
+      setEnviarModal(null)
+      alert(`O encaminhamento ${numero} já foi enviado.`)
+      await carregarContratos()
+      return
+    }
+    setEnviarModal({ id: supindaId, numero, data: s?.data ?? null })
+    setEnviarPets(pets)
+  }
+
+  async function confirmarEnvioParaMatriz() {
+    if (!enviarModal || enviando) return
+    const { id: supindaId, numero, data: dataViagem } = enviarModal
+    setEnviando(true)
+    try {
+      // 🔴 RECONFERE no banco no instante do envio. A lista da tela pode ter minutos de
+      // idade, e é justamente o UPDATE em lote sobre lista desatualizada que produziu o
+      // incidente SP47: a supinda fechou como `ida_finalizada` e ZERO contrato se moveu.
+      const pets = await lerPetsDaViagem(supindaId)
+      if (!pets) return
+
+      // ⚠️ Viagem vazia NUNCA fecha. No fluxo antigo o gate era `encIda.every(...)`, e
+      // `[].every()` é `true` — lista vazia liberava o botão. Aqui é explícito.
+      if (pets.length === 0) {
+        alert(`O ${numero} está sem nenhum pet para enviar.\n\nNada foi alterado — inclua os pets antes de enviar.`)
+        setEnviarModal(null)
+        await carregarContratos()
+        return
+      }
+      if (pets.length !== enviarPets.length) {
+        setEnviarPets(pets)
+        alert(`A lista mudou desde que você abriu: agora são ${pets.length} pet${pets.length !== 1 ? 's' : ''}, não ${enviarPets.length}.\n\nConfira a lista atualizada e envie de novo.`)
+        return
+      }
+
+      const ids = pets.map(p => p.id)
+      // 1º os FILHOS, depois o PAI (§10.5, armadilha 3): se o UPDATE dos contratos
+      // falhar, a viagem continua aberta e repetível — em vez de ficar fechada com os
+      // pets para trás, que foi exatamente o estado do SP47.
+      const { error: errMover } = await supabase.from('contratos')
+        .update({ status: 'pinda', data_leva_pinda: dataViagem || hojeLocal() } as never).in('id', ids)
+      if (errMover) {
+        alert(`Erro ao levar os pets para Pinda: ${errMover.message}\n\nO ${numero} NÃO foi enviado — tente de novo.`)
+        return
+      }
+
+      // 🔴 REQUISITO INEGOCIÁVEL (§10.7): `ida_finalizada` é o que destrava o "Confirmar
+      // Recebimento" da Matriz (`GCAcaoModal.tsx:188`). Sem este UPDATE, os pets chegam
+      // em Pinda e a Matriz não consegue recebê-los — e não saberia por quê.
+      const { error: errStatus } = await supabase.from('supindas')
+        .update({ status: 'ida_finalizada' } as never).eq('id', supindaId)
+      if (errStatus) {
+        // Tratamento de erro pedido pelo Lucas em 05/09: *"preveja um tratamento de erro
+        // que volte todo encaminhamento para os ativos, para ele refazer"*. Sem isso
+        // sobrariam pets em `pinda` numa viagem ainda aberta — invisíveis na etapa Ativo
+        // e impossíveis de receber na Matriz.
+        const { error: errVolta } = await supabase.from('contratos')
+          .update({ status: 'ativo', data_leva_pinda: null } as never).in('id', ids)
+        alert(errVolta
+          ? `O ${numero} não pôde ser fechado (${errStatus.message}) E a volta dos pets para Ativos também falhou (${errVolta.message}).\n\n⚠️ Avise o suporte antes de mexer: ${ids.length} pets podem estar em Pinda com a viagem aberta.`
+          : `O ${numero} não pôde ser fechado: ${errStatus.message}\n\nTodos os ${ids.length} pets voltaram para Ativos. Pode montar e enviar de novo.`)
+        await carregarContratos()
+        return
+      }
+
+      setEnviarModal(null)
+      setEnviarPets([])
+      await carregarContratos()
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  // ─── Trazer da Matriz (etapa 7, §9.5) ───────────────────────────────────────
+  // ⚠️ `etapa` PRECISA estar no embed: é por ela que o nicho é filtrado logo abaixo.
+  // Sem ela o filtro compara com `undefined` e o nicho vem sempre vazio, em silêncio.
+  // `!inner` descarta quem não tem GC — o `.not('contrato_gc','is',null)` que eu tinha
+  // escrito antes não faz isso no PostgREST.
+  const CAMPOS_PET_NICHO = 'id, pet_nome, numero_lacre, tipo_cremacao, tutor_nome, tutor:tutores(nome), supinda_id, supinda:supindas!fk_contrato_supinda(numero, data), contrato_gc!inner(etapa, cinzas_prontas, certificado_pronto, data_cremacao)'
+
+  /** Só `date` (sem hora): `data_retorno`/`data_entrega` são colunas `date`. */
+  const soData = (iso: string | null | undefined): string => (iso ? iso.slice(0, 10) : hojeLocal())
+
+  async function lerPetsDoNicho(): Promise<PetNoNicho[] | null> {
+    if (!currentUnit) return null
+    const { data, error } = await supabase.from('contratos')
+      .select(CAMPOS_PET_NICHO)
+      .eq('unidade_id', currentUnit.id)
+      .eq('status', 'pinda')
+      .eq('contrato_gc.etapa', 'disponivel')
+    if (error) {
+      alert(`Não deu pra ler o nicho: ${error.message}\n\nNada foi alterado.`)
+      return null
+    }
+    return (data || []) as unknown as PetNoNicho[]
+  }
+
+  async function abrirTrazerDaMatriz() {
+    setTrazerCarregando(true)
+    setTrazerAberto(true)
+    const pets = await lerPetsDoNicho()
+    setTrazerCarregando(false)
+    if (!pets) { setTrazerAberto(false); return }
+    setTrazerPets(pets)
+    setTrazerPresencial(new Set())
+    // Sugestão inicial: a data da viagem de ida mais recente entre os pets do nicho
+    // (§9.5 — "mesma data do encaminhamento ST170"). O Lucas faz isso de verdade: vai de
+    // manhã, crema, e volta no fim do dia com as cinzas.
+    const sugestao = sugestaoDataVolta(pets)
+    const mapa: Record<string, string> = {}
+    for (const p of pets) mapa[p.id] = sugestao.data
+    setTrazerDatas(mapa)
+  }
+
+  /** A viagem de ida mais recente entre os pets — vira o rótulo do botão do lote. */
+  function sugestaoDataVolta(pets: PetNoNicho[]): { data: string; rotulo: string | null } {
+    let melhor: { numero: string; data: string } | null = null
+    for (const p of pets) {
+      const d = p.supinda?.data ? p.supinda.data.slice(0, 10) : null
+      if (!d || !p.supinda) continue
+      if (!melhor || d > melhor.data) melhor = { numero: p.supinda.numero, data: d }
+    }
+    if (!melhor) return { data: hojeLocal(), rotulo: null }
+    return { data: melhor.data, rotulo: `${melhor.numero} · ${formatarDataViagem(melhor.data)}` }
+  }
+
+  async function finalizarVolta() {
+    if (trazendo || trazerPets.length === 0) return
+    setTrazendo(true)
+    try {
+      // Reconfere no banco (mesma trava do envio): alguém pode ter movido um pet.
+      const atual = await lerPetsDoNicho()
+      if (!atual) return
+      if (atual.length !== trazerPets.length) {
+        setTrazerPets(atual)
+        alert(`A lista mudou desde que você abriu: agora são ${atual.length} pet${atual.length !== 1 ? 's' : ''}, não ${trazerPets.length}.\n\nConfira e finalize de novo.`)
+        return
+      }
+
+      const idsValidos = new Set(atual.map(p => p.id))
+      const presenciais = atual.filter(p => trazerPresencial.has(p.id))
+      const normais = atual.filter(p => !trazerPresencial.has(p.id))
+
+      // ⚠️ VOLUME: medido no banco em 12/09, o nicho de uma unidade chega a **138 pets**
+      // (PA 138 · RS 134 · SJ 120) — é o passivo que esta tela existe pra regularizar.
+      // Um UPDATE por pet seriam 138 requisições, lento e frágil (falha no meio = estado
+      // parcial). Então agrupa por (data + viagem de ida), que é o que precisa ser igual
+      // dentro de um lote: tipicamente vira um punhado de chamadas, não uma centena.
+      //
+      // `supinda_volta_id` recebe a viagem da IDA (decisão de 12/09): no fluxo novo a
+      // volta sai do Nicho, que junta viagens diferentes, então não existe uma "viagem de
+      // volta". Isso mantém a /encaminhamentos legível e faz a etapa Entrega agrupar pela
+      // ida sozinha (§3.3).
+      type Lote = { data: string; supindaId: string | null; ids: string[] }
+      const agrupar = (pets: PetNoNicho[], dataDe: (p: PetNoNicho) => string): Lote[] => {
+        const mapa = new Map<string, Lote>()
+        for (const p of pets) {
+          if (!idsValidos.has(p.id)) continue
+          const data = dataDe(p)
+          const chave = `${data}|${p.supinda_id ?? ''}`
+          if (!mapa.has(chave)) mapa.set(chave, { data, supindaId: p.supinda_id, ids: [] })
+          mapa.get(chave)!.ids.push(p.id)
+        }
+        return [...mapa.values()]
+      }
+
+      // ── Pets que voltam para a unidade → etapa Entrega ──
+      for (const lote of agrupar(normais, p => trazerDatas[p.id] || hojeLocal())) {
+        const { error } = await supabase.from('contratos').update({
+          status: 'retorno',
+          data_retorno: lote.data,
+          supinda_volta_id: lote.supindaId,
+        } as never).in('id', lote.ids)
+        if (error) {
+          alert(`Erro ao trazer ${lote.ids.length} pet${lote.ids.length !== 1 ? 's' : ''}: ${error.message}\n\nOs que já foram processados continuam corretos — reabra e refaça para os que restaram.`)
+          await carregarContratos()
+          return
+        }
+      }
+
+      // ── Pets que o tutor buscou EM PINDA → pulam a Entrega e vão a finalizado ──
+      // ⚠️ Atalho SÓ para o caso presencial (§3.2): não é um "já entregou" genérico, senão
+      // a unidade registra o mês inteiro de uma vez e atropela quem cuida do GC.
+      // `data_entrega = data_retorno = data_cremacao`: o pet saiu de Pinda no dia em que
+      // foi cremado, não voltou pra unidade nenhum dia.
+      for (const lote of agrupar(presenciais, p => soData(p.contrato_gc?.data_cremacao))) {
+        const { error } = await supabase.from('contratos').update({
+          status: 'finalizado',
+          data_retorno: lote.data,
+          data_entrega: lote.data,
+          supinda_volta_id: lote.supindaId,
+        } as never).in('id', lote.ids)
+        if (error) {
+          alert(`Erro ao finalizar ${lote.ids.length} pet${lote.ids.length !== 1 ? 's' : ''} presencia${lote.ids.length !== 1 ? 'is' : 'l'}: ${error.message}`)
+          await carregarContratos()
+          return
+        }
+      }
+
+      // ── Fecha as viagens de ida que não têm mais ninguém em Pinda ──
+      // A viagem só vira `finalizada` quando o ÚLTIMO pet dela saiu — com ela aberta, a
+      // /encaminhamentos mostraria como em andamento uma viagem já resolvida.
+      const supindasEnvolvidas = [...new Set(atual.map(p => p.supinda_id).filter((x): x is string => !!x))]
+      for (const supId of supindasEnvolvidas) {
+        const { count } = await supabase.from('contratos')
+          .select('id', { count: 'exact', head: true }).eq('supinda_id', supId).eq('status', 'pinda')
+        if ((count ?? 0) === 0) {
+          await supabase.from('supindas').update({ status: 'finalizada' } as never).eq('id', supId)
+        }
+      }
+
+      setTrazerAberto(false)
+      setTrazerPets([])
+      setTrazerPresencial(new Set())
+      await carregarContratos()
+    } finally {
+      setTrazendo(false)
+    }
+  }
+
+  // Long-press de 500 ms — MESMO gesto e MESMA duração da /encaminhamentos, de
+  // propósito: quem usa as duas telas não reaprende nada (§10.2 do plano).
+  function iniciarLongPress(contratoId: string) {
+    longPressDisparou.current = false
+    longPressTimer.current = setTimeout(() => {
+      longPressDisparou.current = true
+      setPetsSelecionados(prev => {
+        const n = new Set(prev)
+        if (n.has(contratoId)) n.delete(contratoId); else n.add(contratoId)
+        return n
+      })
+    }, 500)
+  }
+  function cancelarLongPress() {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null }
   }
 
   // Remove supinda do contrato
@@ -3512,6 +4267,17 @@ ${petNome}`
               🚐 Encam.
             </button>
           )}
+          {/* + Enc — cria a viagem aqui mesmo (etapa 3). Só na etapa Ativo: é onde a
+              viagem é montada; nas outras ela já existe. */}
+          {encPipeline && statusFiltro === 'ativo' && (
+            <button
+              onClick={abrirNovoEncaminhamento}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold bg-orange-600 text-white hover:bg-orange-700 transition-colors"
+              title="Criar um encaminhamento novo"
+            >
+              <Truck className="h-3.5 w-3.5" />+ Enc
+            </button>
+          )}
           {/* Toggle: agrupar por cidade */}
           {!(statusFiltro === 'retorno' && montagemInline) && (
             <button
@@ -3787,6 +4553,17 @@ ${petNome}`
             </button>
           )}
 
+          {/* + Enc (mobile) — mesma regra da barra do desktop */}
+          {encPipeline && statusFiltro === 'ativo' && (
+            <button
+              onClick={abrirNovoEncaminhamento}
+              className="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold bg-orange-600 text-white hover:bg-orange-700 transition-colors"
+              title="Criar um encaminhamento novo"
+            >
+              <Truck className="h-4 w-4" />+ Enc
+            </button>
+          )}
+
           {/* Agrupar por cidade (esconde quando inline ativo) */}
           {!(statusFiltro === 'retorno' && montagemInline) && (
             <button
@@ -4002,6 +4779,15 @@ ${petNome}`
       {/* Cards de Contratos (esconde quando inline ativo) */}
       {!(statusFiltro === 'retorno' && montagemInline) && (
       <div className="space-y-2">
+        {/* 🔴 Etapa maior que a carga total: os placares abaixo contariam só um recorte.
+            Avisa em vez de mostrar número errado com cara de conferido (lição do SP47). */}
+        {truncadoEm !== null && (
+          <div className="rounded-lg border border-red-500/50 bg-red-950/40 px-3 py-2 text-[11px] text-red-200">
+            <strong>Esta etapa tem {truncadoEm} pets e só {contratos.length} couberam na tela.</strong>{' '}
+            Os totais dos encaminhamentos abaixo estão incompletos — não use o &quot;Enviar para Matriz&quot;
+            até isso ser resolvido. Avise o suporte.
+          </div>
+        )}
         {loading ? (
           <div className="space-y-2">
             {Array.from({ length: 6 }).map((_, i) => (
@@ -4039,7 +4825,11 @@ ${petNome}`
 
             // Agrupar contratos por supinda: toggle do user, sem efeito em preventivo
             // nem em unidades com cb_cremacao_local (sem encaminhamento).
+            // ⚠️ No fluxo novo a etapa PINDA não agrupa por viagem (§3.2 do plano): a
+            // viagem que levou já não importa, importa o que está pronto pra buscar.
+            // Ela vira cards soltos com linha do tempo do GC + o card do Nicho (etapas 5 e 6).
             const deveAgruparSupinda = agruparSupinda && statusFiltro !== 'preventivo' && !fluxoLocal
+              && !(encPipeline && statusFiltro === 'pinda')
 
             // Ativação de Preventivo em andamento (mig 138) sempre primeiro, seja qual for a
             // ordenação escolhida — acabou de acontecer, não faz sentido enterrar lá embaixo
@@ -4050,7 +4840,245 @@ ${petNome}`
               return a.aguardando_acolhimento ? -1 : 1
             }
 
+            // ─── PLACAR DO ENCAMINHAMENTO (§9.1) ───────────────────────────────
+            // Tudo CALCULADO da lista de pets que está na tela, nunca lido de
+            // `supindas.quantidade_pets`/`peso_total`: esses dois campos são mantidos
+            // por aritmética incremental em 4 lugares diferentes e divergem sob
+            // concorrência (armadilha 6 do §10.5 do plano). A lista é confiável aqui
+            // porque `cargaTotalDaEtapa` traz a etapa inteira e avisa se truncar.
+            const calcularPlacar = (cs: Contrato[]) => {
+              let comLacre = 0, pagos = 0, ind = 0, col = 0, peso = 0
+              for (const c of cs) {
+                if ((c.numero_lacre || '').trim()) comLacre++
+                const { planoPendente, acessoriosPendente } = getPagamentoPendente(c)
+                if (!planoPendente && !acessoriosPendente) pagos++
+                if (c.tipo_cremacao === 'coletiva') col++; else ind++
+                peso += c.pet_peso || 0
+              }
+              return { total: cs.length, comLacre, pagos, ind, col, peso }
+            }
+
+            // Cor de um par do placar: verde quando fecha, âmbar quando falta alguém (§9.1).
+            const corPlacar = (ok: boolean) => (ok ? '#22c55e' : '#f59e0b')
+            const corUnidade = corUnidadeAtual
+            const textoBadgeUnidade = textoBadgeUnidadeAtual
+            const chipsTipo = (p: ReturnType<typeof calcularPlacar>) => (
+              <>
+                {p.ind > 0 && <span className="flex items-center gap-0.5 text-[12px] font-semibold px-1.5 py-0.5 rounded bg-emerald-900/30 text-emerald-300"><Flame className="h-3 w-3" />{p.ind} IND</span>}
+                {p.col > 0 && <span className="flex items-center gap-0.5 text-[12px] font-semibold px-1.5 py-0.5 rounded bg-violet-900/30 text-violet-300"><Flame className="h-3 w-3" />{p.col} COL</span>}
+              </>
+            )
+
+            // Menu "⋯" da viagem. `stopPropagation` em tudo: o wrapper da faixa abre os
+            // pets no clique, e sem isso escolher "Editar" também expandiria a lista.
+            const menuEncaminhamento = (numero: string, cs: Contrato[]) => {
+              const sup = cs.find(c => c.supinda)?.supinda
+              const supId = sup?.id || null
+              // ⚠️ O menu só existe em viagem AINDA PLANEJADA. Numa viagem que já partiu,
+              // "Editar" abriria o desvincular-pet e o Excluir sobre um lote já despachado
+              // — destrutivo e sem sentido. Histórico de viagem passada se olha na
+              // /encaminhamentos, que existe exatamente pra isso (§4.6).
+              if (!supId || (sup?.status && sup.status !== 'planejada')) return null
+              const aberto = menuViagem === numero
+              return (
+                <div className="relative flex-shrink-0" onClick={e => e.stopPropagation()}>
+                  <button
+                    onClick={e => { e.stopPropagation(); setMenuViagem(a => (a === numero ? null : numero)) }}
+                    className="p-1 rounded hover:bg-[var(--surface-100)] text-[var(--surface-400)]"
+                    title="Ações do encaminhamento"
+                    aria-label={`Ações do encaminhamento ${numero}`}
+                  >
+                    <MoreVertical className="h-5 w-5" />
+                  </button>
+                  {aberto && (
+                    <>
+                      {/* Clique fora fecha. Fica ANTES do menu no DOM pra ficar atrás dele. */}
+                      <div className="fixed inset-0 z-[55]" onClick={e => { e.stopPropagation(); setMenuViagem(null) }} />
+                      <div className="absolute right-0 top-full mt-1 z-[56] min-w-[210px] rounded-lg border shadow-lg py-1" style={{ background: 'var(--surface-0)', borderColor: 'var(--surface-200)' }}>
+                        <button
+                          onClick={e => { e.stopPropagation(); if (supId) abrirEdicaoEncaminhamento(supId, numero) }}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-[var(--surface-700)] hover:bg-[var(--surface-100)] text-left"
+                        >
+                          <Pencil className="h-4 w-4 flex-shrink-0" />Editar encaminhamento
+                        </button>
+                        {/* Só na etapa Ativo: é de lá que a viagem parte. Fica por último
+                            e em laranja — é a ação irreversível (§9.1). */}
+                        {statusFiltro === 'ativo' && (
+                          <button
+                            onClick={e => { e.stopPropagation(); if (supId) abrirEnvioParaMatriz(supId, numero) }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-[13px] font-semibold text-orange-400 hover:bg-orange-950/30 text-left border-t"
+                            style={{ borderColor: 'var(--surface-200)' }}
+                          >
+                            <Truck className="h-4 w-4 flex-shrink-0" />Enviar para Matriz
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )
+            }
+
+            // ─── DESKTOP: a viagem é uma FAIXA de largura cheia ─────────────────
+            // Decisão do Lucas em 06/09/2026, revendo a tela: no desktop o grid de 2
+            // colunas "não faz sentido" — a faixa ocupa o mesmo espaço de uma linha de
+            // pet, e a leitura vertical da etapa continua igual à de sempre.
+            const renderFaixaEncaminhamento = (numero: string, cs: Contrato[], aberto: boolean) => {
+              const p = calcularPlacar(cs)
+              const sup = cs.find(c => c.supinda)?.supinda
+              // `min-h-[68px]` iguala a faixa à altura do card de pet (mesmo valor do
+              // Skeleton da lista) — pedido do Lucas em 06/09: os dois tipos de item
+              // ocupam o mesmo espaço, e a coluna fica com ritmo regular.
+              return (
+                <div className="rounded-lg border px-3 min-h-[68px] flex items-center gap-3" style={{ background: 'var(--surface-0)', borderColor: 'var(--surface-200)' }}>
+                  <span className="text-[13px] font-black px-2 py-1 rounded flex-shrink-0" style={{ background: corUnidade, color: textoBadgeUnidade }}>{numero}</span>
+                  <span className="flex items-center gap-1 text-[12px] text-[var(--surface-500)] flex-shrink-0">
+                    <Calendar className="h-3.5 w-3.5" />{formatarDataViagem(sup?.data)}
+                  </span>
+                  <div className="flex items-center gap-4 text-[13px] tabular-nums flex-1 min-w-0">
+                    <span className="flex items-center gap-1 text-[var(--surface-700)] font-semibold">
+                      <PawPrint className="h-4 w-4" />{p.total} pet{p.total !== 1 ? 's' : ''}
+                    </span>
+                    <span className="flex items-center gap-1 text-[var(--surface-500)]">
+                      <Weight className="h-4 w-4" />{p.peso.toFixed(p.peso % 1 === 0 ? 0 : 1)} kg
+                    </span>
+                    {/* Ícone no lugar do rótulo pra caber na faixa; `title` preserva o
+                        significado pra quem passar o mouse e pro leitor de tela. */}
+                    <span className="flex items-center gap-1 font-semibold" title={`${p.comLacre} de ${p.total} com lacre`} style={{ color: corPlacar(p.comLacre === p.total) }}>
+                      <Tag className="h-4 w-4" />{p.comLacre}/{p.total}
+                    </span>
+                    <span className="flex items-center gap-1 font-semibold" title={`${p.pagos} de ${p.total} pagos`} style={{ color: corPlacar(p.pagos === p.total) }}>
+                      <DollarSign className="h-4 w-4" />{p.pagos}/{p.total}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">{chipsTipo(p)}</div>
+                  {sup?.responsavel && (
+                    <span className="hidden lg:flex items-center gap-1 text-[12px] text-[var(--surface-400)] truncate max-w-[150px] flex-shrink-0" title={sup.responsavel}>
+                      <User className="h-3.5 w-3.5 flex-shrink-0" /><span className="truncate">{sup.responsavel}</span>
+                    </span>
+                  )}
+                  {/* Menu de ações — separado do clique que abre os pets.
+                      O §9.1 previa uma setinha "▾ ações"; ela virou este "⋯" porque a
+                      setinha passou a significar "abrir os pets" quando a faixa ganhou
+                      lista expansível. A intenção original se mantém: **ação
+                      irreversível nunca fica visível por padrão**. */}
+                  {menuEncaminhamento(numero, cs)}
+                  <ChevronDown className={`h-5 w-5 flex-shrink-0 text-[var(--surface-400)] transition-transform ${aberto ? 'rotate-180' : ''}`} />
+                </div>
+              )
+            }
+
+            // ─── MOBILE: card resumido, 2 por linha ─────────────────────────────
+            const renderCardEncMobile = (numero: string, cs: Contrato[]) => {
+              const p = calcularPlacar(cs)
+              const sup = cs.find(c => c.supinda)?.supinda
+              return (
+                <div className="rounded-lg border p-2.5" style={{ background: 'var(--surface-0)', borderColor: 'var(--surface-200)' }}>
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <span className="text-[12px] font-black px-1.5 py-0.5 rounded flex-shrink-0" style={{ background: corUnidade, color: textoBadgeUnidade }}>{numero}</span>
+                    <span className="flex items-center gap-0.5 text-[11px] text-[var(--surface-500)] truncate flex-1">
+                      <Calendar className="h-3 w-3 flex-shrink-0" />{formatarDataViagem(sup?.data)}
+                    </span>
+                    {menuEncaminhamento(numero, cs)}
+                  </div>
+                  <div className="flex items-center gap-1 text-[16px] font-bold text-[var(--surface-700)] tabular-nums">
+                    <PawPrint className="h-4 w-4" />{p.total} pet{p.total !== 1 ? 's' : ''}
+                  </div>
+                  <div className="flex items-center gap-1 text-[13px] font-semibold tabular-nums mt-0.5" style={{ color: corPlacar(p.pagos === p.total) }}>
+                    <DollarSign className="h-3.5 w-3.5" />{p.pagos}/{p.total} pagos
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1 mt-2">{chipsTipo(p)}</div>
+                </div>
+              )
+            }
+
+            // Pet em card resumido (mobile, dentro do grid). Informação mínima aprovada:
+            // lacre · ícone · nome · IND/COL · peso · tutor. Toque abre o contrato, onde
+            // tags, faróis e ações continuam todos disponíveis — nada some, só sai daqui.
+            const renderPetResumidoMobile = (c: Contrato) => {
+              const icone = getPetIcon(c.pet_especie, c.pet_peso)
+              const col = c.tipo_cremacao === 'coletiva'
+              return (
+                <div
+                  key={c.id}
+                  onClick={() => {
+                    // Mesma precedência da /encaminhamentos: o long-press consome o
+                    // toque (senão selecionar o pet abriria o contrato por cima), e com
+                    // seleção ativa o toque passa a marcar/desmarcar em vez de navegar.
+                    if (longPressDisparou.current) { longPressDisparou.current = false; return }
+                    if (petsSelecionados.size > 0) {
+                      setPetsSelecionados(prev => {
+                        const n = new Set(prev)
+                        if (n.has(c.id)) n.delete(c.id); else n.add(c.id)
+                        return n
+                      })
+                      return
+                    }
+                    router.push(`/contratos/${c.id}`)
+                  }}
+                  className="rounded-lg border p-2.5 cursor-pointer active:opacity-70"
+                  style={{ background: 'var(--surface-0)', borderColor: 'var(--surface-200)' }}
+                >
+                  <div className="flex items-center gap-1.5 mb-1">
+                    {c.numero_lacre && (
+                      <span className="flex items-center gap-0.5 text-[11px] font-mono font-bold text-[var(--surface-500)]">
+                        <Tag className="h-3 w-3" />{c.numero_lacre}
+                      </span>
+                    )}
+                    {/* O ícone do pet continua sendo o emoji de espécie/porte do card de
+                        sempre (getPetIcon) — trocar por um traço Lucide perderia a
+                        distinção cão/gato/exótico que o operador já lê de relance. */}
+                    <span style={{ fontSize: 15 }}>{icone.emoji}</span>
+                  </div>
+                  <div className="text-[15px] font-bold text-[var(--surface-700)] truncate leading-tight">{c.pet_nome || 'sem nome'}</div>
+                  <div className="flex items-center gap-0.5 text-[12px] font-semibold mt-0.5" style={{ color: col ? '#a78bfa' : '#6ee7b7' }}>
+                    <Flame className="h-3 w-3" />{col ? 'COL' : 'IND'}{c.pet_peso ? ` · ${c.pet_peso}kg` : ''}
+                  </div>
+                  <div className="flex items-center gap-0.5 text-[12px] text-[var(--surface-400)] truncate mt-0.5">
+                    <User className="h-3 w-3 flex-shrink-0" /><span className="truncate">{c.tutor?.nome || c.tutor_nome || ''}</span>
+                  </div>
+                </div>
+              )
+            }
+
             function renderSupindaGroup(lista: Contrato[], renderFn: (c: Contrato) => React.ReactNode) {
+              // ─── PINDA no fluxo novo: cards soltos + linha do tempo (§3.2) ─────
+              // Vem ANTES do early-return de `!deveAgruparSupinda` de propósito: Pinda
+              // não agrupa por viagem no fluxo novo (a que levou já não importa; importa
+              // o que está pronto pra buscar), então cairia no caminho sem agrupamento e
+              // nunca chegaria aqui. Cada pet ganha a linha do tempo do GC embaixo do
+              // card — a unidade SÓ OBSERVA; quem move isso é a Matriz.
+              if (encPipeline && statusFiltro === 'pinda') {
+                const ordenada = ordenacao === 'cep'
+                  ? [...lista].sort((a, b) => prioridadeAcolhimento(a, b) || (ordemAsc ? deltaCep(a) - deltaCep(b) : deltaCep(b) - deltaCep(a)))
+                  : [...lista].sort(prioridadeAcolhimento)
+
+                // O Nicho é o que JÁ ESTÁ PRONTO pra buscar (`etapa='disponivel'`, que a
+                // tela chama de "Finalizado"). O resto continua em andamento na Matriz e
+                // aparece com a linha do tempo. §3.2: "se todos os pets estiverem
+                // finalizados, só este card aparece" — sai daqui naturalmente, porque a
+                // lista de em-andamento fica vazia.
+                const noNicho = ordenada.filter(c => c.contrato_gc?.etapa === 'disponivel')
+                const emAndamento = ordenada.filter(c => c.contrato_gc?.etapa !== 'disponivel')
+                return (
+                  <div className="space-y-2">
+                    {emAndamento.map(c => (
+                      <div key={c.id}>
+                        {renderFn(c)}
+                        {c.contrato_gc && (
+                          <div className="mt-1 px-3 py-2 rounded-lg border" style={{ background: 'var(--surface-0)', borderColor: 'var(--surface-200)' }}>
+                            {renderLinhaDoTempoGC(c)}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {/* Card do Nicho — sempre no FIM, mesmo vazio (§3.2: "sempre visível"):
+                        é o lugar fixo onde a unidade vai buscar o que está pronto. */}
+                    {renderCardNicho(noNicho, renderFn)}
+                  </div>
+                )
+              }
+
               if (!deveAgruparSupinda) {
                 // CEP é ordenação client-side (o servidor não calcula delta) —
                 // aplicar também no caminho SEM agrupamento por encaminhamento
@@ -4105,6 +5133,149 @@ ${petNome}`
                 const numB = parseInt(b.numero.replace(/^[A-Z]+/, ''), 10) || 0
                 return ordemAsc ? numA - numB : numB - numA
               })
+
+              // ─── FLUXO NOVO: grid de cards, um por viagem (§3.1) ───────────────
+              // O separador-linha vira CARD com placar. Clicar abre os pets do grupo —
+              // o card resume, mas nada fica inacessível.
+              if (encPipeline) {
+                const alternar = (numero: string) => setEncAbertos(prev => {
+                  const n = new Set(prev)
+                  if (n.has(numero)) n.delete(numero); else n.add(numero)
+                  return n
+                })
+                // Dica do gesto, entre o último pet solto e a primeira viagem. Só aparece
+                // quando as duas coisas existem na tela: sem pet solto não há o que
+                // arrastar, sem viagem não há destino — e instrução que não cabe no
+                // momento vira ruído que o operador aprende a ignorar.
+                const idxPrimeiraViagem = grupos.findIndex(g => g.numero !== null)
+                const mostrarDica = idxPrimeiraViagem > 0 && grupos.some(g => g.numero === null && g.contratos.length > 0)
+                const dicaGesto = (Icone: typeof Move, texto: string) => (
+                  <div className="flex items-center gap-2 py-1.5">
+                    <div className="flex-1 h-px bg-[var(--surface-200)]" />
+                    <span className="flex items-center gap-1.5 text-[12px] text-[var(--surface-400)] text-center px-1">
+                      <Icone className="h-4 w-4 flex-shrink-0" />{texto}
+                    </span>
+                    <div className="flex-1 h-px bg-[var(--surface-200)]" />
+                  </div>
+                )
+                // id da supinda do grupo — vem do embed dos contratos dele.
+                const supindaIdDoGrupo = (cs: Contrato[]) => cs.find(c => c.supinda)?.supinda?.id || null
+
+                // Props da FAIXA/CARD da viagem: abre/fecha no clique, recebe o pet
+                // arrastado (desktop) ou os selecionados por long-press (mobile).
+                const propsViagem = (numero: string, cs: Contrato[]) => {
+                  const supId = supindaIdDoGrupo(cs)
+                  const temSelecao = petsSelecionados.size > 0
+                  return {
+                    role: 'button',
+                    tabIndex: 0,
+                    onClick: () => {
+                      // Com seleção ativa no celular, tocar na viagem INCLUI em vez de
+                      // abrir — é o segundo tempo do gesto "segure e toque".
+                      if (temSelecao && supId) { vincularAoEncaminhamento([...petsSelecionados], supId); return }
+                      alternar(numero)
+                    },
+                    onKeyDown: (e: React.KeyboardEvent) => {
+                      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); alternar(numero) }
+                    },
+                    onDragOver: (e: React.DragEvent) => { if (petArrastando) { e.preventDefault(); setEncAlvo(numero) } },
+                    onDragLeave: () => setEncAlvo(a => (a === numero ? null : a)),
+                    onDrop: (e: React.DragEvent) => {
+                      e.preventDefault()
+                      const id = petArrastando || e.dataTransfer.getData('text/plain')
+                      if (id && supId) vincularAoEncaminhamento([id], supId)
+                    },
+                    className: `cursor-pointer transition-all rounded-lg ${encAlvo === numero ? 'ring-2 scale-[1.01]' : 'hover:opacity-90'}`,
+                    style: encAlvo === numero ? { ['--tw-ring-color' as string]: corUnidade } : undefined,
+                  }
+                }
+
+                // ⚠️ Os dois gestos são SEPARADOS de propósito. Se o mesmo wrapper tivesse
+                // drag e long-press juntos, no desktop segurar o botão antes de começar a
+                // arrastar (o que é o movimento natural) selecionaria o pet sem querer.
+                // Desktop = arrastar. Mobile = segurar e tocar. Cada um no seu layout.
+                const propsPetArrastavel = (c: Contrato) => ({
+                  draggable: true,
+                  onDragStart: (e: React.DragEvent) => {
+                    setPetArrastando(c.id)
+                    e.dataTransfer.effectAllowed = 'move'
+                    e.dataTransfer.setData('text/plain', c.id)
+                  },
+                  onDragEnd: () => { setPetArrastando(null); setEncAlvo(null) },
+                  className: `rounded-lg transition-opacity cursor-grab active:cursor-grabbing ${petArrastando === c.id ? 'opacity-40' : ''}`,
+                })
+                const propsPetSelecionavel = (c: Contrato) => ({
+                  onPointerDown: () => iniciarLongPress(c.id),
+                  onPointerUp: cancelarLongPress,
+                  onPointerLeave: cancelarLongPress,
+                  onPointerCancel: cancelarLongPress,
+                  className: `rounded-lg transition-all ${petsSelecionados.has(c.id) ? 'ring-2' : ''}`,
+                  style: petsSelecionados.has(c.id) ? { ['--tw-ring-color' as string]: corUnidade } : undefined,
+                })
+                return (
+                  <>
+                    {/* DESKTOP — leitura vertical de sempre: faixa da viagem e card de pet
+                        ocupam a mesma largura, um por linha. */}
+                    <div className="hidden md:block space-y-2">
+                      {grupos.map((grupo, i) => {
+                        if (grupo.numero === null) {
+                          return grupo.contratos.map(c => (
+                            <div key={c.id} {...propsPetArrastavel(c)}>{renderFn(c)}</div>
+                          ))
+                        }
+                        const aberto = encAbertos.has(grupo.numero)
+                        return (
+                          <Fragment key={grupo.numero}>
+                            {mostrarDica && i === idxPrimeiraViagem && dicaGesto(Move, 'Para encaminhar um pet, arraste o card dele até uma das viagens abaixo')}
+                            <div className="space-y-2">
+                              <div {...propsViagem(grupo.numero, grupo.contratos)}>
+                                {renderFaixaEncaminhamento(grupo.numero, grupo.contratos, aberto)}
+                              </div>
+                              {aberto && (
+                                <div className="space-y-2 pl-3 border-l-2" style={{ borderColor: corUnidade }}>
+                                  {grupo.contratos.map(renderFn)}
+                                </div>
+                              )}
+                            </div>
+                          </Fragment>
+                        )
+                      })}
+                    </div>
+
+                    {/* MOBILE — grid de 2 colunas, tudo resumido. Ao abrir, a viagem toma
+                        as duas colunas e os pets dela viram um sub-grid de 2. */}
+                    <div className="md:hidden grid grid-cols-2 gap-2 items-start">
+                      {grupos.map((grupo, i) => {
+                        if (grupo.numero === null) {
+                          return grupo.contratos.map(c => (
+                            <div key={c.id} {...propsPetSelecionavel(c)}>{renderPetResumidoMobile(c)}</div>
+                          ))
+                        }
+                        const aberto = encAbertos.has(grupo.numero)
+                        return (
+                          <Fragment key={grupo.numero}>
+                            {/* No celular o gesto é outro: segurar e tocar no destino, o
+                                mesmo long-press de 500 ms que a /encaminhamentos já usa. */}
+                            {mostrarDica && i === idxPrimeiraViagem && (
+                              <div className="col-span-2">{dicaGesto(Hand, 'Para encaminhar um pet, segure o card dele e toque na viagem')}</div>
+                            )}
+                            <div className={aberto ? 'col-span-2 space-y-2' : ''}>
+                              <div {...propsViagem(grupo.numero, grupo.contratos)}>
+                                {renderCardEncMobile(grupo.numero, grupo.contratos)}
+                              </div>
+                              {aberto && (
+                                <div className="grid grid-cols-2 gap-2 items-start pl-2 border-l-2" style={{ borderColor: corUnidade }}>
+                                  {grupo.contratos.map(renderPetResumidoMobile)}
+                                </div>
+                              )}
+                            </div>
+                          </Fragment>
+                        )
+                      })}
+                    </div>
+                  </>
+                )
+              }
 
               return (
                 <div className="space-y-1">
@@ -4944,6 +6115,351 @@ ${petNome}`
           ) : (
             <span>{total - contratos.length} restantes</span>
           )}
+        </div>
+      )}
+
+      {/* Trazer da Matriz (§9.5). Fraseologia aprovada nos mockups — não reescrever. */}
+      <Modal
+        isOpen={trazerAberto}
+        onClose={() => { if (!trazendo) setTrazerAberto(false) }}
+        title={`Trazer ${trazerPets.length} pet${trazerPets.length !== 1 ? 's' : ''} da Matriz`}
+        size="xl"
+        footer={
+          <div className="flex items-center gap-2 w-full">
+            <span className="flex-1 text-[11px] text-[var(--surface-400)]">
+              Marque &quot;presencial&quot; para finalizar o pet pulando a etapa &quot;Entrega&quot;.
+            </span>
+            <button
+              onClick={() => setTrazerAberto(false)}
+              disabled={trazendo}
+              className="px-3 py-2 rounded-lg text-[13px] font-semibold text-[var(--surface-500)] hover:bg-[var(--surface-100)] disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={finalizarVolta}
+              disabled={trazendo || trazerCarregando || trazerPets.length === 0}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
+            >
+              {trazendo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
+              Finalizar Volta
+            </button>
+          </div>
+        }
+      >
+        {trazerCarregando ? (
+          <div className="py-8 text-center"><Loader2 className="h-5 w-5 animate-spin inline-block text-[var(--surface-400)]" /></div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-[13px] text-[var(--surface-500)]">Seguem para o status Entrega</p>
+
+            {/* Linha do lote */}
+            {(() => {
+              const sug = sugestaoDataVolta(trazerPets)
+              const aplicar = (d: string) => setTrazerDatas(prev => {
+                const n = { ...prev }
+                for (const p of trazerPets) n[p.id] = d
+                return n
+              })
+              return (
+                <div className="flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg" style={{ background: 'var(--surface-100)' }}>
+                  <span className="text-[12px] font-semibold text-[var(--surface-600)]">Inserir mesma data de volta para todos:</span>
+                  {sug.rotulo && (
+                    <button
+                      onClick={() => aplicar(sug.data)}
+                      className="px-2.5 py-1 rounded-lg text-[12px] font-semibold bg-emerald-900/30 text-emerald-300 hover:bg-emerald-900/50"
+                    >
+                      {sug.rotulo}
+                    </button>
+                  )}
+                  <label className="flex items-center gap-1.5 text-[12px] text-[var(--surface-500)]">
+                    Outra data…
+                    <input
+                      type="date"
+                      onChange={e => { if (e.target.value) aplicar(e.target.value) }}
+                      className="px-2 py-1 rounded border text-[12px]"
+                      style={{ background: 'var(--surface-0)', borderColor: 'var(--surface-200)', color: 'var(--surface-700)' }}
+                    />
+                  </label>
+                </div>
+              )
+            })()}
+
+            {/* Cabeçalho + lista. Uma linha por pet, sem quebra (mobile + 40 pets da SP). */}
+            <div className="rounded-lg border overflow-hidden" style={{ borderColor: 'var(--surface-200)' }}>
+              <div className="flex items-center gap-2 px-2.5 py-1.5 text-[10px] font-semibold uppercase text-[var(--surface-400)]" style={{ background: 'var(--surface-100)' }}>
+                <span className="flex-1">Pet</span>
+                <span className="w-[120px] text-right flex-shrink-0">Data de volta da Matriz</span>
+              </div>
+              <div className="max-h-[45vh] overflow-y-auto divide-y" style={{ borderColor: 'var(--surface-200)' }}>
+                {trazerPets.map(p => {
+                  const presencial = trazerPresencial.has(p.id)
+                  const coletiva = p.tipo_cremacao === 'coletiva'
+                  return (
+                    <div key={p.id} className="flex items-center gap-2 px-2.5 py-2 text-[12px] whitespace-nowrap">
+                      <span className="font-mono text-[10px] text-[var(--surface-400)] w-10 flex-shrink-0">{p.numero_lacre || '—'}</span>
+                      <span className="font-semibold w-8 flex-shrink-0" style={{ color: coletiva ? '#a78bfa' : '#6ee7b7' }}>{coletiva ? 'COL' : 'IND'}</span>
+                      <span className="font-semibold text-[var(--surface-700)] truncate max-w-[110px]">{p.pet_nome || 'sem nome'}</span>
+                      <span className="text-[var(--surface-400)] truncate max-w-[110px]">{p.tutor?.nome || p.tutor_nome || ''}</span>
+                      {/* ✓Cz e ✓Ct são carinho visual, não filtro. Coletiva não devolve
+                          cinzas — só o certificado aparece. */}
+                      {!coletiva && p.contrato_gc?.cinzas_prontas && <span className="text-[10px] text-emerald-400 flex-shrink-0">✓Cz</span>}
+                      {p.contrato_gc?.certificado_pronto && <span className="text-[10px] text-emerald-400 flex-shrink-0">✓Ct</span>}
+                      {/* ⚠️ O `presencial` fica à ESQUERDA de propósito: a direita é zona
+                          de digitar data, e o toque errado ali é caro. */}
+                      <button
+                        onClick={() => setTrazerPresencial(prev => {
+                          const n = new Set(prev)
+                          if (n.has(p.id)) n.delete(p.id); else n.add(p.id)
+                          return n
+                        })}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-semibold flex-shrink-0 transition-colors ${
+                          presencial ? 'bg-orange-600 text-white' : 'bg-[var(--surface-100)] text-[var(--surface-400)] hover:text-[var(--surface-600)]'
+                        }`}
+                      >
+                        presencial
+                      </button>
+                      <span className="flex-1" />
+                      <span className="w-[120px] text-right flex-shrink-0">
+                        {presencial ? (
+                          // Marcado: a data vira a de cremação e TRAVA — o pet não voltou
+                          // pra unidade, foi entregue em Pinda no dia da cremação.
+                          <span className="text-[11px] italic text-orange-400">crem. {formatarDataViagem(soData(p.contrato_gc?.data_cremacao))}</span>
+                        ) : (
+                          <input
+                            type="date"
+                            value={trazerDatas[p.id] || ''}
+                            onChange={e => setTrazerDatas(prev => ({ ...prev, [p.id]: e.target.value }))}
+                            className="px-1.5 py-0.5 rounded border text-[11px] w-[116px]"
+                            style={{ background: 'var(--surface-0)', borderColor: 'var(--surface-200)', color: 'var(--surface-700)' }}
+                          />
+                        )}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Conferência do envio (§9.2). Lista SÓ pra conferir: sem checkbox, sem interação
+          — o operador lê e decide. Fraseologia aprovada nos mockups, não reescrever. */}
+      <Modal
+        isOpen={!!enviarModal}
+        onClose={() => { if (!enviando) { setEnviarModal(null); setEnviarPets([]) } }}
+        title={enviarModal ? `Enviar ${enviarModal.numero} para a Matriz?` : ''}
+        size="lg"
+        footer={
+          <div className="flex items-center gap-2 w-full">
+            <span className="flex-1 text-[12px] font-semibold text-red-400">Não é possível desfazer.</span>
+            <button
+              onClick={() => { setEnviarModal(null); setEnviarPets([]) }}
+              disabled={enviando}
+              className="px-3 py-2 rounded-lg text-[13px] font-semibold text-[var(--surface-500)] hover:bg-[var(--surface-100)] disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={confirmarEnvioParaMatriz}
+              disabled={enviando || enviarCarregando || enviarPets.length === 0}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50"
+            >
+              {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
+              Enviar
+            </button>
+          </div>
+        }
+      >
+        {enviarCarregando ? (
+          <div className="py-8 text-center text-[13px] text-[var(--surface-400)]">
+            <Loader2 className="h-5 w-5 animate-spin inline-block" />
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-[13px] text-[var(--surface-500)]">
+              {enviarPets.length} pet{enviarPets.length !== 1 ? 's' : ''} de Ativo → Pinda
+            </p>
+            {enviarPets.length === 0 ? (
+              <p className="text-[13px] text-amber-400 py-2">
+                Esta viagem está sem pets. Inclua os pets antes de enviar.
+              </p>
+            ) : (
+              <div className="max-h-[45vh] overflow-y-auto rounded-lg border divide-y" style={{ borderColor: 'var(--surface-200)' }}>
+                {enviarPets.map(p => (
+                  <div key={p.id} className="flex items-center gap-2 px-2.5 py-2 text-[13px]">
+                    <span className="font-mono text-[11px] text-[var(--surface-400)] w-12 flex-shrink-0">{p.numero_lacre || '—'}</span>
+                    <span className="font-semibold w-9 flex-shrink-0" style={{ color: p.tipo_cremacao === 'coletiva' ? '#a78bfa' : '#6ee7b7' }}>
+                      {p.tipo_cremacao === 'coletiva' ? 'COL' : 'IND'}
+                    </span>
+                    <span className="font-semibold text-[var(--surface-700)] truncate">{p.pet_nome || 'sem nome'}</span>
+                    <span className="text-[var(--surface-400)] truncate flex-1">{p.tutor?.nome || p.tutor_nome || ''}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      {/* Criar / editar encaminhamento — etapa 3. O mesmo formulário serve aos dois:
+          `encEditando` nulo = criando. No modo edição ele também é o único lugar onde
+          se TIRA um pet da viagem, e onde a viagem é excluída. */}
+      <Modal
+        isOpen={encFormAberto}
+        onClose={() => { if (!salvandoEnc) setEncFormAberto(false) }}
+        title={encEditando ? `Editar ${encEditando.numero}` : 'Novo encaminhamento'}
+        size="lg"
+        footer={
+          <div className="flex items-center gap-2 w-full">
+            {encEditando && (
+              <button
+                onClick={excluirEncaminhamento}
+                disabled={salvandoEnc}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-semibold text-red-400 hover:bg-red-950/40 disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4" />Excluir
+              </button>
+            )}
+            <div className="flex-1" />
+            <button
+              onClick={() => setEncFormAberto(false)}
+              disabled={salvandoEnc}
+              className="px-3 py-2 rounded-lg text-[13px] font-semibold text-[var(--surface-500)] hover:bg-[var(--surface-100)] disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={salvarEncaminhamento}
+              disabled={salvandoEnc || !encForm.data}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50"
+            >
+              {salvandoEnc ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
+              {encEditando ? 'Salvar' : 'Criar encaminhamento'}
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <span className="text-[15px] font-black px-2 py-1 rounded" style={{ background: corUnidadeAtual, color: textoBadgeUnidadeAtual }}>
+              {encForm.numero || '—'}
+            </span>
+            {!encEditando && (
+              <span className="text-[12px] text-[var(--surface-400)]">número gerado automaticamente</span>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-[12px] font-semibold text-[var(--surface-500)] mb-1.5">Data da viagem</label>
+            <div className="flex flex-wrap items-center gap-1.5 mb-2">
+              {(() => {
+                const { hoje, sabado, domingo } = getProximoFimDeSemana()
+                const atalhos: [string, string][] = [['Hoje', hoje], ['Sábado', sabado], ['Domingo', domingo]]
+                return atalhos.map(([rotulo, valor]) => (
+                  <button
+                    key={rotulo}
+                    onClick={() => setEncForm(f => ({ ...f, data: valor }))}
+                    className={`px-2.5 py-1 rounded-lg text-[12px] font-semibold transition-colors ${
+                      encForm.data === valor ? 'bg-orange-600 text-white' : 'bg-[var(--surface-100)] text-[var(--surface-500)] hover:text-[var(--surface-700)]'
+                    }`}
+                  >
+                    {rotulo}
+                  </button>
+                ))
+              })()}
+            </div>
+            <input
+              type="date"
+              value={encForm.data}
+              onChange={e => setEncForm(f => ({ ...f, data: e.target.value }))}
+              className="w-full px-3 py-2 rounded-lg border text-[14px]"
+              style={{ background: 'var(--surface-0)', borderColor: 'var(--surface-200)', color: 'var(--surface-700)' }}
+            />
+          </div>
+
+          <div>
+            <label className="block text-[12px] font-semibold text-[var(--surface-500)] mb-1.5">Responsável pela viagem</label>
+            <input
+              type="text"
+              value={encForm.responsavel}
+              onChange={e => setEncForm(f => ({ ...f, responsavel: e.target.value }))}
+              placeholder="Quem vai levar os pets"
+              className="w-full px-3 py-2 rounded-lg border text-[14px]"
+              style={{ background: 'var(--surface-0)', borderColor: 'var(--surface-200)', color: 'var(--surface-700)' }}
+            />
+          </div>
+
+          <div>
+            <label className="block text-[12px] font-semibold text-[var(--surface-500)] mb-1.5">Observações</label>
+            <textarea
+              value={encForm.observacoes}
+              onChange={e => setEncForm(f => ({ ...f, observacoes: e.target.value }))}
+              rows={2}
+              placeholder="Opcional"
+              className="w-full px-3 py-2 rounded-lg border text-[14px] resize-none"
+              style={{ background: 'var(--surface-0)', borderColor: 'var(--surface-200)', color: 'var(--surface-700)' }}
+            />
+          </div>
+
+          {encEditando && (
+            <div>
+              <div className="flex items-center gap-1.5 text-[12px] font-semibold text-[var(--surface-500)] mb-1.5">
+                <PawPrint className="h-4 w-4" />
+                {encFormPets.length} pet{encFormPets.length !== 1 ? 's' : ''} nesta viagem
+              </div>
+              {encFormPets.length === 0 ? (
+                <p className="text-[12px] text-[var(--surface-400)] py-2">
+                  Nenhum pet ainda. Arraste um card do pipeline até esta viagem.
+                </p>
+              ) : (
+                <div className="max-h-[240px] overflow-y-auto rounded-lg border divide-y" style={{ borderColor: 'var(--surface-200)' }}>
+                  {encFormPets.map(c => (
+                    <div key={c.id} className="flex items-center gap-2 px-2.5 py-2">
+                      {c.numero_lacre && <span className="text-[11px] font-mono text-[var(--surface-400)] flex-shrink-0">{c.numero_lacre}</span>}
+                      <span className="text-[13px] font-semibold text-[var(--surface-700)] truncate">{c.pet_nome || 'sem nome'}</span>
+                      <span className="text-[11px] flex-shrink-0" style={{ color: c.tipo_cremacao === 'coletiva' ? '#a78bfa' : '#6ee7b7' }}>
+                        {c.tipo_cremacao === 'coletiva' ? 'COL' : 'IND'}
+                      </span>
+                      <span className="text-[11px] text-[var(--surface-400)] truncate flex-1">{c.tutor?.nome || c.tutor_nome || ''}</span>
+                      <button
+                        onClick={() => desvincularPet(c.id, encEditando.id)}
+                        title="Tirar este pet da viagem"
+                        className="flex-shrink-0 p-1 rounded text-[var(--surface-400)] hover:text-red-400 hover:bg-red-950/30"
+                      >
+                        <Unlink className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      {/* Barra de seleção do celular (etapa 2). Sem ela o operador segura um pet, o card
+          acende, e não tem como saber o que fazer nem como desistir. Fica acima do
+          MobileBottomNav (z-40) e some sozinha quando a seleção é limpa. */}
+      {encPipeline && petsSelecionados.size > 0 && (
+        <div className="md:hidden fixed bottom-16 left-0 right-0 z-50 px-3 pb-2">
+          <div className="rounded-xl border shadow-lg px-3 py-2.5 flex items-center gap-3" style={{ background: 'var(--surface-0)', borderColor: corUnidadeAtual }}>
+            <span className="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--surface-700)]">
+              <PawPrint className="h-4 w-4" />
+              {petsSelecionados.size} pet{petsSelecionados.size !== 1 ? 's' : ''}
+            </span>
+            <span className="flex-1 text-[12px] text-[var(--surface-400)] leading-tight">
+              {vinculando ? 'Incluindo…' : 'Toque na viagem para incluir'}
+            </span>
+            <button
+              onClick={() => setPetsSelecionados(new Set())}
+              disabled={vinculando}
+              className="text-[12px] font-semibold px-2.5 py-1.5 rounded-lg text-[var(--surface-500)] hover:bg-[var(--surface-100)] disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+          </div>
         </div>
       )}
 

@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import { TextSelect, FileCheck, ListTodo, Route, ShelvingUnit, BarChart3 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
+import { useUnidadeNoPipeline } from '@/hooks/useUnidadeNoPipeline'
 
 type BottomItem = {
   href: string
@@ -30,6 +31,7 @@ const bottomItems: BottomItem[] = [
 export function MobileBottomNav() {
   const pathname = usePathname()
   const { hasModule, currentUnit, isSuperAdmin } = useUnit()
+  const unidadeNoPipeline = useUnidadeNoPipeline()
   const supabase = createClient()
   const [fichasCount, setFichasCount] = useState<number | null>(null)
   const [overlayAberto, setOverlayAberto] = useState(false)
@@ -43,6 +45,11 @@ export function MobileBottomNav() {
   const visibleItems = bottomItems.filter(item => {
     if (!hasModule(item.module)) return false
     if (item.cbModule && !isSuperAdmin && !currentUnit?.modulos_ativos?.includes(item.cbModule)) return false
+    // Etapa 9 do fluxo novo: na unidade migrada, a /encaminhamentos vira consulta e sai
+    // do acesso rápido — o trabalho acontece no Pipeline, que já está na barra ao lado.
+    // A tela continua existindo e acessível pela sidebar (§4.6 do plano); o que some é
+    // o atalho, para ninguém ir por reflexo ao lugar onde não dá mais para operar.
+    if (item.href === '/encaminhamentos' && unidadeNoPipeline) return false
     return true
   })
 

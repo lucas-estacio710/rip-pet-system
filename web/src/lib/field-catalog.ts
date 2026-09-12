@@ -95,6 +95,12 @@ export const OBJETOS: ChildItemDef[] = [
 
   // Pipeline — comportamentos opcionais por unidade
   { key: 'cb_cremacao_local', tela: 'tela_pipeline', label: 'Cremação Local (sem encaminhamento)', desc: 'Unidade co-localizada com o crematório (ex: PI). Contratos nascem direto em status=pinda; GC criado automático; auto-retorno quando GC vira disponível. Sem supinda. Ver FLOW.md §7.1.', moduloPago: true },
+  // Chave de ROLLOUT do novo fluxo de encaminhamento (docs/ENCAMINHAMENTO_NO_PIPELINE.md).
+  // Liga a unidade inteira no fluxo novo: o pipeline ganha os cards de encaminhamento e a tela
+  // /encaminhamentos vira somente leitura PARA ELA. Quem está sem a chave continua 100% no fluxo
+  // de hoje — os dois escrevem os mesmos campos, então convivem sem migration nenhuma.
+  // ⚠️ Não é módulo pago: é interruptor de migração, some quando a última unidade migrar.
+  { key: 'obj_enc_pipeline', tela: 'tela_pipeline', label: 'Encaminhamento pelo Pipeline (novo fluxo)', desc: 'Liga o fluxo novo NESTA unidade: montar, despachar e trazer o encaminhamento acontece no Pipeline (cards por viagem, arrastar pet, "Enviar para Matriz", card do Nicho). A tela Encaminhamentos vira somente leitura e sai do menu inferior. Sem a chave, a unidade continua no fluxo antigo — os dois convivem. Ver docs/ENCAMINHAMENTO_NO_PIPELINE.md' },
 
   // Tarefas — módulo pago (não vendido de graça, decisão 18/08/2026)
   { key: 'cb_operacional', tela: 'tela_tarefas', label: 'Operacional/Motorista (pago)', desc: 'Libera promover funcionário a usuário Operacional (/admin/funcionarios), o campo Responsável da Tratativa mostrar Operacionais como opção, e a aba "Atribuir" da tela Tarefas. Sem o módulo, trava tudo — unidade continua 100% no fluxo manual de hoje.', moduloPago: true },

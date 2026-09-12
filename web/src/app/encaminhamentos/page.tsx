@@ -2,8 +2,10 @@
 
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { Route, ChevronLeft, ChevronRight, ChevronDown, CheckCircle2, Cross, Dog, Cat, Bug, Flame, Plus, X, Loader2, ListChecks, Snowflake, Award, ShoppingBag, Pencil, Trash2, HelpCircle } from 'lucide-react'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
+import { useUnidadeNoPipeline } from '@/hooks/useUnidadeNoPipeline'
 import { dataLocal } from '@/lib/date-local'
 import Modal from '@/components/ui/Modal'
 
@@ -136,6 +138,23 @@ export default function EncaminhamentosPage() {
   const [menuCremacao, setMenuCremacao] = useState(false)
   const [menuAtivos, setMenuAtivos] = useState(false)
 
+  // ─── SOMENTE LEITURA quando a unidade já opera pelo Pipeline (etapa 8) ────────
+  // §4.6 do plano: "a tela dela vai ser apenas um resumo do que está acontecendo,
+  // somente leitura". O porquê de não usar `useFieldPermission` aqui está no hook.
+  const unidadeNoPipeline = useUnidadeNoPipeline()
+
+  // ⚠️ Na visão multi-unidade não trava: ali a tela mistura unidades, e o estado é o da
+  // unidade ATIVA. Travar tudo esconderia a escrita de quem não migrou.
+  const soLeitura = unidadeNoPipeline && !viewAllUnits
+
+  /** Guarda de escrita. Fica NA FUNÇÃO, não só no botão: esconder o botão é aparência,
+   *  e qualquer caminho que sobrasse (drag, atalho, um render esquecido) ainda gravaria. */
+  function bloqueadoPorPipeline(): boolean {
+    if (!soLeitura) return false
+    alert('Esta unidade já faz o encaminhamento pelo Pipeline.\n\nMonte, envie e traga os pets pela tela de Contratos. Aqui é só consulta.')
+    return true
+  }
+
   // Seleção de pets (long press)
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -194,6 +213,7 @@ export default function EncaminhamentosPage() {
   }
 
   async function toggleCheck(id: string, campo: 'acondicionado' | 'cinzas_recebidas' | 'certificado_recebido', atual: boolean) {
+    if (bloqueadoPorPipeline()) return
     const novo = !atual
     await supabase.from('contratos').update({ [campo]: novo } as never).eq('id', id)
     const update = (list: ContratoEnc[]) => list.map(c => c.id === id ? { ...c, [campo]: novo } : c)
@@ -232,6 +252,7 @@ export default function EncaminhamentosPage() {
   }
 
   async function handleDiaDrop(e: React.DragEvent | { preventDefault: () => void }, dia: Date) {
+    if (bloqueadoPorPipeline()) { e.preventDefault(); return }
     e.preventDefault()
     setDragging(false)
     setDragOverDia(null)
@@ -430,6 +451,7 @@ export default function EncaminhamentosPage() {
   }
 
   async function incluirEmExistente(enc: EncResumo, ids: Set<string>) {
+    if (bloqueadoPorPipeline()) return
     if (!currentUnit) return
     // Bloquear vinculação em encaminhamento de outra unidade (FLS)
     if (enc.codigo_unidade !== currentUnit.codigo && !isSuperAdmin) {
@@ -497,6 +519,7 @@ export default function EncaminhamentosPage() {
   }
 
   async function excluirEncaminhamento(enc: EncResumo, qtdIda: number, qtdVolta: number) {
+    if (bloqueadoPorPipeline()) return
     if (!currentUnit) return
     if (enc.status !== 'planejada') {
       alert('Só é possível excluir encaminhamentos planejados.')
@@ -528,6 +551,7 @@ export default function EncaminhamentosPage() {
   }
 
   async function abrirTelaEdicao(dataPreenchida?: Date, idsSelecionados?: Set<string>) {
+    if (bloqueadoPorPipeline()) return
     const cod = await gerarProximoCodigo()
     setNovoCodigo(cod)
     setNovoData(dataPreenchida ? dataLocal(dataPreenchida) : dataLocal(hoje))
@@ -553,6 +577,7 @@ export default function EncaminhamentosPage() {
   }
 
   async function salvarEncaminhamento() {
+    if (bloqueadoPorPipeline()) return
     if (!currentUnit || !novoCodigo.trim() || !novoResponsavel.trim()) return
     setSalvandoNovo(true)
 
@@ -600,6 +625,19 @@ export default function EncaminhamentosPage() {
 
   return (
     <div className={`space-y-6 ${selecionados.size > 0 ? 'pb-16' : ''}`}>
+      {/* Aviso de somente leitura (etapa 8). A tela precisa DIZER por que os botões
+          sumiram — senão parece defeito, e o operador liga achando que quebrou. */}
+      {soLeitura && (
+        <div className="flex items-start gap-2 rounded-lg border border-orange-500/40 bg-orange-950/30 px-3 py-2.5">
+          <Route className="h-4 w-4 text-orange-400 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-orange-200 leading-relaxed">
+            <strong>Esta unidade faz o encaminhamento pelo Pipeline.</strong> Aqui é só consulta —
+            para montar a viagem, enviar para a Matriz e trazer os pets de volta, use a tela de{' '}
+            <Link href="/contratos" className="underline font-semibold">Contratos</Link>.
+          </p>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -1118,7 +1156,7 @@ export default function EncaminhamentosPage() {
                         {encVolta.length > 0 && <span>· {encVolta.length} entrega{encVolta.length > 1 ? 's' : ''}</span>}
                       </div>
                     </div>
-                    {enc.status !== 'finalizada' && (enc.codigo_unidade === currentUnit?.codigo || isSuperAdmin) && (
+                    {enc.status !== 'finalizada' && (!soLeitura && (enc.codigo_unidade === currentUnit?.codigo || isSuperAdmin)) && (
                       <button
                         onClick={e => {
                           e.stopPropagation()
@@ -1133,7 +1171,7 @@ export default function EncaminhamentosPage() {
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
                     )}
-                    {enc.status === 'planejada' && (enc.codigo_unidade === currentUnit?.codigo || isSuperAdmin) && (
+                    {enc.status === 'planejada' && (!soLeitura && (enc.codigo_unidade === currentUnit?.codigo || isSuperAdmin)) && (
                       <button
                         onClick={e => {
                           e.stopPropagation()
@@ -1145,7 +1183,7 @@ export default function EncaminhamentosPage() {
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     )}
-                    {enc.status === 'planejada' && (enc.codigo_unidade === currentUnit?.codigo || isSuperAdmin) && (
+                    {enc.status === 'planejada' && (!soLeitura && (enc.codigo_unidade === currentUnit?.codigo || isSuperAdmin)) && (
                       <button
                         onClick={async e => {
                           e.stopPropagation()
@@ -1158,7 +1196,7 @@ export default function EncaminhamentosPage() {
                         Embarcar
                       </button>
                     )}
-                    {enc.status === 'embarcada_ida' && idaChecksOk && (enc.codigo_unidade === currentUnit?.codigo || isSuperAdmin) && (
+                    {enc.status === 'embarcada_ida' && idaChecksOk && (!soLeitura && (enc.codigo_unidade === currentUnit?.codigo || isSuperAdmin)) && (
                       <button
                         onClick={async e => {
                           e.stopPropagation()
@@ -1204,7 +1242,7 @@ export default function EncaminhamentosPage() {
                         Finalizar Ida
                       </button>
                     )}
-                    {enc.status === 'ida_finalizada' && voltaChecksOk && (enc.codigo_unidade === currentUnit?.codigo || isSuperAdmin) && (
+                    {enc.status === 'ida_finalizada' && voltaChecksOk && (!soLeitura && (enc.codigo_unidade === currentUnit?.codigo || isSuperAdmin)) && (
                       <button
                         onClick={async e => {
                           e.stopPropagation()
@@ -1288,6 +1326,7 @@ export default function EncaminhamentosPage() {
                                     return (
                                       <button
                                         onClick={async () => {
+                                          if (bloqueadoPorPipeline()) return
                                           if (!confirm(`Marcar ${pendentes.length} pet${pendentes.length > 1 ? 's' : ''} como acondicionado${pendentes.length > 1 ? 's' : ''}?`)) return
                                           const ids = pendentes.map(c => c.id)
                                           await supabase.from('contratos').update({ acondicionado: true } as never).in('id', ids)
@@ -1324,6 +1363,7 @@ export default function EncaminhamentosPage() {
                                             {enc.status === 'planejada' && (podeRemover ? (
                                               <button
                                                 onClick={async () => {
+                                                  if (bloqueadoPorPipeline()) return
                                                   if (!confirm(`Remover ${c.pet_nome} do encaminhamento?`)) return
                                                   await supabase.from('contratos').update({ supinda_id: null } as never).eq('id', c.id)
                                                   await supabase.from('supindas').update({
@@ -1382,6 +1422,7 @@ export default function EncaminhamentosPage() {
                                         return (
                                           <button
                                             onClick={async () => {
+                                              if (bloqueadoPorPipeline()) return
                                               if (!confirm(`Confirmar ${pendentes.length} cinza${pendentes.length > 1 ? 's' : ''} como recebida${pendentes.length > 1 ? 's' : ''}?`)) return
                                               const ids = pendentes.map(c => c.id)
                                               await supabase.from('contratos').update({ cinzas_recebidas: true } as never).in('id', ids)
@@ -1403,6 +1444,7 @@ export default function EncaminhamentosPage() {
                                         return (
                                           <button
                                             onClick={async () => {
+                                              if (bloqueadoPorPipeline()) return
                                               if (!confirm(`Confirmar ${pendentes.length} certificado${pendentes.length > 1 ? 's' : ''} como recebido${pendentes.length > 1 ? 's' : ''}?`)) return
                                               const ids = pendentes.map(c => c.id)
                                               await supabase.from('contratos').update({ certificado_recebido: true } as never).in('id', ids)
@@ -1440,6 +1482,7 @@ export default function EncaminhamentosPage() {
                                             {!isVoltaFechada(enc.status) && (
                                               <button
                                                 onClick={async () => {
+                                                  if (bloqueadoPorPipeline()) return
                                                   if (!confirm(`Remover ${c.pet_nome} do encaminhamento?`)) return
                                                   await supabase.from('contratos').update({ supinda_volta_id: null } as never).eq('id', c.id)
                                                   await recarregarDados()
@@ -1628,6 +1671,7 @@ export default function EncaminhamentosPage() {
               </button>
               <button
                 onClick={async () => {
+                  if (bloqueadoPorPipeline()) return
                   await supabase.from('supindas').update({
                     data: editEncData,
                     responsavel: editEncResponsavel.trim() || null,

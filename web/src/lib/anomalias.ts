@@ -247,16 +247,13 @@ export const ANOMALIAS: Check[] = [
   }),
 
   // ═══ FLUXO TRAVADO ═══
-  checkContratos({
-    id: 'retorno-com-cinzas-recebidas',
-    categoria: 'fluxo',
-    severidade: 'alta',
-    titulo: 'Em "retorno" mas as cinzas já foram recebidas',
-    porque:
-      'O tutor já recebeu — o contrato deveria ter avançado para pendente/finalizado. Preso em retorno, ele polui a fila de entregas e as métricas de atendimento em aberto.',
-    comoCorrigir: 'Concluir a entrega no contrato para avançar o status.',
-    filtro: q => q.eq('status', 'retorno').eq('cinzas_recebidas', true),
-  }),
+  // 🔴 REGRA REMOVIDA em 12/09/2026: `retorno-com-cinzas-recebidas`.
+  // Ela lia `cinzas_recebidas` como *"o tutor já recebeu"* — que é o texto dela — mas o
+  // campo significa outra coisa: *"a unidade conferiu as cinzas para trazer de Pinda"*
+  // (é o que liberava o Finalizar Volta). Todo pet em `retorno` está nesse estado **por
+  // definição**, então a regra disparava em **329 dos 525** contratos em retorno: 63% de
+  // falso positivo, com severidade alta. Não é dívida do fluxo novo — era bug já
+  // existente, medido no banco em 05/09. Ver docs/ENCAMINHAMENTO_NO_PIPELINE.md §4.1.
   checkContratos({
     id: 'retorno-antigo',
     categoria: 'fluxo',
@@ -370,15 +367,84 @@ export const ANOMALIAS: Check[] = [
     filtro: q => q.gt('data_contrato', hoje()),
     detalhe: c => `contrato em ${fmtData(c.data_contrato as string)}`,
   }),
-  checkContratos({
-    id: 'coletiva-com-cinzas',
+  // 🔴 REGRA REMOVIDA em 12/09/2026: `coletiva-com-cinzas`.
+  // Lia `cinzas_recebidas` com a mesma semântica errada da regra acima, e **não migra
+  // para o GC**: dos 9 casos de coletiva com `cinzas_prontas` no GC, **7 vêm do bypass**,
+  // que marca `cinzas_prontas` e `certificado_pronto` de cravado sem olhar o tipo — e isso
+  // é *by design*, é a garantia de fechar o fluxo. Reescrita sobre o GC, a regra nasceria
+  // com 78% de falso positivo: o mesmo defeito que a fez sair. Ver §4.1 do plano.
+
+  // 🆕 A regra que ENTRA no lugar das duas (§4.2): o que preocupa de verdade não é
+  // conferência de cinzas, é **mudar o tipo de cremação depois do pet já ter sido
+  // cremado** — erro caro dos dois lados (cobrar individual e fazer coletiva, ou o
+  // contrário). Medido: acharia 1 caso hoje (SJ260509INDAUBBEL48, cremado em 12/05 e
+  // alterado em 17/06). Baixo volume, alta gravidade, zero falso positivo.
+  {
+    id: 'tipo-cremacao-alterado-pos-cremacao',
     categoria: 'impossivel',
-    severidade: 'media',
-    titulo: 'Cremação coletiva com cinzas entregues',
-    porque: 'Na coletiva as cinzas NÃO voltam para o tutor. Ou o tipo de cremação está errado, ou a marcação de entrega está.',
-    comoCorrigir: 'Conferir se era individual; se era coletiva mesmo, desmarcar as cinzas recebidas.',
-    filtro: q => q.eq('tipo_cremacao', 'coletiva').eq('cinzas_recebidas', true),
-  }),
+    severidade: 'alta',
+    titulo: 'Tipo de cremação alterado DEPOIS da cremação',
+    porque: 'O pet já foi cremado — o tipo não podia mudar depois disso. Ou foi cobrado um tipo e executado outro, ou a correção caiu no contrato errado. Afeta o valor do contrato e o repasse para a Matriz.',
+    comoCorrigir: 'Conferir com a Matriz o que foi executado de fato e, se a cobrança divergir, acertar valor e repasse.',
+    // ⚠️ Cruza DUAS tabelas, então não usa o helper `checkContratos` (que é uma query só
+    // em `contratos`): lê as trocas de tipo no histórico e confronta cada uma com a data
+    // de cremação do contrato.
+    buscar: async (sb, unidadeId) => {
+      const trocas = await buscarTudo<{ entidade_id: string; valor_anterior: string | null; valor_novo: string | null; criado_em: string }>(
+        sb, 'historico_alteracoes', 'entidade_id, valor_anterior, valor_novo, criado_em',
+        (q) => q.eq('entidade', 'contratos').eq('campo', 'tipo_cremacao'),
+        2000,
+      )
+      if (trocas.length === 0) return { total: 0, linhas: [] }
+
+      const ids = [...new Set(trocas.map(t => t.entidade_id).filter(Boolean))]
+      // Lotes de 100 no `.in()`: URL longa no PostgREST volta vazia EM SILÊNCIO (custou
+      // uma investigação inteira em 01/09 com 105 UUIDs de uma vez).
+      const contratos: LinhaContrato[] = []
+      for (let i = 0; i < ids.length; i += 100) {
+        let q = sb
+          .from('contratos')
+          .select('id, codigo, pet_nome, tutor_nome, unidade_id, tipo_cremacao, data_cremacao')
+          .in('id', ids.slice(i, i + 100))
+          .not('data_cremacao', 'is', null)
+        if (unidadeId) q = q.eq('unidade_id', unidadeId)
+        const { data } = await q
+        contratos.push(...((data || []) as unknown as LinhaContrato[]))
+      }
+
+      const linhas: LinhaAnomalia[] = []
+      for (const c of contratos) {
+        const cremadoEm = new Date(String(c.data_cremacao)).getTime()
+        if (isNaN(cremadoEm)) continue
+        // A troca mais recente DEPOIS da cremação é a que interessa — com FOLGA de 48h.
+        //
+        // 🔴 A folga não é chute, é medida. Rodando a regra contra o banco em 12/09 saíram
+        // 3 casos, e as distâncias separam dois fenômenos diferentes:
+        //   · 882h (36 dias) — BELINHA, SJ260509INDAUBBEL48: o erro de verdade.
+        //   ·  15h e 10h     — PAULINHA e JORGE JR: alterado no MESMO dia da cremação.
+        // Os dois de mesmo dia são correção legítima (registrou, viu o erro, corrigiu na
+        // mesma manhã). Sem a folga a regra nasceria com 67% de falso positivo — e a
+        // regra de ouro deste arquivo é justamente não deixar isso entrar.
+        //
+        // 48h e não 24h porque `data_cremacao` costuma vir SEM HORA (meia-noite nos três
+        // casos): a distância em horas é imprecisa por até um dia, e 48h absorve isso sem
+        // perder o caso grave, que está a 36 dias.
+        const FOLGA_MS = 48 * 3600 * 1000
+        const depois = trocas
+          .filter(t => t.entidade_id === c.id && new Date(t.criado_em).getTime() - cremadoEm > FOLGA_MS)
+          .sort((a, b) => new Date(b.criado_em).getTime() - new Date(a.criado_em).getTime())[0]
+        if (!depois) continue
+        linhas.push({
+          id: c.id,
+          titulo: `${c.codigo || 's/ código'} — ${c.pet_nome || 'pet sem nome'}`,
+          detalhe: `cremado em ${fmtData(String(c.data_cremacao))} · alterado de ${depois.valor_anterior || '?'} para ${depois.valor_novo || '?'} em ${fmtData(depois.criado_em)}`,
+          link: `/contratos/${c.id}`,
+          unidadeId: c.unidade_id,
+        })
+      }
+      return { total: linhas.length, linhas: linhas.slice(0, LIMITE), truncado: linhas.length > LIMITE }
+    },
+  },
 
   // ═══ DUPLICIDADE ═══
   {
