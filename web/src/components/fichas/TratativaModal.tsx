@@ -615,12 +615,14 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
     : estabelecimentos.slice(0, 15)
 
   // Push pro Operacional quando a escolha de Responsável vira atribuição de remoção — best-effort.
+  // Corpo padronizado com o resto de /tarefas: "{nome da atividade} — {pet}" (TIPO_INFO.remocao.label
+  // lá é "Acolhimento" — não "Remoção" mais, esse nome saiu de uso; manter em sincronia).
   async function notificarAtribuicaoRemocao(userId: string, petNome: string) {
     try {
       await fetch('/api/push/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, title: '📋 Nova tarefa pra você', body: `Fazer Remoção — ${petNome}`, url: '/tarefas' }),
+        body: JSON.stringify({ userId, title: '📋 Nova tarefa pra você', body: `Acolhimento — ${petNome}`, url: '/tarefas' }),
       })
     } catch { /* não trava o fluxo se falhar */ }
   }

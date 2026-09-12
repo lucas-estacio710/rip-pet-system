@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { X, MapPin, Navigation } from 'lucide-react'
+import { X, MapPin, Navigation, ExternalLink, FileDown, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
+import { baixarContratoPDF } from '@/lib/contrato-pdf-download'
 
 // ============================================================================
 // AtivacaoPVModal — conclusão da tarefa "Ativar Preventivo" (mig 138).
@@ -44,8 +45,14 @@ type ContratoMinimal = {
 // com o formulário de conclusão): quem vai buscar o pet de um preventivo abria a tarefa e
 // não tinha nem o endereço, nem Waze/Maps pra chegar lá. Busca à parte (não vem do prop
 // `contrato`, que os 3 chamadores passam com formatos diferentes) — mesmo padrão
-// "self-contido" do resto do modal. Sem "Gerar PDF do Contrato": aqui o contrato já existe
-// há tempos, não é o documento recém-fechado da remoção emergencial.
+// "self-contido" do resto do modal.
+//
+// "Gerar PDF do Contrato" só aparece pra `tarefaTipo==='remocao'` (fase 2, EM) — o contrato
+// acabou de nascer minutos antes, no "Iniciar Fluxo", e esse popup costuma ser a primeira
+// vez que alguém baixa o documento pra entregar/assinar com o tutor. Pra `ativacao_pv` (PV)
+// não faz sentido: o contrato existe há tempos, o PDF já foi gerado/entregue muito antes da
+// ativação — reaproveita `baixarContratoPDF` (mesmo helper de contratos/[id] e do pipeline,
+// já resolve ficha/tutor/unidade e decide EM×PV sozinho).
 type InfoAcolhimento = {
   pet_especie: string | null
   pet_raca: string | null
@@ -90,6 +97,7 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
   const [anotacao, setAnotacao] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [gerandoPdf, setGerandoPdf] = useState(false)
 
   const tutorNome = contrato.tutor?.nome || contrato.tutor_nome || ''
   const unidadeId = contrato.unidade_id || currentUnit?.id || null
@@ -104,6 +112,7 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
     setDataHoraManual('')
     setExecutadoPorFuncionarioId('')
     setAnotacao('')
+    setGerandoPdf(false)
 
     supabase
       .from('tarefas_operacionais')
@@ -159,6 +168,19 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
   }
   const wazeUrl = enderecoNavegavel ? `https://waze.com/ul?q=${encodeURIComponent(enderecoNavegavel)}&navigate=yes` : null
   const gmapsUrl = enderecoNavegavel ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(enderecoNavegavel)}` : null
+
+  async function gerarPdf() {
+    setGerandoPdf(true)
+    setErro(null)
+    try {
+      await baixarContratoPDF(supabase, contrato.id)
+    } catch (err) {
+      console.error('Erro ao gerar PDF do contrato:', err)
+      setErro(err instanceof Error ? err.message : 'Erro ao gerar PDF do contrato. Tente novamente.')
+    } finally {
+      setGerandoPdf(false)
+    }
+  }
 
   async function concluir() {
     if (!podeConcluir) return
@@ -275,6 +297,9 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
             <div>
               <h3 className="font-bold text-[var(--surface-800)]">Finalizar {rotulo}</h3>
               <p className="text-sm text-[var(--surface-500)]">{contrato.pet_nome} &middot; {tutorNome}</p>
+              <a href={`/contratos/${contrato.id}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-500 hover:underline mt-0.5">
+                Ver Contrato <ExternalLink className="h-3 w-3" />
+              </a>
             </div>
           </div>
           <button onClick={onClose} className="p-1 hover:bg-[var(--surface-100)] rounded-full transition-colors">
@@ -311,6 +336,17 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
                   </a>
                 )}
               </div>
+            )}
+
+            {tarefaTipo === 'remocao' && (
+              <button
+                onClick={gerarPdf}
+                disabled={gerandoPdf}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-[var(--surface-200)] text-sm font-semibold text-[var(--surface-600)] disabled:opacity-50"
+              >
+                {gerandoPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+                Gerar PDF do Contrato
+              </button>
             )}
 
             <div>

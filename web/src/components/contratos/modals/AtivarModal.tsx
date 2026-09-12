@@ -307,15 +307,20 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
               atribuido_a: atribuidoA,
               atribuido_por: user?.id || null,
             } as never)
-            // Notificação best-effort — mesmo padrão de notificarAtribuicaoRemocao do
-            // TratativaModal, sem await bloqueante pra não atrasar o fechamento do modal.
+            // Notificação best-effort — uniformizada com o resto de /tarefas (mesmo padrão de
+            // notificarAtribuicaoRemocao do TratativaModal): emoji+título fixo, corpo
+            // "{nome da atividade} — {pet}" (TIPO_INFO.ativacao_pv.label em tarefas/page.tsx é
+            // "Acolhimento de Preventivo" — manter em sincronia) e `url` pra abrir /tarefas ao
+            // clicar. Antes tinha título/corpo diferentes e sem `url`, achado revisando
+            // (10/09/2026). Sem await bloqueante pra não atrasar o fechamento do modal.
             fetch('/api/push/send', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 userId: atribuidoA,
-                title: 'Ativar Preventivo atribuído',
-                body: `${contrato.pet_nome} — ${tutorNome}`,
+                title: '📋 Nova tarefa pra você',
+                body: `Acolhimento de Preventivo — ${contrato.pet_nome}`,
+                url: '/tarefas',
               }),
             }).catch(() => {})
           }
