@@ -260,7 +260,7 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
    *  conta que ninguém configurou continua servindo, senão a tela ficaria sem
    *  opção nenhuma até alguém abrir o cadastro. */
   const contasQuePagam = metodo
-    ? contas.filter(c => !(c.saidas || []).length || (c.saidas || []).includes(metodo))
+    ? contas.filter(c => (c.saidas || []).includes(metodo))
     : contas
 
   // Fornecedores já usados — para o autocomplete não deixar o mesmo nome virar
@@ -325,7 +325,14 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
     const existe = contas.find(c => c.nome.toLowerCase() === limpo.toLowerCase())
     if (existe) { setContaId(existe.id); setNovaConta(null); return }
     const { data, error } = await supabase
-      .from('contas').insert({ nome: limpo, unidade_id: currentUnit.id, ativo: true })
+      // 🔴 `saidas` PRECISA nascer preenchido: desde 13/09/2026 lista vazia
+      // significa "não paga nada", então a conta criada aqui sem isso não
+      // apareceria em lugar nenhum — inclusive no seletor que a pediu. Herda o
+      // método em uso, que é justamente o que o operador está tentando pagar.
+      .from('contas').insert({
+        nome: limpo, unidade_id: currentUnit.id, ativo: true,
+        saidas: metodo ? [metodo] : [],
+      })
       .select('id, nome, saidas').single()
     if (error) return toast(error.message, 'error')
     const nova = data as unknown as ContaBancaria
@@ -731,7 +738,7 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
                       // A conta escolhida some se não paga o novo método — deixá-la
                       // gravaria o dinheiro saindo de onde ele não sai.
                       const ok = contas.find(c => c.id === contaId)
-                      if (ok && (ok.saidas || []).length && !(ok.saidas || []).includes(op.v)) setContaId('')
+                      if (ok && !(ok.saidas || []).includes(op.v)) setContaId('')
                     }}
                     className="text-xs px-3 py-1.5 rounded-[var(--radius-md)] border transition-colors"
                     style={{

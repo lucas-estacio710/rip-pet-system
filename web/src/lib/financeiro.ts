@@ -69,10 +69,22 @@ export function explicarCaixa(metodo: MetodoPagamento | ''): string | null {
  * mega pagamento do pipeline tinha **UUID de conta de Santos chumbado no
  * código**, o que fazia toda outra unidade gravar o recebimento na conta errada.
  *
- * ⚠️ LISTA VAZIA = SEM RESTRIÇÃO, mas em ÚLTIMO LUGAR. Conta que ninguém
- * configurou continua aparecendo (senão a migration deixaria as telas sem opção),
- * só que agora perde para qualquer uma que DECLARE aceitar o método — e um
- * cartão de crédito nunca entra no lado das entradas. Ver `contaPadraoPara`.
+ * 🔴 LISTA VAZIA = NÃO SERVE PRA NADA (13/09/2026). Antes significava o OPOSTO —
+ * "sem restrição, serve pra tudo" —, e o Lucas derrubou a regra com o argumento
+ * óbvio: *"nada marcado = nada marcado, não recebe de nenhuma forma"*. Ele está
+ * certo, e a interpretação antiga produziu estrago real: o "Cartão Pessoal
+ * NuBank", com `entradas = []`, era elegível para receber pix e ganhava por vir
+ * primeiro no alfabeto.
+ *
+ * A regra antiga não era boba, era **datada**: quando a mig 122 rodou, NENHUMA
+ * conta estava configurada, e "vazio = nada" teria deixado toda tela sem opção
+ * selecionável. Depois que as migs 130/131 classificaram as contas, o vazio
+ * deixou de ser "ainda não configurei" e passou a ser "não faz isso" — hoje as
+ * únicas contas com `saidas` vazio são MAQUININHAS, que de fato não pagam nada.
+ *
+ * ⚠️ Consequência: conta criada sem configurar não aparece em lugar nenhum. Quem
+ * cria conta pelo atalho de um modal precisa herdar o método em uso — senão
+ * nasce inútil e o operador não entende por que ela sumiu.
  */
 export type ContaEscolhivel = {
   id: string
@@ -92,8 +104,8 @@ export function contasQueAceitam<T extends ContaEscolhivel>(
     // velório no cartão de crédito da empresa — o cartão é meio de PAGAR, não de
     // receber. Isso não depende de configuração: é o que o produto é.
     if (lado === 'entradas' && c.produto === 'cartao_credito') return false
-    const lista = c[lado] || []
-    return lista.length === 0 || lista.includes(metodo)
+    // Declarou? Serve. Não declarou? Não serve. Ver o cabeçalho do tipo.
+    return (c[lado] || []).includes(metodo)
   })
 }
 
@@ -107,19 +119,14 @@ export function contasQueAceitam<T extends ContaEscolhivel>(
  * **19 recebimentos, R$ 15.840, caíram no "Cartão Pessoal NuBank"**, incluindo
  * pix e dinheiro.
  *
- * A regra do array vazio nasceu quando NENHUMA conta estava configurada, para
- * que as telas não ficassem sem opção. Depois que as migs 130/131 classificaram
- * as demais, a não configurada virou coringa. Agora ela é o ÚLTIMO recurso:
- *
- *   1. preferencial que declara aceitar o método
- *   2. qualquer uma que declara aceitar o método
- *   3. as não configuradas — só se nenhuma declarou
+ * O desempate por "quem declara" que resolvia isso virou desnecessário em
+ * 13/09/2026, quando `contasQueAceitam` passou a exigir a declaração para
+ * entrar na lista — a conta não configurada simplesmente não é mais candidata.
+ * Sobrou o que sempre foi a regra: a preferencial DESEMPATA entre as elegíveis.
  */
 export function contaPadraoPara<T extends ContaEscolhivel>(contas: T[], metodo: string): string {
   const aceitam = contasQueAceitam(contas, metodo, 'entradas')
-  const declaram = aceitam.filter(c => (c.entradas || []).includes(metodo))
-  const candidatas = declaram.length ? declaram : aceitam
-  return (candidatas.find(c => c.preferencial_recebimento) || candidatas[0])?.id || ''
+  return (aceitam.find(c => c.preferencial_recebimento) || aceitam[0])?.id || ''
 }
 
 /**
