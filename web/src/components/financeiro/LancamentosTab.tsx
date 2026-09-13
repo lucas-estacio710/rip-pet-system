@@ -715,10 +715,12 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
           <div>
             <label className="text-xs text-[var(--surface-500)] block mb-1.5">Pago com</label>
             <div className="flex flex-wrap gap-1.5">
+              {/* Ordem pela frequência real, não pela lista do banco: transferência
+                  quase ninguém mais faz desde o pix, então vai pro fim (13/09/2026). */}
               {[
                 { v: 'pix', l: 'Pix' }, { v: 'credito', l: 'Crédito' },
-                { v: 'debito', l: 'Débito' }, { v: 'transferencia', l: 'Transf.' },
-                { v: 'dinheiro', l: 'Dinheiro' }, { v: 'boleto', l: 'Boleto' },
+                { v: 'debito', l: 'Débito' }, { v: 'dinheiro', l: 'Dinheiro' },
+                { v: 'boleto', l: 'Boleto' }, { v: 'transferencia', l: 'Transf.' },
               ].map(op => {
                 const on = metodo === op.v
                 return (
