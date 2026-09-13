@@ -106,9 +106,29 @@ export default function LancamentosTab() {
   const [nivel2, setNivel2] = useState<string | null>(null)
   const [valor, setValor] = useState('')
   const [data, setData] = useState(hojeISO())
+  /**
+   * COMO FOI PAGO — de volta à tela em 13/09/2026, mas com outro papel.
+   *
+   * ⚠️ A mig 121 REMOVEU o método do formulário, e com razão: como DADO ele não
+   * muda nada — nem o resultado nem o caixa, que precisam só da conta e da data
+   * (§9.1.1). Ele volta agora como **caminho até a conta**: "paguei no pix" é o
+   * que o operador sabe; "de qual das sete contas saiu" é o que ele precisa
+   * responder, e o cadastro já sabe filtrar (`contas.saidas`, mig 122).
+   *
+   * Continua sendo gravado em `fin_lancamentos.metodo_pagamento` — a coluna
+   * existe desde a mig 103 e estava recebendo `'pix'` em 10 de 10 por default.
+   */
+  const [metodo, setMetodo] = useState('')
+  // Os dois toggles Hoje/Outra precisam de estado PRÓPRIO: derivar de
+  // "a data é igual a hoje?" faz o botão "Outra" não abrir campo nenhum quando
+  // o gasto é mesmo de hoje — e aí não há como digitar outra data.
+  const [dataOutra, setDataOutra] = useState(false)
+  const [caixaOutra, setCaixaOutra] = useState(false)
   // O CAIXA, coletado sem anunciar: quando o dinheiro sai e de qual conta.
-  // Vem preenchido por `derivarDatas` e o operador só corrige quando é o caso
-  // (tipicamente no crédito, informando o vencimento da fatura).
+  // ⚠️ NUNCA calculada a partir do vencimento do cartão (decisão do Lucas,
+  // 13/09/2026): "posso tar atrasado e o sistema colocar datas erradas, ou ter
+  // algum evento que mude a data de fechamento — banco é tudo doido". Data
+  // calculada é PREVISÃO, e previsão gravada como fato faz o extrato mentir.
   const [dataCaixa, setDataCaixa] = useState('')
   const [contaId, setContaId] = useState('')
   const [contas, setContas] = useState<ContaBancaria[]>([])
@@ -130,6 +150,14 @@ export default function LancamentosTab() {
   const [paraOutra, setParaOutra] = useState('')      // id da unidade que consumiu
   const [unidades, setUnidades] = useState<{ id: string; codigo: string; nome: string }[]>([])
   const [recarregarCobrancas, setRecarregarCobrancas] = useState(0)
+  // "é de outra unidade" e "cobre mais de um mês" vivem atrás deste toggle: são
+  // casos raros que ocupavam o meio do modal, no caminho do olho.
+  const [maisOpcoes, setMaisOpcoes] = useState(false)
+  // Fornecedores já usados nesta unidade — alimentam o autocomplete e a sugestão
+  // de categoria. Digitar o nome à mão toda vez produz "Gifonni" e "Giffoni",
+  // e aí nenhuma memória casa (caso real, 13/09/2026).
+  const [fornecedoresUsados, setFornecedoresUsados] = useState<string[]>([])
+  const [sugestaoCat, setSugestaoCat] = useState<{ id: string; caminho: string } | null>(null)
 
   const catSelecionada = categorias.find(c => c.id === catId)
 
@@ -223,6 +251,59 @@ export default function LancamentosTab() {
 
   useEffect(() => { void carregarContas() }, [carregarContas])
 
+  /** Contas que PAGAM o método escolhido (mig 122). Lista vazia = sem restrição:
+   *  conta que ninguém configurou continua servindo, senão a tela ficaria sem
+   *  opção nenhuma até alguém abrir o cadastro. */
+  const contasQuePagam = metodo
+    ? contas.filter(c => !(c.saidas || []).length || (c.saidas || []).includes(metodo))
+    : contas
+
+  // Fornecedores já usados — para o autocomplete não deixar o mesmo nome virar
+  // duas grafias. Só o nome; a sugestão de categoria é buscada na hora.
+  useEffect(() => {
+    if (!currentUnit?.id) return
+    supabase
+      .from('fin_lancamentos')
+      .select('fornecedor_nome')
+      .eq('unidade_id', currentUnit.id)
+      .not('fornecedor_nome', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(300)
+      .then(({ data }) => {
+        const vistos = new Set<string>()
+        const nomes: string[] = []
+        for (const l of ((data as unknown as { fornecedor_nome: string }[]) || [])) {
+          const n = (l.fornecedor_nome || '').trim()
+          const k = n.toLowerCase()
+          if (n && !vistos.has(k)) { vistos.add(k); nomes.push(n) }
+        }
+        setFornecedoresUsados(nomes)
+      })
+  }, [supabase, currentUnit?.id, aberto])
+
+  /**
+   * O FORNECEDOR LEMBRA A CATEGORIA.
+   *
+   * Gasto avulso é quase sempre recorrente: mesmo posto, mesma contabilidade,
+   * mesmo freela. Em vez de a categoria sugerir o fornecedor, é o contrário —
+   * com o método já escolhendo a conta, o fornecedor é a única pista que sobra.
+   * Sugere, nunca preenche sozinho: a última vez pode ter sido outra coisa.
+   */
+  async function sugerirPorFornecedor(nome: string) {
+    const n = nome.trim()
+    if (!n || catId || !currentUnit?.id) return setSugestaoCat(null)
+    const { data } = await supabase
+      .from('fin_lancamentos')
+      .select('categoria_id')
+      .eq('unidade_id', currentUnit.id)
+      .ilike('fornecedor_nome', n)
+      .not('categoria_id', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+    const id = (data as unknown as { categoria_id: string }[] | null)?.[0]?.categoria_id
+    setSugestaoCat(id ? { id, caminho: caminhoDe(id) } : null)
+  }
+
   // As outras unidades do grupo — destino possível de uma compra externa.
   useEffect(() => {
     if (!currentUnit?.id) return
@@ -248,9 +329,14 @@ export default function LancamentosTab() {
     setNovaConta(null)
   }
 
-  // A data do débito acompanha a data do gasto por padrão — que é o caso da
-  // esmagadora maioria. Quem paga no crédito muda pro vencimento da fatura.
-  useEffect(() => { setDataCaixa(d => d || data) }, [data])
+  // A data do pagamento acompanha a do gasto enquanto o operador não disser o
+  // contrário — que é o caso da esmagadora maioria (pix, dinheiro, débito).
+  useEffect(() => { if (!caixaOutra) setDataCaixa(data) }, [data, caixaOutra])
+
+  // No CRÉDITO as duas datas nunca são iguais: a compra é de hoje, o dinheiro
+  // sai na fatura. Abre já em "Outra" pra pergunta não passar despercebida —
+  // mas quem responde é o operador, o sistema não calcula (decisão do Lucas).
+  useEffect(() => { if (metodo === 'credito') setCaixaOutra(true) }, [metodo])
 
   function limpar() {
     setCatId(''); setValor(''); setData(hojeISO())
@@ -258,7 +344,8 @@ export default function LancamentosTab() {
     setRateado(false); setMeses('12')
     setDataCaixa(''); setContaId(''); setNovaConta(null)
     setBusca(''); setNivel1(null); setNivel2(null)
-    setParaOutra('')
+    setParaOutra(''); setMetodo(''); setMaisOpcoes(false); setSugestaoCat(null)
+    setDataOutra(false); setCaixaOutra(false)
     setAberto(false)
     setEditandoId(null)
   }
@@ -278,15 +365,28 @@ export default function LancamentosTab() {
     setRateado(r > 1); setMeses(String(r > 1 ? r : 12))
     setDataCaixa((l.data_caixa || '').slice(0, 10))
     setContaId(l.conta_pagamento_id || '')
+    setMetodo(l.metodo_pagamento || '')
+    // Reabre fiel ao gravado: se a data do gasto não é hoje, o toggle tem que
+    // mostrar "Outra" com o campo aberto — senão editar um lançamento antigo
+    // esconde a data dele.
+    setDataOutra((l.data_competencia || '').slice(0, 10) !== hojeISO())
+    setCaixaOutra(!!l.data_caixa && (l.data_caixa || '').slice(0, 10) !== (l.data_competencia || '').slice(0, 10))
     setBusca(''); setNivel1(null); setNivel2(null)
+    setSugestaoCat(null)
+    // Editando, abre já com as opções raras à vista se alguma estiver em uso —
+    // esconder um rateio que existe faria o operador achar que sumiu.
+    setMaisOpcoes(Number(l.rateio_meses || 1) > 1)
     setAberto(true)
   }
 
   async function salvar() {
     if (!currentUnit?.id) return
-    const v = Number(valor)
+    // Colar do extrato traz o sinal ("-255,88"). Numa tela de DESPESA, saída é
+    // saída — recusar por causa do sinal (e ainda dizer "informe o valor", com o
+    // valor preenchido) era mandar o operador procurar um erro que não existe.
+    const v = Math.abs(Number(valor))
     if (!catId) return toast('Escolha a categoria', 'error')
-    if (!v || v <= 0) return toast('Informe o valor', 'error')
+    if (!Number.isFinite(v) || v <= 0) return toast('O valor precisa ser maior que zero', 'error')
     if (catSelecionada?.pergunta_capex && duravel === null) {
       return toast('Responda se vai durar mais de um ano', 'error')
     }
@@ -314,6 +414,10 @@ export default function LancamentosTab() {
         // pendente e apagaria a origem de um que veio por OCR/QR.
         fornecedor_nome: fornecedor.trim() || null,
         conta_pagamento_id: contaId || null,
+        // Volta a ser gravado (13/09/2026). Ele não decide nada na DRE nem no
+        // caixa — quem decide é a conta —, mas é o caminho que o operador
+        // percorreu, e sem gravar a coluna seguiria com 'pix' em tudo.
+        metodo_pagamento: metodo || null,
         rateio_meses: rateado ? Math.max(1, Math.min(120, Number(meses) || 1)) : 1,
       }
 
@@ -542,6 +646,193 @@ export default function LancamentosTab() {
         }
       >
         <div className="space-y-4">
+          {/* ─────────────────────────────────────────────────────────────────
+              A ORDEM DESTE MODAL É UMA ÁRVORE DE DECISÃO (13/09/2026).
+              Antes, os seis campos apareciam de uma vez e quatro deles pediam
+              o que o sistema já poderia deduzir. Agora cada resposta abre a
+              próxima: quando → quanto → como paguei → de qual conta → pra quem
+              → o que foi. O método não é dado contábil, é o caminho até a conta
+              (ver o comentário em `metodo`).
+              ───────────────────────────────────────────────────────────────── */}
+
+          {/* 1. Quando + quanto — o que o operador tem na mão ao abrir */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-[var(--surface-500)] block mb-1">Data do gasto</label>
+              <div className="flex gap-1 mb-1">
+                {[{ v: false, l: 'Hoje' }, { v: true, l: 'Outra' }].map(op => {
+                  const on = dataOutra === op.v
+                  return (
+                    <button
+                      key={op.l} type="button"
+                      onClick={() => { setDataOutra(op.v); if (!op.v) setData(hojeISO()) }}
+                      className="flex-1 text-xs py-1 rounded-[var(--radius-md)] border transition-colors"
+                      style={{
+                        background: on ? 'rgba(16,185,129,0.12)' : 'transparent',
+                        borderColor: on ? '#10b981' : 'var(--surface-200)',
+                        color: on ? '#10b981' : 'var(--surface-600)',
+                      }}
+                    >{op.l}</button>
+                  )
+                })}
+              </div>
+              {dataOutra && (
+                <input type="date" value={data} onChange={e => setData(e.target.value)}
+                       className="input text-sm w-full" />
+              )}
+            </div>
+            <div>
+              <label className="text-xs text-[var(--surface-500)] block mb-1">Valor</label>
+              <div className="flex items-center rounded-[var(--radius-md)] border overflow-hidden"
+                   style={{ borderColor: 'var(--surface-300)', background: 'var(--surface-0)' }}>
+                <span className="text-sm text-[var(--surface-400)] pl-2">R$</span>
+                <input
+                  type="number" step="0.01" value={valor}
+                  onChange={e => setValor(e.target.value)}
+                  onBlur={e => { const n = Number(e.target.value); if (n < 0) setValor(String(Math.abs(n))) }}
+                  placeholder="0,00"
+                  className="w-full bg-transparent border-0 outline-none text-sm text-mono px-2 py-2 text-[var(--surface-800)]"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* 2. Como paguei — o caminho até a conta, não um dado contábil */}
+          <div>
+            <label className="text-xs text-[var(--surface-500)] block mb-1.5">Pago com</label>
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { v: 'pix', l: 'Pix' }, { v: 'credito', l: 'Crédito' },
+                { v: 'debito', l: 'Débito' }, { v: 'transferencia', l: 'Transf.' },
+                { v: 'dinheiro', l: 'Dinheiro' }, { v: 'boleto', l: 'Boleto' },
+              ].map(op => {
+                const on = metodo === op.v
+                return (
+                  <button
+                    key={op.v} type="button"
+                    onClick={() => {
+                      setMetodo(op.v)
+                      // A conta escolhida some se não paga o novo método — deixá-la
+                      // gravaria o dinheiro saindo de onde ele não sai.
+                      const ok = contas.find(c => c.id === contaId)
+                      if (ok && (ok.saidas || []).length && !(ok.saidas || []).includes(op.v)) setContaId('')
+                    }}
+                    className="text-xs px-3 py-1.5 rounded-[var(--radius-md)] border transition-colors"
+                    style={{
+                      background: on ? 'rgba(16,185,129,0.12)' : 'transparent',
+                      borderColor: on ? '#10b981' : 'var(--surface-200)',
+                      color: on ? '#10b981' : 'var(--surface-600)',
+                    }}
+                  >{op.l}</button>
+                )
+              })}
+            </div>
+            {metodo === 'boleto' && (
+              <p className="text-[11px] text-[var(--surface-400)] mt-1.5">
+                Só lance o boleto depois de pago — o sistema registra o que aconteceu,
+                não o que está programado.
+              </p>
+            )}
+          </div>
+
+          {/* 3. De qual conta — filtrada pelo método; some quando não há escolha */}
+          {metodo && (
+            <div>
+              <label className="text-xs text-[var(--surface-500)] block mb-1">Saiu da conta</label>
+              {novaConta !== null ? (
+                <div className="flex gap-1">
+                  <input
+                    autoFocus value={novaConta}
+                    onChange={e => setNovaConta(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') { e.preventDefault(); void criarConta(novaConta) }
+                      if (e.key === 'Escape') setNovaConta(null)
+                    }}
+                    placeholder="Nome da conta"
+                    className="input text-sm flex-1 min-w-0"
+                  />
+                  <button type="button" onClick={() => void criarConta(novaConta)}
+                          className="btn-secondary text-xs px-2 shrink-0">
+                    <Check className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : contasQuePagam.length === 1 ? (
+                // Uma opção só: confirmar o óbvio é ruído. Mostra e segue.
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-[var(--surface-700)]">{contasQuePagam[0].nome}</span>
+                  <button type="button" onClick={() => setNovaConta('')}
+                          className="text-[11px] text-[var(--surface-400)] hover:underline">
+                    outra conta
+                  </button>
+                </div>
+              ) : (
+                <select
+                  value={contaId}
+                  onChange={e => (e.target.value === '__nova' ? setNovaConta('') : setContaId(e.target.value))}
+                  className="input text-sm w-full"
+                >
+                  <option value="">Escolher…</option>
+                  {contasQuePagam.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                  <option value="__nova">+ nova conta</option>
+                </select>
+              )}
+              {contasQuePagam.length === 0 && (
+                <p className="text-[11px] text-amber-500 mt-1">
+                  Nenhuma conta desta unidade paga {metodo}. Cadastre uma ou ajuste
+                  o cadastro na aba Contas.
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* 4. Quando o dinheiro saiu — sempre perguntado, nunca calculado */}
+          {metodo && (
+            <div>
+              <label className="text-xs text-[var(--surface-500)] block mb-1">Pago em</label>
+              <div className="flex gap-1 mb-1">
+                {[{ v: false, l: 'Mesma data' }, { v: true, l: 'Outra' }].map(op => {
+                  const on = caixaOutra === op.v
+                  return (
+                    <button
+                      key={op.l} type="button"
+                      onClick={() => { setCaixaOutra(op.v); setDataCaixa(op.v ? (dataCaixa || data) : data) }}
+                      className="flex-1 text-xs py-1 rounded-[var(--radius-md)] border transition-colors"
+                      style={{
+                        background: on ? 'rgba(16,185,129,0.12)' : 'transparent',
+                        borderColor: on ? '#10b981' : 'var(--surface-200)',
+                        color: on ? '#10b981' : 'var(--surface-600)',
+                      }}
+                    >{op.l}</button>
+                  )
+                })}
+              </div>
+              {caixaOutra && (
+                <input type="date" value={dataCaixa} onChange={e => setDataCaixa(e.target.value)}
+                       className="input text-sm w-full" />
+              )}
+              {metodo === 'credito' && (
+                <p className="text-[11px] text-[var(--surface-400)] mt-1">
+                  No crédito, informe o dia em que a fatura foi (ou será) paga de verdade.
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* 5. Pra quem — antes da categoria, porque é ele que a sugere */}
+          <div>
+            <label className="text-xs text-[var(--surface-500)] block mb-1">Fornecedor</label>
+            <input
+              type="text" list="fornecedores-usados" value={fornecedor}
+              onChange={e => setFornecedor(e.target.value)}
+              onBlur={e => void sugerirPorFornecedor(e.target.value)}
+              placeholder="Ex.: Posto Ipiranga"
+              className="input text-sm w-full"
+            />
+            <datalist id="fornecedores-usados">
+              {fornecedoresUsados.map(n => <option key={n} value={n} />)}
+            </datalist>
+          </div>
+
           {/* Categoria — árvore (categoria › subcategoria › tipo) + busca direta */}
           <div>
             <label className="text-xs text-[var(--surface-500)] block mb-1.5">Categoria</label>
@@ -560,6 +851,21 @@ export default function LancamentosTab() {
               </div>
             ) : (
               <div className="space-y-2">
+                {/* O FORNECEDOR LEMBRA A CATEGORIA. Sugere, nunca preenche: a
+                    última vez com esse fornecedor pode ter sido outra coisa. */}
+                {sugestaoCat && (
+                  <button
+                    type="button"
+                    onClick={() => { setCatId(sugestaoCat.id); setSugestaoCat(null); setBusca('') }}
+                    className="w-full text-left px-3 py-2 rounded-[var(--radius-md)] border transition-colors"
+                    style={{ borderColor: 'var(--surface-300)', background: 'var(--surface-50)' }}
+                  >
+                    <span className="text-[11px] text-[var(--surface-400)]">
+                      da última vez com {fornecedor.trim()} foi
+                    </span>
+                    <span className="block text-sm text-[var(--surface-700)]">{sugestaoCat.caminho}</span>
+                  </button>
+                )}
                 <div className="flex items-center rounded-[var(--radius-md)] border overflow-hidden"
                      style={{ borderColor: 'var(--surface-300)', background: 'var(--surface-0)' }}>
                   <Icons.Search className="h-4 w-4 text-[var(--surface-400)] ml-2 shrink-0" />
@@ -654,83 +960,26 @@ export default function LancamentosTab() {
             )}
           </div>
 
-          {/* Valor + data */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-[var(--surface-500)] block mb-1">Valor</label>
-              <div className="flex items-center rounded-[var(--radius-md)] border overflow-hidden"
-                   style={{ borderColor: 'var(--surface-300)', background: 'var(--surface-0)' }}>
-                <span className="text-sm text-[var(--surface-400)] pl-2">R$</span>
-                <input
-                  type="number" min={0} step="0.01" value={valor}
-                  onChange={e => setValor(e.target.value)}
-                  placeholder="0,00"
-                  className="w-full bg-transparent border-0 outline-none text-sm text-mono px-2 py-2 text-[var(--surface-800)]"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="text-xs text-[var(--surface-500)] block mb-1">Data</label>
-              <input
-                type="date" value={data} onChange={e => setData(e.target.value)}
-                className="input text-sm w-full"
-              />
-            </div>
+          {/* Observação — junto da categoria, que é o que ela detalha */}
+          <div>
+            <label className="text-xs text-[var(--surface-500)] block mb-1">Observação</label>
+            <input
+              type="text" value={descricao} onChange={e => setDescricao(e.target.value)}
+              placeholder="Ex.: abastecimento da van"
+              className="input text-sm w-full"
+            />
           </div>
 
-          {/* O CAIXA — só duas perguntas: de qual CONTA saiu e QUANDO debitou.
-              O CNPJ que movimentou sai da conta (mig 121), não se pergunta.
-              A data nasce igual à do gasto; quem paga no crédito troca pela do
-              vencimento da fatura. Nenhum dos dois é obrigatório: travar o
-              lançamento mataria a adoção, que é o gargalo real. */}
-          <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-[var(--surface-500)] block mb-1">Debitou em</label>
-                <input
-                  type="date" value={dataCaixa} onChange={e => setDataCaixa(e.target.value)}
-                  className="input text-sm w-full"
-                />
-                <p className="text-[11px] text-[var(--surface-400)] mt-1">
-                  No crédito, use a data de vencimento da fatura.
-                </p>
-              </div>
+          {/* ⌄ MAIS OPÇÕES — os dois casos raros saem do caminho do olho */}
+          <button
+            type="button"
+            onClick={() => setMaisOpcoes(v => !v)}
+            className="text-[11px] text-[var(--surface-400)] hover:text-[var(--surface-600)]"
+          >
+            {maisOpcoes ? '⌃ menos opções' : '⌄ é de outra unidade · cobre mais de um mês'}
+          </button>
 
-              <div>
-                <label className="text-xs text-[var(--surface-500)] block mb-1">Conta</label>
-                {novaConta !== null ? (
-                  <div className="flex gap-1">
-                    <input
-                      autoFocus
-                      value={novaConta}
-                      onChange={e => setNovaConta(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') { e.preventDefault(); void criarConta(novaConta) }
-                        if (e.key === 'Escape') setNovaConta(null)
-                      }}
-                      placeholder="Nome da conta"
-                      className="input text-sm flex-1 min-w-0"
-                    />
-                    <button
-                      type="button" onClick={() => void criarConta(novaConta)}
-                      className="btn-secondary text-xs px-2 shrink-0"
-                    >
-                      <Check className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ) : (
-                  <select
-                    value={contaId}
-                    onChange={e => (e.target.value === '__nova' ? setNovaConta('') : setContaId(e.target.value))}
-                    className="input text-sm w-full"
-                  >
-                    <option value="">Escolher…</option>
-                    {contas.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-                    <option value="__nova">+ nova conta</option>
-                  </select>
-                )}
-              </div>
-          </div>
-
+          {maisOpcoes && (<>
           {/* COMPRA EXTERNA — "esse gasto é de outra unidade".
               Só aparece no lançamento novo: mudar o destino de uma cobrança já
               emitida deixaria a outra ponta com um documento órfão. Para
@@ -791,6 +1040,7 @@ export default function LancamentosTab() {
               </div>
             )}
           </div>
+          </>)}
 
           {/* Só pergunta quando a regra é mesmo ambígua (capex × opex) */}
           {catSelecionada?.pergunta_capex && (
@@ -819,25 +1069,32 @@ export default function LancamentosTab() {
             </div>
           )}
 
-          {/* Onde e observação */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-[var(--surface-500)] block mb-1">Fornecedor</label>
-              <input
-                type="text" value={fornecedor} onChange={e => setFornecedor(e.target.value)}
-                placeholder="Ex.: Posto Ipiranga"
-                className="input text-sm w-full"
-              />
+          {/* O ÚNICO LUGAR ONDE A CONTABILIDADE APARECE — depois de decidida, em
+              uma frase. Confere-se numa linha em vez de em quatro campos, e é
+              coerente com a "contabilidade invisível" (§9): o operador lê o que
+              o sistema concluiu, sem ter escolhido nada disso. */}
+          {(catId || contaId || metodo) && (
+            <div className="text-[11px] text-[var(--surface-500)] pt-2 border-t"
+                 style={{ borderColor: 'var(--surface-200)' }}>
+              {(() => {
+                const conta = contas.find(c => c.id === contaId)
+                  || (contasQuePagam.length === 1 ? contasQuePagam[0] : null)
+                const quando = dataCaixa || data
+                const nat = duravel === true ? 'investimento'
+                  : catSelecionada?.fin_contas?.natureza === 'capex' ? 'investimento' : null
+                const grupo = catSelecionada?.fin_contas?.nome
+                return (
+                  <>
+                    {conta ? <>Sai da <strong>{conta.nome}</strong></> : 'Conta ainda não escolhida'}
+                    {quando && <> em {fmtData(quando)}</>}
+                    {grupo && <> · {grupo}</>}
+                    {nat && <> · {nat}</>}
+                    {rateado && Number(meses) > 1 && <> · dividido em {meses} meses</>}
+                  </>
+                )
+              })()}
             </div>
-            <div>
-              <label className="text-xs text-[var(--surface-500)] block mb-1">Observação</label>
-              <input
-                type="text" value={descricao} onChange={e => setDescricao(e.target.value)}
-                placeholder="Ex.: abastecimento da van"
-                className="input text-sm w-full"
-              />
-            </div>
-          </div>
+          )}
 
         </div>
       </Modal>
