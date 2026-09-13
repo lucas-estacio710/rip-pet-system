@@ -64,9 +64,39 @@ type CustoAuto = {
 
 /** Conta de onde o dinheiro sai. Tabela `contas`, escopada por unidade —
  *  cada unidade tem os SEUS bancos, não há conta comum ao grupo. */
-type ContaBancaria = { id: string; nome: string; saidas: string[] }
+type ContaBancaria = {
+  id: string
+  nome: string
+  saidas: string[]
+  /** ⚠️ A coluna do banco se chama `preferencial_RECEBIMENTO`, mas é usada aqui,
+   *  no lado do PAGAMENTO, como "a conta principal da unidade" (13/09/2026,
+   *  pedido do Lucas: "conta inter é preferencial para pagamentos, deveria
+   *  aparecer em primeiro no combobox, com uma estrela"). Reaproveitada de
+   *  propósito: uma unidade tem UMA conta principal, e criar
+   *  `preferencial_pagamento` só para separar o que na prática é a mesma conta
+   *  seria coluna nova para um caso que ainda não existe. No dia em que a
+   *  preferida de pagar for diferente da de receber, aí sim vale separar. */
+  preferencial_recebimento: boolean | null
+}
 
 const mesAtual = () => new Date().toISOString().slice(0, 7)
+
+/**
+ * VALOR EM CENTAVOS, do jeito que app de banco faz (13/09/2026, pedido do Lucas).
+ *
+ * O state guarda só os DÍGITOS, e a vírgula anda sozinha da direita para a
+ * esquerda: 1 → 0,01 · 14 → 0,14 · 140050 → 1.400,50. Some a decisão de "onde
+ * ponho a vírgula", que num campo de dinheiro é sempre a mesma.
+ *
+ * Efeito colateral bom: colar "-255,88" do extrato vira 255,88 sozinho, porque
+ * tudo que não é dígito é descartado na entrada — o sinal e o separador junto.
+ */
+const soDigitos = (t: string) => t.replace(/\D/g, '').replace(/^0+(?=\d)/, '').slice(0, 12)
+const digitosParaNumero = (d: string) => Number(d || '0') / 100
+const digitosParaTexto = (d: string) =>
+  digitosParaNumero(d).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+/** Caminho inverso, para reabrir um lançamento salvo: 1400.5 → "140050" */
+const numeroParaDigitos = (n: number) => String(Math.round(Math.abs(n) * 100))
 
 /** Ícone do lucide pelo nome salvo na categoria (fallback: etiqueta). */
 function IconeCat({ nome, className }: { nome?: string | null; className?: string }) {
@@ -247,7 +277,7 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
   const carregarContas = useCallback(async () => {
     if (!currentUnit?.id) return
     const { data } = await supabase
-      .from('contas').select('id, nome, saidas')
+      .from('contas').select('id, nome, saidas, preferencial_recebimento')
       .eq('unidade_id', currentUnit.id).eq('ativo', true)
       .eq('legado', false)          // conta de legado é histórico: não se lança nela
       .order('nome')
@@ -259,9 +289,26 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
   /** Contas que PAGAM o método escolhido (mig 122). Lista vazia = sem restrição:
    *  conta que ninguém configurou continua servindo, senão a tela ficaria sem
    *  opção nenhuma até alguém abrir o cadastro. */
-  const contasQuePagam = metodo
+  const contasQuePagam = (metodo
     ? contas.filter(c => (c.saidas || []).includes(metodo))
     : contas
+  ).slice().sort((a, b) => Number(!!b.preferencial_recebimento) - Number(!!a.preferencial_recebimento))
+
+  /**
+   * A CONTA PRINCIPAL JÁ VEM ESCOLHIDA. A estrela no combobox diz qual é.
+   *
+   * Roda ao trocar de método porque a lista muda junto: quem estava escolhido
+   * pode não pagar o método novo. Só substitui quando a atual deixou de ser
+   * elegível — uma escolha deliberada do operador sobrevive.
+   */
+  useEffect(() => {
+    if (!metodo) return
+    const elegiveis = contas
+      .filter(c => (c.saidas || []).includes(metodo))
+      .slice()
+      .sort((a, b) => Number(!!b.preferencial_recebimento) - Number(!!a.preferencial_recebimento))
+    setContaId(atual => (elegiveis.some(c => c.id === atual) ? atual : (elegiveis[0]?.id || '')))
+  }, [metodo, contas])
 
   // Fornecedores já usados — para o autocomplete não deixar o mesmo nome virar
   // duas grafias. Só o nome; a sugestão de categoria é buscada na hora.
@@ -333,7 +380,7 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
         nome: limpo, unidade_id: currentUnit.id, ativo: true,
         saidas: metodo ? [metodo] : [],
       })
-      .select('id, nome, saidas').single()
+      .select('id, nome, saidas, preferencial_recebimento').single()
     if (error) return toast(error.message, 'error')
     const nova = data as unknown as ContaBancaria
     setContas(cs => [...cs, nova].sort((a, b) => a.nome.localeCompare(b.nome)))
@@ -367,7 +414,7 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
     if (somenteLeitura) return
     setEditandoId(l.id)
     setCatId(l.categoria_id || '')
-    setValor(String(l.valor ?? ''))
+    setValor(l.valor ? numeroParaDigitos(Number(l.valor)) : '')
     setData((l.data_competencia || '').slice(0, 10))
     setFornecedor(l.fornecedor_nome || '')
     setDescricao(l.descricao || '')
@@ -400,7 +447,7 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
     // Colar do extrato traz o sinal ("-255,88"). Numa tela de DESPESA, saída é
     // saída — recusar por causa do sinal (e ainda dizer "informe o valor", com o
     // valor preenchido) era mandar o operador procurar um erro que não existe.
-    const v = Math.abs(Number(valor))
+    const v = digitosParaNumero(valor)
     if (!catId) return toast('Escolha a categoria', 'error')
     if (!Number.isFinite(v) || v <= 0) return toast('O valor precisa ser maior que zero', 'error')
     if (catSelecionada?.pergunta_capex && duravel === null) {
@@ -708,9 +755,9 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
                    style={{ borderColor: 'var(--surface-300)', background: 'var(--surface-0)' }}>
                 <span className="text-sm text-[var(--surface-400)] pl-2">R$</span>
                 <input
-                  type="number" step="0.01" value={valor}
-                  onChange={e => setValor(e.target.value)}
-                  onBlur={e => { const n = Number(e.target.value); if (n < 0) setValor(String(Math.abs(n))) }}
+                  type="text" inputMode="decimal"
+                  value={valor ? digitosParaTexto(valor) : ''}
+                  onChange={e => setValor(soDigitos(e.target.value))}
                   placeholder="0,00"
                   className="w-full bg-transparent border-0 outline-none text-sm text-mono px-2 py-2 text-[var(--surface-800)]"
                 />
@@ -733,13 +780,9 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
                 return (
                   <button
                     key={op.v} type="button"
-                    onClick={() => {
-                      setMetodo(op.v)
-                      // A conta escolhida some se não paga o novo método — deixá-la
-                      // gravaria o dinheiro saindo de onde ele não sai.
-                      const ok = contas.find(c => c.id === contaId)
-                      if (ok && !(ok.saidas || []).includes(op.v)) setContaId('')
-                    }}
+                    // A conta se ajusta sozinha no effect acima — inclusive trocando
+                    // por outra quando a atual não paga o método novo.
+                    onClick={() => setMetodo(op.v)}
                     className="text-xs px-3 py-1.5 rounded-[var(--radius-md)] border transition-colors"
                     style={{
                       background: on ? 'rgba(16,185,129,0.12)' : 'transparent',
@@ -795,7 +838,11 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
                   className="input text-sm w-full"
                 >
                   <option value="">Escolher…</option>
-                  {contasQuePagam.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                  {contasQuePagam.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.preferencial_recebimento ? '⭐ ' : ''}{c.nome}
+                    </option>
+                  ))}
                   <option value="__nova">+ nova conta</option>
                 </select>
               )}
@@ -1055,9 +1102,9 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
                   className="input text-sm text-mono w-20 py-1"
                 />
                 <span className="text-xs text-[var(--surface-500)]">meses</span>
-                {Number(valor) > 0 && Number(meses) > 1 && (
+                {digitosParaNumero(valor) > 0 && Number(meses) > 1 && (
                   <span className="text-[11px] text-[var(--surface-400)]">
-                    {fmtBRL(Number(valor) / Number(meses))} por mês
+                    {fmtBRL(digitosParaNumero(valor) / Number(meses))} por mês
                   </span>
                 )}
               </div>
