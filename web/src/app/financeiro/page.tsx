@@ -92,7 +92,16 @@ export default function FinanceiroPage() {
       </div>
 
       {activeTab?.key === 'lancamentos' ? (
-        <LancamentosTab />
+        // ⚠️ Era a ÚNICA aba do financeiro que não recebia `somenteLeitura`
+        // (achado em 13/09/2026): Repasse, Caixa e Contas respeitavam o FLS e
+        // Lançamentos não, então a unidade em `read` — que é o caso de Santos —
+        // consultava as três e LANÇAVA na quarta.
+        //
+        // Duas travas, e basta uma: a chave própria (granularidade futura) e a
+        // permissão da TELA. A segunda é o que dá efeito hoje — "a tela está em
+        // leitura" tem de significar que nada nela se edita, senão `read` vira
+        // uma etiqueta sem consequência.
+        <LancamentosTab somenteLeitura={!canEdit(TELA, 'btn_lancamento_editar') || !canEdit(TELA, TELA)} />
       ) : activeTab?.key === 'repasse' ? (
         <RepasseTab somenteLeitura={repasseSomenteLeitura} />
       ) : activeTab?.key === 'caixa' ? (

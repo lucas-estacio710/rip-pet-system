@@ -80,7 +80,12 @@ function IconeCat({ nome, className }: { nome?: string | null; className?: strin
 // lançamento tinha anexo quando isso saiu (conferido: 0). Pra voltar, é
 // reconstruir o input de arquivo + o upload em `salvar()` e reusar
 // `caminhoComprovante()`, que segue em lib/financeiro.ts.
-export default function LancamentosTab() {
+/**
+ * @param somenteLeitura FLS: a unidade CONSULTA o que já foi lançado, mas não
+ *   cria, edita nem exclui. Era a única aba do financeiro que ignorava isso —
+ *   Repasse, Caixa e Contas já recebiam a prop, e Lançamentos não (13/09/2026).
+ */
+export default function LancamentosTab({ somenteLeitura = false }: { somenteLeitura?: boolean }) {
   const supabaseTipado = createClient()
   // Tabelas fin_* ainda não estão em types/database.ts
   const supabase = supabaseTipado as unknown as SupabaseClient
@@ -352,6 +357,7 @@ export default function LancamentosTab() {
 
   /** Abre o modal com o lançamento carregado. */
   function editar(l: Lancamento) {
+    if (somenteLeitura) return
     setEditandoId(l.id)
     setCatId(l.categoria_id || '')
     setValor(String(l.valor ?? ''))
@@ -381,6 +387,9 @@ export default function LancamentosTab() {
 
   async function salvar() {
     if (!currentUnit?.id) return
+    // Trava na FUNÇÃO, não só no botão: esconder o botão é aparência — a lição
+    // que a /encaminhamentos aprendeu ao virar somente-leitura (FLOW §3.3).
+    if (somenteLeitura) return toast('Sua unidade não pode lançar despesa', 'error')
     // Colar do extrato traz o sinal ("-255,88"). Numa tela de DESPESA, saída é
     // saída — recusar por causa do sinal (e ainda dizer "informe o valor", com o
     // valor preenchido) era mandar o operador procurar um erro que não existe.
@@ -473,6 +482,7 @@ export default function LancamentosTab() {
   }
 
   async function excluir(id: string) {
+    if (somenteLeitura) return
     const { error } = await supabase.from('fin_lancamentos').delete().eq('id', id)
     if (error) return toast(error.message, 'error')
     setLancamentos(l => l.filter(x => x.id !== id))
@@ -512,9 +522,11 @@ export default function LancamentosTab() {
           {totalAuto > 0 && ' + cremações'}
         </span>
         {carregando && <Loader2 className="h-4 w-4 animate-spin text-[var(--surface-400)]" />}
-        <button onClick={() => setAberto(true)} className="btn-primary text-sm ml-auto">
-          <Plus className="h-4 w-4" /> Novo lançamento
-        </button>
+        {!somenteLeitura && (
+          <button onClick={() => setAberto(true)} className="btn-primary text-sm ml-auto">
+            <Plus className="h-4 w-4" /> Novo lançamento
+          </button>
+        )}
       </div>
 
       {/* CUSTOS AUTOMÁTICOS — fixos no topo, não se digita.
@@ -577,9 +589,9 @@ export default function LancamentosTab() {
           {lancamentos.map(l => (
             <div
               key={l.id}
-              onClick={() => editar(l)}
-              className="flex items-center gap-3 py-2 -mx-1 px-1 rounded-[var(--radius-sm)] cursor-pointer hover:bg-[var(--surface-50)] transition-colors"
-              title="Editar lançamento"
+              onClick={() => { if (!somenteLeitura) editar(l) }}
+              className={`flex items-center gap-3 py-2 -mx-1 px-1 rounded-[var(--radius-sm)] transition-colors ${somenteLeitura ? '' : 'cursor-pointer hover:bg-[var(--surface-50)]'}`}
+              title={somenteLeitura ? undefined : 'Editar lançamento'}
             >
               <div className="w-8 h-8 rounded-full bg-[var(--surface-100)] flex items-center justify-center shrink-0">
                 <IconeCat nome={l.fin_categorias?.icone} className="h-4 w-4 text-[var(--surface-500)]" />
@@ -617,13 +629,15 @@ export default function LancamentosTab() {
               >
                 {fmtBRL(l.valor)}
               </span>
-              <button
-                onClick={e => { e.stopPropagation(); void excluir(l.id) }}
-                title="Excluir"
-                className="text-[var(--surface-400)] hover:text-red-400 shrink-0"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
+              {!somenteLeitura && (
+                <button
+                  onClick={e => { e.stopPropagation(); void excluir(l.id) }}
+                  title="Excluir"
+                  className="text-[var(--surface-400)] hover:text-red-400 shrink-0"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
           ))}
         </div>

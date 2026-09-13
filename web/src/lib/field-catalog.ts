@@ -175,6 +175,7 @@ export const CAMPOS_BOTOES: ChildItemDef[] = [
   { key: 'btn_caixa_editar', tela: 'tela_financeiro', label: 'Lançar movimento de caixa', desc: 'Registrar transferência, pagamento de fatura, aporte. Em leitura, a aba só mostra saldo e extrato' },
   { key: 'btn_contas_editar', tela: 'tela_financeiro', label: 'Editar contas', desc: 'Criar, renomear, desativar e excluir conta. Em leitura, a aba só lista' },
   { key: 'btn_lancamento_aprovar', tela: 'tela_financeiro', label: 'Conferir lançamentos', desc: 'Fila "Aguardando conferência" no topo de Lançamentos: conferir (não muda valor) e rejeitar (tira o lançamento da DRE e do caixa). Ocultar esconde a fila — os lançamentos continuam nascendo pendentes e contando normalmente' },
+  { key: 'btn_lancamento_editar', tela: 'tela_financeiro', label: 'Lançar despesa', desc: 'Criar, editar e excluir lançamento. Em leitura, a aba só lista o que já foi lançado. ⚠️ Também fica em leitura quando a PRÓPRIA TELA está em "read" — a aba era a única do financeiro que ignorava isso (corrigido em 13/09/2026)' },
   { key: 'btn_repasse_editar', tela: 'tela_financeiro', label: 'Editar repasse', desc: 'Aplicar deflator, lançar acertos, fechar o repasse e marcar enviado/pago. Só a Matriz — as unidades ficam em leitura (mig 112)' },
 ]
 
