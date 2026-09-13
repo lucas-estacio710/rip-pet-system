@@ -567,7 +567,34 @@ export default function ContratoDetalhe() {
     () => destinoDoRecebimento(contas, metodoBancoMega, hasModule('tela_financeiro')),
     [contas, metodoBancoMega, hasModule],
   )
-  useEffect(() => { setMegaContaId(destinoMega.contaId) }, [destinoMega.contaId])
+  /**
+   * 🔴 EDITAR UM PAGAMENTO NÃO PODE TROCAR A CONTA DELE.
+   *
+   * Caso real (12/09/2026, achado em 13/09): um pagamento de R$ 170 de um
+   * contrato de SANTOS foi aberto para corrigir a BANDEIRA, com o operador
+   * logado em São José. O modal recalculou o destino a partir das contas da
+   * unidade LOGADA e gravou "Crédito Daniel" — conta de SJ — por cima da conta
+   * de Santos, em silêncio. Só apareceu porque o extrato da Inter não fechava.
+   *
+   * Em modo edição a conta gravada MANDA. Trocar de conta continua possível
+   * pelo campo "Cai em", que agora está à vista — a diferença é que passa a ser
+   * um ato deliberado, não efeito colateral de mexer em outro campo.
+   */
+  useEffect(() => {
+    if (megaPagamentoEditando) {
+      if (megaPagamentoEditando.conta_id) setMegaContaId(megaPagamentoEditando.conta_id)
+      return
+    }
+    setMegaContaId(destinoMega.contaId)
+  }, [destinoMega.contaId, megaPagamentoEditando])
+
+  /**
+   * A conta gravada não está entre as contas desta unidade — ou seja, é de OUTRA.
+   * Nesse caso o campo vira texto mesmo havendo opções: um `<select>` que não
+   * contém o valor atual grava a primeira opção ao salvar, que é exatamente como
+   * um pagamento de Santos virou "Crédito Daniel" (SJ) sem ninguém pedir.
+   */
+  const megaContaForaDaLista = !!megaContaId && !contas.some(c => c.id === megaContaId)
 
   /** O mesmo destino, para o pagamento avulso — que já tinha seletor, mas listava
    *  contas por conta própria e passaria a oferecer a legada junto com as demais. */
@@ -4905,7 +4932,7 @@ ${petNome}`
                   visual do pipeline. Antes a conta era gravada sem aparecer. */}
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-slate-400 shrink-0">Cai em</span>
-                {destinoMega.editavel ? (
+                {destinoMega.editavel && !megaContaForaDaLista ? (
                   <select
                     value={megaContaId}
                     onChange={(e) => setMegaContaId(e.target.value)}
@@ -4918,7 +4945,12 @@ ${petNome}`
                 ) : (
                   <span className="flex-1 min-w-0 flex items-center gap-1.5 text-sm text-slate-300 truncate">
                     {contas.find((c) => c.id === megaContaId)?.nome || (
-                      <span className="text-amber-400">nenhuma conta configurada</span>
+                      // Conta que não está na lista da unidade logada: é de OUTRA
+                      // unidade. Acontece ao editar pagamento de contrato alheio —
+                      // e é justamente o que não pode ser sobrescrito em silêncio.
+                      megaContaId
+                        ? <span className="text-amber-400">conta de outra unidade — mantida como está</span>
+                        : <span className="text-amber-400">nenhuma conta configurada</span>
                     )}
                     {destinoMega.legada && megaContaId && (
                       <span
