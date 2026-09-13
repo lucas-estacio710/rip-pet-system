@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
-import { contaPadraoPara, contasQueAceitam, taxaDaVenda } from '@/lib/financeiro'
+import { useEffect, useMemo, useState, useRef } from 'react'
+import { contaPadraoPara, contasQueAceitam, destinoDoRecebimento, taxaDaVenda } from '@/lib/financeiro'
 import FichaRemocao from '@/components/fichas/FichaRemocao'
 import { captureElementAsBlob, fichaFilename, gerarFichaPDFA4Duplicada, nomeFicha } from '@/lib/ficha-generator'
 import EditarFichaModal from '@/components/contratos/modals/EditarFichaModal'
@@ -126,6 +126,8 @@ type Conta = {
   nome: string
   entradas: string[] | null                  // métodos que esta conta recebe (mig 122)
   preferencial_recebimento: boolean | null   // já vem escolhida no acerto
+  produto: string | null                     // cartão de crédito não recebe (mig 130)
+  legado: boolean | null                     // destino de quem não tem o módulo financeiro
 }
 
 type Pagamento = {
@@ -360,6 +362,9 @@ export default function ContratoDetalhe() {
   // Mega Pagamento (quitar saldo / novo pagamento / editar)
   const [megaPagamentoModal, setMegaPagamentoModal] = useState(false)
   const [megaPagamentoEditando, setMegaPagamentoEditando] = useState<Pagamento | null>(null)
+  // Conta em que ESTE recebimento cai — visível na tela desde 13/09/2026.
+  // Antes era decidida e gravada sem aparecer. Ver `destinoDoRecebimento`.
+  const [megaContaId, setMegaContaId] = useState('')
   const [megaPagamentoForm, setMegaPagamentoForm] = useState({
     valorPlano: '',
     descontoPlano: '',
@@ -552,6 +557,25 @@ export default function ContratoDetalhe() {
   const [responsavelNomeResolvido, setResponsavelNomeResolvido] = useState<string | null>(null)
   const [executadoPorNomeResolvido, setExecutadoPorNomeResolvido] = useState<string | null>(null)
   const podeAlterarDados = isSuperAdmin || currentRole === 'gerente'
+
+  /** O método como o banco o conhece (o modal fala "cartão" e pergunta parcelas depois). */
+  const metodoBancoMega = megaPagamentoForm.metodo === 'cartao'
+    ? (megaPagamentoForm.parcelas === 'debito' ? 'debito' : 'credito')
+    : megaPagamentoForm.metodo
+  /** Para onde vai o dinheiro — e se o operador pode mudar. Ver `destinoDoRecebimento`. */
+  const destinoMega = useMemo(
+    () => destinoDoRecebimento(contas, metodoBancoMega, hasModule('tela_financeiro')),
+    [contas, metodoBancoMega, hasModule],
+  )
+  useEffect(() => { setMegaContaId(destinoMega.contaId) }, [destinoMega.contaId])
+
+  /** O mesmo destino, para o pagamento avulso — que já tinha seletor, mas listava
+   *  contas por conta própria e passaria a oferecer a legada junto com as demais. */
+  const destinoAvulso = useMemo(
+    () => destinoDoRecebimento(contas, pagamentoForm.metodo, hasModule('tela_financeiro')),
+    [contas, pagamentoForm.metodo, hasModule],
+  )
+
   const { canEdit, isVisible } = useFieldPermission()
   const T = 'tela_contrato' // tela FLS (detalhe do contrato)
   const pagamentoCompleto = isVisible(T, 'pagamento_completo')
@@ -1018,10 +1042,11 @@ export default function ContratoDetalhe() {
     if (!currentUnit?.id) return
     const { data } = await supabase
       .from('contas')
-      .select('id, nome, entradas, preferencial_recebimento')
+      .select('id, nome, entradas, preferencial_recebimento, produto, legado')
       .eq('ativo', true)
       .eq('unidade_id', currentUnit.id)
-      .eq('legado', false)          // conta de legado não recebe pagamento novo
+      // A LEGADA VEM JUNTO (13/09/2026) — quem não tem o módulo financeiro grava
+      // nela, sempre. Quem separa as duas é `destinoDoRecebimento`, não a query.
       .order('nome')
 
     if (data) setContas(data as unknown as Conta[])
@@ -1052,7 +1077,7 @@ export default function ContratoDetalhe() {
       setPagamentoForm({
         tipo: 'plano',
         metodo: 'pix',
-        conta_id: contaPadraoPara(contas, 'pix'),
+        conta_id: destinoDoRecebimento(contas, 'pix', hasModule('tela_financeiro')).contaId,
         valor: '',
         desconto: '',
         parcelas: 1,
@@ -1476,8 +1501,12 @@ export default function ContratoDetalhe() {
     // defeito corrigido no pipeline pela mig 122, que ninguém tinha visto viver
     // também neste arquivo. Toda unidade que registrasse o recebimento por aqui
     // gravava na conta de outra filial, em silêncio. Agora sai do cadastro.
+    //
+    // 13/09/2026: a conta agora está NA TELA (campo "Cai em"), então o que vale
+    // é o que o operador viu. O fallback recalcula para o caso de as contas
+    // terem acabado de ser carregadas na linha acima.
     if (contas.length === 0) await carregarContas()
-    const contaId = contaPadraoPara(contas, metodoBanco) || null
+    const contaId = megaContaId || destinoMega.contaId || null
 
     // A taxa é da MAQUININHA, não do sistema (mig 134) — mesma função das
     // outras telas. Sem tabela cadastrada, entra cheio; não se inventa taxa.
@@ -4424,7 +4453,7 @@ ${petNome}`
                         metodo,
                         // a conta acompanha o método: pix e maquininha caem em
                         // contas diferentes, e quem sabe disso é o cadastro
-                        conta_id: contaPadraoPara(contas, metodo),
+                        conta_id: destinoDoRecebimento(contas, metodo, hasModule('tela_financeiro')).contaId,
                       })}
                       className={`py-2 px-2 rounded-lg text-xs font-medium transition-colors ${
                         pagamentoForm.metodo === metodo
@@ -4448,15 +4477,22 @@ ${petNome}`
                   <select
                     value={pagamentoForm.conta_id}
                     onChange={(e) => setPagamentoForm({ ...pagamentoForm, conta_id: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                    disabled={!destinoAvulso.editavel && !!destinoAvulso.contaId}
+                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-70"
                   >
                     <option value="">Selecione...</option>
-                    {/* Só as contas que RECEBEM este método (mig 122). Conta sem
-                        `entradas` configurado continua aparecendo em todas. */}
-                    {contasQueAceitam(contas, pagamentoForm.metodo).map((conta) => (
+                    {/* Só as contas que RECEBEM este método (mig 122) — e, na unidade
+                        SEM o módulo financeiro, só a legada (13/09/2026). A lista sai
+                        de `destinoDoRecebimento`, a mesma dos dois mega pagamentos. */}
+                    {destinoAvulso.opcoes.map((conta) => (
                       <option key={conta.id} value={conta.id}>{conta.nome}</option>
                     ))}
                   </select>
+                  {destinoAvulso.legada && destinoAvulso.contaId && (
+                    <p className="mt-1 text-[11px] text-slate-400">
+                      Esta unidade não tem o módulo financeiro — o recebimento fica na conta de histórico dela.
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-1">Data</label>
@@ -4864,6 +4900,37 @@ ${petNome}`
                   )}
                 </div>
               )}
+
+              {/* EM QUE CONTA O DINHEIRO CAI (13/09/2026) — mesma regra e mesmo
+                  visual do pipeline. Antes a conta era gravada sem aparecer. */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-slate-400 shrink-0">Cai em</span>
+                {destinoMega.editavel ? (
+                  <select
+                    value={megaContaId}
+                    onChange={(e) => setMegaContaId(e.target.value)}
+                    className="flex-1 min-w-0 px-2 py-1 border border-slate-600 rounded text-sm bg-slate-700 focus:outline-none focus:ring-1 focus:ring-green-500"
+                  >
+                    {destinoMega.opcoes.map((c) => (
+                      <option key={c.id} value={c.id}>{c.nome}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="flex-1 min-w-0 flex items-center gap-1.5 text-sm text-slate-300 truncate">
+                    {contas.find((c) => c.id === megaContaId)?.nome || (
+                      <span className="text-amber-400">nenhuma conta configurada</span>
+                    )}
+                    {destinoMega.legada && megaContaId && (
+                      <span
+                        className="shrink-0 px-1.5 py-0.5 rounded text-[10px] bg-slate-700 text-slate-400"
+                        title="Esta unidade não tem o módulo financeiro, então o recebimento fica na conta de histórico dela."
+                      >
+                        histórico
+                      </span>
+                    )}
+                  </span>
+                )}
+              </div>
 
               {/* Total compacto */}
               <div className="bg-emerald-600 rounded-lg p-2 flex justify-between items-center">

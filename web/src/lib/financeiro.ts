@@ -69,14 +69,18 @@ export function explicarCaixa(metodo: MetodoPagamento | ''): string | null {
  * mega pagamento do pipeline tinha **UUID de conta de Santos chumbado no
  * código**, o que fazia toda outra unidade gravar o recebimento na conta errada.
  *
- * ⚠️ LISTA VAZIA = SEM RESTRIÇÃO. Conta que ninguém configurou continua servindo
- * pra tudo, senão a migration deixaria as telas sem nenhuma conta selecionável.
+ * ⚠️ LISTA VAZIA = SEM RESTRIÇÃO, mas em ÚLTIMO LUGAR. Conta que ninguém
+ * configurou continua aparecendo (senão a migration deixaria as telas sem opção),
+ * só que agora perde para qualquer uma que DECLARE aceitar o método — e um
+ * cartão de crédito nunca entra no lado das entradas. Ver `contaPadraoPara`.
  */
 export type ContaEscolhivel = {
   id: string
   entradas?: string[] | null
   saidas?: string[] | null
   preferencial_recebimento?: boolean | null
+  /** `cartao_credito` nunca recebe pagamento de cliente (mig 130). */
+  produto?: string | null
 }
 
 /** Contas que aceitam este método no lado indicado. */
@@ -84,18 +88,92 @@ export function contasQueAceitam<T extends ContaEscolhivel>(
   contas: T[], metodo: string, lado: 'entradas' | 'saidas' = 'entradas'
 ): T[] {
   return contas.filter(c => {
+    // 🔴 Um CARTÃO DE CRÉDITO não recebe pagamento de cliente. Ninguém paga um
+    // velório no cartão de crédito da empresa — o cartão é meio de PAGAR, não de
+    // receber. Isso não depende de configuração: é o que o produto é.
+    if (lado === 'entradas' && c.produto === 'cartao_credito') return false
     const lista = c[lado] || []
     return lista.length === 0 || lista.includes(metodo)
   })
 }
 
 /**
- * Qual conta já vem escolhida. A preferencial só DESEMPATA — se ela não recebe
- * o método em questão, perde pra quem recebe. Sem candidata, devolve ''.
+ * Qual conta vem pré-selecionada no recebimento.
+ *
+ * 🔴 A ORDEM IMPORTA, e o defeito que ela conserta custou dinheiro de verdade:
+ * até 12/09/2026 isto devolvia simplesmente `aceitam[0]`, e como "array vazio"
+ * significa "sem restrição" (mig 122), a única conta NÃO configurada de Santos
+ * era elegível para tudo — e ganhava por vir primeiro no alfabeto. Resultado:
+ * **19 recebimentos, R$ 15.840, caíram no "Cartão Pessoal NuBank"**, incluindo
+ * pix e dinheiro.
+ *
+ * A regra do array vazio nasceu quando NENHUMA conta estava configurada, para
+ * que as telas não ficassem sem opção. Depois que as migs 130/131 classificaram
+ * as demais, a não configurada virou coringa. Agora ela é o ÚLTIMO recurso:
+ *
+ *   1. preferencial que declara aceitar o método
+ *   2. qualquer uma que declara aceitar o método
+ *   3. as não configuradas — só se nenhuma declarou
  */
 export function contaPadraoPara<T extends ContaEscolhivel>(contas: T[], metodo: string): string {
   const aceitam = contasQueAceitam(contas, metodo, 'entradas')
-  return (aceitam.find(c => c.preferencial_recebimento) || aceitam[0])?.id || ''
+  const declaram = aceitam.filter(c => (c.entradas || []).includes(metodo))
+  const candidatas = declaram.length ? declaram : aceitam
+  return (candidatas.find(c => c.preferencial_recebimento) || candidatas[0])?.id || ''
+}
+
+/**
+ * PARA ONDE VAI O RECEBIMENTO — a porta única das três telas (13/09/2026).
+ *
+ * 🔴 O PROBLEMA QUE ISTO RESOLVE: a conta era escolhida em silêncio. Os dois mega
+ * pagamentos (`contratos/page.tsx` e `[id]/page.tsx`) chamavam `contaPadraoPara`
+ * e GRAVAVAM, sem nada na tela — herança do conserto da mig 122, que tirou os
+ * UUIDs chumbados mas manteve a premissa de que não se pergunta o que dá pra
+ * deduzir. Quando a dedução errava, ninguém via: em 13/09 mediu-se que o default
+ * em produção era "Cartão Pessoal NuBank" para os QUATRO métodos em Santos,
+ * "Crédito Daniel" em SJ e "Crédito C6" em CP — 73 recebimentos, R$ 66.359,50,
+ * registrados em conta de cartão de crédito porque foi o que a tela ofereceu.
+ *
+ * A REGRA (decisão do Lucas, 13/09/2026):
+ *
+ *   unidade COM o financeiro   → escolhe a conta, e o campo aparece na tela
+ *   unidade SEM o financeiro   → conta LEGADA, sempre. Sem escolha, sem exceção
+ *
+ * Por que legada e não a conta "certa" da unidade: quem não contratou o módulo
+ * não abre a aba Contas, logo não tem como cadastrar nem curar conta nenhuma.
+ * Legada diz a verdade — "é dinheiro desta unidade, em lugar não identificado" —
+ * enquanto apontar para uma conta específica inventaria um histórico que não
+ * aconteceu. Foi essa invenção que produziu os 73.
+ *
+ * ⚠️ `temFinanceiro` vem de `hasModule('tela_financeiro')`, que retorna SEMPRE
+ * `true` para super_admin (decisão consciente, 13/09: consistência com o resto do
+ * código). Consequência real: o super_admin logado numa unidade sem o módulo vê
+ * o seletor e grava na conta escolhida, enquanto o operador da MESMA unidade
+ * grava na legada. O mesmo pagamento vai para lugares diferentes conforme quem
+ * registra. Se algum dia isso incomodar, o conserto é aqui e em um lugar só:
+ * trocar por uma leitura do FLS real da unidade.
+ *
+ * `contas` deve trazer TODAS as contas ativas da unidade, legada inclusa — as
+ * telas filtravam `legado=false` na query, e sem a legada não há para onde ir.
+ */
+export function destinoDoRecebimento<T extends ContaEscolhivel & { legado?: boolean | null }>(
+  contas: T[], metodo: string, temFinanceiro: boolean,
+): { contaId: string; opcoes: T[]; editavel: boolean; legada: boolean } {
+  const legada = contas.find(c => c.legado)
+  if (!temFinanceiro) {
+    return { contaId: legada?.id || '', opcoes: legada ? [legada] : [], editavel: false, legada: true }
+  }
+  const proprias = contas.filter(c => !c.legado)
+  const opcoes = contasQueAceitam(proprias, metodo, 'entradas')
+  const padrao = contaPadraoPara(proprias, metodo)
+  // Nenhuma conta aceita este método — cai na legada, que é o que a unidade sem
+  // o módulo já faz. Medido em 13/09: SP, PA, RS e a Matriz não têm conta que
+  // receba pix nem crédito, e sem este desvio o pagamento gravaria `conta_id`
+  // NULO, que some do caixa sem deixar rastro. Legada é impreciso; nulo é perdido.
+  if (!padrao && legada) return { contaId: legada.id, opcoes: [legada], editavel: false, legada: true }
+  // Editável só quando há de fato o que escolher. Com uma opção só, o campo
+  // continua VISÍVEL (é a correção do silêncio), mas como texto.
+  return { contaId: padrao, opcoes, editavel: opcoes.length >= 2, legada: false }
 }
 
 /**

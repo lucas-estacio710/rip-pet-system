@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, Suspense, useEffect, useRef, useState } from 'react'
+import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { FileText, Search, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ArrowUp, ArrowDown, Star, X, Printer, XCircle, Plus, Weight, Copy, Check, Clock, CheckCheck, CalendarClock, SearchCheck, Flame, CheckCircle2, Loader2, AlertTriangle, PawPrint, Tag, DollarSign, User, Calendar, Move, Hand, MoreVertical, Pencil, Trash2, Unlink, Truck, Package } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -9,7 +9,10 @@ import Link from 'next/link'
 import { useDebounce } from '@/hooks/useDebounce'
 import { ProtocoloData, montarProtocoloData, normalizarProtocoloData } from '@/components/protocolo/protocolo-utils'
 import { computeAllTags, getPagamentoPendente, TAG_STATE_STYLES, type ComputedTag } from '@/lib/contrato-tags'
-import { contaPadraoPara, taxaDaVenda, fmtBRL, type ContaEscolhivel } from '@/lib/financeiro'
+import { contaPadraoPara, destinoDoRecebimento, taxaDaVenda, fmtBRL, type ContaEscolhivel } from '@/lib/financeiro'
+
+/** Conta da unidade como o mega pagamento precisa dela: com nome (pra exibir) e `legado`. */
+type ContaUnidade = ContaEscolhivel & { nome: string; legado: boolean | null }
 import ProtocoloEditorModal from '@/components/protocolo/ProtocoloEditorModal'
 import { printProtocolos } from '@/components/protocolo/ProtocoloPrint'
 import InteractiveTags from '@/components/contratos/InteractiveTags'
@@ -593,7 +596,11 @@ function ContratosContent() {
   const [taxaVenda, setTaxaVenda] = useState<{ percentual: number; cadastrada: boolean } | null>(null)
   // Contas DESTA unidade, com o que cada uma recebe (mig 122). Substitui os UUIDs
   // que estavam chumbados aqui — ver comentário em `processarMegaPagamento`.
-  const [contasUnidade, setContasUnidade] = useState<ContaEscolhivel[]>([])
+  const [contasUnidade, setContasUnidade] = useState<ContaUnidade[]>([])
+  // Conta em que ESTE recebimento vai cair. Nasce do destino calculado e só muda
+  // se o operador trocar — antes de 13/09/2026 não existia: a conta era gravada
+  // sem aparecer em lugar nenhum. Ver `destinoDoRecebimento`.
+  const [megaContaId, setMegaContaId] = useState('')
   const [megaPagamentoForm, setMegaPagamentoForm] = useState({
     valorPlano: '',
     descontoPlano: '',
@@ -2584,17 +2591,26 @@ Gratidão eterna!
   // InterPag, Infinity), a venda de uma unidade saía descontada com a taxa da
   // maquininha de outra. A taxa agora vem da CONTA, por `taxaDaVenda` (mig 134).
 
-  /** Contas da unidade logada — a escolha do mega pagamento sai daqui. */
+  /**
+   * Contas da unidade logada — a escolha do mega pagamento sai daqui.
+   *
+   * ⚠️ A LEGADA VEM JUNTO desde 13/09/2026. Antes havia `.eq('legado', false)`
+   * com o comentário "conta de legado não recebe pagamento novo", que era a
+   * regra da mig 127. A regra mudou: unidade SEM o módulo financeiro passa a
+   * gravar SEMPRE na legada, porque ela não tem como cadastrar conta nenhuma
+   * (a aba Contas não abre pra ela). Quem separa as duas agora é
+   * `destinoDoRecebimento`, não a query — e sem a legada aqui, aquelas
+   * unidades ficariam sem destino nenhum.
+   */
   async function carregarContasUnidade() {
     if (!currentUnit?.id) return
     const { data } = await supabase
       .from('contas')
-      .select('id, entradas, preferencial_recebimento, produto')
+      .select('id, nome, entradas, preferencial_recebimento, produto, legado')
       .eq('ativo', true)
       .eq('unidade_id', currentUnit.id)
-      .eq('legado', false)          // conta de legado não recebe pagamento novo
       .order('nome')
-    if (data) setContasUnidade(data as unknown as ContaEscolhivel[])
+    if (data) setContasUnidade(data as unknown as ContaUnidade[])
   }
 
   async function abrirMegaPagamentoModal(contrato: Contrato) {
@@ -2628,25 +2644,42 @@ Gratidão eterna!
     setMegaPagamentoModal(true)
   }
 
+  /** O método como o banco o conhece (o modal fala "cartão" e pergunta parcelas depois). */
+  const metodoBancoMega = megaPagamentoForm.metodo === 'cartao'
+    ? (megaPagamentoForm.parcelas === 'debito' ? 'debito' : 'credito')
+    : megaPagamentoForm.metodo
+
+  /** Para onde vai o dinheiro — e se o operador pode mudar isso. Ver `destinoDoRecebimento`. */
+  const destinoMega = useMemo(
+    () => destinoDoRecebimento(contasUnidade, metodoBancoMega, hasModule('tela_financeiro')),
+    [contasUnidade, metodoBancoMega, hasModule],
+  )
+
+  // A escolha acompanha o método (trocar pix → cartão troca a maquininha), mas
+  // uma troca manual do operador sobrevive enquanto o método não mudar.
+  useEffect(() => { setMegaContaId(destinoMega.contaId) }, [destinoMega.contaId])
+
   /**
    * Consulta a taxa da maquininha assim que dá pra saber qual é — para o
    * operador ver o desconto ANTES de gravar, e ser avisado quando aquela
    * máquina ainda não tem tabela cadastrada.
+   *
+   * ⚠️ Lê `megaContaId`, não mais o padrão calculado: se o operador trocar a
+   * maquininha no seletor, a taxa exibida tem que ser a DAQUELA máquina — senão
+   * a tela mostra um líquido que não é o que vai ser gravado.
    */
   useEffect(() => {
     if (!megaPagamentoModal) return
-    const metodo = megaPagamentoForm.metodo === 'cartao'
-      ? (megaPagamentoForm.parcelas === 'debito' ? 'debito' : 'credito')
-      : megaPagamentoForm.metodo
+    const metodo = metodoBancoMega
     if (metodo !== 'credito' && metodo !== 'debito') { setTaxaVenda(null); return }
     const m = megaPagamentoForm.parcelas?.match(/(\d+)x/)
-    const conta = contaPadraoPara(contasUnidade, metodo) || null
+    const conta = megaContaId || null
     let cancelado = false
     void taxaDaVenda(supabase, conta, metodo, m ? parseInt(m[1]) : 1,
       megaPagamentoForm.bandeira, hasModule('tela_financeiro'))
       .then(r => { if (!cancelado) setTaxaVenda(r) })
     return () => { cancelado = true }
-  }, [megaPagamentoModal, megaPagamentoForm.metodo, megaPagamentoForm.parcelas,
+  }, [megaPagamentoModal, megaContaId, metodoBancoMega, megaPagamentoForm.metodo, megaPagamentoForm.parcelas,
       megaPagamentoForm.bandeira, contasUnidade, supabase, hasModule])
 
   async function salvarMegaPagamento() {
@@ -2696,7 +2729,12 @@ Gratidão eterna!
     // SANTOS. Toda outra unidade gravava o recebimento na conta de outra filial,
     // silenciosamente. Agora sai do cadastro: a conta declara o que recebe e
     // qual é a preferencial (mig 122), e a escolha respeita a unidade logada.
-    const contaId = contaPadraoPara(contasUnidade, metodoBanco) || null
+    //
+    // 13/09/2026: e agora o operador VÊ em qual conta vai cair, em vez de a
+    // escolha acontecer no escuro — foi o escuro que pôs 73 recebimentos
+    // (R$ 66.359,50) em conta de cartão de crédito. `megaContaId` é o que está
+    // na tela; o fallback cobre o modal que não chegou a renderizar o campo.
+    const contaId = megaContaId || destinoMega.contaId || null
 
     // A TAXA É DA MAQUININHA, NÃO DO SISTEMA (mig 134).
     //
@@ -6881,6 +6919,39 @@ ${petNome}`
                   )}
                 </div>
               )}
+
+              {/* EM QUE CONTA O DINHEIRO CAI (13/09/2026).
+                  Antes disto a conta era gravada sem aparecer — e foi assim que
+                  73 recebimentos foram parar em cartão de crédito. Agora é
+                  sempre visível; editável só quando há o que escolher. */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-slate-400 shrink-0">Cai em</span>
+                {destinoMega.editavel ? (
+                  <select
+                    value={megaContaId}
+                    onChange={(e) => setMegaContaId(e.target.value)}
+                    className="flex-1 min-w-0 px-2 py-1 border border-slate-600 rounded text-sm bg-slate-700 focus:outline-none focus:ring-1 focus:ring-green-500"
+                  >
+                    {destinoMega.opcoes.map((c) => (
+                      <option key={c.id} value={c.id}>{c.nome}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="flex-1 min-w-0 flex items-center gap-1.5 text-sm text-slate-300 truncate">
+                    {contasUnidade.find((c) => c.id === megaContaId)?.nome || (
+                      <span className="text-amber-400">nenhuma conta configurada</span>
+                    )}
+                    {destinoMega.legada && megaContaId && (
+                      <span
+                        className="shrink-0 px-1.5 py-0.5 rounded text-[10px] bg-slate-700 text-slate-400"
+                        title="Esta unidade não tem o módulo financeiro, então o recebimento fica na conta de histórico dela."
+                      >
+                        histórico
+                      </span>
+                    )}
+                  </span>
+                )}
+              </div>
 
               {/* Total compacto */}
               <div className="bg-emerald-600 rounded-lg p-2 flex justify-between items-center">
