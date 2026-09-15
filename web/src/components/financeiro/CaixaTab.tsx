@@ -36,6 +36,10 @@ import Modal from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import { fmtBRL, fmtData, hojeISO, limitesDoMes } from '@/lib/financeiro'
+import {
+  montarEsteira, retratoDaMaquininha, contaCalibrada,
+  type PagamentoCartao, type RetratoMaquininha,
+} from '@/lib/recebiveis'
 
 type Saldo = {
   conta_id: string; nome: string; tipo: string; legado: boolean
@@ -113,6 +117,16 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
   const [confMotivo, setConfMotivo] = useState('')
   const [confSalvando, setConfSalvando] = useState(false)
 
+  /**
+   * PREVISÃO DE RECEBÍVEL DA MAQUININHA — informativo, NUNCA saldo.
+   *
+   * 🔴 Decisão do Lucas (13/09/2026): *"a previsão nunca vira caixa"*. Quem move
+   * o saldo continua sendo só o realizado, vindo do extrato. Isto aqui responde
+   * duas outras perguntas: quanto ainda vem, e quanto já deveria ter chegado e
+   * não foi lançado — o "delta" que avisa que há trabalho acumulado.
+   */
+  const [previsoes, setPrevisoes] = useState<Record<string, RetratoMaquininha>>({})
+
   const carregar = useCallback(async () => {
     if (!currentUnit?.id) return
     setCarregando(true)
@@ -138,6 +152,53 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
   }, [supabase, currentUnit?.id, mes])
 
   useEffect(() => { void carregar() }, [carregar])
+
+  /**
+   * Monta a esteira de recebíveis das maquininhas visíveis.
+   *
+   * ⚠️ Só para conta CALIBRADA (`contaCalibrada`): a regra foi aferida contra 65
+   * dias de extrato da InterPag e acerta o dia dela. Para Rede, Infinity e
+   * InfinityPay não há extrato para conferir — e previsão plausível e errada é
+   * pior que previsão nenhuma, porque ninguém desconfia dela.
+   */
+  useEffect(() => {
+    const maqs = saldos.filter(s => s.produto === 'maquininha' && contaCalibrada(s.nome))
+    if (!maqs.length) { setPrevisoes({}); return }
+    const ids = maqs.map(m => m.conta_id)
+    let cancelado = false
+    void (async () => {
+      const [{ data: pgs }, { data: movs }] = await Promise.all([
+        // A esteira nasce dos recebimentos em cartão: cada um vira N parcelas.
+        supabase.from('pagamentos')
+          .select('id, conta_id, data_pagamento, valor, valor_liquido, metodo, parcelas')
+          .in('conta_id', ids).in('metodo', ['credito', 'debito']).limit(5000),
+        // O que JÁ foi lançado do extrato — é o que a previsão desconta.
+        supabase.from('fin_movimentos')
+          .select('conta_id, data, valor').in('conta_id', ids).order('data', { ascending: false }),
+      ])
+      if (cancelado) return
+      const porConta = new Map<string, PagamentoCartao[]>()
+      for (const p of ((pgs as unknown as PagamentoCartao[]) || [])) {
+        const k = p.conta_id || ''
+        if (!porConta.has(k)) porConta.set(k, [])
+        porConta.get(k)!.push(p)
+      }
+      const hoje = hojeISO()
+      const out: Record<string, RetratoMaquininha> = {}
+      for (const m of maqs) {
+        const desde = m.caixa_desde || null
+        const meus = ((movs as unknown as { conta_id: string; data: string; valor: number }[]) || [])
+          .filter(x => x.conta_id === m.conta_id && (!desde || x.data >= desde))
+        const jaLiquidado = meus.reduce((a, x) => a + Math.abs(Number(x.valor || 0)), 0)
+        out[m.conta_id] = retratoDaMaquininha(
+          montarEsteira(porConta.get(m.conta_id) || []),
+          jaLiquidado, meus[0]?.data || null, hoje, desde,
+        )
+      }
+      setPrevisoes(out)
+    })()
+    return () => { cancelado = true }
+  }, [supabase, saldos])
 
   // Código das unidades, pro selo de origem no extrato.
   useEffect(() => {
@@ -392,19 +453,45 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
                   )}
                 </div>
               ) : maq ? (
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-[10px] text-[var(--surface-400)]">
-                    {Number(s.saldo) > 0
-                      ? `a receber${s.liquidacao_dias ? ` · D+${s.liquidacao_dias}` : ''}`
-                      : 'nada a receber'}
-                  </span>
-                  {!somenteLeitura && Number(s.saldo) > 0 && (
-                    <span
-                      onClick={e => { e.stopPropagation(); abrirLiquidar(s) }}
-                      className="text-[10px] text-[var(--brand-500)] underline cursor-pointer"
-                    >
-                      liquidar
+                <div className="mt-0.5 space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-[var(--surface-400)]">
+                      {Number(s.saldo) > 0
+                        ? `a receber${s.liquidacao_dias ? ` · D+${s.liquidacao_dias}` : ''}`
+                        : 'nada a receber'}
                     </span>
+                    {!somenteLeitura && Number(s.saldo) > 0 && (
+                      <span
+                        onClick={e => { e.stopPropagation(); abrirLiquidar(s) }}
+                        className="text-[10px] text-[var(--brand-500)] underline cursor-pointer"
+                      >
+                        liquidar
+                      </span>
+                    )}
+                  </div>
+
+                  {/* PREVISÃO — informativo, nunca saldo (ver `recebiveis.ts`).
+                      O saldo acima é o realizado; estes dois números dizem o que
+                      ainda vem e o que o extrato já deveria ter trazido. */}
+                  {previsoes[s.conta_id] && (
+                    <>
+                      <p className="text-[10px] text-[var(--surface-400)]">
+                        previsto a receber{' '}
+                        <span className="text-mono text-sky-500">
+                          {fmtBRL(previsoes[s.conta_id].aReceber)}
+                        </span>
+                      </p>
+                      {previsoes[s.conta_id].aLancar > 0.005 && (
+                        <p className="text-[10px] text-amber-500">
+                          ~{fmtBRL(previsoes[s.conta_id].aLancar)} a lançar do extrato
+                          {previsoes[s.conta_id].diasSemLancar !== null
+                            ? ` · ${previsoes[s.conta_id].diasSemLancar} dia(s) sem lançar`
+                            : previsoes[s.conta_id].desde
+                              ? ` · desde ${fmtData(previsoes[s.conta_id].desde!)}`
+                              : ''}
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
               ) : (
