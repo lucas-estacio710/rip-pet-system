@@ -2,7 +2,7 @@
 
 import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { FileText, Search, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ArrowUp, ArrowDown, Star, X, Printer, XCircle, Plus, Weight, Copy, Check, Clock, CheckCheck, CalendarClock, SearchCheck, Flame, CheckCircle2, Loader2, AlertTriangle, PawPrint, Tag, DollarSign, User, Calendar, Move, Hand, MoreVertical, Pencil, Trash2, Unlink, Truck, Package } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, Calendar, CalendarClock, Check, CheckCheck, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Copy, CornerDownRight, DollarSign, Flame, FolderOpen, Hand, Loader2, MapPin, MoreVertical, Move, Package, PawPrint, Pencil, Plus, Printer, Scale, Search, SearchCheck, Star, Tag, Trash2, Truck, Unlink, User, Weight, X, XCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { sanitizeBuscaPostgrest } from '@/lib/sanitize'
 import Link from 'next/link'
@@ -56,6 +56,16 @@ type Tutor = {
   id: string
   nome: string
   telefone: string | null
+  // Endereço do cadastro — a etapa de Entrega mostra isto em destaque (13/09). Vem do
+  // TUTOR e não só do snapshot em `contratos.tutor_*` porque quem se muda atualiza o
+  // cadastro, e a entrega tem de ir para onde a pessoa está hoje, não para onde estava
+  // quando o contrato foi feito. O snapshot fica como fallback.
+  endereco: string | null
+  numero: string | null
+  complemento: string | null
+  bairro: string | null
+  cidade: string | null
+  cep: string | null
 }
 
 type Contrato = {
@@ -76,6 +86,7 @@ type Contrato = {
   tutor_cidade: string | null
   tutor_bairro: string | null
   tutor_cep: string | null
+  tutor_endereco: string | null
   local_coleta: string | null
   clinica_coleta: string | null
   tipo_cremacao: string
@@ -390,7 +401,12 @@ function ContratosContent() {
   const cargaTotalDaEtapa = encPipeline && ETAPAS_AGRUPADAS.includes(statusFiltro)
   // Cards de encaminhamento expandidos (por número da viagem). Fechados por padrão:
   // o card É o resumo; os pets abrem sob demanda.
-  const [encAbertos, setEncAbertos] = useState<Set<string>>(new Set())
+  // Encaminhamento em que o operador "entrou" — navegação de PASTA, não accordion
+  // (13/09). Antes era um Set de números expandidos: clicar abria os pets embaixo, dentro
+  // da mesma lista. O Lucas pediu o modelo do explorador de arquivos: clicar ENTRA, a lista
+  // passa a mostrar só aquela viagem, e um breadcrumb sob a pill do status diz onde você
+  // está. `null` = raiz. Só um por vez, porque não se está em duas pastas ao mesmo tempo.
+  const [encAberto, setEncAberto] = useState<string | null>(null)
   // ── Gesto de incluir pet numa viagem (etapa 2) ──
   const [petArrastando, setPetArrastando] = useState<string | null>(null)   // desktop: drag
   const [encAlvo, setEncAlvo] = useState<string | null>(null)               // viagem sob o cursor
@@ -445,9 +461,6 @@ function ContratosContent() {
   const [agruparBairro, setAgruparBairro] = useState(searchParams.get('bairro') === 'true')
 
   // Filtro de dificuldade de montagem (só para aba Retorno)
-  const [filtroMontagem, setFiltroMontagem] = useState<'todos' | 'facil' | 'dificil'>('todos')
-  const [montagemInline, setMontagemInline] = useState(false)
-  const [categoriaExpandida, setCategoriaExpandida] = useState<string | null>(null)
 
   // Highlight do card ativo (quando modal aberto)
   const [highlightId, setHighlightId] = useState<string | null>(null)
@@ -622,6 +635,11 @@ function ContratosContent() {
   const [supindaModal, setSupindaModal] = useState(false)
   const [supindaContrato, setSupindaContrato] = useState<Contrato | null>(null)
   const [supindasDisponiveis, setSupindasDisponiveis] = useState<Supinda[]>([])
+  // Viagens PLANEJADAS da unidade — inclusive as que ainda não têm nenhum pet.
+  // O agrupamento da tela nasce dos CONTRATOS (`grupos` em renderSupindaGroup), então
+  // uma viagem vazia não teria como existir aqui — era o que fazia o encaminhamento
+  // recém-criado pelo `+ Enc` sumir, deixando o operador sem alvo para arrastar.
+  const [encPlanejados, setEncPlanejados] = useState<{ id: string; numero: string; data: string | null; responsavel: string | null; status: string }[]>([])
   const [supindaSelecionada, setSupindaSelecionada] = useState<string>('')
   const [salvandoSupinda, setSalvandoSupinda] = useState(false)
   const [criarNovaSupinda, setCriarNovaSupinda] = useState(false)
@@ -1154,7 +1172,7 @@ function ContratosContent() {
 
     // SELECT principal — só dados base + embeds leves essenciais (tutor + supinda + pagamentos).
     // Embeds pesados (contrato_produtos, contrato_gc, fonte_conhecimento) carregam em paralelo após.
-    const SELECT_CONTRATO = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, aguardando_acolhimento, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, data_leva_pinda, unidade_remocao_id, unidade_entrega_id, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
+    const SELECT_CONTRATO = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone, endereco, numero, complemento, bairro, cidade, cep), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, tutor_endereco, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, aguardando_acolhimento, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, data_leva_pinda, unidade_remocao_id, unidade_entrega_id, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
 
     // Helper para aplicar filtros comuns (unidade + status + compartilhados).
     // Tipo `any` aqui porque o builder do supabase-js encadeia tipos genéricos complexos
@@ -1191,6 +1209,26 @@ function ContratosContent() {
         const arr = (data || []) as Contrato[]
         setContratos(arr)
         setTotal(count ?? arr.length)
+
+        // Viagens planejadas da unidade, para que a VAZIA também apareça na etapa
+        // Ativo — é ela que recebe o primeiro pet (§3.1). Vive aqui, e não num
+        // effect próprio, porque criar / editar / excluir / despachar já terminam
+        // em `carregarContratos()`: um ponto só de recarga, nenhum esquecido.
+        // ⚠️ `.eq('unidade_id')` é obrigatório: query de supinda sem escopo de
+        // unidade foi a SEGUNDA porta do incidente SP47 (FLOW §3.3).
+        if (encPipeline && statusFiltro === 'ativo' && currentUnit?.id) {
+          const { data: planejadas } = await supabase
+            .from('supindas')
+            .select('id, numero, data, responsavel, status')
+            .eq('status', 'planejada')
+            .eq('unidade_id', currentUnit.id)
+            .order('data', { ascending: true })
+          if (minhaBuscaId === buscaIdRef.current) {
+            setEncPlanejados((planejadas || []) as { id: string; numero: string; data: string | null; responsavel: string | null; status: string }[])
+          }
+        } else {
+          setEncPlanejados([])
+        }
 
         // 🔴 Guard de truncamento — a lição do SP47 é que a lista curta NÃO avisa.
         // Se a etapa passar do teto, o placar e o "Enviar para Matriz" passariam a
@@ -1304,7 +1342,7 @@ function ContratosContent() {
     const agruparPorSupinda = agruparSupinda && statusFiltro !== 'preventivo' && !fluxoLocal
 
     // Mesmo padrão da listagem: SELECT leve + enriquecimento paralelo
-    const SELECT_BUSCA = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, aguardando_acolhimento, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, data_leva_pinda, unidade_remocao_id, unidade_entrega_id, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
+    const SELECT_BUSCA = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone, endereco, numero, complemento, bairro, cidade, cep), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, tutor_endereco, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, aguardando_acolhimento, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, data_leva_pinda, unidade_remocao_id, unidade_entrega_id, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
     // Sanitiza: escapa wildcards SQL (% _) e caracteres reservados PostgREST (, ( ) : * \)
     // + limita 80 chars. Protege contra termo malicioso quebrar o filtro `or`.
     const t = sanitizeBuscaPostgrest(termoBusca)
@@ -1378,10 +1416,9 @@ function ContratosContent() {
     setPagina(0)
     // Limpar seleção de protocolos ao trocar status
     setSelectedContratos(new Set())
-    // Resetar filtro de montagem ao mudar de status
-    if (status !== 'retorno') {
-      setFiltroMontagem('todos')
-    }
+    // Sai da "pasta" do encaminhamento — é o caminho de volta pra raiz que o Lucas pediu:
+    // clicar na pill do próprio status (antes um no-op) agora fecha a viagem aberta.
+    setEncAberto(null)
     // Sempre mantém um status selecionado — clique no mesmo é no-op
     if (statusFiltro !== status) {
       setStatusFiltro(status)
@@ -1680,9 +1717,6 @@ function ContratosContent() {
   }
 
   // Verificar se é fácil de montar (níveis 1-2)
-  function isFacilMontar(contrato: Contrato): boolean {
-    return getComplexidadeMontagem(contrato) <= 2
-  }
 
   // ==================== MODAL CHEGAMOS ====================
   const mesesCurtos = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
@@ -1724,6 +1758,13 @@ function ContratosContent() {
   // Badges de status GC (espelho das regras de /gc) — ao lado do tutor quando pet em pinda
   function renderGCStatusBadges(contrato: Contrato): React.ReactNode {
     if (contrato.status !== 'pinda' || !contrato.contrato_gc) return null
+    // 🟢 FLUXO NOVO: some. Desde 13/09 a linha do tempo mora DENTRO do card e diz a mesma
+    // coisa com mais precisão (os passos que faltam, e a data de cada um cumprido) — manter
+    // os dois é repetir a informação a dois centímetros de distância. No fluxo ANTIGO este
+    // badge continua sendo a única leitura do GC no card, então nada muda para quem não
+    // migrou. Nos pets do Nicho (que o `renderFn` desenha sem linha do tempo) também some, e
+    // está certo: todos ali são `disponivel` por construção, e o card já anuncia "N prontos".
+    if (encPipeline) return null
     const gc = contrato.contrato_gc
     const etapa = gc.etapa || 'provisionado'
     const etapaLabels: Record<string, string> = { provisionado: 'Provisionado', recebido: 'Recebido', cremado: 'Cremado', disponivel: 'Finalizado' }
@@ -1755,36 +1796,161 @@ function ContratosContent() {
     )
   }
 
+  // ─── ENDEREÇO DE ENTREGA (etapa Entrega, fluxo novo — 13/09) ────────────────
+  // Ocupa o mesmo espaço que a linha do tempo ocupa em Pinda: o vazio do card entre os
+  // badges e os botões. Cada etapa põe ali o que a SUA decisão exige — em Pinda é "em que
+  // pé está na Matriz", aqui é "para onde eu vou".
+  //
+  // 🔴 Fonte: o CADASTRO do tutor primeiro, o snapshot de `contratos.tutor_*` como fallback.
+  // Quem se muda atualiza o cadastro, e a entrega tem de ir para onde a pessoa está HOJE —
+  // não para onde estava quando o contrato foi assinado, que pode ter meses. (O snapshot
+  // existe porque nem todo contrato antigo tem `tutor_id`.)
+  //
+  // ⚠️ NÃO lê `contrato_restricoes_entrega.endereco_alternativo`, que é o endereço que
+  // substitui este quando existe (FLOW §4). A tabela não vem no SELECT desta tela e trazê-la
+  // é query nova — fica registrado como lacuna conhecida, não como esquecimento: hoje a tela
+  // pode mostrar o endereço de casa para um pet cuja entrega foi combinada em outro lugar.
+  function renderEnderecoEntrega(contrato: Contrato): React.ReactNode {
+    const t = contrato.tutor
+    const logradouro = (t?.endereco || contrato.tutor_endereco || '').trim()
+    const numero = (t?.numero || '').trim()
+    const compl = (t?.complemento || '').trim()
+    const bairro = (t?.bairro || contrato.tutor_bairro || '').trim()
+    const cidade = (t?.cidade || contrato.tutor_cidade || '').trim()
+    const cep = (t?.cep || contrato.tutor_cep || '').trim()
+    if (!logradouro && !bairro && !cidade) {
+      return <span className="text-[12px] text-amber-500">⚠ Sem endereço cadastrado</span>
+    }
+    const linha1 = [logradouro, numero].filter(Boolean).join(', ') + (compl ? ` — ${compl}` : '')
+    const linha2 = [bairro, cidade].filter(Boolean).join(' · ')
+    // Endereço completo num campo só, para o botão de mapa abrir exatamente o que está escrito.
+    const busca = encodeURIComponent([linha1, linha2, cep].filter(Boolean).join(', '))
+    return (
+      <div className="flex items-center gap-2 min-w-0">
+        <MapPin className="h-4 w-4 flex-shrink-0 text-[var(--surface-400)]" />
+        <div className="min-w-0 leading-tight">
+          <div className="text-[13px] font-semibold text-[var(--surface-700)] truncate" title={linha1}>{linha1 || '—'}</div>
+          <div className="text-[12px] text-[var(--surface-500)] truncate" title={linha2}>
+            {linha2}{cep && <span className="tabular-nums text-[var(--surface-400)]"> · {cep}</span>}
+          </div>
+        </div>
+        {/* Waze e Maps: o mesmo par que `/tarefas` já dá ao Operacional na tarefa de entrega
+            (FLOW §10.7) — quem está com a lista aberta é quem vai dirigir. */}
+        <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
+          <a href={`https://waze.com/ul?q=${busca}`} target="_blank" rel="noopener noreferrer"
+             className="px-1.5 py-1 rounded text-[11px] font-semibold bg-[#33ccff]/15 text-[#33ccff] hover:bg-[#33ccff]/25" title="Abrir no Waze">Waze</a>
+          <a href={`https://www.google.com/maps/search/?api=1&query=${busca}`} target="_blank" rel="noopener noreferrer"
+             className="px-1.5 py-1 rounded text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25" title="Abrir no Google Maps">Maps</a>
+        </div>
+      </div>
+    )
+  }
+
+  // ─── PEÇAS COMPARTILHADAS: placar, chips e campo rotulado ───────────────────
+  // Vivem no escopo do componente (e não dentro de `renderSupindaGroup`, onde nasceram)
+  // porque desde 13/09 o CARD DO NICHO usa as mesmas — pedido do Lucas: "deixar o layout
+  // do nicho parecido com o do encaminhamento". Duplicar seria criar o terceiro desenho
+  // do mesmo placar; este arquivo já paga caro por manter dois (faixa desktop × card
+  // mobile), e a regra registrada no §11 é que toda mudança tem de ir em todos.
+  // ─── PLACAR DO ENCAMINHAMENTO (§9.1) ───────────────────────────────
+  // Tudo CALCULADO da lista de pets que está na tela, nunca lido de
+  // `supindas.quantidade_pets`/`peso_total`: esses dois campos são mantidos
+  // por aritmética incremental em 4 lugares diferentes e divergem sob
+  // concorrência (armadilha 6 do §10.5 do plano). A lista é confiável aqui
+  // porque `cargaTotalDaEtapa` traz a etapa inteira e avisa se truncar.
+  const calcularPlacar = (cs: Contrato[]) => {
+    let comLacre = 0, pagos = 0, ind = 0, col = 0, peso = 0
+    for (const c of cs) {
+      if ((c.numero_lacre || '').trim()) comLacre++
+      const { planoPendente, acessoriosPendente } = getPagamentoPendente(c)
+      if (!planoPendente && !acessoriosPendente) pagos++
+      if (c.tipo_cremacao === 'coletiva') col++; else ind++
+      peso += c.pet_peso || 0
+    }
+    return { total: cs.length, comLacre, pagos, ind, col, peso }
+  }
+
+  // Cor de um par do placar: verde quando fecha, âmbar quando falta alguém (§9.1).
+  const corPlacar = (ok: boolean) => (ok ? '#22c55e' : '#f59e0b')
+
+  const chipsTipo = (p: ReturnType<typeof calcularPlacar>) => (
+    <>
+      {p.ind > 0 && <span className="flex items-center gap-0.5 text-[12px] font-semibold px-1.5 py-0.5 rounded bg-emerald-900/30 text-emerald-300"><Flame className="h-3 w-3" />{p.ind} IND</span>}
+      {p.col > 0 && <span className="flex items-center gap-0.5 text-[12px] font-semibold px-1.5 py-0.5 rounded bg-violet-900/30 text-violet-300"><Flame className="h-3 w-3" />{p.col} COL</span>}
+    </>
+  )
+
+  // Cada número vem com o nome do que ele é (pedido do Lucas em 13/09, vendo a
+  // faixa pronta). O desenho original economizava espaço deixando só o ícone —
+  // e o comentário antigo aqui dizia "ícone no lugar do rótulo pra caber". Mas
+  // ícone só funciona pra quem já sabe o que ele significa, e esta faixa é o
+  // resumo de uma viagem inteira: quem confere não pode estar adivinhando se
+  // `1/4` é lacre ou pagamento. O rótulo fica em cinza e o valor em destaque,
+  // então o scan rápido continua caindo no número.
+  const campoFaixa = (Icone: typeof Calendar, rotulo: string, valor: React.ReactNode, cor?: string) => (
+    <span className="flex items-center gap-1.5 flex-shrink-0">
+      <Icone className="h-4 w-4 flex-shrink-0 text-[var(--surface-400)]" />
+      <span className="text-[12px] text-[var(--surface-400)]">{rotulo}:</span>
+      <span className="text-[13px] font-semibold tabular-nums" style={cor ? { color: cor } : { color: 'var(--surface-700)' }}>{valor}</span>
+    </span>
+  )
+
   // ─── CARD DO NICHO (etapa 6, §9.4) ──────────────────────────────────────────
   // O que está PRONTO pra unidade buscar na Matriz. Sempre no fim da etapa Pinda, e
   // sempre presente — é o lugar fixo pra onde o operador olha.
   // ⚠️ Sem "mais antigo": foi proposto nos mockups e RECUSADO pelo Lucas.
   function renderCardNicho(pets: Contrato[], renderFn: (c: Contrato) => React.ReactNode): React.ReactNode {
     const total = pets.length
-    const comCinzas = pets.filter(c => c.contrato_gc?.cinzas_prontas).length
-    const comCertificado = pets.filter(c => c.contrato_gc?.certificado_pronto).length
+    const p = calcularPlacar(pets)
     return (
-      <div className="rounded-lg border-2" style={{ background: 'var(--surface-0)', borderColor: total > 0 ? '#22c55e' : 'var(--surface-200)' }}>
+      // Mesmo desenho da faixa de encaminhamento do Ativo (pedido do Lucas em 13/09):
+      // placar horizontal, cada número com o nome do que ele é. A COR é que muda — VERDE
+      // e não laranja: laranja é a viagem que se monta e despacha, verde é o que já está
+      // pronto para buscar, no mesmo tom do botão "Trazer da Matriz" logo abaixo. Assim os
+      // dois agrupamentos se reconhecem como parentes sem se confundirem entre si.
+      <div className="rounded-lg border-2" style={{ background: total > 0 ? 'rgba(34, 197, 94, 0.14)' : 'var(--surface-0)', borderColor: total > 0 ? '#22c55e' : 'var(--surface-200)' }}>
         <div
           role="button"
           tabIndex={0}
           onClick={() => setNichoAberto(a => !a)}
           onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setNichoAberto(a => !a) } }}
-          className="px-3 py-3 flex items-center gap-3 cursor-pointer hover:opacity-90"
+          className="px-3 py-2 min-h-[68px] flex items-center gap-x-4 gap-y-1.5 flex-wrap cursor-pointer hover:opacity-90"
         >
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5 text-[14px] font-bold text-[var(--surface-700)]">
-              <Package className="h-4 w-4 flex-shrink-0" />
-              Nicho {currentUnit?.nome || ''}
-            </div>
-            <div className="text-[12px] text-[var(--surface-400)] mt-0.5">
-              {total === 0
-                ? 'Nada pronto para buscar ainda'
-                : `${total} pronto${total !== 1 ? 's' : ''} — ${comCinzas} com cinzas, ${comCertificado} com certificado`}
-            </div>
-          </div>
-          <span className="text-[26px] font-black tabular-nums flex-shrink-0" style={{ color: total > 0 ? '#22c55e' : 'var(--surface-300)' }}>{total}</span>
-          <ChevronDown className={`h-5 w-5 flex-shrink-0 text-[var(--surface-400)] transition-transform ${nichoAberto ? 'rotate-180' : ''}`} />
+          <span className="flex items-center gap-1.5 text-[13px] font-black px-2 py-1 rounded flex-shrink-0" style={{ background: total > 0 ? '#22c55e' : 'var(--surface-200)', color: total > 0 ? '#052e16' : 'var(--surface-500)' }}>
+            <Package className="h-4 w-4" />NICHO
+          </span>
+          <span className="text-[13px] font-semibold text-[var(--surface-700)] flex-shrink-0">{currentUnit?.nome || ''}</span>
+          {total === 0 ? (
+            // ⚠️ Distinguir "ainda não sei" de "não tem". Enquanto a etapa carrega — em SJ são
+            // 154 pets e leva vários segundos — `pets` chega vazio, e o card afirmava com todas
+            // as letras "Nada pronto para buscar ainda". É falso: tem 120. Foi o que me enganou
+            // ao medir cedo demais em 13/09, e enganaria o operador do mesmo jeito. Frase
+            // categórica só depois que a resposta chegou.
+            <span className="text-[12px] text-[var(--surface-400)]">
+              {loading ? 'Verificando o que está pronto…' : 'Nada pronto para buscar ainda'}
+            </span>
+          ) : (
+            <>
+              {campoFaixa(PawPrint, 'Prontos', total)}
+              {/* 🔴 O placar do Nicho é SÓ isto — e o caminho até aqui vale o registro, porque
+                  o instinto é copiar os campos da faixa do Ativo e sair mostrando.
+                  1. "Peso total" saiu: `pet_peso` é o peso do PET VIVO, útil a quem carrega o
+                     carro na IDA. O que volta são cinzas ("eles foram reduzidos a cinzas.. rsrs").
+                  2. Os pares `X/Y` viraram contador: só entra no Nicho quem está
+                     `etapa='disponivel'`, então o denominador nunca fica em aberto e o par
+                     seria eternamente `N/N`. Par que nunca falha ensina a ignorar o placar.
+                  3. Os contadores saíram TAMBÉM, depois de medir os 442 pets em Nicho:
+                     **0** estavam sem certificado (logo `Certificados` = `Prontos`, sempre) e
+                     os **143** sem cinzas eram exatamente as **143 coletivas** (logo `Cinzas` =
+                     o chip `N IND`, sempre — individuais sem cinzas: 0; coletivas com: 0).
+                     Três dos cinco números eram o mesmo número escrito de outro jeito.
+                  ⚠️ Se algum dia `disponivel` passar a existir sem certificado — a `2026/93` diz
+                  que a ordem das flags do GC não é validada —, o lugar de gritar é uma regra em
+                  `lib/anomalias.ts`, não um contador aqui que fica 99% do tempo repetindo. */}
+              <div className="flex items-center gap-1.5 flex-shrink-0 ml-auto">{chipsTipo(p)}</div>
+            </>
+          )}
+          <ChevronDown className={`h-5 w-5 flex-shrink-0 text-[var(--surface-400)] transition-transform ${total === 0 ? 'ml-auto' : ''} ${nichoAberto ? 'rotate-180' : ''}`} />
         </div>
         {total > 0 && (
           <div className="px-3 pb-3">
@@ -1800,7 +1966,7 @@ function ContratosContent() {
             informações (§3.2). O resumo é atalho, não substituto. */}
         {nichoAberto && total > 0 && (
           <div className="px-3 pb-3 space-y-2 border-t pt-3" style={{ borderColor: 'var(--surface-200)' }}>
-            {pets.map(renderFn)}
+            {pets.map(c => renderFn(c))}
           </div>
         )}
       </div>
@@ -1871,7 +2037,10 @@ function ContratosContent() {
       indiceAtual: number,
     ) => (
       <div className="flex items-start gap-1.5">
-        <span className="text-[9px] font-semibold uppercase text-[var(--surface-400)] w-11 flex-shrink-0 pt-1">{titulo}</span>
+        {/* `--surface-500` e não `-400`: desde 13/09 esta trilha vive DENTRO do card do pet,
+            sobre o gradiente colorido dele, e não mais sobre o `--surface-0` neutro da faixa
+            antiga — no cinza mais claro o rótulo sumia no fundo. */}
+        <span className="text-[9px] font-bold uppercase tracking-wide text-[var(--surface-500)] w-11 flex-shrink-0 pt-1">{titulo}</span>
         <div className="flex items-start flex-1 min-w-0">
           {passos.map((passo, i) => {
             const cumprido = i <= indiceAtual
@@ -1889,11 +2058,11 @@ function ContratosContent() {
                       borderColor: cumprido ? passo.cor : 'var(--surface-300)',
                     }}
                   />
-                  <span className="text-[9px] leading-tight mt-0.5 text-center" style={{ color: cumprido ? 'var(--surface-600)' : 'var(--surface-400)' }}>
+                  <span className="text-[9px] leading-tight mt-0.5 text-center" style={{ color: cumprido ? 'var(--surface-700)' : 'var(--surface-500)' }}>
                     {passo.rotulo}
                   </span>
                   {passo.data && cumprido && (
-                    <span className="text-[9px] leading-tight tabular-nums text-[var(--surface-400)]">{passo.data}</span>
+                    <span className="text-[9px] leading-tight tabular-nums text-[var(--surface-500)]">{passo.data}</span>
                   )}
                   {passo.previsao && !cumprido && (
                     <span className="text-[9px] leading-tight italic text-amber-500">{passo.previsao}</span>
@@ -2904,55 +3073,6 @@ Gratidão eterna!
     }
   }
 
-  // Separar todos de uma categoria
-  async function separarTodosCategoria(categoria: string, contratos: Contrato[]) {
-    const categorizarProduto = (nome: string, codigo: string, tipo: string, precisaFoto: boolean): string => {
-      // Certificado (0005) e Protocolo (0006)
-      if (codigo === '0005') return 'certificados'
-      if (codigo === '0006') return 'protocolos'
-      // Pelinhos: 0004 = Pelinho, 0007 = Pelo Extra
-      if (codigo === '0004' || codigo === '0007') return 'pelinhos'
-      // Rescaldos: 0003 = Molde, 0002 = Nenhum Rescaldo, 1407 = Carimbo
-      if (codigo === '0003' || codigo === '0002' || codigo === '1407') return 'rescaldos'
-      // Urnas - usa o tipo do produto
-      if (tipo === 'urna') return 'urnas'
-      // Porta-retratos: acessório com precisa_foto = true
-      if (tipo === 'acessorio' && precisaFoto) return 'porta-retratos'
-      // Pingentes: acessório com precisa_foto = false e nome contém Ping/Chavei/P/ Visor
-      const nomeLower = nome.toLowerCase()
-      if (tipo === 'acessorio' && !precisaFoto && (nomeLower.includes('ping') || nomeLower.includes('chavei') || nomeLower.includes('p/ visor'))) return 'pingentes'
-      // Outros
-      return 'outros'
-    }
-
-    // Coletar IDs dos produtos da categoria que não estão separados
-    const idsParaSeparar: string[] = []
-    contratos.forEach(c => {
-      c.contrato_produtos?.forEach(cp => {
-        if (!cp.produto || cp.separado) return
-        const cat = categorizarProduto(cp.produto.nome, cp.produto.codigo, cp.produto.tipo, cp.produto.precisa_foto)
-        if (cat === categoria) {
-          idsParaSeparar.push(cp.id)
-        }
-      })
-    })
-
-    if (idsParaSeparar.length === 0) return
-
-    const { error } = await supabase
-      .from('contrato_produtos')
-      .update({ separado: true } as never)
-      .in('id', idsParaSeparar)
-
-    if (!error) {
-      setContratos(prev => prev.map(c => ({
-        ...c,
-        contrato_produtos: c.contrato_produtos?.map(cp =>
-          idsParaSeparar.includes(cp.id) ? { ...cp, separado: true } : cp
-        )
-      })))
-    }
-  }
 
   // Pelinho — igual aos outros rescaldos: abre o popup de quantidade direto (sem prompt "quer?").
   function abrirPelinhoModal(contrato: Contrato) {
@@ -4317,7 +4437,7 @@ ${petNome}`
             </button>
           )}
           {/* Toggle: agrupar por cidade */}
-          {!(statusFiltro === 'retorno' && montagemInline) && (
+          {(
             <button
               onClick={() => { setAgruparCidade(!agruparCidade); if (agruparCidade) setAgruparBairro(false) }}
               className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
@@ -4328,7 +4448,7 @@ ${petNome}`
               📍 Cidade
             </button>
           )}
-          {agruparCidade && !(statusFiltro === 'retorno' && montagemInline) && (
+          {agruparCidade && (
             <button
               onClick={() => setAgruparBairro(!agruparBairro)}
               className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
@@ -4371,151 +4491,89 @@ ${petNome}`
           })}
         </div>
 
-        {/* Montagem filter — Retorno only, FLS: btn_fluxo_retorno */}
-        {statusFiltro === 'retorno' && isVisible(T, 'btn_fluxo_retorno') && (() => {
-          const countFacil = contratos.filter(c => isFacilMontar(c)).length
-          const countDificil = contratos.length - countFacil
+        {/* ─── BREADCRUMB DA PASTA (13/09) ─────────────────────────────────────
+            Fica logo ABAIXO do pipeline e alinhado à esquerda, sob a pill do status —
+            "bem embaixo do ativos", como o Lucas descreveu. A setinha `CornerDownRight`
+            é o desenho que ele pediu ("desce e vai pra direita"), e a `FolderOpen` diz
+            que você está DENTRO da viagem, não olhando ela de fora.
+            ⚠️ Não é botão de voltar: quem volta é a pill do status (`toggleStatus` limpa
+            o `encAberto`), e clicar aqui também volta, porque é o gesto que todo mundo
+            tenta primeiro num caminho de pastas. */}
+        {encAberto && (() => {
+          // A viagem aberta, sem depender do card (que não existe mais aqui): do embed dos
+          // contratos em tela, e `encPlanejados` como fallback pra viagem ainda sem pet.
+          const sup = contratos.find(c => c.supinda?.numero === encAberto)?.supinda
+            ?? encPlanejados.find(s => s.numero === encAberto)
+          // Mesma trava do antigo menu `⋯`: editar ou despachar só faz sentido em viagem que
+          // ainda não partiu. Numa já despachada, "Editar" abriria o desvincular-pet sobre um
+          // lote em Pinda.
+          const planejada = !sup?.status || sup.status === 'planejada'
           return (
-            <div className="flex flex-wrap items-center gap-2 mt-1.5">
-              <span className="text-xs text-slate-400">Montagem:</span>
-              <div className="flex items-center bg-slate-800 rounded-lg p-0.5 gap-0.5">
-                <button
-                  onClick={() => setFiltroMontagem('todos')}
-                  className={`px-2 py-1 rounded-md text-xs font-medium transition-all ${
-                    filtroMontagem === 'todos' ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  Todos ({contratos.length})
-                </button>
-                <button
-                  onClick={() => setFiltroMontagem('facil')}
-                  className={`px-2 py-1 rounded-md text-xs font-medium transition-all flex items-center gap-1 ${
-                    filtroMontagem === 'facil' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  🟢 Fácil ({countFacil})
-                </button>
-                <button
-                  onClick={() => setFiltroMontagem('dificil')}
-                  className={`px-2 py-1 rounded-md text-xs font-medium transition-all flex items-center gap-1 ${
-                    filtroMontagem === 'dificil' ? 'bg-orange-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  🟠 Difícil ({countDificil})
-                </button>
-              </div>
-              <div className="hidden md:block w-px h-4 bg-slate-600"></div>
+            <div className="flex items-center gap-3 mt-1.5 ml-1 flex-wrap">
+              {/* O caminho, com o MESMO quadradinho do card (pedido do Lucas): o número ganha
+                  o box na cor da unidade, então o breadcrumb tem o peso visual de um título de
+                  seção e não de uma legenda perdida. Clicar volta pra raiz. */}
               <button
-                onClick={() => { setMontagemInline(!montagemInline); setCategoriaExpandida(null) }}
-                className={`px-2 py-1 rounded-lg text-xs font-medium transition-all flex items-center gap-1 ${
-                  montagemInline ? 'bg-purple-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                }`}
+                onClick={() => setEncAberto(null)}
+                className="flex items-center gap-1.5 group"
+                title={`Sair de ${encAberto} e voltar para a lista`}
               >
-                📦 In-line
+                <CornerDownRight className="h-4 w-4 flex-shrink-0 text-[var(--surface-400)] group-hover:text-[var(--surface-600)]" />
+                <FolderOpen className="h-4 w-4 flex-shrink-0" style={{ color: corUnidadeAtual }} />
+                <span className="text-[13px] font-black px-2 py-1 rounded flex-shrink-0" style={{ background: corUnidadeAtual, color: textoBadgeUnidadeAtual }}>{encAberto}</span>
               </button>
+
+              {/* Responsável e data vêm ANTES dos botões, na ordem que o Lucas pediu: primeiro
+                  o que a viagem É, depois o que se faz com ela. */}
+              {sup?.responsavel && (
+                <span className="flex items-center gap-1.5 flex-shrink-0">
+                  <User className="h-4 w-4 text-[var(--surface-400)]" />
+                  <span className="text-[12px] text-[var(--surface-400)]">Responsável:</span>
+                  <span className="text-[13px] text-[var(--surface-700)]">{sup.responsavel}</span>
+                </span>
+              )}
+              {sup?.data && (
+                <span className="flex items-center gap-1.5 flex-shrink-0">
+                  <Calendar className="h-4 w-4 text-[var(--surface-400)]" />
+                  <span className="text-[12px] text-[var(--surface-400)]">Data programada:</span>
+                  <span className="text-[13px] font-semibold text-[var(--surface-700)]">{formatarDataViagem(sup.data)}</span>
+                </span>
+              )}
+
+              {planejada && sup?.id && (
+                <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
+                  <button
+                    onClick={() => abrirEdicaoEncaminhamento(sup.id!, encAberto)}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold border text-[var(--surface-600)] hover:bg-[var(--surface-100)]"
+                    style={{ borderColor: 'var(--surface-300)' }}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />Editar
+                  </button>
+                  {/* POR ÚLTIMO, e é o único jeito de pôr um botão irreversível numa barra:
+                      na ponta, onde não se clica por engano ao mirar outra coisa.
+                      ⚠️ Isto REVERTE o §9.1 ("ação irreversível nunca visível por padrão"),
+                      que o escondia no menu `⋯`. Com o card fora da pasta o menu não existe
+                      mais aqui, e deixar o despacho a dois cliques de profundidade escondia o
+                      passo principal da etapa. A proteção que vale continua de pé, e é a que
+                      sempre valeu: a confirmação com a lista rolável e as 4 travas do SP47. */}
+                  {statusFiltro === 'ativo' && (
+                    <button
+                      onClick={() => abrirEnvioParaMatriz(sup.id!, encAberto)}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-bold text-white bg-orange-600 hover:bg-orange-700"
+                    >
+                      <Truck className="h-3.5 w-3.5" />Enviar para Matriz
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           )
         })()}
+
       </div>
 
       {/* Ordenação e Controles */}
       <div className="flex flex-col gap-1">
-        {/* Montagem In-line (só retorno, FLS: btn_fluxo_retorno) */}
-        {statusFiltro === 'retorno' && montagemInline && isVisible(T, 'btn_fluxo_retorno') && (
-          <div className="flex-1">
-            {(() => {
-              // Função para categorizar produtos por código
-              const categorizarProduto = (nome: string, codigo: string, tipo: string, precisaFoto: boolean): string => {
-                // Certificado (0005) e Protocolo (0006)
-                if (codigo === '0005') return 'certificados'
-                if (codigo === '0006') return 'protocolos'
-                // Pelinhos: 0004 = Pelinho, 0007 = Pelo Extra
-                if (codigo === '0004' || codigo === '0007') return 'pelinhos'
-                // Rescaldos: 0003 = Molde, 0002 = Nenhum Rescaldo, 1407 = Carimbo
-                if (codigo === '0003' || codigo === '0002' || codigo === '1407') return 'rescaldos'
-                // Urnas - usa o tipo do produto
-                if (tipo === 'urna') return 'urnas'
-                // Porta-retratos: acessório com precisa_foto = true
-                if (tipo === 'acessorio' && precisaFoto) return 'porta-retratos'
-                // Pingentes: acessório com precisa_foto = false e nome contém Ping/Chavei/P/ Visor
-                const nomeLower = nome.toLowerCase()
-                if (tipo === 'acessorio' && !precisaFoto && (nomeLower.includes('ping') || nomeLower.includes('chavei') || nomeLower.includes('p/ visor'))) return 'pingentes'
-                // Outros
-                return 'outros'
-              }
-
-              // Contratos do retorno para análise
-              const contratosRetorno = contratos.filter(c => c.status === 'retorno')
-
-              // Categorias com contagem
-              const categorias = [
-                { id: 'certificados', icon: '📜', label: 'Certificados', cor: 'blue' },
-                { id: 'protocolos', icon: '📋', label: 'Protocolos', cor: 'slate' },
-                { id: 'pelinhos', icon: '🫙', label: 'Pelinhos', cor: 'amber' },
-                { id: 'rescaldos', icon: '🐾', label: 'Personalizados', cor: 'orange' },
-                { id: 'urnas', icon: '⚱️', label: 'Urnas', cor: 'purple' },
-                { id: 'porta-retratos', icon: '🖼️', label: 'C/ Foto', cor: 'pink' },
-                { id: 'pingentes', icon: '💎', label: 'Pingentes', cor: 'emerald' },
-                { id: 'outros', icon: '📦', label: 'Outros', cor: 'gray' },
-              ]
-
-              // Calcular contagem por categoria
-              const contagemPorCategoria: Record<string, { total: number; pendentes: number; contratos: string[] }> = {}
-              categorias.forEach(cat => {
-                contagemPorCategoria[cat.id] = { total: 0, pendentes: 0, contratos: [] }
-              })
-
-              contratosRetorno.forEach(contrato => {
-                // Produtos do contrato (todos os produtos vêm da tabela contrato_produtos)
-                contrato.contrato_produtos?.forEach(cp => {
-                  if (!cp.produto) return
-                  const cat = categorizarProduto(cp.produto.nome, cp.produto.codigo, cp.produto.tipo, cp.produto.precisa_foto)
-                  if (!contagemPorCategoria[cat].contratos.includes(contrato.id)) {
-                    contagemPorCategoria[cat].contratos.push(contrato.id)
-                  }
-                  contagemPorCategoria[cat].total += cp.quantidade
-                  if (!cp.separado) contagemPorCategoria[cat].pendentes += cp.quantidade
-                })
-              })
-
-              // Categoria ativa
-              const catAtiva = categorias.find(c => c.id === categoriaExpandida)
-
-              // Retorna só os botões de categorias (card expandido fica fora)
-              return (
-                <div className="flex flex-wrap gap-1.5">
-                  {categorias.map(cat => {
-                    const dados = contagemPorCategoria[cat.id]
-                    if (dados.total === 0) return null
-                    const isExpandido = categoriaExpandida === cat.id
-                    const todasSeparadas = dados.pendentes === 0
-
-                    return (
-                      <button
-                        key={cat.id}
-                        onClick={() => setCategoriaExpandida(isExpandido ? null : cat.id)}
-                        className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border transition-all text-xs ${
-                          isExpandido
-                            ? 'bg-purple-900/40 border-purple-500 text-purple-300'
-                            : todasSeparadas
-                              ? 'bg-green-900/30 border-green-700 text-green-300'
-                              : 'bg-slate-800 border-slate-600 hover:border-slate-500 text-slate-300'
-                        }`}
-                      >
-                        <span>{cat.icon}</span>
-                        <span className="font-medium">{cat.label}</span>
-                        <span className={`font-bold ${todasSeparadas ? 'text-green-500' : 'text-orange-400'}`}>
-                          {todasSeparadas ? '✓' : `${dados.pendentes}/${dados.total}`}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-              )
-            })()}
-          </div>
-        )}
-
         {/* Sort/Group — mobile only (desktop inline with search) */}
         <div className="flex md:hidden gap-2 items-center overflow-x-auto scrollbar-hide">
           {/* Ordenação */}
@@ -4603,7 +4661,7 @@ ${petNome}`
           )}
 
           {/* Agrupar por cidade (esconde quando inline ativo) */}
-          {!(statusFiltro === 'retorno' && montagemInline) && (
+          {(
             <button
               onClick={() => {
                 setAgruparCidade(!agruparCidade)
@@ -4621,7 +4679,7 @@ ${petNome}`
           )}
 
           {/* Agrupar por bairro (só aparece se cidade estiver ativa e inline não ativo) */}
-          {agruparCidade && !(statusFiltro === 'retorno' && montagemInline) && (
+          {agruparCidade && (
             <button
               onClick={() => setAgruparBairro(!agruparBairro)}
               className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
@@ -4640,182 +4698,9 @@ ${petNome}`
       </div>{/* /Sticky Toolbar */}
 
       {/* Card expandido da categoria (Montagem In-line) */}
-      {statusFiltro === 'retorno' && montagemInline && categoriaExpandida && (() => {
-        // Função para categorizar produtos por código
-        const categorizarProduto = (nome: string, codigo: string, tipo: string, precisaFoto: boolean): string => {
-          if (codigo === '0005') return 'certificados'
-          if (codigo === '0006') return 'protocolos'
-          if (codigo === '0004' || codigo === '0007') return 'pelinhos'
-          if (codigo === '0003' || codigo === '0002' || codigo === '1407') return 'rescaldos'
-          if (tipo === 'urna') return 'urnas'
-          if (tipo === 'acessorio' && precisaFoto) return 'porta-retratos'
-          const nomeLower = nome.toLowerCase()
-          if (tipo === 'acessorio' && !precisaFoto && (nomeLower.includes('ping') || nomeLower.includes('chavei') || nomeLower.includes('p/ visor'))) return 'pingentes'
-          return 'outros'
-        }
-
-        const categorias = [
-          { id: 'certificados', icon: '📜', label: 'Certificados' },
-          { id: 'protocolos', icon: '📋', label: 'Protocolos' },
-          { id: 'pelinhos', icon: '🫙', label: 'Pelinhos' },
-          { id: 'rescaldos', icon: '🐾', label: 'Personalizados' },
-          { id: 'urnas', icon: '⚱️', label: 'Urnas' },
-          { id: 'porta-retratos', icon: '🖼️', label: 'C/ Foto' },
-          { id: 'pingentes', icon: '💎', label: 'Pingentes' },
-          { id: 'outros', icon: '📦', label: 'Outros' },
-        ]
-        const catAtiva = categorias.find(c => c.id === categoriaExpandida)
-        const contratosRetorno = contratos.filter(c => c.status === 'retorno')
-
-        // Calcular contagem
-        let totalCat = 0
-        let pendentesCat = 0
-        contratosRetorno.forEach(c => {
-          c.contrato_produtos?.forEach(cp => {
-            if (!cp.produto) return
-            if (categorizarProduto(cp.produto.nome, cp.produto.codigo, cp.produto.tipo, cp.produto.precisa_foto) === categoriaExpandida) {
-              totalCat += cp.quantidade
-              if (!cp.separado) pendentesCat += cp.quantidade
-            }
-          })
-        })
-
-        // Coletar todos os produtos da categoria para o grid
-        const todosItens: Array<{ cp: ContratoProduto; contrato: Contrato }> = []
-        contratosRetorno.forEach(contrato => {
-          contrato.contrato_produtos?.forEach(cp => {
-            if (!cp.produto) return
-            if (categorizarProduto(cp.produto.nome, cp.produto.codigo, cp.produto.tipo, cp.produto.precisa_foto) === categoriaExpandida) {
-              todosItens.push({ cp, contrato })
-            }
-          })
-        })
-
-        return (
-          <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl border-2 border-purple-700 p-6 shadow-lg mb-4">
-            {/* Header */}
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-purple-900/40 flex items-center justify-center">
-                  <span className="text-3xl">{catAtiva?.icon}</span>
-                </div>
-                <div>
-                  <h3 className="font-bold text-xl text-slate-200">{catAtiva?.label}</h3>
-                  <p className="text-sm text-slate-400">
-                    {pendentesCat === 0 ? (
-                      <span className="text-green-400 font-medium">✓ Tudo separado!</span>
-                    ) : (
-                      <span><span className="text-orange-400 font-bold">{pendentesCat}</span> pendentes de {totalCat}</span>
-                    )}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => separarTodosCategoria(categoriaExpandida, contratosRetorno)}
-                disabled={pendentesCat === 0}
-                className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white font-semibold rounded-xl hover:from-green-600 hover:to-green-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed transition-all shadow-md hover:shadow-lg disabled:shadow-none"
-              >
-                <span className="text-xl">✓</span>
-                Separar Tudo
-              </button>
-            </div>
-
-            {/* Grid de produtos */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 max-h-[60vh] overflow-y-auto p-1">
-              {todosItens.map(({ cp, contrato }) => (
-                <div
-                  key={cp.id}
-                  onClick={() => toggleSeparadoInline(cp.id, contrato.id, cp.separado)}
-                  className={`relative cursor-pointer rounded-xl overflow-hidden transition-all duration-200 ${
-                    cp.separado
-                      ? 'ring-4 ring-green-400 shadow-lg scale-[0.98] opacity-60'
-                      : 'ring-2 ring-slate-600 hover:ring-purple-400 hover:shadow-xl hover:scale-[1.02]'
-                  }`}
-                >
-                  {/* Foto do produto */}
-                  <div className="aspect-square bg-slate-700 relative">
-                    {cp.produto?.imagem_url ? (
-                      <img
-                        src={cp.produto.imagem_url}
-                        alt={cp.produto.nome}
-                        className="w-full h-full object-contain p-2"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = '/placeholder-produto.png'
-                        }}
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-4xl text-slate-300">
-                        {catAtiva?.icon}
-                      </div>
-                    )}
-
-                    {/* Badge de separado */}
-                    {cp.separado && (
-                      <div className="absolute inset-0 bg-green-500/20 flex items-center justify-center">
-                        <div className="w-16 h-16 rounded-full bg-green-500 flex items-center justify-center shadow-lg">
-                          <span className="text-white text-3xl">✓</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Info do pet/produto */}
-                  <div className={`p-3 ${cp.separado ? 'bg-green-900/30' : 'bg-slate-700'}`}>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-sm font-bold text-white bg-blue-700 px-1 py-0 rounded">
-                        {contrato.numero_lacre || '-'}
-                      </span>
-                      <span className="text-sm font-bold truncate flex-1" style={{ background: 'linear-gradient(90deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', color: contrato.pet_genero === 'macho' ? '#1d4ed8' : '#db2777', padding: '1px 5px', borderRadius: '4px' }}>
-                        {contrato.pet_nome}
-                        {contrato.pet_genero && <span style={{ marginLeft: '3px', fontSize: '0.7rem' }}>{contrato.pet_genero === 'macho' ? '♂' : '♀'}</span>}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-400 truncate" title={cp.produto?.nome}>
-                      {cp.produto?.nome}
-                    </p>
-                  </div>
-
-                  {/* Botão de ação no hover */}
-                  {!cp.separado && (
-                    <div className="absolute top-2 right-2 opacity-0 hover:opacity-100 transition-opacity">
-                      <div className="w-8 h-8 rounded-full bg-purple-500 text-white flex items-center justify-center shadow-md">
-                        <span className="text-sm">+</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* Contador visual */}
-            {todosItens.length > 0 && (
-              <div className="mt-4 pt-4 border-t border-slate-600 flex items-center justify-center gap-2">
-                <div className="flex -space-x-1">
-                  {todosItens.slice(0, 10).map((item, i) => (
-                    <div
-                      key={i}
-                      className={`w-6 h-6 rounded-full border-2 border-white ${
-                        item.cp.separado ? 'bg-green-400' : 'bg-orange-400'
-                      }`}
-                    />
-                  ))}
-                  {todosItens.length > 10 && (
-                    <div className="w-6 h-6 rounded-full border-2 border-white bg-slate-500 flex items-center justify-center">
-                      <span className="text-[8px] text-white font-bold">+{todosItens.length - 10}</span>
-                    </div>
-                  )}
-                </div>
-                <span className="text-sm text-slate-400 ml-2">
-                  {todosItens.filter(i => i.cp.separado).length}/{todosItens.length} separados
-                </span>
-              </div>
-            )}
-          </div>
-        )
-      })()}
 
       {/* Cards de Contratos (esconde quando inline ativo) */}
-      {!(statusFiltro === 'retorno' && montagemInline) && (
+      {(
       <div className="space-y-2">
         {/* 🔴 Etapa maior que a carga total: os placares abaixo contariam só um recorte.
             Avisa em vez de mostrar número errado com cara de conferido (lição do SP47). */}
@@ -4841,13 +4726,15 @@ ${petNome}`
               ? contratos.filter(c => c.status === statusFiltro)
               : contratos
 
-            // Filtrar por dificuldade de montagem (só na aba Retorno)
-            const contratosFiltradosMontagem = statusFiltro === 'retorno' && filtroMontagem !== 'todos'
-              ? contratosFiltradosStatus.filter(c => {
-                  const facil = isFacilMontar(c)
-                  return filtroMontagem === 'facil' ? facil : !facil
-                })
-              : contratosFiltradosStatus
+            // O filtro "Montagem: Todos / Fácil / Difícil" e o painel In-line foram REMOVIDOS
+            // em 13/09/2026 a pedido do Lucas ("cansei dele"). Só apareciam na aba Retorno e
+            // só para quem via `btn_fluxo_retorno`, o que na prática era o super_admin.
+            // `getComplexidadeMontagem` CONTINUA no arquivo de propósito: os dois indicadores
+            // de complexidade no card já estavam atrás de `{false && …}` desde antes, com o
+            // comentário "lógica preservada" — quem decidiu guardar não fui eu, e derrubar
+            // junto seria carona indevida numa limpeza pedida para outra coisa. Já
+            // `isFacilMontar` saiu: ninguém mais a chamava, nem os blocos preservados.
+            const contratosFiltradosMontagem = contratosFiltradosStatus
 
             // Agrupar por cidade se necessário
             const contratosAgrupados = agruparCidade
@@ -4866,8 +4753,18 @@ ${petNome}`
             // ⚠️ No fluxo novo a etapa PINDA não agrupa por viagem (§3.2 do plano): a
             // viagem que levou já não importa, importa o que está pronto pra buscar.
             // Ela vira cards soltos com linha do tempo do GC + o card do Nicho (etapas 5 e 6).
+            // 🔴 No fluxo novo, NEM Pinda NEM Entrega agrupam por viagem.
+            // Pinda: a viagem que levou já não importa, importa o que está pronto (§3.2).
+            // Entrega (13/09): o §3.3 mandava agrupar pelo encaminhamento de IDA, e o Lucas
+            // trocou a regra vendo a tela — quem entrega não roda a rota na ordem em que os
+            // pets foram para Pinda semanas atrás, roda na ordem do MAPA. O agrupamento por
+            // viagem era organização que não servia a nenhuma decisão desta etapa.
+            // Entrega e Pendente compartilham o mesmo desenho (13/09): `pendente` é a mesma
+            // etapa alguns dias depois — o pet cuja entrega ficou com ponta solta —, e quem
+            // abre a aba está indo ao mesmo endereço resolver a mesma coisa.
+            const ehListaDeRota = encPipeline && (statusFiltro === 'retorno' || statusFiltro === 'pendente')
             const deveAgruparSupinda = agruparSupinda && statusFiltro !== 'preventivo' && !fluxoLocal
-              && !(encPipeline && statusFiltro === 'pinda')
+              && !(encPipeline && statusFiltro === 'pinda') && !ehListaDeRota
 
             // Ativação de Preventivo em andamento (mig 138) sempre primeiro, seja qual for a
             // ordenação escolhida — acabou de acontecer, não faz sentido enterrar lá embaixo
@@ -4878,39 +4775,24 @@ ${petNome}`
               return a.aguardando_acolhimento ? -1 : 1
             }
 
-            // ─── PLACAR DO ENCAMINHAMENTO (§9.1) ───────────────────────────────
-            // Tudo CALCULADO da lista de pets que está na tela, nunca lido de
-            // `supindas.quantidade_pets`/`peso_total`: esses dois campos são mantidos
-            // por aritmética incremental em 4 lugares diferentes e divergem sob
-            // concorrência (armadilha 6 do §10.5 do plano). A lista é confiável aqui
-            // porque `cargaTotalDaEtapa` traz a etapa inteira e avisa se truncar.
-            const calcularPlacar = (cs: Contrato[]) => {
-              let comLacre = 0, pagos = 0, ind = 0, col = 0, peso = 0
-              for (const c of cs) {
-                if ((c.numero_lacre || '').trim()) comLacre++
-                const { planoPendente, acessoriosPendente } = getPagamentoPendente(c)
-                if (!planoPendente && !acessoriosPendente) pagos++
-                if (c.tipo_cremacao === 'coletiva') col++; else ind++
-                peso += c.pet_peso || 0
-              }
-              return { total: cs.length, comLacre, pagos, ind, col, peso }
-            }
-
-            // Cor de um par do placar: verde quando fecha, âmbar quando falta alguém (§9.1).
-            const corPlacar = (ok: boolean) => (ok ? '#22c55e' : '#f59e0b')
             const corUnidade = corUnidadeAtual
             const textoBadgeUnidade = textoBadgeUnidadeAtual
-            const chipsTipo = (p: ReturnType<typeof calcularPlacar>) => (
-              <>
-                {p.ind > 0 && <span className="flex items-center gap-0.5 text-[12px] font-semibold px-1.5 py-0.5 rounded bg-emerald-900/30 text-emerald-300"><Flame className="h-3 w-3" />{p.ind} IND</span>}
-                {p.col > 0 && <span className="flex items-center gap-0.5 text-[12px] font-semibold px-1.5 py-0.5 rounded bg-violet-900/30 text-violet-300"><Flame className="h-3 w-3" />{p.col} COL</span>}
-              </>
-            )
 
             // Menu "⋯" da viagem. `stopPropagation` em tudo: o wrapper da faixa abre os
             // pets no clique, e sem isso escolher "Editar" também expandiria a lista.
+            // Dados da viagem SEM depender do embed dos contratos. O embed só existe se
+            // houver pet dentro; numa viagem recém-criada (vazia) ele é `undefined`, e sem
+            // isso a faixa fica sem data e — pior — sem `id`, virando um alvo de arrasto
+            // que não vincula nada. `encPlanejados` (só viagens `planejada` da unidade) é
+            // o fallback. Declarado aqui em cima porque o menu abaixo também usa.
+            const supindaDoGrupo = (numero: string, cs: Contrato[]): { id?: string; data?: string | null; responsavel?: string | null; status?: string | null } | undefined =>
+              cs.find(c => c.supinda)?.supinda ?? encPlanejados.find(s => s.numero === numero)
+
             const menuEncaminhamento = (numero: string, cs: Contrato[]) => {
-              const sup = cs.find(c => c.supinda)?.supinda
+              // Mesma armadilha da faixa: lendo só o embed, o menu sumia justamente na
+              // viagem recém-criada — a única que ainda precisa ser editada, ter pet
+              // removido ou ser excluída.
+              const sup = supindaDoGrupo(numero, cs)
               const supId = sup?.id || null
               // ⚠️ O menu só existe em viagem AINDA PLANEJADA. Numa viagem que já partiu,
               // "Editar" abriria o desvincular-pet e o Excluir sobre um lote já despachado
@@ -4963,36 +4845,36 @@ ${petNome}`
             // pet, e a leitura vertical da etapa continua igual à de sempre.
             const renderFaixaEncaminhamento = (numero: string, cs: Contrato[], aberto: boolean) => {
               const p = calcularPlacar(cs)
-              const sup = cs.find(c => c.supinda)?.supinda
+              const sup = supindaDoGrupo(numero, cs)
               // `min-h-[68px]` iguala a faixa à altura do card de pet (mesmo valor do
               // Skeleton da lista) — pedido do Lucas em 06/09: os dois tipos de item
               // ocupam o mesmo espaço, e a coluna fica com ritmo regular.
               return (
-                <div className="rounded-lg border px-3 min-h-[68px] flex items-center gap-3" style={{ background: 'var(--surface-0)', borderColor: 'var(--surface-200)' }}>
+                // Fundo LARANJA (pedido do Lucas, 13/09): a faixa é o único item da lista
+                // que não é um pet, e no cinza padrão ela se perdia no meio dos cards. Em
+                // `rgba` com alpha em vez de classe Tailwind fixa porque o app tem 4 temas —
+                // laranja translúcido sobre o surface funciona no claro e no escuro; um
+                // `bg-orange-900` ficaria ilegível em dois deles. Começou em 10% e subiu
+                // para 18% na hora de olhar: a 10% só a borda aparecia, e o pedido era o
+                // FUNDO. Se ficar berrante em algum tema, é este número que se mexe.
+                <div className="rounded-lg border px-3 py-2 min-h-[68px] flex items-center gap-x-4 gap-y-1.5 flex-wrap" style={{ background: 'rgba(249, 115, 22, 0.18)', borderColor: 'rgba(249, 115, 22, 0.55)' }}>
                   <span className="text-[13px] font-black px-2 py-1 rounded flex-shrink-0" style={{ background: corUnidade, color: textoBadgeUnidade }}>{numero}</span>
-                  <span className="flex items-center gap-1 text-[12px] text-[var(--surface-500)] flex-shrink-0">
-                    <Calendar className="h-3.5 w-3.5" />{formatarDataViagem(sup?.data)}
-                  </span>
-                  <div className="flex items-center gap-4 text-[13px] tabular-nums flex-1 min-w-0">
-                    <span className="flex items-center gap-1 text-[var(--surface-700)] font-semibold">
-                      <PawPrint className="h-4 w-4" />{p.total} pet{p.total !== 1 ? 's' : ''}
-                    </span>
-                    <span className="flex items-center gap-1 text-[var(--surface-500)]">
-                      <Weight className="h-4 w-4" />{p.peso.toFixed(p.peso % 1 === 0 ? 0 : 1)} kg
-                    </span>
-                    {/* Ícone no lugar do rótulo pra caber na faixa; `title` preserva o
-                        significado pra quem passar o mouse e pro leitor de tela. */}
-                    <span className="flex items-center gap-1 font-semibold" title={`${p.comLacre} de ${p.total} com lacre`} style={{ color: corPlacar(p.comLacre === p.total) }}>
-                      <Tag className="h-4 w-4" />{p.comLacre}/{p.total}
-                    </span>
-                    <span className="flex items-center gap-1 font-semibold" title={`${p.pagos} de ${p.total} pagos`} style={{ color: corPlacar(p.pagos === p.total) }}>
-                      <DollarSign className="h-4 w-4" />{p.pagos}/{p.total}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5 flex-shrink-0">{chipsTipo(p)}</div>
+                  {campoFaixa(Calendar, 'Data programada', formatarDataViagem(sup?.data))}
+                  {campoFaixa(PawPrint, 'Pets', p.total)}
+                  {campoFaixa(Weight, 'Peso total', `${p.peso.toFixed(p.peso % 1 === 0 ? 0 : 1)} kg`)}
+                  {/* Peso MÉDIO por pet (13/09) — "é um bom indicador", e é mesmo: o total
+                      sozinho não distingue 140 kg de 7 pets grandes de 140 kg de 20 pequenos, e
+                      são cargas diferentes na hora de montar o carro. Só aparece com pet dentro:
+                      numa viagem vazia seria divisão por zero, e "0 kg/pet" não informa nada. */}
+                  {p.total > 0 && campoFaixa(Scale, 'Peso/pet', `${(p.peso / p.total).toFixed(1)} kg`)}
+                  {campoFaixa(Tag, 'Com lacre', `${p.comLacre}/${p.total}`, corPlacar(p.comLacre === p.total))}
+                  {campoFaixa(DollarSign, 'Pagos', `${p.pagos}/${p.total}`, corPlacar(p.pagos === p.total))}
+                  <div className="flex items-center gap-1.5 flex-shrink-0 ml-auto">{chipsTipo(p)}</div>
                   {sup?.responsavel && (
-                    <span className="hidden lg:flex items-center gap-1 text-[12px] text-[var(--surface-400)] truncate max-w-[150px] flex-shrink-0" title={sup.responsavel}>
-                      <User className="h-3.5 w-3.5 flex-shrink-0" /><span className="truncate">{sup.responsavel}</span>
+                    <span className="hidden lg:flex items-center gap-1.5 flex-shrink-0 max-w-[210px]" title={sup.responsavel}>
+                      <User className="h-4 w-4 flex-shrink-0 text-[var(--surface-400)]" />
+                      <span className="text-[12px] text-[var(--surface-400)]">Responsável:</span>
+                      <span className="text-[13px] text-[var(--surface-700)] truncate">{sup.responsavel}</span>
                     </span>
                   )}
                   {/* Menu de ações — separado do clique que abre os pets.
@@ -5009,9 +4891,13 @@ ${petNome}`
             // ─── MOBILE: card resumido, 2 por linha ─────────────────────────────
             const renderCardEncMobile = (numero: string, cs: Contrato[]) => {
               const p = calcularPlacar(cs)
-              const sup = cs.find(c => c.supinda)?.supinda
+              const sup = supindaDoGrupo(numero, cs)
               return (
-                <div className="rounded-lg border p-2.5" style={{ background: 'var(--surface-0)', borderColor: 'var(--surface-200)' }}>
+                // Mesmo laranja da faixa desktop — a viagem tem que se distinguir do pet nos
+                // dois tamanhos. Os RÓTULOS ("Data programada:", "Peso total:") ficam só no
+                // desktop: aqui são 2 colunas, e escrever o nome de cada número empurraria o
+                // card para 3 linhas. No celular o toque abre a viagem, onde tudo se lê.
+                <div className="rounded-lg border p-2.5" style={{ background: 'rgba(249, 115, 22, 0.18)', borderColor: 'rgba(249, 115, 22, 0.55)' }}>
                   <div className="flex items-center gap-1.5 mb-2">
                     <span className="text-[12px] font-black px-1.5 py-0.5 rounded flex-shrink-0" style={{ background: corUnidade, color: textoBadgeUnidade }}>{numero}</span>
                     <span className="flex items-center gap-0.5 text-[11px] text-[var(--surface-500)] truncate flex-1">
@@ -5079,7 +4965,7 @@ ${petNome}`
               )
             }
 
-            function renderSupindaGroup(lista: Contrato[], renderFn: (c: Contrato) => React.ReactNode) {
+            function renderSupindaGroup(lista: Contrato[], renderFn: (c: Contrato, meio?: React.ReactNode) => React.ReactNode) {
               // ─── PINDA no fluxo novo: cards soltos + linha do tempo (§3.2) ─────
               // Vem ANTES do early-return de `!deveAgruparSupinda` de propósito: Pinda
               // não agrupa por viagem no fluxo novo (a que levou já não importa; importa
@@ -5100,19 +4986,77 @@ ${petNome}`
                 const emAndamento = ordenada.filter(c => c.contrato_gc?.etapa !== 'disponivel')
                 return (
                   <div className="space-y-2">
+                    {/* A linha do tempo vai DENTRO do card, no espaço que sobrava entre os
+                        badges e os botões — o vazio que o Lucas circulou na tela em 13/09.
+                        Antes eram dois blocos por pet (card 68px + faixa 75px); agora é um só,
+                        medido em **105px**: −30% de altura por pet.
+                        ⚠️ O ganho de SCROLL é menor do que parece, e vale saber por quê: quase
+                        todo pet de Pinda está no card do NICHO (colapsado), não nesta lista —
+                        medido em 13/09, PA tem 138 no nicho e 0 aqui, RS 134 e 0, SP 34 e 0.
+                        Só SJ (34), ST (11) e PI (7) têm fila em andamento de verdade, e aí o
+                        ganho é de ~2 telas na SJ. O motivo real da mudança é densidade: o vazio
+                        virou informação.
+                        Como `renderLinhaDoTempoGC` já é elástica (`flex-1` entre os passos,
+                        `minWidth: 52` em cada um), ela se comprime sozinha no espaço menor; não
+                        precisou de uma versão "compacta" à parte. */}
                     {emAndamento.map(c => (
-                      <div key={c.id}>
-                        {renderFn(c)}
-                        {c.contrato_gc && (
-                          <div className="mt-1 px-3 py-2 rounded-lg border" style={{ background: 'var(--surface-0)', borderColor: 'var(--surface-200)' }}>
-                            {renderLinhaDoTempoGC(c)}
-                          </div>
-                        )}
-                      </div>
+                      <div key={c.id}>{renderFn(c, c.contrato_gc ? renderLinhaDoTempoGC(c) : undefined)}</div>
                     ))}
+
+                    {/* Legenda de passagem entre as duas metades da etapa. A tela mostra duas
+                        listas com regras opostas e não dizia isso em lugar nenhum: em cima, o
+                        que a MATRIZ ainda está processando — a unidade só acompanha, não age
+                        (§3.2); embaixo, o que já é dela para buscar. Sem a frase, o operador
+                        precisa deduzir a divisão pela ausência de botão nos cards de cima.
+                        Só aparece quando existem as duas metades: sem pet em andamento (PA, RS,
+                        SP e CP hoje) não há "os de cima", e a legenda viraria ruído — mesma
+                        regra da dica de arrasto do Ativo. Mesmo divisor, para a tela ter
+                        uma voz só. */}
+                    {emAndamento.length > 0 && (
+                      <div className="flex items-center gap-2 py-1.5">
+                        <div className="flex-1 h-px bg-[var(--surface-200)]" />
+                        <span className="flex items-center gap-1.5 text-[12px] text-[var(--surface-400)] text-center px-1">
+                          <ArrowDown className="h-4 w-4 flex-shrink-0" />
+                          Concluídos a cremação e o certificado pela Matriz, os pets acima passam para o Nicho — prontos para a unidade retirar
+                        </span>
+                        <div className="flex-1 h-px bg-[var(--surface-200)]" />
+                      </div>
+                    )}
                     {/* Card do Nicho — sempre no FIM, mesmo vazio (§3.2: "sempre visível"):
                         é o lugar fixo onde a unidade vai buscar o que está pronto. */}
                     {renderCardNicho(noNicho, renderFn)}
+                  </div>
+                )
+              }
+
+              // ─── ENTREGA e PENDENTE: ordem de ROTA + endereço em destaque (13/09) ───
+              // Sai o agrupamento por viagem, entra a lista corrida ordenada por CEP: a
+              // sequência da tela passa a ser a sequência de quem vai dirigir.
+              //
+              // ⚠️ Ordena pelo CEP em si, NÃO pelo `deltaCep` (distância até a unidade), e a
+              // razão é dado medido: `unidades.cep` está preenchido em **1 das 8** (só Santos),
+              // então o delta seria `MAX_SAFE_INTEGER` para todo mundo em 7 unidades — a lista
+              // inteira empatada, ordem aparentemente aleatória. O CEP puro não precisa de
+              // referência nenhuma e já põe endereços vizinhos lado a lado, que é o que a rota
+              // precisa. Se um dia as 8 tiverem CEP, dá para trocar por delta e a lista passa a
+              // começar pela sede — o ganho é pequeno perto de depender de um cadastro vazio.
+              //
+              // ⚠️ E NÃO agrupa por faixa de distância, que foi o pedido original: medido nas
+              // 588 entregas, o delta de CEP não é distância. Em SJC os CEPs da cidade são
+              // contíguos (122xx) e faixas funcionariam; em SP a numeração salta por bairro e
+              // **150 das 156** entregas caíam numa faixa só ("longe"). O FLOW já registrava
+              // isso como heurística que "não vale entre regiões" — aqui a conta bateu.
+              if (ehListaDeRota) {
+                const cepNum = (c: Contrato): number => {
+                  const d = ((c.tutor?.cep || c.tutor_cep) || '').replace(/\D/g, '')
+                  return d.length === 8 ? parseInt(d, 10) : Number.MAX_SAFE_INTEGER // sem CEP vai pro fim
+                }
+                const porRota = [...lista].sort((a, b) => cepNum(a) - cepNum(b))
+                return (
+                  <div className="space-y-2">
+                    {porRota.map(c => (
+                      <div key={c.id}>{renderFn(c, renderEnderecoEntrega(c))}</div>
+                    ))}
                   </div>
                 )
               }
@@ -5123,7 +5067,7 @@ ${petNome}`
                 const listaOrdenada = ordenacao === 'cep'
                   ? [...lista].sort((a, b) => prioridadeAcolhimento(a, b) || (ordemAsc ? deltaCep(a) - deltaCep(b) : deltaCep(b) - deltaCep(a)))
                   : [...lista].sort(prioridadeAcolhimento)
-                return <div className="space-y-2">{listaOrdenada.map(renderFn)}</div>
+                return <div className="space-y-2">{listaOrdenada.map(c => renderFn(c))}</div>
               }
               // Agrupar por numero da supinda
               const grupos: { numero: string | null; contratos: Contrato[] }[] = []
@@ -5136,6 +5080,21 @@ ${petNome}`
                   grupos.push({ numero: num, contratos: arr })
                 }
                 mapaGrupos.get(num)!.push(c)
+              }
+
+              // ─── Viagem VAZIA também é um grupo (§3.1) ─────────────────────────
+              // O laço acima nasce dos contratos, então uma viagem sem nenhum pet
+              // jamais entraria em `grupos` — e foi por isso que o `+ Enc` criava a
+              // ST172 e ela não aparecia no fim dos ativos. Sem card não há alvo pro
+              // arrasto, e o primeiro passo do fluxo (montar a viagem) ficava
+              // impossível justamente na viagem nova, que é sempre a que se monta.
+              if (encPipeline && statusFiltro === 'ativo') {
+                for (const p of encPlanejados) {
+                  if (mapaGrupos.has(p.numero)) continue
+                  const arr: Contrato[] = []
+                  mapaGrupos.set(p.numero, arr)
+                  grupos.push({ numero: p.numero, contratos: arr })
+                }
               }
               // Helper: data efetiva = data_acolhimento ?? data_contrato (em ms, 0 se vazio)
               const dataEfetiva = (c: Contrato): number => {
@@ -5176,11 +5135,7 @@ ${petNome}`
               // O separador-linha vira CARD com placar. Clicar abre os pets do grupo —
               // o card resume, mas nada fica inacessível.
               if (encPipeline) {
-                const alternar = (numero: string) => setEncAbertos(prev => {
-                  const n = new Set(prev)
-                  if (n.has(numero)) n.delete(numero); else n.add(numero)
-                  return n
-                })
+                const entrarNoEnc = (numero: string) => { setEncAberto(numero); window.scrollTo({ top: 0 }) }
                 // Dica do gesto, entre o último pet solto e a primeira viagem. Só aparece
                 // quando as duas coisas existem na tela: sem pet solto não há o que
                 // arrastar, sem viagem não há destino — e instrução que não cabe no
@@ -5196,13 +5151,15 @@ ${petNome}`
                     <div className="flex-1 h-px bg-[var(--surface-200)]" />
                   </div>
                 )
-                // id da supinda do grupo — vem do embed dos contratos dele.
-                const supindaIdDoGrupo = (cs: Contrato[]) => cs.find(c => c.supinda)?.supinda?.id || null
+                // id da supinda do grupo. ⚠️ NÃO pode sair só do embed dos contratos:
+                // viagem vazia não tem contrato, e o id viria `null` — o card apareceria
+                // mas o arrasto não vincularia nada, que é pior que não aparecer.
+                const supindaIdDoGrupo = (numero: string, cs: Contrato[]) => supindaDoGrupo(numero, cs)?.id || null
 
                 // Props da FAIXA/CARD da viagem: abre/fecha no clique, recebe o pet
                 // arrastado (desktop) ou os selecionados por long-press (mobile).
                 const propsViagem = (numero: string, cs: Contrato[]) => {
-                  const supId = supindaIdDoGrupo(cs)
+                  const supId = supindaIdDoGrupo(numero, cs)
                   const temSelecao = petsSelecionados.size > 0
                   return {
                     role: 'button',
@@ -5211,10 +5168,10 @@ ${petNome}`
                       // Com seleção ativa no celular, tocar na viagem INCLUI em vez de
                       // abrir — é o segundo tempo do gesto "segure e toque".
                       if (temSelecao && supId) { vincularAoEncaminhamento([...petsSelecionados], supId); return }
-                      alternar(numero)
+                      entrarNoEnc(numero)
                     },
                     onKeyDown: (e: React.KeyboardEvent) => {
-                      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); alternar(numero) }
+                      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); entrarNoEnc(numero) }
                     },
                     onDragOver: (e: React.DragEvent) => { if (petArrastando) { e.preventDefault(); setEncAlvo(numero) } },
                     onDragLeave: () => setEncAlvo(a => (a === numero ? null : a)),
@@ -5255,26 +5212,36 @@ ${petNome}`
                     {/* DESKTOP — leitura vertical de sempre: faixa da viagem e card de pet
                         ocupam a mesma largura, um por linha. */}
                     <div className="hidden md:block space-y-2">
-                      {grupos.map((grupo, i) => {
+                      {/* DENTRO DA PASTA: só a viagem aberta, e nada mais — nem os outros
+                          encaminhamentos, nem os pets soltos. É o que diferencia "entrar" de
+                          "expandir": a lista inteira passa a ser o conteúdo da pasta. A faixa
+                          fica no topo como cabeçalho (o placar é a informação da viagem); quem
+                          diz ONDE você está é o breadcrumb sob a pill do status. */}
+                      {grupos.filter(g => encAberto === null || g.numero === encAberto).map((grupo, i) => {
                         if (grupo.numero === null) {
                           return grupo.contratos.map(c => (
                             <div key={c.id} {...propsPetArrastavel(c)}>{renderFn(c)}</div>
                           ))
                         }
-                        const aberto = encAbertos.has(grupo.numero)
+                        const dentro = encAberto === grupo.numero
                         return (
                           <Fragment key={grupo.numero}>
-                            {mostrarDica && i === idxPrimeiraViagem && dicaGesto(Move, 'Para encaminhar um pet, arraste o card dele até uma das viagens abaixo')}
-                            <div className="space-y-2">
-                              <div {...propsViagem(grupo.numero, grupo.contratos)}>
-                                {renderFaixaEncaminhamento(grupo.numero, grupo.contratos, aberto)}
+                            {!dentro && mostrarDica && i === idxPrimeiraViagem && dicaGesto(Move, 'Para encaminhar um pet, arraste o card dele até uma das viagens abaixo')}
+                            {/* Dentro da pasta a FAIXA SOME (pedido do Lucas, 13/09): o placar,
+                                o responsável, a data e as ações passaram todos para a linha do
+                                breadcrumb, que sobra vazia à direita do caminho. Manter os dois
+                                era dizer duas vezes a mesma coisa e gastar 68px de altura no
+                                topo de cada pasta. Fora da pasta a faixa continua sendo o que
+                                sempre foi: o card da viagem, com o menu `⋯`. */}
+                            {dentro ? (
+                              <div className="space-y-2">
+                                {grupo.contratos.map(c => renderFn(c))}
                               </div>
-                              {aberto && (
-                                <div className="space-y-2 pl-3 border-l-2" style={{ borderColor: corUnidade }}>
-                                  {grupo.contratos.map(renderFn)}
-                                </div>
-                              )}
-                            </div>
+                            ) : (
+                              <div {...propsViagem(grupo.numero, grupo.contratos)}>
+                                {renderFaixaEncaminhamento(grupo.numero, grupo.contratos, false)}
+                              </div>
+                            )}
                           </Fragment>
                         )
                       })}
@@ -5283,27 +5250,29 @@ ${petNome}`
                     {/* MOBILE — grid de 2 colunas, tudo resumido. Ao abrir, a viagem toma
                         as duas colunas e os pets dela viram um sub-grid de 2. */}
                     <div className="md:hidden grid grid-cols-2 gap-2 items-start">
-                      {grupos.map((grupo, i) => {
+                      {grupos.filter(g => encAberto === null || g.numero === encAberto).map((grupo, i) => {
                         if (grupo.numero === null) {
                           return grupo.contratos.map(c => (
                             <div key={c.id} {...propsPetSelecionavel(c)}>{renderPetResumidoMobile(c)}</div>
                           ))
                         }
-                        const aberto = encAbertos.has(grupo.numero)
+                        const aberto = encAberto === grupo.numero
                         return (
                           <Fragment key={grupo.numero}>
                             {/* No celular o gesto é outro: segurar e tocar no destino, o
                                 mesmo long-press de 500 ms que a /encaminhamentos já usa. */}
-                            {mostrarDica && i === idxPrimeiraViagem && (
+                            {encAberto === null && mostrarDica && i === idxPrimeiraViagem && (
                               <div className="col-span-2">{dicaGesto(Hand, 'Para encaminhar um pet, segure o card dele e toque na viagem')}</div>
                             )}
                             <div className={aberto ? 'col-span-2 space-y-2' : ''}>
-                              <div {...propsViagem(grupo.numero, grupo.contratos)}>
-                                {renderCardEncMobile(grupo.numero, grupo.contratos)}
-                              </div>
+                              {!aberto && (
+                                <div {...propsViagem(grupo.numero, grupo.contratos)}>
+                                  {renderCardEncMobile(grupo.numero, grupo.contratos)}
+                                </div>
+                              )}
                               {aberto && (
-                                <div className="grid grid-cols-2 gap-2 items-start pl-2 border-l-2" style={{ borderColor: corUnidade }}>
-                                  {grupo.contratos.map(renderPetResumidoMobile)}
+                                <div className="grid grid-cols-2 gap-2 items-start">
+                                  {grupo.contratos.map(c => renderPetResumidoMobile(c))}
                                 </div>
                               )}
                             </div>
@@ -5339,7 +5308,7 @@ ${petNome}`
                         )
                       })()}
                       <div className="space-y-2">
-                        {grupo.contratos.map(renderFn)}
+                        {grupo.contratos.map(c => renderFn(c))}
                       </div>
                     </div>
                   ))}
@@ -5348,7 +5317,17 @@ ${petNome}`
             }
 
             // Função para renderizar um card de contrato
-            const renderContrato = (contrato: Contrato) => {
+            // `meio` ocupa o espaço vago entre os badges e os botões da direita — hoje um
+            // spacer `flex-1` puro.
+            // 🔴 **NUNCA passe esta função direto para `.map()`** — use `.map(c => renderFn(c))`.
+            // `Array.prototype.map` chama o callback com `(elemento, ÍNDICE, array)`, então
+            // `.map(renderContrato)` injeta o índice em `meio` e o card exibe 0, 1, 2, 3… no
+            // meio. Aconteceu em 13/09, no mesmo dia em que este 2º parâmetro nasceu, e passou
+            // por `tsc` e `eslint` sem um pio: o índice é `number`, e `number` é `ReactNode`
+            // válido. Quem achou foi o Lucas, olhando a tela. Quem usa é a etapa Pinda, que põe a linha do tempo do GC
+            // ali dentro em vez de numa faixa separada embaixo (pedido do Lucas em 13/09,
+            // apontando o vazio na tela). Sem `meio`, o card fica exatamente como sempre foi.
+            const renderContrato = (contrato: Contrato, meio?: React.ReactNode) => {
               const dataBox = getDataBox(contrato.data_acolhimento)
               const petIcon = getPetIcon(contrato.pet_especie, contrato.pet_peso)
               const statusColors = STATUS_COLORS[contrato.status]
@@ -5444,7 +5423,7 @@ ${petNome}`
                             {contrato.pet_genero && <span style={{ marginLeft: '3px', fontSize: '0.8rem' }}>{contrato.pet_genero === 'macho' ? '♂' : '♀'}</span>}
                           </span>
                           {(contrato.pet_raca || contrato.pet_cor) && (
-                            <span className="text-xs font-medium" style={{ background: 'linear-gradient(90deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', color: '#475569', padding: '1px 5px', borderRadius: '4px' }}>{[contrato.pet_raca, contrato.pet_cor].filter(Boolean).join(' | ')}</span>
+                            <span className="text-xs font-medium truncate inline-block align-middle max-w-[190px]" title={[contrato.pet_raca, contrato.pet_cor].filter(Boolean).join(' | ')} style={{ background: 'linear-gradient(90deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', color: '#475569', padding: '1px 5px', borderRadius: '4px' }}>{[contrato.pet_raca, contrato.pet_cor].filter(Boolean).join(' | ')}</span>
                           )}
                           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isInd ? 'bg-emerald-500 text-white' : 'bg-violet-500 text-white'}`}>
                             {isInd ? 'IND' : 'COL'}
@@ -5626,7 +5605,7 @@ ${petNome}`
                         </Link>
                         {renderBadgesCompartilhamento(contrato)}
                         {(contrato.pet_raca || contrato.pet_cor) && (
-                          <span className="text-xs font-medium" style={{ background: 'linear-gradient(90deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', color: '#475569', padding: '1px 5px', borderRadius: '4px' }}>{[contrato.pet_raca, contrato.pet_cor].filter(Boolean).join(' | ')}</span>
+                          <span className="text-xs font-medium truncate inline-block align-middle max-w-[190px]" title={[contrato.pet_raca, contrato.pet_cor].filter(Boolean).join(' | ')} style={{ background: 'linear-gradient(90deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', color: '#475569', padding: '1px 5px', borderRadius: '4px' }}>{[contrato.pet_raca, contrato.pet_cor].filter(Boolean).join(' | ')}</span>
                         )}
                         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
                           contrato.tipo_cremacao === 'individual'
@@ -5639,8 +5618,11 @@ ${petNome}`
                       <div className="flex items-center gap-2 text-xs mt-0.5">
                         {(() => {
                           const { primeiro, resto } = separarPrimeiroNome(contrato.tutor?.nome || contrato.tutor_nome)
+                          // Trunca: o nome do TUTOR é o 2º campo mais longo do card e o menos
+                          // usado para identificar o pet — o primeiro nome, que é o que se lê,
+                          // fica sempre visível. O título no hover traz o nome inteiro.
                           return (
-                            <span style={{ background: 'linear-gradient(90deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', padding: '1px 5px', borderRadius: '4px' }}>
+                            <span className="truncate inline-block align-middle max-w-[230px]" title={[primeiro, resto].filter(Boolean).join(' ')} style={{ background: 'linear-gradient(90deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', padding: '1px 5px', borderRadius: '4px' }}>
                               <span className="font-bold" style={{ color: '#6d28d9' }}>{primeiro}</span>
                               {resto && <span className="font-normal" style={{ color: '#475569' }}> {resto}</span>}
                             </span>
@@ -5665,8 +5647,23 @@ ${petNome}`
                       layout="pipeline-desktop-pending"
                     />
 
-                    {/* Spacer para empurrar indicadores para direita */}
-                    <div className="flex-1"></div>
+                    {/* Spacer que empurra os indicadores pra direita — e, quando existe
+                        `meio`, o lugar onde ele mora. Era só um vazio de ~500px. */}
+                    {meio ? (
+                      // 🔴 LARGURA FIXA e ancorada à DIREITA (13/09) — antes era `flex-1`, ou
+                      // seja, a trilha começava onde o conteúdo da esquerda acabasse. Como esse
+                      // conteúdo varia por pet (nome, raça, tutor, badges), cada card punha os
+                      // passos numa posição diferente e ao rolar a lista eles dançavam na
+                      // horizontal: "um carnaval", nas palavras do Lucas. Com largura fixa,
+                      // `A Chamar` de um pet cai exatamente sobre o `A Chamar` do de baixo, que
+                      // é a única forma de comparar dois pets de relance — o motivo pelo qual
+                      // esta trilha existe (§ passos FIXOS, mesma decisão).
+                      // O `flex-1` vazio antes dela é o que a empurra pra direita.
+                      <>
+                        <div className="flex-1 min-w-0" />
+                        <div className="w-[440px] flex-shrink-0 pl-3 pr-1 self-center">{meio}</div>
+                      </>
+                    ) : <div className="flex-1"></div>}
 
                     {/* Indicadores */}
                     <div className="flex items-center gap-2">

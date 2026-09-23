@@ -324,6 +324,25 @@ body {
   & .text-emerald-500 { color: #047857 !important; }
   & .border-emerald-700 { border-color: #6ee7b7 !important; }
 
+  /* Violet — faltava por completo, e o sintoma era o chip "N COL" ILEGÍVEL no tema
+     claro: `bg-violet-900/30` com `text-violet-300` é lilás claro sobre lilás claro.
+     Achado pelo Lucas em 13/09/2026 na faixa de encaminhamento, mas o defeito NÃO era
+     dela — `violet` é usado em 7 arquivos e nenhum tinha remap, então todo badge roxo
+     do app tinha o mesmo problema no claro. O par IND/COL era o caso mais visível
+     porque o verde (emerald) já estava remapeado e o roxo não: um lia, o outro não. */
+  & .bg-violet-900\/30 { background-color: rgb(237 233 254 / 0.6) !important; }
+  & .bg-violet-900\/40 { background-color: rgb(237 233 254 / 0.7) !important; }
+  & .bg-violet-900\/20 { background-color: rgb(237 233 254 / 0.5) !important; }
+  & .bg-violet-950\/30 { background-color: rgb(237 233 254 / 0.6) !important; }
+  & .bg-violet-500\/20 { background-color: rgb(221 214 254 / 0.7) !important; }
+  & .bg-violet-500\/15 { background-color: rgb(221 214 254 / 0.6) !important; }
+  & .bg-violet-500\/10 { background-color: rgb(237 233 254 / 0.6) !important; }
+  & .text-violet-300 { color: #7c3aed !important; }
+  & .text-violet-400 { color: #6d28d9 !important; }
+  & .text-violet-500 { color: #5b21b6 !important; }
+  & .border-violet-700 { border-color: #c4b5fd !important; }
+  & .border-violet-400 { border-color: #8b5cf6 !important; }
+
   /* Yellow */
   & .bg-yellow-900\/30 { background-color: rgb(254 249 195 / 0.5) !important; }
   & .bg-yellow-900\/40 { background-color: rgb(254 249 195 / 0.6) !important; }
