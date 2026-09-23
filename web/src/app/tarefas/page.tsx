@@ -24,6 +24,9 @@ import { criarContratoDeFicha, ContratoValidationError } from '@/lib/criar-contr
 import { gerarContratoPDF, contratoFilename } from '@/lib/contrato-pdf'
 import { hojeLocal, inputLocalParaIso } from '@/lib/date-local'
 import AtivacaoPVModal from '@/components/contratos/modals/AtivacaoPVModal'
+import FotoProva from '@/components/tarefas/FotoProva'
+import type { FotoComprimida } from '@/lib/comprimir-imagem'
+import { carregarExigeFoto, enviarFotoTarefa, listarFotosDasTarefas, urlAssinadaFoto, type ExigeFotoPorTipo } from '@/lib/foto-tarefa'
 
 // `entrega_pendente` NÃO é um tipo real de `tarefas_operacionais.tipo` (a constraint do banco
 // nem aceita esse valor) — é uma CHAVE DE EXIBIÇÃO só, calculada por `chaveExibicao()` a partir
@@ -725,6 +728,17 @@ export default function TarefasPage() {
     return daUnidade.length > 0 ? daUnidade : funcionariosUnidade
   }
 
+  // ── Foto-prova: quais tipos exigem (mig 147) ────────────────────────────
+  // Vem de `configuracoes`, não de constante: "novas tarefas surgirão e eu quero decidir
+  // individualmente para cada uma" (Lucas, 23/09/2026). Tipo ausente do JSON = não exige.
+  const [exigeFoto, setExigeFoto] = useState<ExigeFotoPorTipo>({})
+  useEffect(() => { carregarExigeFoto(supabase).then(setExigeFoto) }, [supabase])
+  const tipoExigeFoto = (tipo: TarefaTipo) => exigeFoto[tipo] === true
+  // Só gerente (e super_admin, que é gerente de tudo aqui) conclui sem a foto obrigatória.
+  // A MESMA regra vale no banco (trigger tarefa_exige_foto_ao_concluir) — isto aqui é só a
+  // versão amigável dela, pra não deixar o Operacional apertar um botão que vai falhar.
+  const podeDispensarFoto = currentRole === 'gerente' || isSuperAdmin
+
   // ── Minhas Tarefas ──────────────────────────────────────────────────────
   const [minhasTarefas, setMinhasTarefas] = useState<TarefaGrupo[]>([])
   const [fichasPorId, setFichasPorId] = useState<Record<string, FichaRemocao>>({})
@@ -859,6 +873,9 @@ export default function TarefasPage() {
   // tarefa, obrigatório nesse caso (migration 137). Compartilhado entre os 2 fluxos de
   // conclusão (simples e remoção) — só um popup fica aberto por vez.
   const [executadoPorFuncionarioId, setExecutadoPorFuncionarioId] = useState('')
+  // Foto-prova (mig 147). Mesmo racional do campo acima: um popup por vez, um state só.
+  // A foto NÃO sobe aqui — fica em memória e só vai pro bucket quando a conclusão confirma.
+  const [fotoProva, setFotoProva] = useState<FotoComprimida | null>(null)
   // Data de entrega: "agora" (hoje) ou "outra" (registrando depois) — só entrega usa (é `date`, sem hora).
   const [modoDataEntrega, setModoDataEntrega] = useState<'agora' | 'outra'>('agora')
   const [dataEntregaManual, setDataEntregaManual] = useState('')
@@ -872,8 +889,17 @@ export default function TarefasPage() {
       toast('Informe quem executou', 'error')
       return
     }
+    if (tipoExigeFoto(tarefa.tipo) && !fotoProva && !podeDispensarFoto) {
+      toast('Esta tarefa exige a Foto de Conclusão', 'error')
+      return
+    }
     setConcluindoSimples(true)
     try {
+      // A foto vai PRIMEIRO: o trigger do banco recusa a conclusão de tipo que exige foto
+      // enquanto não houver linha em `tarefa_fotos`. Falhou o upload, nada mais acontece e a
+      // tarefa continua pendente — melhor que concluir e perder a prova.
+      if (fotoProva) await enviarFotoTarefa(supabase, tarefa.ids, fotoProva, userId)
+
       let contratoId = tarefa.contrato_id
       if (tarefa.tipo === 'entrega' && tarefa.contrato_id) {
         const dataEntregaFinal = modoDataEntrega === 'agora' ? hojeLocal() : dataEntregaManual
@@ -1055,11 +1081,19 @@ export default function TarefasPage() {
 
   async function concluirRemocao(tarefa: TarefaGrupo, ficha: FichaRemocao) {
     if (!lacreRemocao.trim()) { setErroRemocao('Informe o lacre'); return }
+    if (tipoExigeFoto(tarefa.tipo) && !fotoProva && !podeDispensarFoto) {
+      setErroRemocao('Esta tarefa exige a Foto de Conclusão')
+      return
+    }
     if (modoDataRemocao === 'outra' && !dataHoraRemocaoManual) { setErroRemocao('Informe a data/hora da remoção'); return }
     if (isPosicao && !executadoPorFuncionarioId) { setErroRemocao('Informe quem executou'); return }
     setConcluindoRemocao(true)
     setErroRemocao(null)
     try {
+      // Foto primeiro (mig 147): o trigger recusa a conclusão sem ela, e aqui a conclusão ainda
+      // CRIA O CONTRATO — falhar depois disso deixaria contrato criado e tarefa pendente.
+      if (fotoProva) await enviarFotoTarefa(supabase, tarefa.ids, fotoProva, userId)
+
       const dataHoraFinal = modoDataRemocao === 'agora' ? new Date().toISOString() : inputLocalParaIso(dataHoraRemocaoManual)
       const opAtual = (ficha.op_dados || {}) as Record<string, unknown>
       const opAtualizado = {
@@ -1391,6 +1425,27 @@ export default function TarefasPage() {
   // Visualizar Tarefa (10/09/2026): recibo somente-leitura ao clicar num card já concluído
   // (Minhas ou Gestão) — o "Desfazer" que antes ficava solto no card mora dentro do popup.
   const [tarefaRecibo, setTarefaRecibo] = useState<TarefaGrupo | null>(null)
+  // Foto-prova no recibo (mig 147). Busca só quando o recibo abre — carregar a foto de toda
+  // tarefa concluída da lista seria egress jogado fora, já que quase nenhuma é aberta.
+  const [fotoRecibo, setFotoRecibo] = useState<{ url: string; bytes: number } | null>(null)
+  const [fotoReciboCarregando, setFotoReciboCarregando] = useState(false)
+  useEffect(() => {
+    if (!tarefaRecibo) { setFotoRecibo(null); return }
+    let cancelado = false
+    setFotoReciboCarregando(true)
+    setFotoRecibo(null)
+    ;(async () => {
+      const porTarefa = await listarFotosDasTarefas(supabase, tarefaRecibo.ids)
+      const foto = tarefaRecibo.ids.map(id => porTarefa[id]?.[0]).find(Boolean)
+      if (!foto) { if (!cancelado) setFotoReciboCarregando(false); return }
+      const url = await urlAssinadaFoto(supabase, foto.path)
+      if (!cancelado) {
+        setFotoRecibo(url ? { url, bytes: foto.bytes } : null)
+        setFotoReciboCarregando(false)
+      }
+    })()
+    return () => { cancelado = true }
+  }, [supabase, tarefaRecibo])
 
   const carregouConcluidasAntes = useRef(false)
   const carregarConcluidasRecentes = useCallback(async () => {
@@ -1703,6 +1758,7 @@ export default function TarefasPage() {
   const concluidasPetGroups = ordenarPorAcolhimento(agruparPorPet(concluidasRecentes.filter(t => TIPOS_PERSONALIZADOS.includes(t.tipo))))
 
   function abrirTarefaMinhas(t: TarefaGrupo) {
+    setFotoProva(null)
     setTarefaAberta(t)
     setTarefaAbertaRascunho(false)
     setLacreRemocao('')
@@ -1726,6 +1782,7 @@ export default function TarefasPage() {
     }
     setTarefaAberta(null)
     setTarefaAbertaRascunho(false)
+    setFotoProva(null)
   }
 
   // ============================================
@@ -2407,6 +2464,14 @@ export default function TarefasPage() {
                       <p className="text-[10px] text-[var(--surface-500)] mb-1">Ex.: Tutor acertou no cartão em 6x; Tutora pediu para cremar a toalha azul junto com o pet; Cremar ursinho de pelúcia junto.</p>
                       <textarea value={anotacaoRemocao} onChange={e => setAnotacaoRemocao(e.target.value)} rows={2} placeholder="Alguma observação sobre a remoção..." className="input w-full resize-none" />
                     </div>
+                    {/* Foto-prova (mig 147). Obrigatória conforme `configuracoes`; gerente
+                        conclui sem, e a tarefa fica marcada como concluída sem foto. */}
+                    <FotoProva
+                      valor={fotoProva}
+                      onChange={setFotoProva}
+                      obrigatoria={tipoExigeFoto(tarefaAberta.tipo)}
+                      aviso={<>Foto do <strong>lacre</strong> com a numeração visível já posicionado na pata do pet</>}
+                    />
                     {/* Login atual é uma posição (dispositivo compartilhado) — exige assinar
                         quem de fato executou (migration 137). */}
                     {isPosicao && (
@@ -2421,7 +2486,7 @@ export default function TarefasPage() {
                     {erroRemocao && <p className="text-xs text-red-400">{erroRemocao}</p>}
                     <button
                       onClick={() => concluirRemocao(tarefaAberta, ficha)}
-                      disabled={concluindoRemocao || !lacreRemocao.trim() || (modoDataRemocao === 'outra' && !dataHoraRemocaoManual) || (isPosicao && !executadoPorFuncionarioId)}
+                      disabled={concluindoRemocao || !lacreRemocao.trim() || (modoDataRemocao === 'outra' && !dataHoraRemocaoManual) || (isPosicao && !executadoPorFuncionarioId) || (tipoExigeFoto(tarefaAberta.tipo) && !fotoProva && !podeDispensarFoto)}
                       className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-emerald-600 text-white font-semibold disabled:opacity-50"
                     >
                       {concluindoRemocao ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
@@ -2499,6 +2564,15 @@ export default function TarefasPage() {
                     <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Anotação (opcional)</label>
                     <textarea value={anotacaoSimples} onChange={e => setAnotacaoSimples(e.target.value)} rows={2} placeholder="Alguma observação..." className="input w-full resize-none" />
                   </div>
+                  {/* Foto-prova (mig 147) — ver comentário no popup de remoção. */}
+                  <FotoProva
+                    valor={fotoProva}
+                    onChange={setFotoProva}
+                    obrigatoria={tipoExigeFoto(tarefaAberta.tipo)}
+                    aviso={tarefaAberta.tipo === 'entrega'
+                      ? 'Foto de protocolo de entrega assinado por tutor ou recebedor autorizado'
+                      : 'Foto do item concluído com identificação visível (Nome Pet, Nome Tutor, Lacre Pet)'}
+                  />
                   {/* Login atual é uma posição (dispositivo compartilhado) — exige assinar
                       quem de fato executou (migration 137). */}
                   {isPosicao && (
@@ -2512,7 +2586,7 @@ export default function TarefasPage() {
                   )}
                   <button
                     onClick={() => concluirTarefaSimples(tarefaAberta)}
-                    disabled={concluindoSimples || (!!tarefaAberta.observacao_atribuicao && !leuObservacao) || (tarefaAberta.tipo === 'entrega' && modoDataEntrega === 'outra' && !dataEntregaManual) || (isPosicao && !executadoPorFuncionarioId)}
+                    disabled={concluindoSimples || (!!tarefaAberta.observacao_atribuicao && !leuObservacao) || (tarefaAberta.tipo === 'entrega' && modoDataEntrega === 'outra' && !dataEntregaManual) || (isPosicao && !executadoPorFuncionarioId) || (tipoExigeFoto(tarefaAberta.tipo) && !fotoProva && !podeDispensarFoto)}
                     className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-emerald-600 text-white font-semibold disabled:opacity-50"
                   >
                     {concluindoSimples ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
@@ -2575,6 +2649,23 @@ export default function TarefasPage() {
                   <p className="text-sm text-[var(--surface-700)]">{tarefaRecibo.anotacao_conclusao}</p>
                 </div>
               )}
+
+              {/* Foto-prova (mig 147). "Concluída sem foto" não é campo no banco — é derivado:
+                  o tipo exige × não veio foto nenhuma. Quem concluiu assim foi um gerente. */}
+              {fotoReciboCarregando ? (
+                <p className="text-xs text-[var(--surface-500)]">Carregando foto...</p>
+              ) : fotoRecibo ? (
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-[var(--surface-500)] mb-1">Foto de Conclusão</p>
+                  <a href={fotoRecibo.url} target="_blank" rel="noopener noreferrer">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={fotoRecibo.url} alt="Foto de Conclusão" className="w-full max-h-72 object-cover rounded-lg border border-[var(--surface-200)]" />
+                  </a>
+                  <p className="text-[10px] text-[var(--surface-500)] mt-1">{Math.round(fotoRecibo.bytes / 1024)} KB · toque para ver inteira</p>
+                </div>
+              ) : tipoExigeFoto(tarefaRecibo.tipo) ? (
+                <p className="text-xs text-amber-500">⚠️ Concluída sem foto (liberado por gerente).</p>
+              ) : null}
 
               {podeDesfazer && (
                 <button

@@ -4,13 +4,14 @@
 // operacoes humanas erradas. Sidebar lateral com a lista de tipos; conteudo
 // muda conforme tipo selecionado. Por enquanto: "Desfazer ficha processada".
 import { useState } from 'react'
-import { Wrench, Shield, RotateCcw, ArrowLeftRight, AlertTriangle, Truck } from 'lucide-react'
+import { Wrench, Shield, RotateCcw, ArrowLeftRight, AlertTriangle, Truck, HardDrive } from 'lucide-react'
 import { useUnit } from '@/contexts/UnitContext'
 import EmptyState from '@/components/ui/EmptyState'
 import DesfazerFichaPanel from '@/components/admin/tratamento-erros/DesfazerFichaPanel'
 import MoverFichaPanel from '@/components/admin/tratamento-erros/MoverFichaPanel'
 import AnomaliasPanel from '@/components/admin/tratamento-erros/AnomaliasPanel'
 import DesfazerEncaminhamentoPanel from '@/components/admin/tratamento-erros/DesfazerEncaminhamentoPanel'
+import StorageLixoPanel from '@/components/admin/tratamento-erros/StorageLixoPanel'
 
 type Tratativa = {
   id: string
@@ -24,6 +25,7 @@ const TRATATIVAS: Tratativa[] = [
   { id: 'desfazer-ficha', label: 'Desfazer ficha processada', icon: RotateCcw, iconColor: 'text-amber-400' },
   { id: 'mover-ficha', label: 'Mover ficha de unidade', icon: ArrowLeftRight, iconColor: 'text-blue-400' },
   { id: 'desfazer-encaminhamento', label: 'Desfazer encaminhamento', icon: Truck, iconColor: 'text-orange-400' },
+  { id: 'storage-lixo', label: 'Limpeza de arquivos órfãos', icon: HardDrive, iconColor: 'text-slate-400' },
 ]
 
 export default function TratamentoErrosPage() {
@@ -78,6 +80,7 @@ export default function TratamentoErrosPage() {
           {selected === 'desfazer-ficha' && <DesfazerFichaPanel />}
           {selected === 'mover-ficha' && <MoverFichaPanel />}
           {selected === 'desfazer-encaminhamento' && <DesfazerEncaminhamentoPanel />}
+          {selected === 'storage-lixo' && <StorageLixoPanel />}
         </section>
       </div>
     </div>

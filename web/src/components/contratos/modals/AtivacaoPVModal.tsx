@@ -5,6 +5,9 @@ import { X, MapPin, Navigation, FileDown, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import { baixarContratoPDF } from '@/lib/contrato-pdf-download'
+import FotoProva from '@/components/tarefas/FotoProva'
+import type { FotoComprimida } from '@/lib/comprimir-imagem'
+import { carregarExigeFoto, enviarFotoTarefa } from '@/lib/foto-tarefa'
 
 // ============================================================================
 // AtivacaoPVModal — conclusão da tarefa "Ativar Preventivo" (mig 138).
@@ -85,7 +88,7 @@ type Props = {
 
 export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, tarefaTipo = 'ativacao_pv' }: Props) {
   const supabase = createClient()
-  const { currentUnit, isPosicao } = useUnit()
+  const { currentUnit, isPosicao, currentRole, isSuperAdmin } = useUnit()
   const rotulo = tarefaTipo === 'ativacao_pv' ? 'Ativação de Preventivo' : 'Acolhimento'
   const concluidoTexto = tarefaTipo === 'ativacao_pv' ? 'concluída' : 'concluído'
 
@@ -99,6 +102,12 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
   const [dataHoraManual, setDataHoraManual] = useState('')
   const [executadoPorFuncionarioId, setExecutadoPorFuncionarioId] = useState('')
   const [anotacao, setAnotacao] = useState('')
+  // Foto-prova (mig 147). A Ativação de PV é um acolhimento como outro qualquer: o tipo
+  // `ativacao_pv` também entra na configuração `tarefas_exige_foto`.
+  const [fotoProva, setFotoProva] = useState<FotoComprimida | null>(null)
+  const [exigeFotoAqui, setExigeFotoAqui] = useState(false)
+  useEffect(() => { carregarExigeFoto(supabase).then(c => setExigeFotoAqui(c['ativacao_pv'] === true)) }, [supabase])
+  const podeDispensarFoto = currentRole === 'gerente' || isSuperAdmin
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [gerandoPdf, setGerandoPdf] = useState(false)
@@ -145,6 +154,7 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
   if (!isOpen) return null
 
   const podeConcluir = !!lacre.trim() && (modoData === 'agora' || !!dataHoraManual) && (!isPosicao || !!executadoPorFuncionarioId)
+    && (!exigeFotoAqui || !!fotoProva || podeDispensarFoto)
 
   // Onde buscar o pet — mesma lógica da remoção normal (`tarefas/page.tsx`), adaptada pros
   // campos do CONTRATO (aqui não tem ficha/op_dados, o local já foi decidido na atribuição).
@@ -192,6 +202,11 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
     setErro(null)
 
     try {
+      // Foto primeiro (mig 147): o trigger `tarefa_exige_foto_ao_concluir` recusa a conclusão
+      // da tarefa sem ela, e aqui o contrato é atualizado ANTES da tarefa — falhar no meio
+      // deixaria o acolhimento gravado e a tarefa pendente.
+      if (fotoProva && tarefaId) await enviarFotoTarefa(supabase, [tarefaId], fotoProva, null)
+
       const dataHoraIso = modoData === 'agora' ? new Date().toISOString() : new Date(dataHoraManual).toISOString()
 
       // status já virou 'ativo'/'pinda' na atribuição (AtivarModal.tsx) — não muda mais aqui.
@@ -369,6 +384,12 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
               )}
             </div>
 
+            <FotoProva
+              valor={fotoProva}
+              onChange={setFotoProva}
+              obrigatoria={exigeFotoAqui}
+              aviso={<>Foto do <strong>lacre</strong> com a numeração visível já posicionado na pata do pet</>}
+            />
             {isPosicao && (
               <div>
                 <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Colaborador na posição <span className="text-red-400">*</span></label>
