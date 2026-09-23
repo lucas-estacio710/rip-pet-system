@@ -139,6 +139,12 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
    * Prazo nunca a usa — é "registrar do extrato".
    */
   const [faixa, setFaixa] = useState<'despesas' | 'receitas'>('despesas')
+  // A faixa de receitas tem chave FLS própria (`obj_fin_receitas_prazo`): é uma
+  // aba que a unidade pode não querer, e sem chave o item seria incontrolável —
+  // regra obrigatória do CLAUDE.md, que esta aba descumpriu por algumas horas
+  // em 23/09. Lido aqui, e não no page.tsx, porque a faixa vive DENTRO de
+  // Lançamentos: quem esconde a aba-mãe já esconde as duas.
+  const veReceitas = isVisible('tela_financeiro', 'obj_fin_receitas_prazo')
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([])
   const [custosAuto, setCustosAuto] = useState<CustoAuto[]>([])
@@ -581,17 +587,23 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
 
       {/* As duas faixas. O seletor de mês é COMPARTILHADO (fica logo abaixo,
           dentro de cada uma) — o operador pensa "setembro", não "setembro das
-          despesas". */}
-      <UnderlineTabs
-        tabs={[
-          { key: 'despesas' as const, label: 'Despesas' },
-          { key: 'receitas' as const, label: 'Receitas a Prazo' },
-        ]}
-        value={faixa}
-        onChange={setFaixa}
-      />
+          despesas".
 
-      {faixa === 'receitas' ? (
+          FLS: `obj_fin_receitas_prazo` esconde a faixa de receitas. Escondida,
+          a barra de abas inteira some (uma aba só não é uma escolha) e a tela
+          volta a ser a de Despesas que sempre foi. */}
+      {veReceitas && (
+        <UnderlineTabs
+          tabs={[
+            { key: 'despesas' as const, label: 'Despesas' },
+            { key: 'receitas' as const, label: 'Receitas a Prazo' },
+          ]}
+          value={faixa}
+          onChange={setFaixa}
+        />
+      )}
+
+      {veReceitas && faixa === 'receitas' ? (
         <div className="space-y-3">
           <input
             type="month" value={mes} onChange={e => setMes(e.target.value)}

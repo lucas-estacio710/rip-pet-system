@@ -75,7 +75,7 @@ export const TELAS: ItemDef[] = [
   { key: 'tela_ads_shield', label: 'RIP Shield', desc: 'Detecção de fraude em cliques Google Ads' },
   { key: 'tela_dashboard', label: 'Dashboard (Admin)', desc: 'Painel interno do super_admin — uso/adoção dos usuários' },
   { key: 'tela_dashboards', label: 'Dashboards', desc: 'Estatísticas dos contratos para os usuários da unidade' },
-  { key: 'tela_financeiro', label: 'Financeiro', desc: 'Módulo financeiro em 3 abas: Lançamentos, Repasse e DRE (migs 103–111). Conta contábil, opex/capex e as duas datas são derivados — não aparecem na tela. Vendido por unidade: hoje ST, SJ, CP, PI e Matriz (mig 112)' },
+  { key: 'tela_financeiro', label: 'Financeiro', desc: 'Módulo financeiro em 5 abas: Lançamentos, Repasse, Caixa, DRE e Contas (migs 103–136). Conta contábil, opex/capex e as duas datas são derivados — não aparecem na tela. Vendido por unidade. ⚠️ "read" aqui NÃO torna as abas somente-leitura: o hook lê a permissão do CAMPO e ignora a tela, então quem trava cada aba é o btn_*_editar dela (só Lançamentos checa a tela também). Para deixar uma unidade em consulta, marque os btn_* — a tela sozinha não faz isso' },
   { key: 'tela_tarefas', label: 'Tarefas', desc: 'Fila de trabalho do perfil Operacional (remoção, entrega, molde, carimbo, pelo extra) — módulo pago cb_operacional (migs 113-114). Perfil Operacional sempre vê (gate em código, não FLS); pra gerente/concierge, controla se a aba "Atribuir" aparece na sidebar.' },
   { key: 'nav_bottom', label: 'Barra inferior (mobile)', desc: 'Atalhos no rodapé em telas <768px: Fichas, Pipeline, Encaminhamentos, Estoque, Painéis. Oculto = barra some (sidebar/drawer continuam). Cada atalho ainda respeita a visibilidade da própria tela.' },
 ]
@@ -121,6 +121,7 @@ export const OBJETOS: ChildItemDef[] = [
   { key: 'obj_fin_caixa', tela: 'tela_financeiro', label: 'Caixa', desc: 'Aba do fluxo de caixa: saldo por conta, extrato e movimentos (transferência, fatura de cartão, aporte) — mig 124' },
   { key: 'obj_fin_dre', tela: 'tela_financeiro', label: 'DRE', desc: 'Aba do resultado do mês: receita, custo, despesas e investimentos (mig 111)' },
   { key: 'obj_fin_contas', tela: 'tela_financeiro', label: 'Contas', desc: 'Aba de cadastro das contas de onde o dinheiro sai/entra (Inter, Granito, Dinheiro). Escopo por unidade' },
+  { key: 'obj_fin_receitas_prazo', tela: 'tela_financeiro', label: 'Receitas a Prazo', desc: 'Aba irmã de Despesas dentro de Lançamentos: o que a operadora de cartão já depositou e o que ainda deve (liquidação, antecipação, chargeback, taxa). Ocultar deixa só Despesas, e a aba some sem deixar buraco — quem esconder precisa lembrar que é o único lugar de registrar liquidação desde que a maquininha saiu do Caixa (mig 146)' },
   { key: 'obj_fin_acertos', tela: 'tela_financeiro', label: 'Acertos entre unidades', desc: 'Bloco no topo de Lançamentos: cobranças de outra unidade esperando reconhecimento, as que você lançou e o saldo com cada unidade (mig 135). Ocultar tira a caixa de entrada — as cobranças continuam sendo criadas' },
 ]
 
