@@ -271,6 +271,14 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
     const prod = PRODUTOS.find(x => x.v === c.produto)
     // Maquininha sem taxa é o caso que engana: parece configurada e cobra zero.
     if (c.produto === 'maquininha' && !c.tem_taxa) return 'taxas não cadastradas'
+    // 🔴 E o produto NÃO pode falar mais alto que a configuração real: uma conta
+    // corrente com tudo desmarcado anunciava "Recebe e paga de tudo." — a
+    // descrição do PRODUTO — enquanto a regra (mig 122, corrigida em 23/09) não
+    // a deixa receber nem pagar nada. A linha fechada é o que se lê sem abrir,
+    // então é justamente onde a contradição passava despercebida.
+    if (!(c.entradas || []).length && !(c.saidas || []).length) {
+      return '⚠️ nada marcado — não recebe nem paga'
+    }
     if (prod) return prod.desc
     const nome = (v: string) => (ENTRADAS.concat(SAIDAS).find(x => x.v === v)?.label || v).toLowerCase()
     const e = (c.entradas || []).length ? `recebe ${c.entradas.map(nome).join(', ')}` : ''
@@ -566,7 +574,7 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
                                     <span className="text-[11px] text-[var(--surface-400)] truncate">
                                       {marcados.length
                                         ? marcados.map(m => l.metodos.find(x => x.v === m)?.label || m).join(', ')
-                                        : 'qualquer forma'}
+                                        : 'nenhuma'}
                                     </span>
                                   )}
                                 </button>
@@ -580,9 +588,16 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
                                         onClick={() => alternar(c, l.k, m.v)}
                                       />
                                     ))}
+                                    {/* 🔴 ESTE TEXTO JÁ DISSE O OPOSTO e sobreviveu à
+                                        correção da regra (commit 6792f64, 23/09/2026):
+                                        a lógica passou a exigir a declaração e a tela
+                                        continuou ensinando "nada marcado = serve pra
+                                        qualquer forma". Quem lia acreditava na tela, que
+                                        é o que está na frente dos olhos. Texto e regra
+                                        têm de ser conferidos juntos. */}
                                     {marcados.length === 0 && (
-                                      <span className="text-[11px] text-[var(--surface-400)] self-center">
-                                        nada marcado = serve pra qualquer forma
+                                      <span className="text-[11px] self-center" style={{ color: '#f59e0b' }}>
+                                        nada marcado = não {l.k === 'entradas' ? 'recebe' : 'paga'} de forma nenhuma
                                       </span>
                                     )}
                                   </div>
