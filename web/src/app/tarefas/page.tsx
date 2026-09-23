@@ -914,7 +914,14 @@ export default function TarefasPage() {
           contrato_id: contratoId,
           descricao: partes.join(' '),
           tipo_id: tipoTarefa?.id || null,
-          importante: true,
+          // 🔴 `false`: **automático NUNCA nasce importante** (decisão do Lucas, 23/09/2026).
+          // Só é importante o que alguém MARCA à mão no card Observações ou escreve pelo
+          // botão 🚨 da /gruposencaminhamentos. Antes isto era `true` e o resultado era que
+          // quase toda observação de contrato entrava em destaque — medido: 449 linhas com
+          // `importante=true`, das quais **172 eram log automático**. O destaque parou de
+          // significar algo, que é o oposto de destacar. O registro continua na timeline do
+          // contrato; só não grita.
+          importante: false,
           criado_por: userName || 'Operacional',
         } as never)
       }
@@ -1102,7 +1109,11 @@ export default function TarefasPage() {
           contrato_id: contratoId,
           descricao: partes.join(' '),
           tipo_id: tipoTarefa?.id || null,
-          importante: true,
+          // 🔴 `false`: **automático NUNCA nasce importante** (decisão do Lucas, 23/09/2026).
+          // Só é importante o que alguém MARCA à mão no card Observações ou escreve pelo
+          // botão 🚨 da /gruposencaminhamentos. O registro continua na timeline do contrato;
+          // só não grita. Ver o CHANGELOG de 23/09 pra os números que motivaram isso.
+          importante: false,
           criado_por: userName || 'Operacional',
         } as never)
       }
@@ -1447,7 +1458,11 @@ export default function TarefasPage() {
           contrato_id: tarefa.contratoIdResolvido,
           descricao: `${userName || 'Alguém'} desfez a conclusão de ${TIPO_INFO[tarefa.tipo].label} — voltou pendente, ainda com quem já estava.`,
           tipo_id: tipoTarefa?.id || null,
-          importante: true,
+          // 🔴 `false`: **automático NUNCA nasce importante** (decisão do Lucas, 23/09/2026).
+          // Só é importante o que alguém MARCA à mão no card Observações ou escreve pelo
+          // botão 🚨 da /gruposencaminhamentos. O registro continua na timeline do contrato;
+          // só não grita. Ver o CHANGELOG de 23/09 pra os números que motivaram isso.
+          importante: false,
           criado_por: userName || 'Sistema',
         } as never)
       }
@@ -1550,7 +1565,11 @@ export default function TarefasPage() {
           contrato_id: contratoIdParaObs,
           descricao: `${userName || 'Alguém'} atribuiu para ${atribuidoNome || 'Operacional'} fazer ${rotulo}${observacao ? ` — pedido específico: "${observacao}"` : '.'}`,
           tipo_id: tipoTarefa?.id || null,
-          importante: !!observacao,
+          // 🔴 Era `!!observacao` — a atribuição COM pedido específico nascia importante.
+          // Mesmo assim é automático, e a regra nova não abre exceção: quem decide o destaque
+          // é uma pessoa marcando, não o sistema deduzindo. O pedido específico continua no
+          // texto da observação, legível.
+          importante: false,
           criado_por: userName || 'Sistema',
         } as never)
       }

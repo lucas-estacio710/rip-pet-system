@@ -36,15 +36,40 @@
  * como o Lucas testa antes de liberar unidade. A `/encaminhamentos` continua acessível
  * pela URL — e operável nas unidades não migradas, porque o gate DELA é o outro hook.
  *
- * ⚠️ Somente leitura. Esta tela não grava nada: quem monta e despacha encaminhamento no
- * fluxo novo é o Pipeline (`/contratos`). Ver `docs/ENCAMINHAMENTO_NO_PIPELINE.md`.
+ * ⚠️ **Quase somente leitura, e a exceção é UMA.** A tela nasceu sem gravar nada de propósito
+ * (dois caminhos de escrita pro mesmo encaminhamento foi o que causou o incidente SP47), e
+ * isso continua valendo pro fluxo: **montar, despachar e trazer de volta é só no Pipeline**
+ * (`/contratos`). O único ponto de escrita aqui são as **observações por ficha** (o botão
+ * 🚨), pedido do Lucas em 23/09/2026 — e mesmo elas não gravam num campo desta tela: são
+ * linhas de `tarefas`, a mesma tabela do card "Observações" de `/contratos/[id]`. Ver
+ * `salvarObservacao` e `BlocoObservacoes`. Nada de status, vínculo de pet ou data de viagem
+ * é tocado por aqui. Ver `docs/ENCAMINHAMENTO_NO_PIPELINE.md`.
+ *
+ * 🔴 TIPOGRAFIA — segue as diretrizes fechadas no §9.1 do plano, que nasceram da reclamação
+ * do Lucas na primeira versão do card do pipeline (*"to achando pequenas as letras.. e sem
+ * figurinhas"*). Esta tela nasceu repetindo o mesmo erro; corrigido em 23/09/2026.
+ *
+ *   • **Piso de 12px (`text-xs`) em tudo que carrega DADO** — nome, lacre, hora, telefone,
+ *     número da viagem, dia da semana, chips IND/COL, status. Nada de 9–11px aqui.
+ *   • **Nome do pet em 15px**; nome de agenda e número da viagem em 13px (são títulos de card).
+ *   • **Exceção: MARCADOR pode ser menor** — o overline "HOJE" do calendário (9px), o
+ *     "(sua unidade)" e o divisor de data da conversa (11px). Não são dado, são rótulo de
+ *     orientação. Não subir nem descer sem motivo.
+ *   • **Ícones em `lucide-react`, NUNCA emoji.** ⚠️ O §9.1 abre UMA exceção — o ícone do pet
+ *     como emoji de espécie/porte — que **esta tela não usa**, por decisão do Lucas em
+ *     23/09/2026: a ficha logo acima já traz espécie, raça e porte escritos, então o emoji era
+ *     redundância ocupando a linha. A legenda é **lacre (azul) · nome do pet**, e o lacre vem
+ *     primeiro porque é por ele que a operação identifica o pet.
+ *   • **Cor de unidade só no badge**, card neutro. ⚠️ A sigla da unidade APARECE aqui, ao
+ *     contrário do §9.1 ("sem a sigla") — e é proposital: lá a visão é de uma unidade só, aqui
+ *     são os 7 grupos na mesma lista, então a sigla é justamente o que distingue as conversas.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import {
   ChevronLeft, ChevronRight, ArrowLeft, Users, MessageCircle, X,
-  Dog, Cat, Bug, Phone, FileText, CheckCheck, Info, Download, Loader2,
+  Phone, FileText, CheckCheck, Info, Download, Loader2,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
@@ -105,7 +130,6 @@ type FichaMsg = {
   /** Só pra resolver o colaborador do acolhimento por RPC — ver `resolverColaboradores`. */
   responsavelUserId: string | null
   telefone: string | null
-  especie: string | null
   hora: string
 }
 
@@ -135,13 +159,6 @@ function horaDoAcolhimento(iso: string | null | undefined): string {
   const d = new Date(iso)
   if (isNaN(d.getTime())) return ''
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-}
-
-function especieIcon(especie: string | null) {
-  const e = especie?.toLowerCase() || ''
-  if (e.includes('canina')) return Dog
-  if (e.includes('felina')) return Cat
-  return Bug
 }
 
 // Iniciais pro avatar do contato. Saem do nome do TUTOR, nunca do nome de agenda: o nome de
@@ -292,7 +309,6 @@ function montarFicha(c: LinhaContrato): FichaMsg {
     tutorNome: c.tutor?.nome || c.tutor_nome || '',
     responsavelUserId: c.responsavel_user_id,
     telefone: telAtivo,
-    especie: c.pet_especie,
     hora: horaDoAcolhimento(c.data_acolhimento),
   }
 }
@@ -339,7 +355,7 @@ async function resolverColaboradores(
 // ============================================
 export default function GruposEncaminhamentosPage() {
   const supabase = createClient()
-  const { currentUnit } = useUnit()
+  const { currentUnit, userName, userEmail } = useUnit()
   const { isVisible } = useFieldPermission()
   const fluxoNovo = isVisible('tela_pipeline', 'obj_enc_pipeline')
 
@@ -363,8 +379,22 @@ export default function GruposEncaminhamentosPage() {
     window.addEventListener('resize', medir)
     return () => window.removeEventListener('resize', medir)
   }, [])
-  // Balão de foto do WhatsApp: ~200px no desktop, ~165px no celular.
-  const escalaMini = janela.w < 640 ? 0.42 : 0.5
+  // Tamanho da ficha no balão, imitando foto de WhatsApp.
+  //
+  // 🔴 Eu tinha feito INVERTIDO: 0,42 no celular e 0,5 no desktop. Medido em 23/09/2026 num
+  // viewport de 460px, a miniatura saía com **176px numa coluna de 409** — um quadradinho
+  // perdido, quando no zap uma foto no celular ocupa quase toda a largura do balão. No desktop
+  // o certo é o contrário: a coluna tem 672px (`max-w-2xl`) e uma ficha gigante ali não lê como
+  // conversa, lê como documento aberto.
+  //
+  // Então: **desktop fixo em 0,5** (≈210px, tamanho de foto num chat largo) e **celular
+  // proporcional à tela**, preenchendo o balão. Os 132px descontados são o respiro da página +
+  // a borda do balão + os 15% que o `max-w-[85%]` deixa de fora, com ~8px de folga: com 124 a
+  // conta dava 336px num balão de 348 — cabia, mas encostado, e arredondamento de sub-pixel
+  // podia cortar. Teto em 0,8. Em 460px dá 0,78 (328px) e em 360px dá 0,54 (228px).
+  const escalaMini = janela.w < 640
+    ? Math.min(0.8, Math.max(0.42, (janela.w - 132) / DOC_W))
+    : 0.5
   // Ampliada: tem que caber inteira SEM CORTE, então a escala é limitada pelas DUAS dimensões —
   // só pela largura, num notebook de 768px de altura o pé da ficha ("Observações especiais")
   // ficava fora da tela, escondendo justamente o campo que a Matriz precisa ler. Os 132px
@@ -409,6 +439,51 @@ export default function GruposEncaminhamentosPage() {
     carregar()
     return () => { vivo = false }
   }, [supabase])
+
+  // ---- Observações da conversa ----
+  //
+  // 🔴 **Isto quebra o "somente leitura" da tela, de propósito** (pedido do Lucas em
+  // 23/09/2026): *"cria uma possibilidade de colocar uma mensagem para cada ficha, com um
+  // botão + emoji de sirene.. é para as unidades escreverem algo de observação... e isso que
+  // escreverem, tem que alimentar o observações do contrato, como item importante"*.
+  //
+  // ⚠️ **Não existe campo novo.** A observação é uma linha de **`tarefas`** — a MESMA tabela
+  // que o card "Observações" de `/contratos/[id]` lê e escreve (`components/contratos/
+  // ObservacoesCard.tsx`). O insert copia o formato dele campo por campo, e o `tipo_id` sai de
+  // `tarefa_tipos` pelo nome, igual lá. Assim o que a unidade escreve aqui aparece lá sem
+  // nenhuma sincronização, porque é o mesmo registro.
+  //
+  // A diferença é **`importante: true`** (lá nasce `false`): foi o pedido explícito, e é o que
+  // faz a observação subir no card do contrato e acender o alerta que o `GCAcaoModal` já lê
+  // (`obsTemImportante`). Uma observação escrita aqui é a unidade avisando de algo fora do
+  // comum na remoção — nasce em destaque, não como nota de rodapé.
+  const salvarObservacao = useCallback(async (contratoId: string, texto: string): Promise<boolean> => {
+    const limpo = texto.trim()
+    if (!limpo || !currentUnit) return false
+
+    // Mesma regra do ObservacoesCard: o tipo diz de QUEM é a observação, e sai da unidade
+    // logada — não da unidade do encaminhamento. Quem escreve é quem está na tela.
+    const tipoNome = currentUnit.is_matriz ? 'Observação da Matriz' : 'Observação da Unidade'
+    const { data: tipo } = await supabase
+      .from('tarefa_tipos').select('id').eq('nome', tipoNome).maybeSingle()
+
+    const { error } = await supabase.from('tarefas').insert({
+      contrato_id: contratoId,
+      descricao: limpo,
+      tipo_id: (tipo as { id: string } | null)?.id ?? null,
+      unidade_id: currentUnit.id,
+      criado_por: userName || userEmail?.split('@')[0] || null,
+      criado_por_email: userEmail || null,
+      importante: true,   // ⚠️ o pedido: entra no contrato como item IMPORTANTE
+      resolvido: false,
+    } as never)
+
+    if (error) {
+      console.error('Erro ao salvar a observação:', error)
+      return false
+    }
+    return true
+  }, [supabase, currentUnit, userName, userEmail])
 
   // ---- Carga das fichas do grupo aberto (on demand — nunca as 523 viagens de uma vez) ----
   const abrirGrupo = useCallback(async (grupo: EncGrupo) => {
@@ -546,15 +621,15 @@ export default function GruposEncaminhamentosPage() {
                       Hoje
                     </span>
                   )}
-                  <span className={`text-[11px] font-semibold uppercase ${selecionado ? 'text-blue-400' : ''}`}>
+                  <span className={`text-xs font-semibold uppercase ${selecionado ? 'text-blue-400' : ''}`}>
                     {DIAS_SEMANA[dia.getDay()]}
                   </span>
-                  <span className={`text-[11px] ${selecionado ? 'text-blue-300' : ''}`}>{formatDia(dia)}</span>
+                  <span className={`text-xs ${selecionado ? 'text-blue-300' : ''}`}>{formatDia(dia)}</span>
                   <span className="flex flex-col items-center gap-0.5 mt-0.5 w-full">
                     {gruposDoDia(dia).map(g => (
                       <span
                         key={g.id}
-                        className="block w-full py-0.5 mx-0.5 rounded-sm text-[11px] font-bold leading-tight text-center"
+                        className="block w-full py-0.5 mx-0.5 rounded-sm text-xs font-bold leading-tight text-center"
                         style={{ background: UNIT_COLORS[g.codigo_unidade] || '#6366f1', color: textoSobreUnidade(g.codigo_unidade) }}
                       >
                         {g.numero}
@@ -607,15 +682,15 @@ export default function GruposEncaminhamentosPage() {
                     Hoje
                   </span>
                 )}
-                <span className={`text-[11px] font-semibold uppercase ${selecionado ? 'text-blue-400' : ''}`}>
+                <span className={`text-xs font-semibold uppercase ${selecionado ? 'text-blue-400' : ''}`}>
                   {DIAS_SEMANA[dia.getDay()]}
                 </span>
-                <span className={`text-[11px] ${selecionado ? 'text-blue-300' : ''}`}>{formatDia(dia)}</span>
+                <span className={`text-xs ${selecionado ? 'text-blue-300' : ''}`}>{formatDia(dia)}</span>
                 <span className="flex flex-col items-center gap-0.5 mt-0.5 w-full px-0.5">
                   {gruposDoDia(dia).map(g => (
                     <span
                       key={g.id}
-                      className="block w-full py-0.5 rounded-sm text-[10px] font-bold leading-tight text-center"
+                      className="block w-full py-0.5 rounded-sm text-xs font-bold leading-tight text-center"
                       style={{ background: UNIT_COLORS[g.codigo_unidade] || '#6366f1', color: textoSobreUnidade(g.codigo_unidade) }}
                     >
                       {g.numero}
@@ -637,6 +712,7 @@ export default function GruposEncaminhamentosPage() {
           fichas={fichas}
           carregando={carregandoFichas}
           escalaMini={escalaMini}
+          onSalvarObs={salvarObservacao}
           onVoltar={() => setEncAberto(null)}
           onAmpliar={setFichaAmpliada}
         />
@@ -801,6 +877,117 @@ function LightboxFicha({ ficha, escala, onFechar }: {
 }
 
 // ============================================
+// Observações de uma ficha (a "mensagem" da unidade)
+// ============================================
+/**
+ * As observações que a unidade escreve sobre a ficha, como mensagens na conversa, mais o botão
+ * de escrever uma nova.
+ *
+ * 🔴 **Não é um campo desta tela. É `tarefas`** — a mesma tabela do card "Observações" de
+ * `/contratos/[id]`. O que for escrito aqui aparece lá, e vice-versa, porque é o mesmo
+ * registro. E entra **`importante: true`**: é a unidade avisando de algo fora do comum na
+ * remoção, então nasce em destaque. Ver `salvarObservacao`.
+ *
+ * ⚠️ Componente próprio pra o `textarea` ter estado LOCAL. Se o texto morasse no estado da
+ * `Conversa`, cada tecla digitada re-renderizaria as fichas todas da viagem — e SP manda 46
+ * pets por viagem, cada um com uma ficha de ~40 nós. Digitar ficaria travado.
+ */
+function BlocoObservacoes({ contratoId, petNome, onSalvar }: {
+  contratoId: string
+  petNome: string
+  onSalvar: (contratoId: string, texto: string) => Promise<boolean>
+}) {
+  const [compondo, setCompondo] = useState(false)
+  const [texto, setTexto] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState(false)
+  // A conversa não mostra as observações (elas vivem no card do contrato), então sem este
+  // aviso a unidade escreveria, o compositor fecharia e ela ficaria sem saber se salvou.
+  const [salvou, setSalvou] = useState(false)
+
+
+  async function salvar() {
+    if (!texto.trim() || salvando) return
+    setSalvando(true)
+    setErro(false)
+    const ok = await onSalvar(contratoId, texto)
+    setSalvando(false)
+    if (ok) {
+      setTexto('')
+      setCompondo(false)
+      setSalvou(true)
+      setTimeout(() => setSalvou(false), 4000)
+    } else {
+      setErro(true)
+    }
+  }
+
+  return (
+    <>
+      {/* ⚠️ **A conversa NÃO renderiza as observações existentes** — decisão do Lucas em
+          23/09/2026, depois de ver o resultado: *"Não é para renderizar observações"*. Eu havia
+          construído o fluxo reverso (observação importante preexistente virando mensagem de
+          sirene) e ele funcionava — a CP42 mostrava 21 balões vermelhos. O problema não era a
+          renderização, era a ORIGEM: quase tudo nascia `importante: true` automático, então a
+          conversa enchia de log de auditoria em vermelho. A correção foi na causa (ver o
+          CHANGELOG de 23/09: 5 sites passaram a gravar `importante: false` e 172 linhas
+          existentes foram limpas), e a conversa voltou a ser só ficha + contato.
+          As observações continuam vivas e visíveis no card "Observações" de
+          `/contratos/[id]` — que é o lugar delas. Aqui isto é só a ENTRADA. */}
+
+      {/* Escrever uma nova */}
+      {compondo ? (
+        <div className="flex">
+          <div className="max-w-[85%] w-full sm:w-[320px] rounded-lg rounded-tl-none bg-[var(--surface-100)] border border-red-700 p-2 shadow-sm">
+            <textarea
+              value={texto}
+              onChange={e => setTexto(e.target.value)}
+              placeholder={`Observação sobre ${petNome}…`}
+              rows={3}
+              autoFocus
+              className="w-full bg-transparent text-xs text-[var(--surface-700)] placeholder:text-[var(--surface-400)] resize-none outline-none"
+            />
+            {erro && <p className="text-[11px] text-red-400 mb-1">Não deu pra salvar. Tente de novo.</p>}
+            <div className="flex items-center justify-end gap-2 pt-1 border-t border-[var(--surface-200)]">
+              <button
+                onClick={() => { setCompondo(false); setTexto(''); setErro(false) }}
+                className="min-h-11 px-3 text-xs text-[var(--surface-500)] hover:text-[var(--surface-700)] transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={salvar}
+                disabled={!texto.trim() || salvando}
+                className="flex items-center gap-1.5 min-h-11 px-3 rounded-lg bg-red-500/10 border border-red-700 text-xs font-semibold text-red-400 disabled:opacity-40 hover:bg-red-500/20 transition-colors"
+              >
+                {salvando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span style={{ fontSize: 13 }}>🚨</span>}
+                Salvar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="flex">
+          {/* ⚠️ `min-h-11` (44px) — alvo de toque no celular, igual ao "Conversar". */}
+          <button
+            onClick={() => setCompondo(true)}
+            className="flex items-center gap-1.5 min-h-11 px-3 rounded-lg border border-dashed border-[var(--surface-300)] text-xs font-medium text-[var(--surface-500)] hover:border-red-700 hover:text-red-400 transition-colors"
+          >
+            <span style={{ fontSize: 13 }}>🚨</span>
+            + Observação
+          </button>
+          {salvou && (
+            <span className="flex items-center ml-2 text-xs font-medium text-emerald-500">
+              ✓ salva nas Observações do contrato
+            </span>
+          )}
+        </div>
+      )}
+    </>
+  )
+}
+
+// ============================================
 // Lista de grupos do dia (a "lista de conversas")
 // ============================================
 function ListaDeGrupos({ dia, grupos, unidadeAtualCodigo, onAbrir }: {
@@ -846,16 +1033,16 @@ function ListaDeGrupos({ dia, grupos, unidadeAtualCodigo, onAbrir }: {
                     <span className="font-semibold text-[var(--surface-700)] truncate">
                       {g.unidade_nome}
                       {g.codigo_unidade === unidadeAtualCodigo && (
-                        <span className="ml-1.5 text-[10px] font-medium text-[var(--surface-400)]">(sua unidade)</span>
+                        <span className="ml-1.5 text-[11px] font-medium text-[var(--surface-400)]">(sua unidade)</span>
                       )}
                     </span>
-                    <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${st.classe}`}>
+                    <span className={`shrink-0 px-1.5 py-0.5 rounded text-xs font-semibold border ${st.classe}`}>
                       {st.rotulo}
                     </span>
                   </span>
                   <span className="flex items-center gap-1.5 text-xs text-[var(--surface-400)] mt-0.5">
                     <FileText className="h-3 w-3 shrink-0" />
-                    <span className="font-mono font-semibold text-[var(--surface-500)]">{g.numero}</span>
+                    <span className="font-mono font-semibold text-[13px] text-[var(--surface-500)]">{g.numero}</span>
                     <span>·</span>
                     <span>{g.quantidade_pets} {g.quantidade_pets === 1 ? 'ficha' : 'fichas'}</span>
                     <span>·</span>
@@ -882,11 +1069,12 @@ function ListaDeGrupos({ dia, grupos, unidadeAtualCodigo, onAbrir }: {
 // ============================================
 // A conversa do grupo
 // ============================================
-function Conversa({ grupo, fichas, carregando, escalaMini, onVoltar, onAmpliar }: {
+function Conversa({ grupo, fichas, carregando, escalaMini, onSalvarObs, onVoltar, onAmpliar }: {
   grupo: EncGrupo
   fichas: FichaMsg[]
   carregando: boolean
   escalaMini: number
+  onSalvarObs: (contratoId: string, texto: string) => Promise<boolean>
   onVoltar: () => void
   onAmpliar: (f: FichaMsg) => void
 }) {
@@ -918,7 +1106,7 @@ function Conversa({ grupo, fichas, carregando, escalaMini, onVoltar, onAmpliar }
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-[var(--surface-700)] truncate">{grupo.unidade_nome}</span>
-            <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${st.classe}`}>
+            <span className={`shrink-0 px-1.5 py-0.5 rounded text-xs font-semibold border ${st.classe}`}>
               {st.rotulo}
             </span>
           </div>
@@ -935,7 +1123,7 @@ function Conversa({ grupo, fichas, carregando, escalaMini, onVoltar, onAmpliar }
       <div className="p-3 sm:p-4 bg-[var(--surface-50)] space-y-4">
         {/* Divisor de data, igual ao do zap */}
         <div className="flex justify-center">
-          <span className="px-2.5 py-1 rounded-md bg-[var(--surface-100)] border border-[var(--surface-200)] text-[10px] font-medium uppercase tracking-wide text-[var(--surface-400)] capitalize">
+          <span className="px-2.5 py-1 rounded-md bg-[var(--surface-100)] border border-[var(--surface-200)] text-[11px] font-medium uppercase tracking-wide text-[var(--surface-400)] capitalize">
             {diaExtenso(grupo.data)}
           </span>
         </div>
@@ -954,7 +1142,6 @@ function Conversa({ grupo, fichas, carregando, escalaMini, onVoltar, onAmpliar }
           </div>
         ) : (
           fichas.map(f => {
-            const Icone = especieIcon(f.especie)
             const linkZap = linkChatDireto(f.telefone)
             return (
               <div key={f.contratoId} className="space-y-1.5">
@@ -970,14 +1157,25 @@ function Conversa({ grupo, fichas, carregando, escalaMini, onVoltar, onAmpliar }
                       <FichaEscalada ficha={f.ficha} escala={escalaMini} />
                       <span className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
                     </button>
+                    {/* Legenda do "anexo": LACRE · nome do pet — pedido do Lucas em 23/09/2026.
+                        O lacre lidera a linha porque é por ele que a operação identifica o pet
+                        (mesma ordem do card de `/tarefas`, "5646 — MORCILLA"). Aqui ele sai
+                        **sem `#`, no MESMO tamanho e fonte do nome (15px), em azul e negrito** —
+                        o peso visual separa os dois sem precisar de símbolo nem de monospace, e
+                        o azul amarra com os campos preenchidos da ficha logo acima.
+                        ⚠️ `text-blue-400` e não um hex: só a classe tem remap no
+                        `[data-theme="white"]` (#2563eb), e a legenda precisa ler nos 4 temas.
+                        ⚠️ **Sem ícone de espécie** — mesma conversa. Abre mão da exceção do
+                        §9.1 ("o ícone do pet continua sendo o emoji") de propósito: a ficha
+                        logo acima já traz espécie, raça e porte escritos, então o emoji era
+                        redundância ocupando a linha. */}
                     <div className="flex items-center gap-1.5 px-1 pt-1.5 pb-0.5" style={{ maxWidth: miniW }}>
-                      <Icone className="h-3.5 w-3.5 text-[var(--surface-400)] shrink-0" />
-                      <span className="text-xs font-semibold text-[var(--surface-700)] truncate">{f.petNome}</span>
                       {f.lacre && (
-                        <span className="ml-auto shrink-0 font-mono text-[10px] text-[var(--surface-400)]">
-                          #{f.lacre}
+                        <span className="shrink-0 text-[15px] font-bold text-blue-400">
+                          {f.lacre}
                         </span>
                       )}
+                      <span className="text-[15px] font-semibold text-[var(--surface-700)] truncate">{f.petNome}</span>
                     </div>
                     <div className="flex items-center justify-end gap-1 px-1 pb-0.5">
                       {/* 🔴 IND = verde, COL = roxo — padrão de cor do produto. As classes são
@@ -985,11 +1183,11 @@ function Conversa({ grupo, fichas, carregando, escalaMini, onVoltar, onAmpliar }
                           equivalentes: só elas têm remap no `[data-theme="white"]`, e o chip
                           precisa ler nos 4 temas. Eu tinha posto IND violeta / COL azul. */}
                       {f.tipoCremacao && (
-                        <span className={`mr-auto px-1 rounded text-[9px] font-bold ${f.tipoCremacao === 'individual' ? 'bg-emerald-900/30 text-emerald-300' : 'bg-violet-900/30 text-violet-300'}`}>
+                        <span className={`mr-auto px-1.5 rounded text-xs font-bold ${f.tipoCremacao === 'individual' ? 'bg-emerald-900/30 text-emerald-300' : 'bg-violet-900/30 text-violet-300'}`}>
                           {f.tipoCremacao === 'individual' ? 'IND' : 'COL'}
                         </span>
                       )}
-                      <span className="text-[10px] text-[var(--surface-400)] font-mono">{f.hora}</span>
+                      <span className="text-xs text-[var(--surface-400)] font-mono">{f.hora}</span>
                       <CheckCheck className="h-3 w-3 text-sky-400" />
                     </div>
                   </div>
@@ -1006,10 +1204,10 @@ function Conversa({ grupo, fichas, carregando, escalaMini, onVoltar, onAmpliar }
                         {iniciais(f.tutorNome || f.petNome)}
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block text-xs font-semibold text-[var(--surface-700)] break-words">
+                        <span className="block text-[13px] font-semibold text-[var(--surface-700)] break-words">
                           {f.nomeAgenda}
                         </span>
-                        <span className="flex items-center gap-1 text-[11px] text-[var(--surface-400)] mt-0.5">
+                        <span className="flex items-center gap-1 text-xs text-[var(--surface-400)] mt-0.5">
                           <Phone className="h-3 w-3 shrink-0" />
                           <span className="font-mono">{fmtTelefone(f.telefone) || 'sem telefone'}</span>
                         </span>
@@ -1020,9 +1218,13 @@ function Conversa({ grupo, fichas, carregando, escalaMini, onVoltar, onAmpliar }
                         href={linkZap}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center justify-center gap-1.5 w-full py-2 border-t border-[var(--surface-200)] text-xs font-semibold text-[#25D366] hover:bg-[#25D366]/10 transition-colors"
+                        // 🔴 `min-h-11` (44px) e não `py-2`: medido em 23/09/2026, o botão saía
+                        // com **33px de altura** no celular, abaixo do mínimo de alvo de toque
+                        // (44px iOS / 48dp Material). É a ação principal da tela num aparelho
+                        // que se usa com o polegar — errar o toque aqui é ligar pro tutor errado.
+                        className="flex items-center justify-center gap-1.5 w-full min-h-11 py-2 border-t border-[var(--surface-200)] text-xs font-semibold text-[#25D366] hover:bg-[#25D366]/10 transition-colors"
                       >
-                        <MessageCircle className="h-3.5 w-3.5" />
+                        <MessageCircle className="h-4 w-4" />
                         Conversar
                       </a>
                     ) : (
@@ -1032,6 +1234,13 @@ function Conversa({ grupo, fichas, carregando, escalaMini, onVoltar, onAmpliar }
                     )}
                   </div>
                 </div>
+
+                {/* ===== Mensagem 3: observações da unidade sobre esta ficha ===== */}
+                <BlocoObservacoes
+                  contratoId={f.contratoId}
+                  petNome={f.petNome}
+                  onSalvar={onSalvarObs}
+                />
               </div>
             )
           })

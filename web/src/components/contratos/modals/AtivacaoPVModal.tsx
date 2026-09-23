@@ -252,7 +252,10 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
         unidade_id: unidadeId,
         descricao: `${rotulo} ${concluidoTexto} — lacre ${lacre.trim()}${sufixoExecutor}.${anotacao.trim() ? ` Nota: ${anotacao.trim()}` : ''}`,
         tipo_id: tipoTarefaObs?.id || null,
-        importante: true,
+        // 🔴 `false` — automático nunca nasce importante (23/09/2026). Este insert era o maior
+        // gerador do problema: **54 das 172** linhas de log marcadas como importantes vinham
+        // daqui ("Acolhimento concluído — lacre NNNN").
+        importante: false,
       } as never)
 
       // Notificação de conclusão pro gerente/concierge da unidade — lacuna achada testando
