@@ -12,6 +12,7 @@ import {
   FileCheck,
   Heart,
   Route,
+  MessagesSquare,
   Church,
   ShelvingUnit,
   Users,
@@ -43,7 +44,10 @@ const navItems: NavItem[] = [
   { href: '/fichas', label: 'Fichas', icon: TextSelect, countKey: 'fichas', module: 'tela_fichas', iconColor: '#38bdf8' },
   { href: '/preventivos', label: 'Preventivos', icon: Heart, countKey: null, module: 'tela_preventivos', iconColor: '#fb7185' },
   { href: '/contratos?status=ativo', label: 'Pipeline', icon: FileCheck, countKey: 'contratos', module: 'tela_pipeline', iconColor: '#f59e0b' },
+  // Os dois encaminhamentos convivem, mas só UM aparece por unidade: `obj_enc_pipeline`
+  // (mig 142) decide qual. Chave ligada = fluxo novo = a tela de grupos. Ver o filtro abaixo.
   { href: '/encaminhamentos', label: 'Encaminhamentos', icon: Route, countKey: null, module: 'tela_entregas', iconColor: '#bef264' },
+  { href: '/gruposencaminhamentos', label: 'Encaminhamentos', icon: MessagesSquare, countKey: null, module: 'tela_entregas', iconColor: '#25D366' },
   { href: '/estoque', label: 'Estoque', icon: ShelvingUnit, countKey: null, module: 'tela_estoque', iconColor: '#a0522d' },
   { href: '/gc', label: 'GC', icon: Church, countKey: null, module: 'tela_gc', iconColor: '#60a5fa' },
   { href: '/financeiro', label: 'Financeiro', icon: Receipt, countKey: null, module: 'tela_financeiro', iconColor: '#34d399' },
@@ -79,6 +83,9 @@ export function Sidebar({ mode, onNavigate, dense }: Props) {
   // deixaria todo o resto do menu aparecer). Mesmo racional do redirect em LayoutWrapper.tsx.
   const isOperacional = currentRole === 'operacional'
 
+  // Unidade no fluxo novo de encaminhamento? Decide qual das duas telas entra no menu.
+  const encPipeline = hasModule('obj_enc_pipeline')
+
   // Filtrar itens por módulo ativo e permissão
   const visibleItems = navItems.filter(item => {
     if (isOperacional) return item.href === '/tarefas'
@@ -86,6 +93,12 @@ export function Sidebar({ mode, onNavigate, dense }: Props) {
     if (item.module && !hasModule(item.module)) return false
     // cbModule = módulo pago (unidades.modulos_ativos) — checagem direta, hasModule() é só FLS
     if (item.cbModule && !isSuperAdmin && !currentUnit?.modulos_ativos?.includes(item.cbModule)) return false
+    // Rollout do encaminhamento (mig 142): as duas telas têm o mesmo label de propósito —
+    // pra quem usa, o menu não muda de nome, muda de destino. `hasModule` é FLS, então o
+    // super_admin cai sempre na nova (é como o Lucas testa antes de liberar a unidade); a
+    // antiga segue acessível pela URL e operável onde a unidade não migrou.
+    if (item.href === '/encaminhamentos' && encPipeline) return false
+    if (item.href === '/gruposencaminhamentos' && !encPipeline) return false
     return true
   })
 

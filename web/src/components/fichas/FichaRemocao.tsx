@@ -47,12 +47,29 @@ export type FichaContratoData = {
   tutor_nome?: string | null
   tutor_bairro?: string | null
   tutor_cidade?: string | null
-  tutor?: { nome?: string | null; bairro?: string | null; cidade?: string | null } | null
+  // Endereço do tutor — pedido do Lucas em 15/09/2026 pra ficha. Lido só pelo
+  // `FichaRemocaoDoc` (o layout sobre PNG não tem espaço reservado pra isso). `tutor_*` é o
+  // snapshot do contrato; o embed `tutor` é o CADASTRO, que tem precedência (quem se muda
+  // atualiza o cadastro, não o contrato antigo).
+  tutor_endereco?: string | null
+  tutor_cep?: string | null
+  tutor?: {
+    nome?: string | null
+    endereco?: string | null
+    numero?: string | null
+    complemento?: string | null
+    bairro?: string | null
+    cidade?: string | null
+    estado?: string | null
+    cep?: string | null
+  } | null
 }
 
 // Formata telefone p/ exibição: remove DDI Brasil (55) e formata (XX) XXXXX-XXXX.
 // Mantém DDI de números estrangeiros (não começam com 55) — mostra como normalizado.
-function fmtTelefone(raw?: string | null): string {
+// Exportada em 15/09/2026 pra `/gruposencaminhamentos`: o card de contato anexado à ficha
+// tem que mostrar o MESMO número do campo "Tel/Cont" da ficha logo acima dele.
+export function fmtTelefone(raw?: string | null): string {
   if (!raw) return ''
   let d = raw.replace(/\D/g, '')
   if (d.startsWith('55') && d.length >= 12) d = d.slice(2) // tira DDI Brasil

@@ -61,7 +61,12 @@ export const TELAS: ItemDef[] = [
   { key: 'tela_preventivos', label: 'Preventivos', desc: 'Contratos preventivos' },
   { key: 'tela_pipeline', label: 'Pipeline', desc: 'Lista de contratos e status' },
   { key: 'tela_contrato', label: 'Contrato', desc: 'Detalhe do contrato (página /contratos/[id])' },
-  { key: 'tela_entregas', label: 'Encaminhamentos', desc: 'Envio e retorno de pets pra Matriz' },
+  // ⚠️ Esta key vale pra AS DUAS telas de encaminhamento: a `/encaminhamentos` (fluxo antigo) e
+  // a `/gruposencaminhamentos` (fluxo novo, 15/09/2026). Não criar uma key nova pra segunda —
+  // é a mesma tela operacional, só noutro fluxo, e quem escolhe qual aparece no menu é o
+  // `obj_enc_pipeline` logo abaixo. Uma key duplicada grava na MESMA linha de
+  // `field_permissions` (a identidade é `(unidade_id, campo, role)`) e as duas se sobrescrevem.
+  { key: 'tela_entregas', label: 'Encaminhamentos', desc: 'Envio e retorno de pets pra Matriz (as duas telas: /encaminhamentos e /gruposencaminhamentos)' },
   { key: 'tela_estoque', label: 'Estoque', desc: 'Controle de estoque' },
   { key: 'tela_gc', label: 'GC', desc: 'Gerenciamento de Cremações (Matriz)' },
   { key: 'tela_agenda', label: 'Agenda', desc: 'Calendário de agendamentos de cremações com tutores' },
@@ -140,7 +145,13 @@ export const CAMPOS_BOTOES: ChildItemDef[] = [
   { key: 'btn_farois', tela: 'tela_contrato', label: 'Faróis (pipeline e contrato)', desc: 'Todos os faróis: pelinho, urna, certificado, foto, pagamento, protocolo, rescaldo. Vale nos DOIS lugares', modo: 'toggle' },
   { key: 'btn_mensagens', tela: 'tela_contrato', label: 'Mensagens Personalizadas', desc: 'Pet Grato, Chegamos, Chegaram, Finalizadora. Vale nos DOIS lugares (pipeline e contrato)', modo: 'toggle' },
   { key: 'btn_alteracao_fase', tela: 'tela_contrato', label: 'Botões Alteração Fase', desc: 'Ativar, Pinda, Marcar Entregue. Vale nos DOIS lugares (pipeline e contrato)', modo: 'toggle' },
-  { key: 'btn_fluxo_retorno', tela: 'tela_contrato', label: 'Fluxo Retorno', desc: 'Indicador de complexidade de montagem + Protocolo. Vale nos DOIS lugares (pipeline e contrato)', modo: 'toggle' },
+  // ⚠️ Em 13/09/2026 a barra "Montagem: Todos/Fácil/Difícil + In-line" foi REMOVIDA da aba
+  // Entrega a pedido do Lucas. Esta key passou a governar SÓ os dois indicadores de
+  // complexidade no card, que estão atrás de `{false && …}` desde antes — ou seja, hoje
+  // ela não muda nada em tela. Mantida (e não apagada) de propósito: existem 16 rows dela
+  // no banco, e tirar a key do catálogo sem apagá-las é a armadilha da mig 141 — a
+  // permissão continua valendo e some de /admin/visibilidade, sem ninguém poder editar.
+  { key: 'btn_fluxo_retorno', tela: 'tela_contrato', label: 'Fluxo Retorno (inativo)', desc: '⚠️ Hoje não controla nada em tela: a barra de Montagem saiu em 13/09/2026 e o indicador de complexidade no card está desativado no código. As 16 rows existentes (todas hidden) ficaram inertes — limpar exige migration.', modo: 'toggle' },
   { key: 'btn_compartilhar', tela: 'tela_contrato', label: 'Compartilhar', desc: 'Botão 🔄 compartilhar remoção/entrega com outra unidade', modo: 'toggle' },
   { key: 'valor_plano', tela: 'tela_contrato', label: 'Valor do Plano', desc: 'Edição inline (lápis) do valor_plano no card Financeiro' },
   { key: 'pagamento_completo', tela: 'tela_contrato', label: 'Pagamento Completo', desc: 'Detalhes avançados no modal de pagamento: bandeira do cartão + nº de identificação da transação (maquininha). Oculto = modo Pagamento Simples (só método e valor).', modo: 'toggle' },

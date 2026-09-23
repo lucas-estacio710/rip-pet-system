@@ -38,6 +38,7 @@ import AlterarDadosEnviadosModal from '@/components/contratos/modals/AlterarDado
 import { ordenarCategoriasUrnas } from '@/lib/categorias'
 import { hojeLocal } from '@/lib/date-local'
 import { tituloNome, primeiroNome } from '@/lib/nome-tutor'
+import { nomeParaAgenda } from '@/lib/nome-agenda'
 import ProdutosFilterBar from '@/components/ui/ProdutosFilterBar'
 
 function PixIcon({ className = "h-5 w-5" }: { className?: string }) {
@@ -671,7 +672,7 @@ export default function ContratoDetalhe() {
     }
     // cb_operacional: Responsável vem de quem já loga na unidade, não de funcionarios.
     if (temOperacionalContrato && acolhAtribuiveisLista.length === 0) {
-      const { data: atrib } = await supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: contrato.unidade_id } as never) as { data: { user_id: string; nome: string | null; role: string; eh_posicao?: boolean }[] | null }
+      const { data: atrib } = await supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: contrato.unidade_id, p_para: 'remocao' } as never) as { data: { user_id: string; nome: string | null; role: string; eh_posicao?: boolean }[] | null }
       if (atrib) setAcolhAtribuiveisLista(atrib)
     }
 
@@ -2301,23 +2302,12 @@ ${petNome}`
     }
   }
 
-  // Gerar código de referência: YYMmmdd NomeTutor EM/PV NomePet IND/COL
-  function gerarCodigoReferencia(): string {
-    if (!contrato) return ''
-
-    const data = contrato.data_contrato ? new Date(contrato.data_contrato) : new Date()
-    const meses = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
-    const ano = String(data.getFullYear()).slice(-2)
-    const mes = meses[data.getMonth()]
-    const dia = String(data.getDate()).padStart(2, '0')
-
-    const tutorNome = getPrimeiroNome(contrato.tutor?.nome || contrato.tutor_nome)
-    const tipo = contrato.tipo_plano === 'preventivo' ? 'PV' : 'EM'
-    const petNome = capitalizarNome(contrato.pet_nome || '')
-    const cremacao = contrato.tipo_cremacao === 'individual' ? 'IND' : contrato.tipo_cremacao === 'coletiva' ? 'COL' : ''
-
-    return `${ano}${mes}${dia} ${tutorNome} ${tipo} ${petNome}${cremacao ? ` ${cremacao}` : ''}`
-  }
+  // Nome pra salvar na agenda do celular: AAmmmDD NomeTutor EM/PV NomePet IND/COL.
+  // Mora em `lib/nome-agenda.ts` desde 15/09/2026 — a `/gruposencaminhamentos` usa o MESMO
+  // nome no card de contato anexado à ficha. A versão que morava aqui instanciava
+  // `new Date(data_contrato)` e imprimia o dia ANTERIOR (o `date` vira meia-noite UTC);
+  // a lib corrige isso.
+  const gerarCodigoReferencia = (): string => nomeParaAgenda(contrato)
 
   if (loading) {
     return (

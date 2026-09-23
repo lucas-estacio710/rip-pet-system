@@ -3,10 +3,9 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { TextSelect, FileCheck, ListTodo, Route, ShelvingUnit, BarChart3 } from 'lucide-react'
+import { TextSelect, FileCheck, ListTodo, Route, MessagesSquare, ShelvingUnit, BarChart3 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
-import { useUnidadeNoPipeline } from '@/hooks/useUnidadeNoPipeline'
 
 type BottomItem = {
   href: string
@@ -23,7 +22,9 @@ const bottomItems: BottomItem[] = [
   { href: '/fichas', label: 'Fichas', icon: TextSelect, module: 'tela_fichas', iconColor: '#38bdf8', badge: 'fichas' },
   { href: '/contratos?status=ativo', label: 'Pipeline', icon: FileCheck, module: 'tela_pipeline', iconColor: '#f59e0b', badge: null },
   { href: '/tarefas', label: 'Tarefas', icon: ListTodo, module: 'tela_tarefas', cbModule: 'cb_operacional', iconColor: '#0ea5e9', badge: null },
+  // Os dois encaminhamentos convivem; só UM entra na barra (ver o filtro abaixo).
   { href: '/encaminhamentos', label: 'Encam.', icon: Route, module: 'tela_entregas', iconColor: '#bef264', badge: null },
+  { href: '/gruposencaminhamentos', label: 'Encam.', icon: MessagesSquare, module: 'tela_entregas', iconColor: '#25D366', badge: null },
   { href: '/estoque', label: 'Estoque', icon: ShelvingUnit, module: 'tela_estoque', iconColor: '#a0522d', badge: null },
   { href: '/dashboard-pipeline', label: 'Painéis', icon: BarChart3, module: 'tela_dashboards', iconColor: '#10b981', badge: null },
 ]
@@ -31,7 +32,8 @@ const bottomItems: BottomItem[] = [
 export function MobileBottomNav() {
   const pathname = usePathname()
   const { hasModule, currentUnit, isSuperAdmin } = useUnit()
-  const unidadeNoPipeline = useUnidadeNoPipeline()
+  // Unidade no fluxo novo de encaminhamento? Decide qual das duas telas entra na barra.
+  const encPipeline = hasModule('obj_enc_pipeline')
   const supabase = createClient()
   const [fichasCount, setFichasCount] = useState<number | null>(null)
   const [overlayAberto, setOverlayAberto] = useState(false)
@@ -45,11 +47,19 @@ export function MobileBottomNav() {
   const visibleItems = bottomItems.filter(item => {
     if (!hasModule(item.module)) return false
     if (item.cbModule && !isSuperAdmin && !currentUnit?.modulos_ativos?.includes(item.cbModule)) return false
-    // Etapa 9 do fluxo novo: na unidade migrada, a /encaminhamentos vira consulta e sai
-    // do acesso rápido — o trabalho acontece no Pipeline, que já está na barra ao lado.
-    // A tela continua existindo e acessível pela sidebar (§4.6 do plano); o que some é
-    // o atalho, para ninguém ir por reflexo ao lugar onde não dá mais para operar.
-    if (item.href === '/encaminhamentos' && unidadeNoPipeline) return false
+    // Etapa 9 do fluxo novo: na unidade migrada a /encaminhamentos vira consulta e sai do
+    // acesso rápido — o trabalho acontece no Pipeline, que já está na barra ao lado. O que
+    // entra no lugar dela é a /gruposencaminhamentos (15/09/2026), com o mesmo rótulo: pra
+    // quem usa, o atalho não muda de nome, muda de destino. A tela antiga continua
+    // existindo e acessível pela URL (§4.6 do plano).
+    //
+    // ⚠️ O gate aqui passou de `useUnidadeNoPipeline` pra `hasModule` (FLS) junto com a
+    // chegada da tela nova. Antes o hook de unidade era o certo porque o super_admin
+    // PERDERIA o atalho sem ganhar nada em troca; agora ele ganha o atalho da tela nova,
+    // que é justamente o que ele precisa pra testar. A trava de escrita da tela antiga
+    // continua no `useUnidadeNoPipeline` — lá a pergunta é outra (ver o hook).
+    if (item.href === '/encaminhamentos' && encPipeline) return false
+    if (item.href === '/gruposencaminhamentos' && !encPipeline) return false
     return true
   })
 
