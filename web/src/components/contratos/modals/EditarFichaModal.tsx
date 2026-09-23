@@ -142,7 +142,7 @@ export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClos
         // cb_operacional: Responsável vem de quem já loga na unidade, não de funcionarios.
         const unidade = allUnidades.find(u => u.id === uId)
         if (unidade?.modulos_ativos?.includes('cb_operacional')) {
-          const { data: atrib } = await supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: uId } as never) as { data: Atribuivel[] | null }
+          const { data: atrib } = await supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: uId, p_para: 'remocao' } as never) as { data: Atribuivel[] | null }
           if (!cancelado) setAtribuiveis(atrib || [])
         } else if (!cancelado) {
           setAtribuiveis([])

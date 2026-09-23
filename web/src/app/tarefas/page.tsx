@@ -699,12 +699,31 @@ export default function TarefasPage() {
   // de qualquer tarefa exige assinar quem de fato executou (migration 137). `podeAtribuir`
   // também precisa da lista pra resolver o nome do colaborador nos cards de Finalizadas —
   // quem vê essa aba é gerente/concierge/super_admin, quase nunca a própria posição.
-  const [funcionariosUnidade, setFuncionariosUnidade] = useState<{ id: string; nome: string }[]>([])
+  // 23/09/2026 — carrega de TODAS as unidades do usuário, não só da ativa. "Minhas Tarefas"
+  // nunca filtrou por unidade (`carregarMinhas` só olha `atribuido_a`), então uma posição que
+  // atende duas unidades (os carros PI+SJ) conclui tarefa de uma estando com a outra
+  // selecionada — e a lista vinha da unidade ERRADA. Com 5 dos 6 funcionários de Pinda tendo
+  // homônimo em SJC, o nome parecia certo e gravava o id da linha da outra unidade; a Gabriela
+  // Mesquita (só existe em Pinda) simplesmente não aparecia e travava o campo obrigatório.
+  // O filtro certo é a unidade DA TAREFA — ver `funcionariosDaTarefa()`.
+  const [funcionariosUnidade, setFuncionariosUnidade] = useState<{ id: string; nome: string; unidade_id: string }[]>([])
+  const idsUnidadesUsuario = allUnidades.map(u => u.id).sort().join(',')
   useEffect(() => {
-    if ((!isPosicao && !podeAtribuir) || !currentUnit) return
-    supabase.from('funcionarios').select('id, nome').eq('unidade_id', currentUnit.id).eq('ativo', true).order('nome')
-      .then(({ data }) => setFuncionariosUnidade((data || []) as { id: string; nome: string }[]))
-  }, [supabase, isPosicao, podeAtribuir, currentUnit])
+    if (!isPosicao && !podeAtribuir) return
+    const ids = idsUnidadesUsuario ? idsUnidadesUsuario.split(',') : []
+    if (ids.length === 0) return
+    supabase.from('funcionarios').select('id, nome, unidade_id').in('unidade_id', ids).eq('ativo', true).order('nome')
+      .then(({ data }) => setFuncionariosUnidade((data || []) as { id: string; nome: string; unidade_id: string }[]))
+  }, [supabase, isPosicao, podeAtribuir, idsUnidadesUsuario])
+
+  // Colaboradores que podem assinar ESTA tarefa. Fallback pra lista inteira quando a unidade
+  // da tarefa não está entre as do usuário (não deve acontecer, mas travar o campo obrigatório
+  // seria pior que mostrar demais).
+  const funcionariosDaTarefa = (t: { unidade_id: string } | null) => {
+    if (!t) return funcionariosUnidade
+    const daUnidade = funcionariosUnidade.filter(f => f.unidade_id === t.unidade_id)
+    return daUnidade.length > 0 ? daUnidade : funcionariosUnidade
+  }
 
   // ── Minhas Tarefas ──────────────────────────────────────────────────────
   const [minhasTarefas, setMinhasTarefas] = useState<TarefaGrupo[]>([])
@@ -1213,6 +1232,9 @@ export default function TarefasPage() {
   async function notificarConclusaoUnidade(label: string, petNome: string) {
     if (!currentUnit) return
     try {
+      // Sem `p_para` de propósito (mig 145): aqui não se está ATRIBUINDO nada, e sim avisando a
+      // gestão da unidade que uma tarefa terminou. Quem não executa tarefa continua precisando
+      // saber que ela acabou.
       const { data } = await supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: currentUnit.id } as never) as { data: { user_id: string; role: string }[] | null }
       const destinatarios = (data || [])
         .filter(p => (p.role === 'gerente' || p.role === 'operador') && p.user_id !== userId)
@@ -1472,7 +1494,7 @@ export default function TarefasPage() {
 
     // Quem pode receber tarefa: Operacional de verdade OU gerente/concierge (tem unidade sem
     // motorista dedicado — aí o próprio gerente/concierge se atribui e resolve).
-    const { data: perfisAtribuiveis } = await supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: currentUnit.id } as never)
+    const { data: perfisAtribuiveis } = await supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: currentUnit.id, p_para: 'tarefas' } as never)
     setOperacionais((perfisAtribuiveis || []) as { user_id: string; nome: string | null; role: string }[])
 
     carregouPoolAntes.current = true
@@ -2373,7 +2395,7 @@ export default function TarefasPage() {
                         <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Colaborador na posição <span className="text-red-400">*</span></label>
                         <select value={executadoPorFuncionarioId} onChange={e => setExecutadoPorFuncionarioId(e.target.value)} className="input w-full">
                           <option value="">Selecione...</option>
-                          {funcionariosUnidade.map(f => (<option key={f.id} value={f.id}>{f.nome}</option>))}
+                          {funcionariosDaTarefa(tarefaAberta).map(f => (<option key={f.id} value={f.id}>{f.nome}</option>))}
                         </select>
                       </div>
                     )}
@@ -2465,7 +2487,7 @@ export default function TarefasPage() {
                       <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Colaborador na posição <span className="text-red-400">*</span></label>
                       <select value={executadoPorFuncionarioId} onChange={e => setExecutadoPorFuncionarioId(e.target.value)} className="input w-full">
                         <option value="">Selecione...</option>
-                        {funcionariosUnidade.map(f => (<option key={f.id} value={f.id}>{f.nome}</option>))}
+                        {funcionariosDaTarefa(tarefaAberta).map(f => (<option key={f.id} value={f.id}>{f.nome}</option>))}
                       </select>
                     </div>
                   )}

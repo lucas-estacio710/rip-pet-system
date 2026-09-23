@@ -418,7 +418,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       // auto-link por nome gerou um funcionário duplicado e foi removido de vez).
       const unidade = allUnidades.find(u => u.id === ficha!.unidade_id) || currentUnit
       if (unidade?.modulos_ativos?.includes('cb_operacional')) {
-        const { data } = await supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: ficha!.unidade_id } as never) as { data: { user_id: string; nome: string | null; role: string }[] | null }
+        const { data } = await supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: ficha!.unidade_id, p_para: 'remocao' } as never) as { data: { user_id: string; nome: string | null; role: string }[] | null }
         setAtribuiveis(data || [])
       } else {
         setAtribuiveis([])

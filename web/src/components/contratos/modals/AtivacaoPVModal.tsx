@@ -262,7 +262,7 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
       // e este modal é self-contido de propósito (chamado de 3 telas diferentes).
       if (unidadeId) {
         try {
-          const { data: atribuiveis } = await supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: unidadeId } as never) as { data: { user_id: string; role: string }[] | null }
+          const { data: atribuiveis } = await supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: unidadeId, p_para: 'remocao' } as never) as { data: { user_id: string; role: string }[] | null }
           const destinatarios = (atribuiveis || [])
             .filter(p => (p.role === 'gerente' || p.role === 'operador') && p.user_id !== user?.id)
             .map(p => p.user_id)

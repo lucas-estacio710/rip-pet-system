@@ -26,6 +26,10 @@ type UserPerfil = {
   // true = este login é um dispositivo compartilhado (ex: celular do carro), não uma pessoa —
   // ver migration 137.
   eh_posicao: boolean
+  // Quem entra em cada lista de atribuição, por unidade (mig 145). Default true nos dois:
+  // desmarcar é a exceção ("a dona do crematório nunca vai fazer remoção"), não a regra.
+  faz_remocao: boolean
+  faz_outras_tarefas: boolean
 }
 
 type UserRow = {
@@ -73,7 +77,7 @@ export default function AdminUsuariosPage() {
   const [formEmail, setFormEmail] = useState('')
   const [formPassword, setFormPassword] = useState('')
   const [formNome, setFormNome] = useState('')
-  const [formPerfis, setFormPerfis] = useState<{ unidade_id: string; role: UserRole; is_default: boolean; eh_posicao: boolean }[]>([])
+  const [formPerfis, setFormPerfis] = useState<{ unidade_id: string; role: UserRole; is_default: boolean; eh_posicao: boolean; faz_remocao: boolean; faz_outras_tarefas: boolean }[]>([])
 
   const carregarUsuarios = useCallback(async () => {
     setLoading(true)
@@ -155,6 +159,8 @@ export default function AdminUsuariosPage() {
       role: p.role,
       is_default: p.is_default,
       eh_posicao: p.eh_posicao,
+      faz_remocao: p.faz_remocao ?? true,
+      faz_outras_tarefas: p.faz_outras_tarefas ?? true,
     })))
     setShowModal(true)
   }
@@ -164,7 +170,7 @@ export default function AdminUsuariosPage() {
     const usedIds = new Set(formPerfis.map(p => p.unidade_id))
     const available = allUnidades.find(u => !usedIds.has(u.id))
     if (available) {
-      setFormPerfis([...formPerfis, { unidade_id: available.id, role: 'operador', is_default: formPerfis.length === 0, eh_posicao: false }])
+      setFormPerfis([...formPerfis, { unidade_id: available.id, role: 'operador', is_default: formPerfis.length === 0, eh_posicao: false, faz_remocao: true, faz_outras_tarefas: true }])
     }
   }
 
@@ -504,6 +510,8 @@ export default function AdminUsuariosPage() {
                               <RoleIcon className="h-3 w-3 inline" /> {cfg.label}
                             </span>
                             {p.eh_posicao && <span className="text-[9px] text-cyan-400">🚗 Posição</span>}
+                            {p.faz_remocao === false && <span className="text-[9px] text-[var(--surface-400)]" title="Não aparece na lista de Responsável pelo acolhimento">sem remoção</span>}
+                            {p.faz_outras_tarefas === false && <span className="text-[9px] text-[var(--surface-400)]" title="Não aparece na lista de atribuição de entrega/rescaldo">sem tarefas</span>}
                             {p.is_default && <span className="text-[9px] text-emerald-400">(padrão)</span>}
                           </span>
                         )
@@ -717,6 +725,30 @@ export default function AdminUsuariosPage() {
                         <button onClick={() => removePerfil(idx)} className="p-1 text-red-400 hover:text-red-300">
                           <Trash2 className="h-4 w-4" />
                         </button>
+                      </div>
+
+                      {/* Quem entra em cada lista de atribuição — por unidade (mig 145). Vale
+                          pros 4 cargos: quem lista é `listar_atribuiveis_operacional`, que
+                          inclui gerente/concierge/super_admin junto com o Operacional. */}
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pl-1">
+                        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={perfil.faz_remocao}
+                            onChange={e => updatePerfil(idx, 'faz_remocao', e.target.checked)}
+                            className="h-3 w-3 rounded accent-emerald-500"
+                          />
+                          <span className="text-[11px]" style={{ color: '#94a3b8' }}>Faz remoção</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={perfil.faz_outras_tarefas}
+                            onChange={e => updatePerfil(idx, 'faz_outras_tarefas', e.target.checked)}
+                            className="h-3 w-3 rounded accent-emerald-500"
+                          />
+                          <span className="text-[11px]" style={{ color: '#94a3b8' }}>Faz outras tarefas</span>
+                        </label>
                       </div>
 
                       {/* Posição: dispositivo compartilhado (ex: celular do carro) em vez de

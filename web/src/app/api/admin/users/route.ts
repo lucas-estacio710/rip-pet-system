@@ -53,13 +53,18 @@ export async function PUT(request: NextRequest) {
     }
 
     // Inserir novos perfis
-    const perfisToInsert = perfis.map((p: { unidade_id: string; role: string; is_default: boolean; eh_posicao?: boolean }) => ({
+    const perfisToInsert = perfis.map((p: { unidade_id: string; role: string; is_default: boolean; eh_posicao?: boolean; faz_remocao?: boolean; faz_outras_tarefas?: boolean }) => ({
       user_id,
       unidade_id: p.unidade_id,
       role: p.role,
       is_default: p.is_default,
       nome: nome || null,
       eh_posicao: p.eh_posicao || false,
+      // mig 145 — este PUT DELETA e recria os perfis do usuário, então campo que não vier no
+      // payload volta pro default do banco (true). `?? true` mantém o default permissivo pra
+      // quem chamar a API sem os campos, mas a tela sempre manda os dois.
+      faz_remocao: p.faz_remocao ?? true,
+      faz_outras_tarefas: p.faz_outras_tarefas ?? true,
     }))
 
     const { error: insertError } = await supabaseAdmin

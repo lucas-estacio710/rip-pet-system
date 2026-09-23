@@ -105,7 +105,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
 
     // cb_operacional: Responsável vem de quem já loga na unidade, não de funcionarios.
     if (temOperacional && unidadeFuncs) {
-      supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: unidadeFuncs } as never)
+      supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: unidadeFuncs, p_para: 'remocao' } as never)
         .then(({ data }: { data: { user_id: string; nome: string | null; role: string }[] | null }) => setAtribuiveis(data || []))
     } else {
       setAtribuiveis([])
