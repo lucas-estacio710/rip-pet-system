@@ -49,6 +49,7 @@ type Saldo = {
   produto: string | null             // maquininha / cartao_credito / … (mig 130)
   liquidacao_dias: number | null
   caixa_desde: string | null         // desde quando o extrato vale (mig 136)
+  mostrar_no_caixa?: boolean         // aparece nesta tela? (mig 146)
 }
 type Linha = {
   conta_id: string; data: string; tipo: string
@@ -160,9 +161,16 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
    * dias de extrato da InterPag e acerta o dia dela. Para Rede, Infinity e
    * InfinityPay não há extrato para conferir — e previsão plausível e errada é
    * pior que previsão nenhuma, porque ninguém desconfia dela.
+   *
+   * ⚠️ E só para maquininha que está NA GRADE (mig 146). A previsão é desenhada
+   * dentro do card; com a maquininha escondida — que é o padrão desde a 146 —
+   * estas duas consultas (uma delas `limit(5000)` em `pagamentos`) rodariam a
+   * cada carregamento para alimentar um card que não existe. Quem quer esse
+   * número hoje encontra em Lançamentos › Receitas a Prazo, que calcula o seu.
    */
   useEffect(() => {
-    const maqs = saldos.filter(s => s.produto === 'maquininha' && contaCalibrada(s.nome))
+    const maqs = saldos.filter(s =>
+      s.produto === 'maquininha' && s.mostrar_no_caixa !== false && contaCalibrada(s.nome))
     if (!maqs.length) { setPrevisoes({}); return }
     const ids = maqs.map(m => m.conta_id)
     let cancelado = false
@@ -215,7 +223,6 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
   // Destino de fatura e de liquidação: só o que é dinheiro de verdade.
   const contasCorrente = operaveis.filter(s => !ehCartao(s) && !ehMaquininha(s))
   const cartoes = operaveis.filter(ehCartao)
-  const maquininhas = operaveis.filter(ehMaquininha)
 
   function abrirPagarFatura(cartao: Saldo) {
     setTipo('fatura_cartao')
@@ -360,14 +367,34 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
   const visiveis = linhas
     .filter(l => (conta ? l.conta_id === conta : true))
     .filter(l => (soDaqui ? daqui(l) : true))
+  /**
+   * AS CONTAS QUE ESTA TELA MOSTRA (mig 146).
+   *
+   * `mostrar_no_caixa = false` tira a conta da GRADE e dos TOTAIS — e só disso.
+   * Ela continua no extrato e nos seletores do modal de movimento, porque
+   * esconder não é desativar (pra desativar existe `contas.ativo`). A maquininha
+   * nasce escondida: o saldo dela é "o que a operadora ainda deve", que agora
+   * tem tela própria em Lançamentos › Receitas a Prazo.
+   *
+   * ⚠️ `!== false` e não `=== true`: enquanto a mig 146 não rodar, a coluna vem
+   * `undefined` e a tela segue mostrando tudo, como antes. Sem isso, um deploy
+   * que chegasse antes da migration esvaziaria o Caixa inteiro — foi assim que
+   * a mig 137 derrubou o login em 05/09.
+   */
+  const naGrade = saldos.filter(s => s.mostrar_no_caixa !== false)
+
   // DISPONÍVEL exclui maquininha (ainda não liquidou), cartão (é dívida) e
   // LEGADO — a conta histórica carrega recebimento antigo cujo dinheiro não está
   // mais lá; contá-la mostrava centenas de milhares como gastáveis.
-  const totalDisponivel = saldos
+  const totalDisponivel = naGrade
     .filter(s => !ehCartao(s) && !ehMaquininha(s) && !s.legado)
     .reduce((a, s) => a + Number(s.saldo || 0), 0)
-  const totalAReceber = maquininhas.reduce((a, s) => a + Math.max(Number(s.saldo || 0), 0), 0)
-  const totalFaturas = cartoes.reduce((a, s) => a + Math.min(Number(s.saldo || 0), 0), 0)
+  // Os dois abaixo seguem a grade: um total sem card correspondente é um número
+  // órfão, e o "a receber" some junto com as maquininhas.
+  const totalAReceber = naGrade.filter(ehMaquininha)
+    .reduce((a, s) => a + Math.max(Number(s.saldo || 0), 0), 0)
+  const totalFaturas = naGrade.filter(ehCartao)
+    .reduce((a, s) => a + Math.min(Number(s.saldo || 0), 0), 0)
 
   return (
     <div className="animate-fade-in space-y-3">
@@ -409,7 +436,7 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
 
       {/* Saldo por conta — clicar filtra o extrato */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-        {saldos.map(s => {
+        {naGrade.map(s => {
           const cartao = ehCartao(s)
           const maq = ehMaquininha(s)
           const ativo = conta === s.conta_id

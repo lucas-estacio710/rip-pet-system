@@ -71,6 +71,7 @@ type Conta = {
   entradas: string[]
   saidas: string[]
   preferencial_recebimento: boolean
+  mostrar_no_caixa: boolean   // aparece na grade/total da aba Caixa (mig 146)
   entradasUso: number   // pagamentos que caíram nela
   saidasUso: number     // lançamentos pagos por ela
 }
@@ -105,7 +106,7 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
     if (!currentUnit?.id) return
     setCarregando(true)
     const { data } = await supabase
-      .from('contas').select('id, nome, tipo, ativo, legado, instituicao, produto, unidades_extras, entradas, saidas, preferencial_recebimento')
+      .from('contas').select('id, nome, tipo, ativo, legado, instituicao, produto, unidades_extras, entradas, saidas, preferencial_recebimento, mostrar_no_caixa')
       .eq('unidade_id', currentUnit.id)
       .order('ativo', { ascending: false }).order('nome')
     const base = ((data as unknown as Omit<Conta, 'entradasUso' | 'saidasUso'>[]) || [])
@@ -488,6 +489,27 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
                         >
                           <Star className="h-3 w-3" style={c.preferencial_recebimento ? { fill: '#f59e0b' } : undefined} />
                           Preferencial para recebimentos
+                        </button>
+
+                        {/* APARECER NO CAIXA (mig 146) — esconder não é desativar:
+                            a conta continua recebendo, continua no extrato e nos
+                            seletores de movimento; o que some é o card e o total.
+                            Maquininha nasce escondida porque o saldo dela é "o que
+                            a operadora ainda deve", e isso tem tela própria. */}
+                        <button
+                          onClick={() => void patch(c, { mostrar_no_caixa: !c.mostrar_no_caixa })}
+                          title={c.mostrar_no_caixa
+                            ? 'Clique para tirar esta conta da aba Caixa. Ela continua recebendo e continua no extrato — some só o card e o total.'
+                            : 'Esta conta não aparece na aba Caixa. Clique para trazê-la de volta.'}
+                          className="text-[11px] px-2 py-1 rounded-full border transition-colors inline-flex items-center gap-1"
+                          style={{
+                            background: c.mostrar_no_caixa ? 'rgba(14,165,233,0.16)' : 'transparent',
+                            borderColor: c.mostrar_no_caixa ? '#0ea5e9' : 'var(--surface-300)',
+                            color: c.mostrar_no_caixa ? '#0ea5e9' : 'var(--surface-500)',
+                          }}
+                        >
+                          {c.mostrar_no_caixa ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+                          {c.mostrar_no_caixa ? 'Aparece no Caixa' : 'Fora do Caixa'}
                         </button>
                       </div>
 

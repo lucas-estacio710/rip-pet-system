@@ -252,6 +252,15 @@ export function camposDoProduto(p: ProdutoConta) {
     entradas: d.entradas,
     saidas: d.saidas,
     liquidacao_dias: d.liquidacao ?? null,
+    // Maquininha nasce FORA da aba Caixa (mig 146): o saldo dela é o que a
+    // operadora ainda deve, e isso tem tela própria em Receitas a Prazo. Fica
+    // aqui, e não numa regra na tela, porque esta função é a porta única do
+    // "escolher o produto traz o comportamento junto" — assim vale tanto pra
+    // conta criada agora quanto pra reclassificada depois, sem duas verdades.
+    // ⚠️ Como todo campo daqui, ele REESCREVE o que estava: reclassificar uma
+    // conta devolve o padrão do produto, inclusive se a pessoa tinha escondido
+    // a conta na mão. É o mesmo contrato dos outros quatro campos.
+    mostrar_no_caixa: p !== 'maquininha',
   }
 }
 
