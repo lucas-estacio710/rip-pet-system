@@ -228,11 +228,25 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
   }
 
   /** Espelho do "pagar fatura": o adquirente manda o dinheiro pra conta. */
+  /**
+   * ATALHO DE LIQUIDAÇÃO — abre o movimento já com origem e destino resolvidos.
+   *
+   * 🔴 O VALOR NASCE VAZIO, DE PROPÓSITO. Até 23/09/2026 ele vinha preenchido com
+   * o SALDO INTEIRO da maquininha, o que está errado por definição: o saldo é
+   * tudo que a operadora ainda deve (em Santos, R$ 303 mil somando venda de
+   * meses), e uma liquidação é o depósito de UM dia. Dois cliques distraídos
+   * zeravam a maquininha e inflavam a conta corrente em trezentos mil reais.
+   * Quem liquida está olhando o extrato — o número vem de lá, não daqui.
+   *
+   * O lugar completo pra isto é Lançamentos › Receitas a Prazo, que conhece os
+   * outros movimentos da operadora (antecipação, chargeback, taxa) e compara com
+   * a previsão. Este atalho continua existindo pro caso simples.
+   */
   function abrirLiquidar(maq: Saldo) {
     setTipo('transferencia')
     setOrigem(maq.conta_id)
     setDestino(contasCorrente[0]?.conta_id || '')
-    setValor(String(Math.abs(maq.saldo).toFixed(2)))
+    setValor('')
     setData(hojeISO())
     setDescricao(`Liquidação ${maq.nome}`)
     setAberto(true)

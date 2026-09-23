@@ -21,6 +21,8 @@ import { useFieldPermission } from '@/hooks/useFieldPermission'
 import Modal from '@/components/ui/Modal'
 import CobrancasCard from './CobrancasCard'
 import RevisaoCard from './RevisaoCard'
+import ReceitasPrazoTab from './ReceitasPrazoTab'
+import UnderlineTabs from '@/components/ui/UnderlineTabs'
 import {
   fmtBRL, fmtData, hojeISO, limitesDoMes
 } from '@/lib/financeiro'
@@ -124,6 +126,19 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
   const { isVisible } = useFieldPermission()
 
   const [mes, setMes] = useState(mesAtual())
+  /**
+   * DESPESAS × RECEITAS A PRAZO — as duas metades do mesmo gesto.
+   *
+   * Desenho do Lucas (23/09/2026). São o mesmo trabalho — pegar o extrato e
+   * registrar o que aconteceu — em direções OPOSTAS de dinheiro. Juntas na mesma
+   * lista, alguém soma a coluna errada em algum momento; e o total do cabeçalho,
+   * que hoje diz "R$ X · N lançamentos", passaria a misturar saída com entrada.
+   * Abas irmãs resolvem sem asterisco: cada uma tem o seu próprio total.
+   *
+   * ⚠️ A palavra "lançamento" fica inteira do lado das DESPESAS. Receitas a
+   * Prazo nunca a usa — é "registrar do extrato".
+   */
+  const [faixa, setFaixa] = useState<'despesas' | 'receitas'>('despesas')
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([])
   const [custosAuto, setCustosAuto] = useState<CustoAuto[]>([])
@@ -563,6 +578,28 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
       {isVisible('tela_financeiro', 'btn_lancamento_aprovar') && (
         <RevisaoCard key={`rev-${recarregarCobrancas}`} onMudou={() => void carregar()} />
       )}
+
+      {/* As duas faixas. O seletor de mês é COMPARTILHADO (fica logo abaixo,
+          dentro de cada uma) — o operador pensa "setembro", não "setembro das
+          despesas". */}
+      <UnderlineTabs
+        tabs={[
+          { key: 'despesas' as const, label: 'Despesas' },
+          { key: 'receitas' as const, label: 'Receitas a Prazo' },
+        ]}
+        value={faixa}
+        onChange={setFaixa}
+      />
+
+      {faixa === 'receitas' ? (
+        <div className="space-y-3">
+          <input
+            type="month" value={mes} onChange={e => setMes(e.target.value)}
+            className="input text-sm w-36 py-1"
+          />
+          <ReceitasPrazoTab somenteLeitura={somenteLeitura} mes={mes} />
+        </div>
+      ) : (<>
 
       {/* Cabeçalho compacto */}
       <div className="flex flex-wrap items-center gap-3">
@@ -1168,6 +1205,7 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
 
         </div>
       </Modal>
+      </>)}
     </div>
   )
 }
