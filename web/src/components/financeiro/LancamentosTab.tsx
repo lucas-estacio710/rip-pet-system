@@ -188,7 +188,6 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
   const [dataCaixa, setDataCaixa] = useState('')
   const [contaId, setContaId] = useState('')
   const [contas, setContas] = useState<ContaBancaria[]>([])
-  const [novaConta, setNovaConta] = useState<string | null>(null)
   const [fornecedor, setFornecedor] = useState('')
   const [descricao, setDescricao] = useState('')
   const [duravel, setDuravel] = useState<boolean | null>(null)   // vira opex/capex
@@ -386,28 +385,6 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
       .then(({ data }) => setUnidades((data as unknown as { id: string; codigo: string; nome: string }[]) || []))
   }, [supabase, currentUnit?.id])
 
-  /** Cria a conta na hora — sem isso a unidade fica travada esperando cadastro. */
-  async function criarConta(nome: string) {
-    const limpo = nome.trim()
-    if (!limpo || !currentUnit?.id) return
-    const existe = contas.find(c => c.nome.toLowerCase() === limpo.toLowerCase())
-    if (existe) { setContaId(existe.id); setNovaConta(null); return }
-    const { data, error } = await supabase
-      // 🔴 `saidas` PRECISA nascer preenchido: desde 13/09/2026 lista vazia
-      // significa "não paga nada", então a conta criada aqui sem isso não
-      // apareceria em lugar nenhum — inclusive no seletor que a pediu. Herda o
-      // método em uso, que é justamente o que o operador está tentando pagar.
-      .from('contas').insert({
-        nome: limpo, unidade_id: currentUnit.id, ativo: true,
-        saidas: metodo ? [metodo] : [],
-      })
-      .select('id, nome, saidas, preferencial_recebimento').single()
-    if (error) return toast(error.message, 'error')
-    const nova = data as unknown as ContaBancaria
-    setContas(cs => [...cs, nova].sort((a, b) => a.nome.localeCompare(b.nome)))
-    setContaId(nova.id)
-    setNovaConta(null)
-  }
 
   // A data do pagamento acompanha a do gasto enquanto o operador não disser o
   // contrário — que é o caso da esmagadora maioria (pix, dinheiro, débito).
@@ -422,7 +399,7 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
     setCatId(''); setValor(''); setData(hojeISO())
     setFornecedor(''); setDescricao(''); setDuravel(null)
     setRateado(false); setMeses('12')
-    setDataCaixa(''); setContaId(''); setNovaConta(null)
+    setDataCaixa(''); setContaId('')
     setBusca(''); setNivel1(null); setNivel2(null)
     setParaOutra(''); setMetodo(''); setMaisOpcoes(false); setSugestaoCat(null)
     setDataOutra(false); setCaixaOutra(false)
@@ -854,36 +831,24 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
           {metodo && (
             <div>
               <label className="text-xs text-[var(--surface-500)] block mb-1">Saiu da conta</label>
-              {novaConta !== null ? (
-                <div className="flex gap-1">
-                  <input
-                    autoFocus value={novaConta}
-                    onChange={e => setNovaConta(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter') { e.preventDefault(); void criarConta(novaConta) }
-                      if (e.key === 'Escape') setNovaConta(null)
-                    }}
-                    placeholder="Nome da conta"
-                    className="input text-sm flex-1 min-w-0"
-                  />
-                  <button type="button" onClick={() => void criarConta(novaConta)}
-                          className="btn-secondary text-xs px-2 shrink-0">
-                    <Check className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ) : contasQuePagam.length === 1 ? (
+              {/* 🔴 AQUI NÃO SE CRIA CONTA — o cadastro é só na aba Contas.
+                  Existiu um "+ nova conta" neste seletor, e o problema não era
+                  a conveniência, era o RESULTADO: ele gravava `nome`, `ativo` e
+                  `saidas: [metodo]`, e mais nada. A conta nascia sem `produto`,
+                  sem `instituicao`, sem `tipo`, sem `entradas` (= não recebe de
+                  forma nenhuma) e sem `liquidacao_dias`, escapando do
+                  `camposDoProduto()` — a porta única onde escolher o produto
+                  traz o comportamento junto. Ela aparecia na aba Contas como
+                  "não classificada" e só se corrigia na mão, se alguém notasse.
+                  Duas portas para o mesmo cadastro produzem dois cadastros
+                  diferentes; a que produz o incompleto foi fechada. */}
+              {contasQuePagam.length === 1 ? (
                 // Uma opção só: confirmar o óbvio é ruído. Mostra e segue.
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-[var(--surface-700)]">{contasQuePagam[0].nome}</span>
-                  <button type="button" onClick={() => setNovaConta('')}
-                          className="text-[11px] text-[var(--surface-400)] hover:underline">
-                    outra conta
-                  </button>
-                </div>
+                <span className="text-sm text-[var(--surface-700)]">{contasQuePagam[0].nome}</span>
               ) : (
                 <select
                   value={contaId}
-                  onChange={e => (e.target.value === '__nova' ? setNovaConta('') : setContaId(e.target.value))}
+                  onChange={e => setContaId(e.target.value)}
                   className="input text-sm w-full"
                 >
                   <option value="">Escolher…</option>
@@ -892,13 +857,13 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
                       {c.preferencial_recebimento ? '⭐ ' : ''}{c.nome}
                     </option>
                   ))}
-                  <option value="__nova">+ nova conta</option>
                 </select>
               )}
               {contasQuePagam.length === 0 && (
                 <p className="text-[11px] text-amber-500 mt-1">
-                  Nenhuma conta desta unidade paga {metodo}. Cadastre uma ou ajuste
-                  o cadastro na aba Contas.
+                  Nenhuma conta desta unidade paga {metodo}. Cadastre na aba
+                  <strong> Contas</strong> — lá a conta nasce completa, com o produto
+                  e o que ela recebe e paga. Ou marque {metodo} numa conta que já existe.
                 </p>
               )}
             </div>
