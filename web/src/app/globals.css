@@ -97,6 +97,26 @@ body {
   max-width: 100vw;
 }
 
+/* 🔴 A rede acima TEM UM EFEITO COLATERAL: `overflow-x: hidden` forca `overflow-y: auto`,
+   o que faz do <body> um **container de rolagem** — e um de altura igual ao conteudo, que
+   portanto nunca rola. Todo `position: sticky` da pagina se ancora nele e por isso NUNCA gruda.
+   É silencioso: nao da erro, o elemento so rola embora junto com o resto.
+   Ja aconteceu antes no <main>, onde foi resolvido com `overflow-x-clip` (ver o comentario no
+   `components/layout/LayoutWrapper.tsx`) — mas o <body> ficou. `clip` corta o estouro do mesmo
+   jeito (corta mais, inclusive: nem rolagem programatica permite) SEM criar scroller.
+
+   ⚠️ Por que uma classe e nao a troca direta no <body>: hoje existem no app 5 lugares com
+   `sticky` fora de modal (`/contratos` toolbar, `/estoque` x2, `/admin/visibilidade`,
+   `/impressao-documentos`) que estao inertes por causa disso. Trocar a linha global faria os 5
+   voltarem a vida de uma vez — e dois deles nasceriam tortos (o de `/admin/visibilidade` nao tem
+   fundo, entao o conteudo passaria por tras; os de `/estoque` sao `top-0` e ficariam escondidos
+   atras do header mobile de 56px). Isso e conserto proprio, com verificacao propria.
+   Medido em 23/09/2026: com `hidden`, o cabecalho do grupo parava em -290px (ia embora); com
+   `clip`, para em 56px exatos. */
+body.allow-sticky {
+  overflow-x: clip;
+}
+
 /* ============================================
    Theme System — 2 Themes: Dark & White
    Sidebar always dark in both.

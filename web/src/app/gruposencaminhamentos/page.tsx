@@ -428,6 +428,19 @@ export default function GruposEncaminhamentosPage() {
   const [carregandoFichas, setCarregandoFichas] = useState(false)
   const [fichaAmpliada, setFichaAmpliada] = useState<FichaMsg | null>(null)
 
+  // Libera `position: sticky` nesta tela (o cabecalho do grupo gruda no topo ao rolar).
+  //
+  // 🔴 Sem isto o sticky **nao funciona e nao reclama**: a rede anti-estouro global
+  // (`body { overflow-x: hidden }`, demanda 2026/110) faz do <body> um container de rolagem de
+  // altura igual ao conteudo, e o sticky se ancora nele em vez de na viewport — entao rola
+  // embora junto com tudo. Medido: o cabecalho parava em -290px. Ver a nota da classe
+  // `.allow-sticky` no `globals.css`, que explica por que a correcao esta escopada aqui e nao
+  // aplicada de vez no <body>.
+  useEffect(() => {
+    document.body.classList.add('allow-sticky')
+    return () => document.body.classList.remove('allow-sticky')
+  }, [])
+
   // Escala da miniatura e do zoom saem do tamanho da janela: uma medida, dois usos.
   const [janela, setJanela] = useState({ w: 1280, h: 800 })
   useEffect(() => {
@@ -1287,9 +1300,22 @@ function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, podeM
   return (
     // Coluna estreita de propósito: a conversa é uma janela de chat, não uma tabela. Num
     // monitor de 1500px o balão de 200px ficava perdido num campo vazio de 1300px.
-    <div className="max-w-2xl rounded-xl border border-[var(--surface-200)] overflow-hidden">
+    // 🔴 **Sem `overflow-hidden` aqui, de propósito.** Ele arredondava as pontas de graça,
+    // mas `overflow` diferente de `visible` cria um **contexto de rolagem**, e um `position:
+    // sticky` dentro dele passa a se ancorar NESTE container — que nunca rola. O cabeçalho
+    // simplesmente não grudaria, sem erro nenhum. Agora cada ponta arredonda no próprio filho
+    // (11px = 12 do pai menos 1 da borda, senão aparece uma casquinha do fundo no canto).
+    <div className="max-w-2xl rounded-xl border border-[var(--surface-200)]">
       {/* ---- Cabeçalho do grupo (a barra de cima da conversa) ---- */}
-      <div className="flex items-center gap-3 p-3 bg-[var(--surface-100)] border-b border-[var(--surface-200)]">
+      {/* Gruda no topo ao rolar (pedido do Lucas, 23/09/2026): a viagem de SP tem 39–46 fichas,
+          e no meio da rolação não havia mais nada dizendo de qual grupo era aquilo — nem o botão
+          de voltar à mão.
+          ⚠️ **`top-14` no mobile não é estilo, é obrigatório**: o `MobileHeader` é
+          `fixed top-0` com 56px de altura (`h-14`) abaixo de `md`, e com `top-0` a barra do grupo
+          escorregaria por baixo dele. No desktop o fixo é a sidebar, à ESQUERDA, e nada ocupa o
+          topo — daí `md:top-0`. `z-10` fica acima das fichas e abaixo de toda a moldura do app
+          (sidebar 30, header mobile 40, lightbox 50). */}
+      <div className="sticky top-14 md:top-0 z-10 flex items-center gap-3 p-3 rounded-t-[11px] bg-[var(--surface-100)] border-b border-[var(--surface-200)] shadow-sm">
         <button
           onClick={onVoltar}
           className="shrink-0 p-1.5 -ml-1 rounded-lg text-[var(--surface-400)] hover:text-[var(--surface-700)] hover:bg-[var(--surface-200)] transition-colors"
@@ -1323,7 +1349,7 @@ function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, podeM
       {/* Fundo do grupo no bege característico do WhatsApp (pedido do Lucas, 23/09/2026).
           Token e não cor fixa: o zap tem paleta clara E escura, e cravar o bege deixaria o
           tema escuro com cara de página clara suja. Ver `--zap-*` no globals.css. */}
-      <div className="p-3 sm:p-4 space-y-4" style={{ background: 'var(--zap-fundo)' }}>
+      <div className="p-3 sm:p-4 space-y-4 rounded-b-[11px]" style={{ background: 'var(--zap-fundo)' }}>
         {/* Divisor de data, igual ao do zap */}
         <div className="flex justify-center">
           <span
