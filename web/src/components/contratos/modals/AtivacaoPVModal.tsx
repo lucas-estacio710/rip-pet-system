@@ -305,12 +305,21 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
   }
 
   return (
+    // 🔴 **Quem rola é o OVERLAY; o card tem altura natural.** Com `items-center` e
+    // um card sem `overflow` nenhum, conteúdo mais alto que a tela vazava pra fora **sem
+    // nada pra rolar**, e o botão de ação ficava inalcançável. Este era o pior dos 4
+    // modais consertados em 24/09/2026: os de `/tarefas` ao menos tinham
+    // `max-h-[92vh] overflow-y-auto`; este não tinha nem isso.
+    // ⚠️ O que passou a estourar a altura foi a **foto de conclusão** (`FotoProva`,
+    // prévia de até 224px). A foto não é a causa — ela só revelou o defeito.
+    // `my-auto` no card centraliza quando cabe e deixa rolar quando não cabe.
     <div
-      className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4"
+      className="fixed inset-0 bg-black/60 overflow-y-auto overscroll-contain flex items-start justify-center z-[60] p-4"
+      style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
       onClick={onClose}
     >
       <div
-        className="bg-[var(--surface-0)] rounded-xl shadow-xl w-full max-w-sm"
+        className="bg-[var(--surface-0)] rounded-xl shadow-xl w-full max-w-sm my-auto"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-4 border-b border-[var(--surface-200)] bg-emerald-500/5 rounded-t-xl">

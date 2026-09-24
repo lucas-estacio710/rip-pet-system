@@ -2237,8 +2237,8 @@ export default function TarefasPage() {
         // mesmo pet.
         const formKey = `${tipo}:${item.key}`
         return (
-          <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => !salvandoAtribuicao && setAtribuirModalItem(null)}>
-            <div className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto rounded-2xl p-4 space-y-4 bg-[var(--surface-0)]" onClick={e => e.stopPropagation()}>
+          <div className="fixed inset-0 z-50 bg-black/60 overflow-y-auto overscroll-contain flex items-start justify-center p-4" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }} onClick={() => !salvandoAtribuicao && setAtribuirModalItem(null)}>
+            <div className="w-full sm:max-w-md my-auto rounded-2xl p-4 space-y-4 bg-[var(--surface-0)]" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between">
                 <h2 className="text-base font-bold text-[var(--surface-800)] flex items-center gap-2">
                   <Icon className="h-5 w-5" style={{ color: cor }} />
@@ -2335,8 +2335,8 @@ export default function TarefasPage() {
           }}
         />
       ) : tarefaAberta && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => !concluindoRemocao && !concluindoSimples && fecharModalTarefa()}>
-          <div className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto rounded-2xl p-4 space-y-4 bg-[var(--surface-0)]" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 bg-black/60 overflow-y-auto overscroll-contain flex items-start justify-center p-4" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }} onClick={() => !concluindoRemocao && !concluindoSimples && fecharModalTarefa()}>
+          <div className="w-full sm:max-w-md my-auto rounded-2xl p-4 space-y-4 bg-[var(--surface-0)]" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h2 className="text-base font-bold text-[var(--surface-800)] flex items-center gap-2">
                 {(() => { const Icon = TIPO_INFO[tarefaAberta.tipo].icon; return <Icon className="h-5 w-5" style={{ color: TIPO_INFO[tarefaAberta.tipo].cor }} /> })()}
@@ -2610,8 +2610,8 @@ export default function TarefasPage() {
         const lacre = tarefaRecibo.lacreContrato || tarefaRecibo.lacre
         const podeDesfazer = tarefaRecibo.tipo !== 'remocao' && tarefaRecibo.tipo !== 'ativacao_pv'
         return (
-          <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setTarefaRecibo(null)}>
-            <div className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto rounded-2xl p-4 space-y-4 bg-[var(--surface-0)]" onClick={e => e.stopPropagation()}>
+          <div className="fixed inset-0 z-50 bg-black/60 overflow-y-auto overscroll-contain flex items-start justify-center p-4" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }} onClick={() => setTarefaRecibo(null)}>
+            <div className="w-full sm:max-w-md my-auto rounded-2xl p-4 space-y-4 bg-[var(--surface-0)]" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between">
                 <h2 className="text-base font-bold text-[var(--surface-800)] flex items-center gap-2">
                   <Icon className="h-5 w-5" style={{ color: info.cor }} />
