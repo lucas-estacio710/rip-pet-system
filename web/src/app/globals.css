@@ -120,6 +120,32 @@ body {
   color-scheme: dark;
 
   /*
+   * Paleta do WhatsApp pra `/gruposencaminhamentos` — pedido do Lucas em 23/09/2026:
+   * balão "verdinho" e fundo do grupo no "bege característico". São as cores REAIS do app
+   * (modo escuro), não uma aproximação: fundo #0b141a, balão próprio #005c4b.
+   *
+   * ⚠️ Por que token e não classe fixa na tela: a conversa tem que ser reconhecível como
+   * WhatsApp nos DOIS temas, e o WhatsApp tem paletas diferentes pra claro e escuro. Cravar
+   * o bege no componente deixaria o tema escuro com um bege sujo de página clara.
+   * ⚠️ O verde aqui é o do balão PRÓPRIO do WhatsApp. No app, mensagem recebida é cinza —
+   * mas quem manda a ficha no grupo é a unidade, e é ela que a tela está espelhando.
+   */
+  --zap-fundo: #0b141a;
+  --zap-balao: #005c4b;
+  --zap-balao-borda: #025c4c;
+  --zap-balao-texto: #e9edef;
+  /* ⚠️ Não é o #8696a0 do WhatsApp: sobre o verde #005c4b ele dá contraste 2,60, muito
+     abaixo do mínimo de 4,5. Clareado o suficiente pra passar (5,21) e não mais que isso. */
+  --zap-balao-meta: #c8d3d7;
+  --zap-divisor-bg: #182229;
+  --zap-divisor-texto: #8696a0;
+  /* 🔴 Duas cores que o fundo verde OBRIGOU a mudar — medido, não estimado:
+     • ação: o #25D366 da marca dá só 4,02 sobre o balão verde. #4ae08a dá 4,68.
+     • lacre: o azul `text-blue-400` (#60a5fa) dá 3,14. #a5c9ff dá 4,71 e segue azul. */
+  --zap-acao: #4ae08a;
+  --zap-lacre: #a5c9ff;
+
+  /*
    * Dark: forçar valores naturais do slate (Tailwind v4 pode não ter defaults).
    * Garante que bg-slate-800 = escuro e text-slate-200 = claro.
    */
@@ -160,6 +186,23 @@ body {
 [data-theme="white"] .theme-content {
   color: #0f172a;
   color-scheme: light;
+
+  /* Paleta do WhatsApp, modo CLARO — ver a nota no bloco dark acima.
+     Fundo #efeae2 é o bege característico; balão próprio #d9fdd3. */
+  --zap-fundo: #efeae2;
+  --zap-balao: #d9fdd3;
+  --zap-balao-borda: #c5e8bd;
+  --zap-balao-texto: #111b21;
+  /* ⚠️ Não é o #667781 do WhatsApp: sobre o verde #d9fdd3 dá 4,19, abaixo de 4,5.
+     Escurecido o mínimo pra passar (5,14) — a olho nu é o mesmo cinza. */
+  --zap-balao-meta: #5c686f;
+  --zap-divisor-bg: #ffffff;
+  --zap-divisor-texto: #54656f;
+  /* 🔴 No tema claro o #25D366 sobre o balão #d9fdd3 dá **1,79** — verde sobre verde, a ação
+     principal da tela ficava praticamente invisível. #075E54 é o verde escuro da própria marca
+     do WhatsApp e dá 6,92. O lacre azul aqui já passa (#2563eb = 4,66), fica como está. */
+  --zap-acao: #075E54;
+  --zap-lacre: #2563eb;
 
   /* Inverted surface scale (light mode) */
   --surface-0: #ffffff;

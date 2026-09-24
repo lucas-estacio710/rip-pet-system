@@ -152,6 +152,11 @@ export const CAMPOS_BOTOES: ChildItemDef[] = [
   // ela não muda nada em tela. Mantida (e não apagada) de propósito: existem 16 rows dela
   // no banco, e tirar a key do catálogo sem apagá-las é a armadilha da mig 141 — a
   // permissão continua valendo e some de /admin/visibilidade, sem ninguém poder editar.
+  // Interruptor PARALELO ao `obj_enc_pipeline`, de propósito (pedido do Lucas, 23/09/2026):
+  // liga só este botão, sem depender do rollout do fluxo novo. Quem grava é a Matriz; as outras
+  // unidades nunca veem o botão (trava em código por `currentUnit.is_matriz`), só a bandeirinha
+  // de "já contatou" — que é justamente o que as deixa agoniadas.
+  { key: 'btn_gc_contatado_grupos', tela: 'tela_entregas', label: 'Contato Realizado (nos grupos)', desc: 'Botão "Contato Realizado" na conversa da /gruposencaminhamentos: grava contrato_gc.contato_status = contatado + contato_tutor_em, a MESMA primeira etapa do GC. Existe porque o degrau "contatado" estava enterrado no modal do GC e nunca era usado — 1 linha em 3.646 —, apesar de o telefonema acontecer (3.551 com contato_tutor_em). Só aparece pra unidade Matriz e só quando ainda não houve contato; a bandeirinha azul + 🆗 aparece pra TODAS as unidades, inclusive quando o GC já avançou pra agendado.', modo: 'toggle' },
   { key: 'btn_fluxo_retorno', tela: 'tela_contrato', label: 'Fluxo Retorno (inativo)', desc: '⚠️ Hoje não controla nada em tela: a barra de Montagem saiu em 13/09/2026 e o indicador de complexidade no card está desativado no código. As 16 rows existentes (todas hidden) ficaram inertes — limpar exige migration.', modo: 'toggle' },
   { key: 'btn_compartilhar', tela: 'tela_contrato', label: 'Compartilhar', desc: 'Botão 🔄 compartilhar remoção/entrega com outra unidade', modo: 'toggle' },
   { key: 'valor_plano', tela: 'tela_contrato', label: 'Valor do Plano', desc: 'Edição inline (lápis) do valor_plano no card Financeiro' },

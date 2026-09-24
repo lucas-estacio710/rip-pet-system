@@ -75,7 +75,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
 import { dataLocal } from '@/lib/date-local'
-import { nomeParaAgenda } from '@/lib/nome-agenda'
+import { nomeParaAgenda, nomeDoContatoAtivo } from '@/lib/nome-agenda'
 import { linkChatDireto } from '@/lib/whatsapp-msg'
 import { fmtTelefone, type FichaContratoData } from '@/components/fichas/FichaRemocao'
 import FichaRemocaoDoc, { DOC_W, DOC_MIN_H } from '@/components/fichas/FichaRemocaoDoc'
@@ -126,11 +126,32 @@ type FichaMsg = {
   lacre: string | null
   tipoCremacao: string | null
   nomeAgenda: string
-  tutorNome: string
+  /** Nome de quem atende o telefone ATIVO — é este o contato do card, não o titular. */
+  contatoNome: string
   /** Só pra resolver o colaborador do acolhimento por RPC — ver `resolverColaboradores`. */
   responsavelUserId: string | null
   telefone: string | null
   hora: string
+  /**
+   * Primeira etapa do GC: a Matriz já falou com o tutor?
+   * `null` = ainda não · `'contatado'` = ligou, esperando resposta · `'agendado'` = já marcou.
+   * ⚠️ Pro indicador, o que importa é **ter ou não contato** — `agendado` também conta, e é
+   * 97% da base (3.550 de 3.646). Mostrar só `contatado` deixaria a bandeirinha fora de
+   * quase toda ficha e a unidade concluiria que ninguém liga.
+   */
+  contatoStatus: string | null
+  contatoEm: string | null
+}
+
+/**
+ * Uma observação IMPORTANTE da ficha, mostrada como mensagem de sirene na conversa.
+ * É uma linha de `tarefas` — a mesma tabela do card "Observações" de `/contratos/[id]`.
+ */
+type ObsMsg = {
+  id: string
+  texto: string
+  autor: string | null
+  criadoEm: string
 }
 
 // ============================================
@@ -154,6 +175,15 @@ function diaExtenso(data: string): string {
   return d.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })
 }
 
+/** "23/09 14:32" — pro tooltip do indicador de contato. */
+function dataHoraCurta(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
 function horaDoAcolhimento(iso: string | null | undefined): string {
   if (!iso) return ''
   const d = new Date(iso)
@@ -161,9 +191,11 @@ function horaDoAcolhimento(iso: string | null | undefined): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-// Iniciais pro avatar do contato. Saem do nome do TUTOR, nunca do nome de agenda: o nome de
-// agenda começa com a data e termina em IND/COL, então primeira+última palavra dele davam
-// coisas como "2C" (de "26set14 … COL") — avatar que não identifica ninguém.
+// Iniciais pro avatar do contato. Saem do nome do CONTATO ATIVO (quem atende o telefone), nunca
+// do nome de agenda: o nome de agenda começa com a data e termina em IND/COL, então
+// primeira+última palavra dele davam coisas como "2C" (de "26set14 … COL") — avatar que não
+// identifica ninguém. Era o nome do TUTOR até 23/09/2026; passou a ser o do contato ativo junto
+// com o nome de agenda, senão o avatar e o nome do mesmo card apontariam pessoas diferentes.
 function iniciais(nome: string): string {
   const partes = nome.trim().split(/\s+/).filter(Boolean)
   if (partes.length === 0) return '?'
@@ -195,6 +227,7 @@ const CAMPOS_FICHA = `
   tutor_telefone_principal, tutor_endereco, tutor_bairro, tutor_cidade, tutor_cep,
   tutor:tutor_id ( nome, telefone, telefone2, telefone_principal, telefone_nome,
                    endereco, numero, complemento, bairro, cidade, estado, cep ),
+  contrato_gc ( contato_status, contato_tutor_em ),
   estabelecimento:estabelecimento_id ( nome ),
   funcionario:funcionario_id ( nome ),
   executor:executado_por_funcionario_id ( nome )
@@ -247,6 +280,14 @@ type LinhaContrato = {
   estabelecimento: { nome: string | null } | null
   funcionario: { nome: string | null } | null
   executor: { nome: string | null } | null
+  // Embed 1-1, mas o PostgREST devolve ARRAY quando não há constraint de unicidade declarada.
+  contrato_gc: { contato_status: string | null; contato_tutor_em: string | null }[] | { contato_status: string | null; contato_tutor_em: string | null } | null
+}
+
+/** O embed 1-1 do PostgREST às vezes vem array, às vezes objeto. Normaliza. */
+function gcDe(c: LinhaContrato) {
+  const gc = c.contrato_gc
+  return Array.isArray(gc) ? (gc[0] ?? null) : gc
 }
 
 function montarFicha(c: LinhaContrato): FichaMsg {
@@ -306,10 +347,12 @@ function montarFicha(c: LinhaContrato): FichaMsg {
     lacre: c.numero_lacre,
     tipoCremacao: c.tipo_cremacao,
     nomeAgenda: nomeParaAgenda(c),
-    tutorNome: c.tutor?.nome || c.tutor_nome || '',
+    contatoNome: nomeDoContatoAtivo(c),
     responsavelUserId: c.responsavel_user_id,
     telefone: telAtivo,
     hora: horaDoAcolhimento(c.data_acolhimento),
+    contatoStatus: gcDe(c)?.contato_status ?? null,
+    contatoEm: gcDe(c)?.contato_tutor_em ?? null,
   }
 }
 
@@ -358,6 +401,18 @@ export default function GruposEncaminhamentosPage() {
   const { currentUnit, userName, userEmail } = useUnit()
   const { isVisible } = useFieldPermission()
   const fluxoNovo = isVisible('tela_pipeline', 'obj_enc_pipeline')
+  /**
+   * Quem pode marcar "Contato Realizado": **só a Matriz**, e só com a chave ligada.
+   *
+   * Dupla trava de propósito (pedido do Lucas): `btn_gc_contatado_grupos` é o interruptor
+   * paralelo — liga/desliga o botão sem tocar no rollout do fluxo novo —, e o
+   * `currentUnit.is_matriz` é a regra de negócio: ligar pro tutor é trabalho da Matriz. As
+   * outras unidades **não veem o botão**, só a bandeirinha de "já contatou".
+   * ⚠️ `is_matriz` é lido direto de `unidades`, não via FLS: é estado da unidade, não permissão
+   * de pessoa — e o super_admin é `edit` em tudo por hardcode, o que faria ele ver o botão em
+   * qualquer unidade se a chave fosse a única guarda.
+   */
+  const podeMarcarContato = isVisible('tela_entregas', 'btn_gc_contatado_grupos') && !!currentUnit?.is_matriz
 
   const hoje = new Date()
   const [diaSelecionado, setDiaSelecionado] = useState<Date>(hoje)
@@ -368,6 +423,8 @@ export default function GruposEncaminhamentosPage() {
   const [loading, setLoading] = useState(true)
 
   const [fichas, setFichas] = useState<FichaMsg[]>([])
+  // Só as observações IMPORTANTES, por contrato. Ver `carregarObservacoes`.
+  const [obsPorContrato, setObsPorContrato] = useState<Record<string, ObsMsg[]>>({})
   const [carregandoFichas, setCarregandoFichas] = useState(false)
   const [fichaAmpliada, setFichaAmpliada] = useState<FichaMsg | null>(null)
 
@@ -387,14 +444,27 @@ export default function GruposEncaminhamentosPage() {
   // o certo é o contrário: a coluna tem 672px (`max-w-2xl`) e uma ficha gigante ali não lê como
   // conversa, lê como documento aberto.
   //
-  // Então: **desktop fixo em 0,5** (≈210px, tamanho de foto num chat largo) e **celular
-  // proporcional à tela**, preenchendo o balão. Os 132px descontados são o respiro da página +
-  // a borda do balão + os 15% que o `max-w-[85%]` deixa de fora, com ~8px de folga: com 124 a
-  // conta dava 336px num balão de 348 — cabia, mas encostado, e arredondamento de sub-pixel
-  // podia cortar. Teto em 0,8. Em 460px dá 0,78 (328px) e em 360px dá 0,54 (228px).
+  // Então: **desktop fixo** e **celular proporcional à tela**. Os 132px descontados no celular
+  // são o respiro da página + a borda do balão + os 15% que o `max-w-[85%]` deixa de fora, com
+  // ~8px de folga (com 124 a conta encostava na beirada e sub-pixel podia cortar).
+  //
+  // 🔴 **Tudo aqui vale 1/4 da ÁREA do que valia** — pedido do Lucas em 23/09/2026: *"pode
+  // deixar as imagens das fichas com 1/4 do tamanho atual para economizar espaço quando não
+  // clicada"*. 1/4 de área = **metade de cada lado**, então os dois números foram divididos por
+  // 2 (desktop 0,5 → 0,25; no celular o divisor virou `DOC_W * 2` e o teto/piso caíram à
+  // metade). Conferido na conta em 6 larguras: dá exatos 25% de área em todas.
+  //
+  //   desktop .... 210x280 → **105x140**
+  //   460px ...... 328x437 → **164x219**
+  //   360px ...... 228x304 → **114x152**
+  //
+  // ⚠️ A miniatura deixou de ser "foto de WhatsApp" e virou **chip de abrir**: a 105px o texto
+  // da ficha não se lê, e não é pra ler — é pra reconhecer a folha e tocar. Quem lê é o
+  // lightbox. Se um dia o pedido for "quero ler sem clicar", o caminho é voltar a escala, não
+  // aumentar a fonte da ficha (que é proporção de papel).
   const escalaMini = janela.w < 640
-    ? Math.min(0.8, Math.max(0.42, (janela.w - 132) / DOC_W))
-    : 0.5
+    ? Math.min(0.40, Math.max(0.21, (janela.w - 132) / (DOC_W * 2)))
+    : 0.25
   // Ampliada: tem que caber inteira SEM CORTE, então a escala é limitada pelas DUAS dimensões —
   // só pela largura, num notebook de 768px de altura o pé da ficha ("Observações especiais")
   // ficava fora da tela, escondendo justamente o campo que a Matriz precisa ler. Os 132px
@@ -440,6 +510,43 @@ export default function GruposEncaminhamentosPage() {
     return () => { vivo = false }
   }, [supabase])
 
+  /**
+   * Carrega as observações **IMPORTANTES e não resolvidas** das fichas da viagem.
+   *
+   * 🔴 O filtro está na QUERY, não na tela, e a história explica por quê. A primeira versão
+   * trazia TODAS as observações e virava parede de log de auditoria — porque 5 pontos do
+   * sistema gravavam `importante: true` automático (449 linhas marcadas, 172 puro log). O
+   * Lucas cortou a renderização inteira (*"Não é para renderizar observações"*), a causa foi
+   * corrigida (os 5 sites passaram a gravar `false` e as 172 antigas foram limpas), e então
+   * ele notou que a observação que ELE escreveu na Charlote não aparecia.
+   *
+   * A síntese das duas coisas é esta: renderiza **só o que alguém marcou como importante**.
+   * Depois da limpeza isso é sinal, não ruído — medido em 23/09/2026: dos 1.374 contratos com
+   * observação, só **168** têm alguma importante, mediana **1**, máximo 4, e apenas 7 passam
+   * de 2 na mesma ficha. Por isso não há "ver anteriores" aqui: não há o que esconder.
+   */
+  const carregarObservacoes = useCallback(async (contratoIds: string[]) => {
+    if (contratoIds.length === 0) { setObsPorContrato({}); return }
+    const { data, error } = await supabase
+      .from('tarefas')
+      .select('id, contrato_id, descricao, criado_por, created_at')
+      .in('contrato_id', contratoIds)
+      .eq('importante', true)
+      .eq('resolvido', false)
+      .order('created_at', { ascending: true })
+
+    if (error) { console.error('Erro ao carregar observações:', error); return }
+    const mapa: Record<string, ObsMsg[]> = {}
+    for (const t of (data || []) as unknown as {
+      id: string; contrato_id: string; descricao: string; criado_por: string | null; created_at: string
+    }[]) {
+      ;(mapa[t.contrato_id] ||= []).push({
+        id: t.id, texto: t.descricao, autor: t.criado_por, criadoEm: t.created_at,
+      })
+    }
+    setObsPorContrato(mapa)
+  }, [supabase])
+
   // ---- Observações da conversa ----
   //
   // 🔴 **Isto quebra o "somente leitura" da tela, de propósito** (pedido do Lucas em
@@ -482,8 +589,52 @@ export default function GruposEncaminhamentosPage() {
       console.error('Erro ao salvar a observação:', error)
       return false
     }
+    // Recarrega o contrato tocado pra a sirene aparecer na hora — o insert nasce
+    // `importante: true`, então ela entra na lista renderizada.
+    await carregarObservacoes([contratoId])
     return true
-  }, [supabase, currentUnit, userName, userEmail])
+  }, [supabase, currentUnit, userName, userEmail, carregarObservacoes])
+
+  /**
+   * Marca "Contato Realizado" — a PRIMEIRA etapa do GC, gravada daqui.
+   *
+   * Grava `contrato_gc.contato_status = 'contatado'` + `contato_tutor_em = agora`, exatamente
+   * o que o botão "Registrar Contato" do `GCAcaoModal` faz. Não é um campo novo nem um fluxo
+   * paralelo: é o mesmo registro, alcançado de outro lugar.
+   *
+   * 🔴 **Por que valeu trazer pra cá:** o degrau `contatado` estava enterrado no modal do GC e
+   * praticamente ninguém o usava — **1 linha em 3.646** —, apesar de o telefonema acontecer
+   * (3.551 linhas com `contato_tutor_em`). O estado existia e não era lido por quem precisava.
+   * E o que a unidade quer saber é exatamente isto: *"a Matriz já falou com o tutor?"*, porque
+   * entre o contato e o agendamento passa tempo (o tutor demora pra responder).
+   *
+   * ⚠️ **Só avança, nunca volta.** Escreve apenas quando `contato_status` está nulo — se o GC
+   * já andou pra `agendado`, um clique daqui NÃO rebaixa. O botão já não aparece nesse caso,
+   * mas a trava está aqui também porque tela aberta envelhece.
+   *
+   * ⚠️ Confere as linhas afetadas, como o `GCAcaoModal` faz: `update` sem retorno é RLS
+   * negando em silêncio, não sucesso.
+   */
+  const marcarContatoRealizado = useCallback(async (contratoId: string): Promise<boolean> => {
+    const { data, error } = await supabase
+      .from('contrato_gc')
+      .update({ contato_status: 'contatado', contato_tutor_em: new Date().toISOString() } as never)
+      .eq('contrato_id', contratoId)
+      .is('contato_status', null)
+      .select('contato_status, contato_tutor_em')
+
+    if (error) { console.error('Erro ao marcar contato realizado:', error); return false }
+    const linha = (data || [])[0] as { contato_status: string | null; contato_tutor_em: string | null } | undefined
+    if (!linha) {
+      // 0 linhas: ou o GC já tinha contato (corrida com outra aba), ou a RLS barrou.
+      console.warn('Nada atualizado — contato já registrado ou permissão negada.')
+      return false
+    }
+    setFichas(prev => prev.map(f => f.contratoId === contratoId
+      ? { ...f, contatoStatus: linha.contato_status, contatoEm: linha.contato_tutor_em }
+      : f))
+    return true
+  }, [supabase])
 
   // ---- Carga das fichas do grupo aberto (on demand — nunca as 523 viagens de uma vez) ----
   const abrirGrupo = useCallback(async (grupo: EncGrupo) => {
@@ -505,8 +656,9 @@ export default function GruposEncaminhamentosPage() {
     }
     const montadas = ((data || []) as unknown as LinhaContrato[]).map(c => montarFicha(c))
     setFichas(await resolverColaboradores(supabase, montadas))
+    await carregarObservacoes(montadas.map(f => f.contratoId))
     setCarregandoFichas(false)
-  }, [supabase])
+  }, [supabase, carregarObservacoes])
 
   // Fechar a ficha ampliada no Esc (é um lightbox, comportamento esperado)
   useEffect(() => {
@@ -712,7 +864,10 @@ export default function GruposEncaminhamentosPage() {
           fichas={fichas}
           carregando={carregandoFichas}
           escalaMini={escalaMini}
+          obsPorContrato={obsPorContrato}
           onSalvarObs={salvarObservacao}
+          podeMarcarContato={podeMarcarContato}
+          onMarcarContato={marcarContatoRealizado}
           onVoltar={() => setEncAberto(null)}
           onAmpliar={setFichaAmpliada}
         />
@@ -877,6 +1032,47 @@ function LightboxFicha({ ficha, escala, onFechar }: {
 }
 
 // ============================================
+// "Contato Realizado" — a primeira etapa do GC, marcada da conversa
+// ============================================
+/**
+ * Botão próprio pra ter estado LOCAL de "salvando". Se o spinner morasse na `Conversa`, um
+ * clique numa ficha piscaria as 39 outras da viagem.
+ *
+ * ⚠️ Não tem confirmação e não tem desfazer aqui — e é decisão, não esquecimento: é um
+ * carimbo de "eu liguei", o estado só avança (`null` → `contatado` → `agendado`), e voltar
+ * atrás é trabalho do GC, que é onde o resto da jornada do tutor vive. Um `confirm()` em cima
+ * de uma ação de um clique que não perde nada seria atrito sem ganho.
+ */
+function BotaoContatoRealizado({ contratoId, onMarcar }: {
+  contratoId: string
+  onMarcar: (contratoId: string) => Promise<boolean>
+}) {
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState(false)
+
+  return (
+    <button
+      onClick={async () => {
+        if (salvando) return
+        setSalvando(true); setErro(false)
+        const ok = await onMarcar(contratoId)
+        setSalvando(false)
+        if (!ok) setErro(true)
+      }}
+      disabled={salvando}
+      title="Registrar que a Matriz já falou com o tutor (1ª etapa do GC)"
+      className="flex flex-1 items-center justify-center gap-1.5 min-h-11 py-2 border-l text-xs font-semibold hover:bg-black/5 transition-colors disabled:opacity-50"
+      style={{ borderColor: 'var(--zap-balao-borda)', color: erro ? '#dc2626' : 'var(--zap-acao)' }}
+    >
+      {salvando
+        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        : <CheckCheck className="h-4 w-4" />}
+      {erro ? 'Falhou — tentar de novo' : 'Contato Realizado'}
+    </button>
+  )
+}
+
+// ============================================
 // Observações de uma ficha (a "mensagem" da unidade)
 // ============================================
 /**
@@ -892,18 +1088,16 @@ function LightboxFicha({ ficha, escala, onFechar }: {
  * `Conversa`, cada tecla digitada re-renderizaria as fichas todas da viagem — e SP manda 46
  * pets por viagem, cada um com uma ficha de ~40 nós. Digitar ficaria travado.
  */
-function BlocoObservacoes({ contratoId, petNome, onSalvar }: {
+function BlocoObservacoes({ contratoId, petNome, obs, onSalvar }: {
   contratoId: string
   petNome: string
+  obs: ObsMsg[]
   onSalvar: (contratoId: string, texto: string) => Promise<boolean>
 }) {
   const [compondo, setCompondo] = useState(false)
   const [texto, setTexto] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState(false)
-  // A conversa não mostra as observações (elas vivem no card do contrato), então sem este
-  // aviso a unidade escreveria, o compositor fecharia e ela ficaria sem saber se salvou.
-  const [salvou, setSalvou] = useState(false)
 
 
   async function salvar() {
@@ -912,28 +1106,39 @@ function BlocoObservacoes({ contratoId, petNome, onSalvar }: {
     setErro(false)
     const ok = await onSalvar(contratoId, texto)
     setSalvando(false)
-    if (ok) {
-      setTexto('')
-      setCompondo(false)
-      setSalvou(true)
-      setTimeout(() => setSalvou(false), 4000)
-    } else {
-      setErro(true)
-    }
+    // Sem aviso de "salvou": a sirene aparece na conversa na hora, e o balão novo é um
+    // feedback melhor que uma frase.
+    if (ok) { setTexto(''); setCompondo(false) } else { setErro(true) }
   }
 
   return (
     <>
-      {/* ⚠️ **A conversa NÃO renderiza as observações existentes** — decisão do Lucas em
-          23/09/2026, depois de ver o resultado: *"Não é para renderizar observações"*. Eu havia
-          construído o fluxo reverso (observação importante preexistente virando mensagem de
-          sirene) e ele funcionava — a CP42 mostrava 21 balões vermelhos. O problema não era a
-          renderização, era a ORIGEM: quase tudo nascia `importante: true` automático, então a
-          conversa enchia de log de auditoria em vermelho. A correção foi na causa (ver o
-          CHANGELOG de 23/09: 5 sites passaram a gravar `importante: false` e 172 linhas
-          existentes foram limpas), e a conversa voltou a ser só ficha + contato.
-          As observações continuam vivas e visíveis no card "Observações" de
-          `/contratos/[id]` — que é o lugar delas. Aqui isto é só a ENTRADA. */}
+      {/* As observações IMPORTANTES, como mensagem de sirene.
+          ⚠️ **Só as importantes** — nunca a lista toda. Ver `carregarObservacoes` pro histórico
+          dessa decisão; em resumo: renderizar tudo virava parede de log de auditoria, e o
+          conserto foi na origem (automático não nasce mais importante) + este filtro.
+          O balão usa vermelho, não o verde do zap: é a única mensagem da conversa que grita, e
+          precisa se distinguir das outras duas. As classes de vermelho são as que TÊM remap no
+          `[data-theme="white"]` (`bg-red-500/10`, `border-red-700`, `text-red-400`). */}
+      {obs.map(o => (
+        <div key={o.id} className="flex">
+          <div className="max-w-[85%] rounded-lg rounded-tl-none border border-red-700 bg-red-500/10 p-2.5 shadow-sm">
+            <div className="flex items-center gap-1.5 mb-1">
+              <span className="shrink-0" style={{ fontSize: 13 }}>🚨</span>
+              <span className="text-xs font-semibold text-red-400">Observação importante</span>
+            </div>
+            <p className="text-xs whitespace-pre-wrap break-words" style={{ color: 'var(--zap-balao-texto)' }}>
+              {o.texto}
+            </p>
+            <div className="flex items-center justify-end gap-1.5 mt-1">
+              {o.autor && <span className="text-[11px]" style={{ color: 'var(--zap-balao-meta)' }}>{o.autor}</span>}
+              <span className="text-xs font-mono" style={{ color: 'var(--zap-balao-meta)' }}>
+                {horaDoAcolhimento(o.criadoEm)}
+              </span>
+            </div>
+          </div>
+        </div>
+      ))}
 
       {/* Escrever uma nova */}
       {compondo ? (
@@ -976,11 +1181,6 @@ function BlocoObservacoes({ contratoId, petNome, onSalvar }: {
             <span style={{ fontSize: 13 }}>🚨</span>
             + Observação
           </button>
-          {salvou && (
-            <span className="flex items-center ml-2 text-xs font-medium text-emerald-500">
-              ✓ salva nas Observações do contrato
-            </span>
-          )}
         </div>
       )}
     </>
@@ -1069,20 +1269,20 @@ function ListaDeGrupos({ dia, grupos, unidadeAtualCodigo, onAbrir }: {
 // ============================================
 // A conversa do grupo
 // ============================================
-function Conversa({ grupo, fichas, carregando, escalaMini, onSalvarObs, onVoltar, onAmpliar }: {
+function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, podeMarcarContato, onMarcarContato, onSalvarObs, onVoltar, onAmpliar }: {
   grupo: EncGrupo
   fichas: FichaMsg[]
   carregando: boolean
   escalaMini: number
+  obsPorContrato: Record<string, ObsMsg[]>
+  podeMarcarContato: boolean
+  onMarcarContato: (contratoId: string) => Promise<boolean>
   onSalvarObs: (contratoId: string, texto: string) => Promise<boolean>
   onVoltar: () => void
   onAmpliar: (f: FichaMsg) => void
 }) {
   const cor = UNIT_COLORS[grupo.codigo_unidade] || '#6366f1'
   const st = STATUS_ENC[grupo.status] || { rotulo: grupo.status, classe: 'bg-[var(--surface-100)] text-[var(--surface-500)] border-[var(--surface-200)]' }
-  // Só a largura é previsível — a altura da ficha varia com o conteúdo. Serve pra alinhar a
-  // legenda embaixo da miniatura.
-  const miniW = Math.round(FICHA_W * escalaMini)
 
   return (
     // Coluna estreita de propósito: a conversa é uma janela de chat, não uma tabela. Num
@@ -1120,10 +1320,16 @@ function Conversa({ grupo, fichas, carregando, escalaMini, onSalvarObs, onVoltar
       </div>
 
       {/* ---- Corpo da conversa ---- */}
-      <div className="p-3 sm:p-4 bg-[var(--surface-50)] space-y-4">
+      {/* Fundo do grupo no bege característico do WhatsApp (pedido do Lucas, 23/09/2026).
+          Token e não cor fixa: o zap tem paleta clara E escura, e cravar o bege deixaria o
+          tema escuro com cara de página clara suja. Ver `--zap-*` no globals.css. */}
+      <div className="p-3 sm:p-4 space-y-4" style={{ background: 'var(--zap-fundo)' }}>
         {/* Divisor de data, igual ao do zap */}
         <div className="flex justify-center">
-          <span className="px-2.5 py-1 rounded-md bg-[var(--surface-100)] border border-[var(--surface-200)] text-[11px] font-medium uppercase tracking-wide text-[var(--surface-400)] capitalize">
+          <span
+            className="px-2.5 py-1 rounded-md text-[11px] font-medium uppercase tracking-wide capitalize shadow-sm"
+            style={{ background: 'var(--zap-divisor-bg)', color: 'var(--zap-divisor-texto)' }}
+          >
             {diaExtenso(grupo.data)}
           </span>
         </div>
@@ -1147,7 +1353,10 @@ function Conversa({ grupo, fichas, carregando, escalaMini, onSalvarObs, onVoltar
               <div key={f.contratoId} className="space-y-1.5">
                 {/* ===== Mensagem 1: a foto da ficha ===== */}
                 <div className="flex">
-                  <div className="max-w-[85%] rounded-lg rounded-tl-none bg-[var(--surface-100)] border border-[var(--surface-200)] p-1.5 shadow-sm">
+                  <div
+                    className="max-w-[85%] rounded-lg rounded-tl-none p-1.5 shadow-sm"
+                    style={{ background: 'var(--zap-balao)', border: '1px solid var(--zap-balao-borda)' }}
+                  >
                     <button
                       onClick={() => onAmpliar(f)}
                       className="block relative rounded overflow-hidden group"
@@ -1169,13 +1378,26 @@ function Conversa({ grupo, fichas, carregando, escalaMini, onSalvarObs, onVoltar
                         §9.1 ("o ícone do pet continua sendo o emoji") de propósito: a ficha
                         logo acima já traz espécie, raça e porte escritos, então o emoji era
                         redundância ocupando a linha. */}
-                    <div className="flex items-center gap-1.5 px-1 pt-1.5 pb-0.5" style={{ maxWidth: miniW }}>
+                    {/* ⚠️ Havia um `maxWidth: miniW` aqui até 23/09/2026. Fazia sentido quando a
+                        miniatura tinha 210–328px, mas com ela a 1/4 da área (105px no desktop) o
+                        cap truncava lacre e nome. Agora é a LEGENDA que define a largura do
+                        balão, e a miniatura é o elemento estreito dentro dele.
+                        🔴 `width: max-content` é o que faz isso funcionar: sem ele o balão ficava
+                        do tamanho da MINIATURA e a legenda encolhia (o `truncate` do nome cede
+                        antes de empurrar). Medido: o nome mais longo desta base
+                        ("BUCKMINSTER (BUCK)") precisa de 159px, e a legenda inteira de 211px —
+                        com o cap de 105px sobrava menos da metade. O `maxWidth: '100%'` mantém
+                        o teto do balão (`max-w-[85%]`), e aí sim o `truncate` do nome entra. */}
+                    <div
+                      className="flex items-center gap-1.5 px-1 pt-1.5 pb-0.5 whitespace-nowrap"
+                      style={{ width: 'max-content', maxWidth: '100%' }}
+                    >
                       {f.lacre && (
-                        <span className="shrink-0 text-[15px] font-bold text-blue-400">
+                        <span className="shrink-0 text-[15px] font-bold" style={{ color: 'var(--zap-lacre)' }}>
                           {f.lacre}
                         </span>
                       )}
-                      <span className="text-[15px] font-semibold text-[var(--surface-700)] truncate">{f.petNome}</span>
+                      <span className="text-[15px] font-semibold truncate" style={{ color: 'var(--zap-balao-texto)' }}>{f.petNome}</span>
                     </div>
                     <div className="flex items-center justify-end gap-1 px-1 pb-0.5">
                       {/* 🔴 IND = verde, COL = roxo — padrão de cor do produto. As classes são
@@ -1187,8 +1409,27 @@ function Conversa({ grupo, fichas, carregando, escalaMini, onSalvarObs, onVoltar
                           {f.tipoCremacao === 'individual' ? 'IND' : 'COL'}
                         </span>
                       )}
-                      <span className="text-xs text-[var(--surface-400)] font-mono">{f.hora}</span>
-                      <CheckCheck className="h-3 w-3 text-sky-400" />
+                      <span className="text-xs font-mono" style={{ color: 'var(--zap-balao-meta)' }}>{f.hora}</span>
+                      {/* 🔴 O check duplo era DECORATIVO — pintava azul em toda ficha, sempre,
+                          sem significar nada. Era um sinal falso que eu tinha introduzido ao
+                          imitar o WhatsApp. Agora ele diz o que o check duplo diz no zap:
+                          **chegou no destinatário**. Aqui, "a Matriz já falou com o tutor".
+                          Cinza = a chamar · azul + 🆗 = contato feito.
+                          ⚠️ Vale pra `contatado` E pra `agendado`: os dois querem dizer que o
+                          contato aconteceu, e `agendado` é 97% da base. Ver `contatoStatus`. */}
+                      {f.contatoStatus ? (
+                        <span
+                          className="flex items-center gap-0.5"
+                          title={`Contato realizado${f.contatoEm ? ` em ${dataHoraCurta(f.contatoEm)}` : ''}${f.contatoStatus === 'agendado' ? ' · despedida já agendada' : ' · aguardando o tutor responder'}`}
+                        >
+                          <CheckCheck className="h-3.5 w-3.5 text-sky-400" />
+                          <span style={{ fontSize: 12 }}>🆗</span>
+                        </span>
+                      ) : (
+                        <span className="flex items-center" title="A Matriz ainda não falou com o tutor">
+                          <CheckCheck className="h-3.5 w-3.5" style={{ color: 'var(--zap-balao-meta)' }} />
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1198,40 +1439,55 @@ function Conversa({ grupo, fichas, carregando, escalaMini, onSalvarObs, onVoltar
                     agenda e ligar. O nome é o MESMO que o botão "copiar nome para agenda"
                     do detalhe do contrato gera (`lib/nome-agenda.ts`). */}
                 <div className="flex">
-                  <div className="max-w-[85%] w-full sm:w-auto sm:min-w-[260px] rounded-lg rounded-tl-none bg-[var(--surface-100)] border border-[var(--surface-200)] shadow-sm overflow-hidden">
+                  <div
+                    className="max-w-[85%] w-full sm:w-auto sm:min-w-[260px] rounded-lg rounded-tl-none shadow-sm overflow-hidden"
+                    style={{ background: 'var(--zap-balao)', border: '1px solid var(--zap-balao-borda)' }}
+                  >
                     <div className="flex items-center gap-2.5 p-2.5">
                       <span className="shrink-0 h-9 w-9 rounded-full bg-[var(--surface-300)] text-[var(--surface-700)] flex items-center justify-center text-xs font-bold">
-                        {iniciais(f.tutorNome || f.petNome)}
+                        {iniciais(f.contatoNome || f.petNome)}
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block text-[13px] font-semibold text-[var(--surface-700)] break-words">
+                        <span className="block text-[13px] font-semibold break-words" style={{ color: 'var(--zap-balao-texto)' }}>
                           {f.nomeAgenda}
                         </span>
-                        <span className="flex items-center gap-1 text-xs text-[var(--surface-400)] mt-0.5">
+                        <span className="flex items-center gap-1 text-xs mt-0.5" style={{ color: 'var(--zap-balao-meta)' }}>
                           <Phone className="h-3 w-3 shrink-0" />
                           <span className="font-mono">{fmtTelefone(f.telefone) || 'sem telefone'}</span>
                         </span>
                       </span>
                     </div>
-                    {linkZap ? (
-                      <a
-                        href={linkZap}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        // 🔴 `min-h-11` (44px) e não `py-2`: medido em 23/09/2026, o botão saía
-                        // com **33px de altura** no celular, abaixo do mínimo de alvo de toque
-                        // (44px iOS / 48dp Material). É a ação principal da tela num aparelho
-                        // que se usa com o polegar — errar o toque aqui é ligar pro tutor errado.
-                        className="flex items-center justify-center gap-1.5 w-full min-h-11 py-2 border-t border-[var(--surface-200)] text-xs font-semibold text-[#25D366] hover:bg-[#25D366]/10 transition-colors"
-                      >
-                        <MessageCircle className="h-4 w-4" />
-                        Conversar
-                      </a>
-                    ) : (
-                      <span className="flex items-center justify-center gap-1.5 w-full py-2 border-t border-[var(--surface-200)] text-xs text-[var(--surface-400)]">
-                        Sem telefone cadastrado
-                      </span>
-                    )}
+                    {/* Pé do card de contato: Conversar | Contato Realizado.
+                        🔴 `min-h-11` (44px) e não `py-2`: medido em 23/09/2026, o botão saía com
+                        **33px de altura** no celular, abaixo do mínimo de alvo de toque (44px
+                        iOS / 48dp Material) — e errar o toque aqui é ligar pro tutor errado.
+                        ⚠️ O "Contato Realizado" só aparece **pra Matriz, com a chave ligada e
+                        enquanto não houve contato** — as outras unidades só leem a bandeirinha
+                        na legenda da ficha. Ver `podeMarcarContato`. */}
+                    <div className="flex items-stretch border-t" style={{ borderColor: 'var(--zap-balao-borda)' }}>
+                      {linkZap ? (
+                        <a
+                          href={linkZap}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex flex-1 items-center justify-center gap-1.5 min-h-11 py-2 text-xs font-semibold hover:bg-black/5 transition-colors"
+                          style={{ color: 'var(--zap-acao)' }}
+                        >
+                          <MessageCircle className="h-4 w-4" />
+                          Conversar
+                        </a>
+                      ) : (
+                        <span
+                          className="flex flex-1 items-center justify-center gap-1.5 min-h-11 py-2 text-xs"
+                          style={{ color: 'var(--zap-balao-meta)' }}
+                        >
+                          Sem telefone
+                        </span>
+                      )}
+                      {podeMarcarContato && !f.contatoStatus && (
+                        <BotaoContatoRealizado contratoId={f.contratoId} onMarcar={onMarcarContato} />
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -1239,6 +1495,7 @@ function Conversa({ grupo, fichas, carregando, escalaMini, onSalvarObs, onVoltar
                 <BlocoObservacoes
                   contratoId={f.contratoId}
                   petNome={f.petNome}
+                  obs={obsPorContrato[f.contratoId] || []}
                   onSalvar={onSalvarObs}
                 />
               </div>
