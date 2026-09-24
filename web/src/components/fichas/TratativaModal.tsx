@@ -135,7 +135,8 @@ function getPrimeiroNome(nomeCompleto: string | null | undefined): string {
 // ============================================
 // Árvore de valores rápidos — plano → forma de pagamento → ajuste ±100
 // CHUMBADO por enquanto (fase futura: puxar de /admin/planos). FLS: sel_valor_plano_arvore
-// (tela_fichas). Preços passados pelo Lucas em 18/08/2026.
+// (tela_fichas). Preços de Santos — atualizados pelo Lucas em 24/09/2026 (os de 18/08 subiram;
+// Lembranças e Eternidade não mudaram; Descanse em Paz ainda com o valor de 18/08).
 // ============================================
 type FormaPagPlano = 'vista' | '6x' | '12x'
 const FORMAS_PLANO: { key: FormaPagPlano; label: string }[] = [
@@ -146,17 +147,17 @@ const FORMAS_PLANO: { key: FormaPagPlano; label: string }[] = [
 type PlanoRapidoDef = { nome: string; tipo: 'individual' | 'coletiva'; precos: Record<FormaPagPlano, number>; obs?: string }
 const PLANOS_RAPIDOS: PlanoRapidoDef[] = [
   // Individual
-  { nome: 'Homenagem', tipo: 'individual', precos: { vista: 1290, '6x': 1330, '12x': 1380 } },
-  { nome: 'Gratidão', tipo: 'individual', precos: { vista: 1360, '6x': 1400, '12x': 1450 } },
-  { nome: 'Memórias', tipo: 'individual', precos: { vista: 1460, '6x': 1500, '12x': 1550 } },
-  { nome: 'Raízes', tipo: 'individual', precos: { vista: 1510, '6x': 1560, '12x': 1620 } },
-  { nome: 'Clássico', tipo: 'individual', precos: { vista: 1550, '6x': 1600, '12x': 1660 } },
-  { nome: 'Tributo', tipo: 'individual', precos: { vista: 1690, '6x': 1740, '12x': 1800 } },
+  { nome: 'Homenagem', tipo: 'individual', precos: { vista: 1340, '6x': 1370, '12x': 1410 } },
+  { nome: 'Gratidão', tipo: 'individual', precos: { vista: 1410, '6x': 1450, '12x': 1500 } },
+  { nome: 'Memórias', tipo: 'individual', precos: { vista: 1530, '6x': 1580, '12x': 1630 } },
+  { nome: 'Raízes', tipo: 'individual', precos: { vista: 1570, '6x': 1630, '12x': 1690 } },
+  { nome: 'Clássico', tipo: 'individual', precos: { vista: 1600, '6x': 1650, '12x': 1710 } },
+  { nome: 'Tributo', tipo: 'individual', precos: { vista: 1740, '6x': 1790, '12x': 1850 } },
   { nome: 'Eternidade', tipo: 'individual', precos: { vista: 9900, '6x': 10450, '12x': 11000 }, obs: '50% na contratação + 50% na entrega' },
   // Coletiva
   { nome: 'Descanse em Paz', tipo: 'coletiva', precos: { vista: 890, '6x': 920, '12x': 960 } },
   { nome: 'Lembranças', tipo: 'coletiva', precos: { vista: 960, '6x': 990, '12x': 1030 } },
-  { nome: 'Saudades', tipo: 'coletiva', precos: { vista: 1070, '6x': 1100, '12x': 1140 } },
+  { nome: 'Saudades', tipo: 'coletiva', precos: { vista: 1090, '6x': 1120, '12x': 1160 } },
 ]
 
 // ============================================
