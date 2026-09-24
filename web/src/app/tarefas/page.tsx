@@ -16,7 +16,7 @@
 // ============================================================================
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { HandHeart, PackageCheck, PawPrint, Fingerprint, Scissors, Feather, MapPin, Navigation, FileDown, Check, Loader2, ClipboardList, UserPlus, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { HandHeart, PackageCheck, PawPrint, Fingerprint, Scissors, Feather, MapPin, Navigation, FileDown, Check, Loader2, ClipboardList, UserPlus, Plus, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import { useToast } from '@/components/ui/Toast'
@@ -868,6 +868,9 @@ export default function TarefasPage() {
   // ── Concluir tarefa simples (entrega/molde/carimbo/pelo_extra) ──────────
   const [concluindoSimples, setConcluindoSimples] = useState(false)
   const [anotacaoSimples, setAnotacaoSimples] = useState('')
+  // A anotação é OPCIONAL e custava ~120px sempre visíveis. Agora nasce fechada atrás de
+  // um link. Um estado só serve os dois popups porque nunca há dois abertos ao mesmo tempo.
+  const [mostrarAnotacao, setMostrarAnotacao] = useState(false)
   const [leuObservacao, setLeuObservacao] = useState(false)
   // Login atual é uma posição (dispositivo compartilhado) — quem de fato executou essa
   // tarefa, obrigatório nesse caso (migration 137). Compartilhado entre os 2 fluxos de
@@ -1783,6 +1786,7 @@ export default function TarefasPage() {
     setTarefaAberta(null)
     setTarefaAbertaRascunho(false)
     setFotoProva(null)
+    setMostrarAnotacao(false)
   }
 
   // ============================================
@@ -2426,27 +2430,32 @@ export default function TarefasPage() {
                     {semTraslado && <p className="text-xs text-[var(--surface-500)]">Tutor já trouxe o pet até a unidade — sem deslocamento.</p>}
                   </div>
 
-                  {(wazeUrl || gmapsUrl) && (
-                    <div className="grid grid-cols-2 gap-2">
-                      {wazeUrl && (
-                        <a href={wazeUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 py-2.5 rounded-lg bg-sky-600 text-white text-sm font-semibold">
-                          <MapPin className="h-4 w-4" />Waze
-                        </a>
-                      )}
-                      {gmapsUrl && (
-                        <a href={gmapsUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold">
-                          <Navigation className="h-4 w-4" />Google Maps
-                        </a>
-                      )}
-                    </div>
-                  )}
+                  {/* Navegar e imprimir numa linha só: o PDF era uma 3ª linha de largura
+                      cheia e virou a 3ª coluna, devolvendo ~52px. ⚠️ **Altura mantida em 44px**
+                      (`min-h-11`) — são alvos de toque de quem está na rua. O que encolheu foi o
+                      RÓTULO ("Google Maps" → "Maps", "Gerar PDF do Contrato" → "Contrato"),
+                      porque em 3 colunas num celular de 412px cada botão tem ~120px. */}
+                  <div className="grid grid-cols-3 gap-2">
+                    {wazeUrl && (
+                      <a href={wazeUrl} target="_blank" rel="noopener noreferrer" className="min-h-11 flex items-center justify-center gap-1.5 rounded-lg bg-sky-600 text-white text-sm font-semibold">
+                        <MapPin className="h-4 w-4 shrink-0" />Waze
+                      </a>
+                    )}
+                    {gmapsUrl && (
+                      <a href={gmapsUrl} target="_blank" rel="noopener noreferrer" className="min-h-11 flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold">
+                        <Navigation className="h-4 w-4 shrink-0" />Maps
+                      </a>
+                    )}
+                    <button onClick={() => gerarPdfDaFicha(ficha)} disabled={gerandoPdf} className="min-h-11 flex items-center justify-center gap-1.5 rounded-lg border border-[var(--surface-200)] text-sm font-semibold text-[var(--surface-600)] disabled:opacity-50">
+                      {gerandoPdf ? <Loader2 className="h-4 w-4 animate-spin shrink-0" /> : <FileDown className="h-4 w-4 shrink-0" />}
+                      Contrato
+                    </button>
+                  </div>
 
-                  <button onClick={() => gerarPdfDaFicha(ficha)} disabled={gerandoPdf} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-[var(--surface-200)] text-sm font-semibold text-[var(--surface-600)] disabled:opacity-50">
-                    {gerandoPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
-                    Gerar PDF do Contrato
-                  </button>
-
-                  <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/40 space-y-3">
+                  {/* Faixa lateral em vez de quadro com recheio: o sinal de "é aqui que você
+                      preenche" continua, sem os 12px de padding em cima e embaixo dentro de um
+                      card que já tem `p-4`. */}
+                  <div className="pl-3 border-l-4 border-amber-500/60 space-y-3">
                     <p className="text-xs font-bold uppercase tracking-wide text-amber-500">📋 Informações Pós-Remoção</p>
                     <div>
                       <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Quando aconteceu o acolhimento? <span className="text-red-400">*</span></label>
@@ -2459,11 +2468,20 @@ export default function TarefasPage() {
                       <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Número do Lacre <span className="text-red-400">*</span></label>
                       <input type="text" value={lacreRemocao} onChange={e => setLacreRemocao(e.target.value)} placeholder="Número do lacre" className="input w-full" />
                     </div>
-                    <div>
-                      <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Anotação (opcional)</label>
-                      <p className="text-[10px] text-[var(--surface-500)] mb-1">Ex.: Tutor acertou no cartão em 6x; Tutora pediu para cremar a toalha azul junto com o pet; Cremar ursinho de pelúcia junto.</p>
-                      <textarea value={anotacaoRemocao} onChange={e => setAnotacaoRemocao(e.target.value)} rows={2} placeholder="Alguma observação sobre a remoção..." className="input w-full resize-none" />
-                    </div>
+                    {/* Campo OPCIONAL: nasce FECHADO. Rótulo + 3 exemplos + `textarea rows={2}`
+                        custavam ~120px sempre visíveis num modal que não cabia na tela. Abre
+                        sozinho se já houver texto, pra reabrir a tarefa não esconder o que se
+                        escreveu. Os exemplos foram pro `placeholder`: só custam altura se abrir. */}
+                    {(mostrarAnotacao || anotacaoRemocao) ? (
+                      <div>
+                        <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Anotação (opcional)</label>
+                        <textarea value={anotacaoRemocao} onChange={e => setAnotacaoRemocao(e.target.value)} rows={2} placeholder="Ex.: Tutor acertou no cartão em 6x; cremar a toalha azul junto com o pet." className="input w-full resize-none" />
+                      </div>
+                    ) : (
+                      <button type="button" onClick={() => setMostrarAnotacao(true)} className="min-h-11 flex items-center gap-1.5 text-xs font-semibold text-[var(--brand-600)]">
+                        <Plus className="h-3.5 w-3.5" />Anotação (opcional)
+                      </button>
+                    )}
                     {/* Foto-prova (mig 147). Obrigatória conforme `configuracoes`; gerente
                         conclui sem, e a tarefa fica marcada como concluída sem foto. */}
                     <FotoProva
@@ -2549,7 +2567,7 @@ export default function TarefasPage() {
                     </div>
                   )
                 })()}
-                <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/40 space-y-3">
+                <div className="pl-3 border-l-4 border-amber-500/60 space-y-3">
                   <p className="text-xs font-bold uppercase tracking-wide text-amber-500">📋 Informações de Conclusão</p>
                   {tarefaAberta.tipo === 'entrega' && (
                     <div>
@@ -2560,10 +2578,17 @@ export default function TarefasPage() {
                       )}
                     </div>
                   )}
-                  <div>
-                    <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Anotação (opcional)</label>
-                    <textarea value={anotacaoSimples} onChange={e => setAnotacaoSimples(e.target.value)} rows={2} placeholder="Alguma observação..." className="input w-full resize-none" />
-                  </div>
+                  {/* Campo OPCIONAL: nasce fechado — mesma razão do popup de remoção. */}
+                  {(mostrarAnotacao || anotacaoSimples) ? (
+                    <div>
+                      <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Anotação (opcional)</label>
+                      <textarea value={anotacaoSimples} onChange={e => setAnotacaoSimples(e.target.value)} rows={2} placeholder="Alguma observação..." className="input w-full resize-none" />
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => setMostrarAnotacao(true)} className="min-h-11 flex items-center gap-1.5 text-xs font-semibold text-[var(--brand-600)]">
+                      <Plus className="h-3.5 w-3.5" />Anotação (opcional)
+                    </button>
+                  )}
                   {/* Foto-prova (mig 147) — ver comentário no popup de remoção. */}
                   <FotoProva
                     valor={fotoProva}
