@@ -20,7 +20,8 @@ type Props = {
 }
 
 type TutorEntry = {
-  titulo: 'Sr.' | 'Sra.'
+  // '' = só o nome, sem tratamento
+  titulo: 'Sr.' | 'Sra.' | ''
   nome: string
 }
 
@@ -104,18 +105,13 @@ function presetDatasChegamos(
   // FDS: sem data parentética (operador escolheu não especificar)
   const dataEncaminhamento = isFds ? prefixoEnc : `${prefixoEnc} (${formatDataCurta(encaminhamentoDate)})`
 
-  // Cremação: terça e quarta após o encaminhamento
-  // sábado: +3 = terça, +4 = quarta
-  // domingo: +2 = terça, +3 = quarta
+  // Cremação: sempre a terça após o encaminhamento (sábado +3, domingo +2)
   const offsetTerca = diaSemana === 'sab' ? 3 : 2
-  const offsetQuarta = diaSemana === 'sab' ? 4 : 3
 
   const tercaDate = new Date(encaminhamentoDate)
   tercaDate.setDate(tercaDate.getDate() + offsetTerca)
-  const quartaDate = new Date(encaminhamentoDate)
-  quartaDate.setDate(quartaDate.getDate() + offsetQuarta)
 
-  const dataCremacao = `terça (${formatDataCurta(tercaDate)}) e quarta (${formatDataCurta(quartaDate)})`
+  const dataCremacao = `na terça (${formatDataCurta(tercaDate)})`
 
   return { dataEncaminhamento, dataCremacao }
 }
@@ -180,30 +176,36 @@ export default function ChegamosModal({ isOpen, onClose, contrato }: Props) {
   const getPronomes = useCallback(() => {
     const { tutores } = form
 
+    // Sem tratamento não dá pra saber o gênero: frase neutra ("você/vocês a par")
+    if (tutores.some(t => t.titulo === '')) {
+      return { neutro: tutores.length === 1 ? 'você' : 'vocês', artigo: '', informado: '' }
+    }
+
     if (tutores.length === 1) {
       if (tutores[0].titulo === 'Sra.') {
-        return { artigo: 'a', dele: 'dela', informado: 'informada' }
+        return { neutro: '', artigo: 'a', informado: 'informada' }
       }
-      return { artigo: 'o', dele: 'dele', informado: 'informado' }
+      return { neutro: '', artigo: 'o', informado: 'informado' }
     }
 
     // Multiple tutors
     const todosF = tutores.every(t => t.titulo === 'Sra.')
     if (todosF) {
-      return { artigo: 'as', dele: 'dela', informado: 'informadas' }
+      return { neutro: '', artigo: 'as', informado: 'informadas' }
     }
-    return { artigo: 'os', dele: 'dele', informado: 'informados' }
+    return { neutro: '', artigo: 'os', informado: 'informados' }
   }, [form])
 
   // ─── Tutor text builder ─────────────────────────────────
 
   const getTutorTexto = useCallback(() => {
     const { tutores } = form
+    const comTitulo = (t: TutorEntry) => (t.titulo ? `${t.titulo} ${t.nome}` : t.nome)
     if (tutores.length === 1) {
-      return `${tutores[0].titulo} ${tutores[0].nome}`
+      return comTitulo(tutores[0])
     }
     // Multiple: "Sr. João e Sra. Maria"
-    const nomes = tutores.map(t => `${t.titulo} ${t.nome}`)
+    const nomes = tutores.map(comTitulo)
     if (nomes.length === 2) {
       return `${nomes[0]} e ${nomes[1]}`
     }
@@ -220,7 +222,7 @@ export default function ChegamosModal({ isOpen, onClose, contrato }: Props) {
     const artigo = petGenero === 'F' ? 'a' : 'o'
     const dele = petGenero === 'F' ? 'dela' : 'dele'
 
-    let msg = `${tutorTexto}, já estamos com ${artigo} ${petNome} em nossa unidade.\n\n`
+    let msg = `${tutorTexto}, já estamos com ${artigo} ${petNome} em nossa unidade. `
     msg += `Vamos cuidar ${dele} com todo carinho, respeito e muito amor!`
 
     if (velorio === 'sim') {
@@ -228,7 +230,7 @@ export default function ChegamosModal({ isOpen, onClose, contrato }: Props) {
     }
 
     if (dataEncaminhamento && dataCremacao) {
-      msg += `\n\nO encaminhamento para nosso crematório será feito ${dataEncaminhamento}, e a cremação ocorrerá entre ${dataCremacao}.`
+      msg += `\n\nO encaminhamento para nosso crematório será feito ${dataEncaminhamento}, e a cremação ocorrerá ${dataCremacao}.`
     }
 
     const contatoTexto = contatoMatriz === 'proxima'
@@ -241,7 +243,9 @@ export default function ChegamosModal({ isOpen, onClose, contrato }: Props) {
       msg += `\n\n(Caso queira que eu envie as recordações personalizadas que podemos preparar, é só me avisar)`
     }
 
-    msg += `\n\nNós ${pronomes.artigo} manteremos ${pronomes.informado} de todo processo e qualquer dúvida, basta nos chamar por aqui.`
+    msg += pronomes.neutro
+      ? `\n\nNós manteremos ${pronomes.neutro} a par de todo processo e qualquer dúvida, basta nos chamar por aqui.`
+      : `\n\nNós ${pronomes.artigo} manteremos ${pronomes.informado} de todo processo e qualquer dúvida, basta nos chamar por aqui.`
 
     msg += `\n\nNovamente, nossos sinceros sentimentos \u{1F64F}\u{1F614}`
 
@@ -378,11 +382,23 @@ export default function ChegamosModal({ isOpen, onClose, contrato }: Props) {
                       onClick={() => updateTutor(idx, 'titulo', 'Sra.')}
                       className={`px-2.5 py-2 text-sm font-medium transition-colors ${
                         tutor.titulo === 'Sra.'
-                          ? 'bg-pink-600/30 text-pink-300'
-                          : 'text-slate-400 hover:text-slate-300'
+                          ? 'bg-pink-600/30 text-pink-300 border-r border-pink-500/50'
+                          : 'text-slate-400 hover:text-slate-300 border-r border-slate-600'
                       }`}
                     >
                       Sra.
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateTutor(idx, 'titulo', '')}
+                      title="Só o nome, sem Sr./Sra."
+                      className={`px-2.5 py-2 text-sm font-medium transition-colors ${
+                        tutor.titulo === ''
+                          ? 'bg-slate-500/40 text-slate-100'
+                          : 'text-slate-400 hover:text-slate-300'
+                      }`}
+                    >
+                      Nome
                     </button>
                   </div>
 
@@ -551,7 +567,7 @@ export default function ChegamosModal({ isOpen, onClose, contrato }: Props) {
                 value={form.dataCremacao}
                 onChange={e => setForm(f => ({ ...f, dataCremacao: e.target.value }))}
                 className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-slate-200 text-sm focus:outline-none focus:border-slate-500"
-                placeholder="Cremacao (ex: terca (21/jan) e quarta (22/jan))"
+                placeholder="Cremação (ex: na terça (21/jan))"
               />
             </div>
           </div>
