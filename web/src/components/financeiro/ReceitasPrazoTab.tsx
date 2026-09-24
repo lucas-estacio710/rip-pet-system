@@ -24,7 +24,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { Plus, Loader2, Check, Smartphone, ArrowDownRight, ArrowUpRight } from 'lucide-react'
+import { Plus, Loader2, Check, Smartphone, ArrowDownRight, ArrowUpRight, Copy } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import Modal from '@/components/ui/Modal'
@@ -244,6 +244,35 @@ export default function ReceitasPrazoTab({ somenteLeitura = false, mes }: {
     setAberto(true)
   }
 
+  /**
+   * REUTILIZAR um registro (24/09/2026) — o caso que motivou: duas liquidações
+   * da InterPag no mesmo dia, iguais em tudo menos o valor. Abre o modal NOVO
+   * já com operadora, movimento, data, valor, conta e observação do registro
+   * clicado; a pessoa troca o que mudou e registra.
+   *
+   * O movimento não tem coluna própria (ver `descricao` no salvar: "Rótulo ·
+   * Operadora — observação"), então é reconhecido pelo PREFIXO do texto. Os
+   * rótulos são testados do MAIS LONGO pro mais curto: "Liquidação antecipada"
+   * começa com "Liquidação", e na ordem errada toda antecipação voltaria como
+   * liquidação normal.
+   */
+  function reutilizar(r: Registro) {
+    if (somenteLeitura) return
+    const entrou = operadoras.some(o => o.conta_id === r.conta_id)
+    const desc = r.descricao || ''
+    const mov = [...MOVIMENTOS]
+      .sort((a, b) => b.label.length - a.label.length)
+      .find(m => desc.startsWith(`${m.label} · `))
+    const obs = desc.includes(' — ') ? desc.slice(desc.indexOf(' — ') + 3) : ''
+    setOperadoraId((entrou ? r.conta_id : r.conta_destino_id) || operadoras[0]?.conta_id || '')
+    setDestinoId((entrou ? r.conta_destino_id : r.conta_id) || destinos[0]?.id || '')
+    setMovimento(mov?.v || (entrou ? 'liquidacao' : 'chargeback'))
+    setData(r.data.slice(0, 10)); setDataOutra(r.data.slice(0, 10) !== hojeISO())
+    setValor(String(Math.round(Number(r.valor) * 100)))
+    setObservacao(obs)
+    setAberto(true)
+  }
+
   async function salvar() {
     if (somenteLeitura) return toast('Sua unidade não pode registrar aqui', 'error')
     if (!currentUnit?.id) return
@@ -415,6 +444,15 @@ export default function ReceitasPrazoTab({ somenteLeitura = false, mes }: {
                   <span className={`text-sm text-mono shrink-0 ${entrou ? 'text-emerald-500' : 'text-red-400'}`}>
                     {entrou ? '' : '−'}{fmtBRL(Number(r.valor))}
                   </span>
+                  {!somenteLeitura && (
+                    <button
+                      onClick={() => reutilizar(r)}
+                      title="Reutilizar — abre um registro novo igual a este"
+                      className="text-[var(--surface-400)] hover:text-[var(--brand-500)] shrink-0"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
               )
             })}

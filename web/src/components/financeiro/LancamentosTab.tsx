@@ -14,7 +14,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import * as Icons from 'lucide-react'
-import { Plus, Loader2, X, Check, Trash2, Flame } from 'lucide-react'
+import { Plus, Loader2, X, Check, Trash2, Flame, Copy } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
@@ -436,6 +436,22 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
     setAberto(true)
   }
 
+  /**
+   * REUTILIZAR (Lucas, 24/09/2026: "facilita para lançamentos iguais"). Abre o
+   * modal de lançamento NOVO já preenchido igual ao que foi clicado — mesma
+   * categoria, valor, datas, conta, método, fornecedor, descrição e rateio.
+   * É o `editar` sem o vínculo: `editandoId` volta a nulo, então salvar cria
+   * outro lançamento em vez de sobrescrever o original.
+   * Não vêm junto, de propósito: o comprovante (é de outro pagamento) e o
+   * "Comprei para outra unidade" (emitiria uma segunda cobrança sem ninguém
+   * ter pedido).
+   */
+  function reutilizar(l: Lancamento) {
+    if (somenteLeitura) return
+    editar(l)
+    setEditandoId(null)
+  }
+
   async function salvar() {
     if (!currentUnit?.id) return
     // Trava na FUNÇÃO, não só no botão: esconder o botão é aparência — a lição
@@ -686,18 +702,15 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
                 <p className="text-sm text-[var(--surface-800)] truncate">
                   {l.fin_categorias?.nome || 'Sem categoria'}
                   {l.fornecedor_nome && <span className="text-[var(--surface-500)]"> · {l.fornecedor_nome}</span>}
-                  {/* Só os estados que dizem algo. `pendente` é o normal — todo
-                      lançamento nasce assim, e um selo em toda linha vira ruído;
-                      quem cobra conferência é a fila no topo. */}
+                  {/* Só o estado que diz algo. Desde 24/09/2026 todo lançamento
+                      nasce `aprovado` (não há fila), então um ✓ em toda linha
+                      seria ruído; `rejeitado` só existe em registro antigo. */}
                   {l.status === 'rejeitado' && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full ml-1.5 align-middle"
                           style={{ background: 'rgba(239,68,68,0.14)', color: '#ef4444' }}
                           title="Fora da DRE e do caixa">
                       rejeitado
                     </span>
-                  )}
-                  {l.status === 'aprovado' && (
-                    <Check className="h-3 w-3 inline-block ml-1.5 align-middle text-emerald-400" />
                   )}
                 </p>
                 <p className="text-xs text-[var(--surface-500)] truncate">
@@ -715,6 +728,15 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
               >
                 {fmtBRL(l.valor)}
               </span>
+              {!somenteLeitura && (
+                <button
+                  onClick={e => { e.stopPropagation(); reutilizar(l) }}
+                  title="Reutilizar lançamento — abre um novo igual a este"
+                  className="text-[var(--surface-400)] hover:text-[var(--brand-500)] shrink-0"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
+              )}
               {!somenteLeitura && (
                 <button
                   onClick={e => { e.stopPropagation(); void excluir(l.id) }}
