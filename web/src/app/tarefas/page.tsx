@@ -2435,7 +2435,14 @@ export default function TarefasPage() {
                       (`min-h-11`) — são alvos de toque de quem está na rua. O que encolheu foi o
                       RÓTULO ("Google Maps" → "Maps", "Gerar PDF do Contrato" → "Contrato"),
                       porque em 3 colunas num celular de 412px cada botão tem ~120px. */}
-                  <div className="grid grid-cols-3 gap-2">
+                  {/* ⚠️ As colunas seguem o que REALMENTE aparece. Cravado em `grid-cols-3`,
+                      o "Contrato" ficava sozinho em 1/3 da linha quando não há endereço
+                      (`semTraslado`: o tutor trouxe o pet até a unidade) — achado pela sessão
+                      e7 na revisão do lote. Não existe caso de 2 botões: `wazeUrl` e `gmapsUrl`
+                      saem da MESMA condição (`enderecoNavegavel`), então é 3 ou 1.
+                      As duas classes ficam LITERAIS no ternário de propósito — o Tailwind varre
+                      o fonte e não geraria uma classe montada por interpolação. */}
+                  <div className={`grid gap-2 ${enderecoNavegavel ? 'grid-cols-3' : 'grid-cols-1'}`}>
                     {wazeUrl && (
                       <a href={wazeUrl} target="_blank" rel="noopener noreferrer" className="min-h-11 flex items-center justify-center gap-1.5 rounded-lg bg-sky-600 text-white text-sm font-semibold">
                         <MapPin className="h-4 w-4 shrink-0" />Waze
