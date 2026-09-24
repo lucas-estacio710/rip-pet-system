@@ -89,6 +89,9 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
   const [mes, setMes] = useState(mesAtual())
   const [saldos, setSaldos] = useState<Saldo[]>([])
   const [linhas, setLinhas] = useState<Linha[]>([])
+  // Lançamento DIVIDIDO (mig 149): id do lançamento → posição, nº de partes e o
+  // TOTAL, que é o número que aparece no extrato do banco.
+  const [divisaoDe, setDivisaoDe] = useState<Record<string, { pos: number; n: number; total: number }>>({})
   const [carregando, setCarregando] = useState(false)
   const [conta, setConta] = useState('')          // filtro do extrato
   // O extrato pode ter linha de outra unidade por DOIS motivos, os dois legítimos
@@ -149,6 +152,29 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
       .gte('data', ini).lte('data', fim)
       .order('data', { ascending: false })
     setLinhas(((kd as Linha[]) || []))
+
+    // ⚠️ Não vem da `vw_caixa` de propósito: pôr `divisao_id` lá seria recriar
+    // a view (a armadilha "recriar view de memória" do CLAUDE.md) por um selo.
+    // As partes de uma divisão têm a MESMA data de caixa, então o mês e as
+    // contas visíveis bastam — consulta pequena, sem lista de ids na URL.
+    const { data: dv } = await supabase.from('fin_lancamentos')
+      .select('id, divisao_id, valor, created_at')
+      .not('divisao_id', 'is', null)
+      .in('conta_pagamento_id', ids)
+      .gte('data_caixa', ini).lte('data_caixa', fim)
+      .order('created_at')
+    const grupos = new Map<string, { id: string; valor: number }[]>()
+    for (const r of (dv as { id: string; divisao_id: string; valor: number }[] | null) || []) {
+      const g = grupos.get(r.divisao_id) || []
+      g.push({ id: r.id, valor: Number(r.valor || 0) })
+      grupos.set(r.divisao_id, g)
+    }
+    const mapa: Record<string, { pos: number; n: number; total: number }> = {}
+    for (const g of grupos.values()) {
+      const total = g.reduce((a, x) => a + x.valor, 0)
+      g.forEach((x, i) => { mapa[x.id] = { pos: i + 1, n: g.length, total } })
+    }
+    setDivisaoDe(mapa)
     setCarregando(false)
   }, [supabase, currentUnit?.id, mes])
 
@@ -598,6 +624,13 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
                   )}
                 </p>
                 <p className="text-xs text-[var(--surface-500)]">
+                  {l.origem === 'lancamento' && divisaoDe[l.origem_id] && (
+                    <span className="mr-1.5 px-1.5 rounded-full"
+                          style={{ background: 'rgba(99,102,241,0.14)', color: '#818cf8' }}
+                          title="Partes de um só pagamento — no extrato do banco aparece o total">
+                      ÷ {divisaoDe[l.origem_id].pos}/{divisaoDe[l.origem_id].n} de {fmtBRL(divisaoDe[l.origem_id].total)}
+                    </span>
+                  )}
                   {fmtData(l.data)} · {saldos.find(s => s.conta_id === l.conta_id)?.nome || '—'}
                 </p>
               </div>

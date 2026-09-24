@@ -14,7 +14,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import * as Icons from 'lucide-react'
-import { Plus, Loader2, X, Check, Trash2, Flame, Copy } from 'lucide-react'
+import { Plus, Loader2, X, Check, Trash2, Flame, Copy, Divide } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
@@ -52,6 +52,7 @@ type Lancamento = {
   natureza: string | null        // opex/capex — reabre o form fiel ao gravado
   observacoes: string | null     // motivo, quando rejeitado na fila de revisão
   rateio_meses: number | null    // idem, pro checkbox "cobre mais de um mês"
+  divisao_id: string | null      // partes de um pagamento dividido (mig 149)
   fin_categorias?: { nome: string; icone: string | null } | null
 }
 
@@ -215,6 +216,28 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
 
   const catSelecionada = categorias.find(c => c.id === catId)
 
+  /**
+   * DIVIDIR UM PAGAMENTO EM CATEGORIAS (opção B, mig 149 — Lucas, 24/09/2026).
+   * O valor do formulário é o TOTAL, o que aparece no banco. Cada parte extra
+   * leva categoria + valor; a categoria principal fica com o RESTANTE, que a
+   * tela calcula — ninguém faz conta de cabeça ("não gostei de eu mesmo ter
+   * que fazer o cálculo"). Ao salvar viram N lançamentos com o mesmo
+   * `divisao_id`, e a lista e o Caixa mostram que são partes de um só.
+   */
+  type Parte = { key: string; texto: string; catId: string; valor: string }
+  const [partes, setPartes] = useState<Parte[]>([])
+  // As partes escolhem entre as `folhas` (definidas mais abaixo, as mesmas do seletor principal).
+  // Divisões visíveis no mês: total (o que o banco mostra) e a posição de cada parte.
+  const divisoes = new Map<string, { total: number; ids: string[] }>()
+  for (const l of lancamentos) {
+    if (!l.divisao_id) continue
+    const d = divisoes.get(l.divisao_id) || { total: 0, ids: [] }
+    d.total += Number(l.valor || 0); d.ids.push(l.id)
+    divisoes.set(l.divisao_id, d)
+  }
+  const somaPartes = partes.reduce((a, p) => a + digitosParaNumero(p.valor), 0)
+  const restante = Math.round((digitosParaNumero(valor) - somaPartes) * 100) / 100
+
   useEffect(() => {
     supabase
       .from('fin_categorias')
@@ -270,11 +293,14 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
     const { ini, fim } = limitesDoMes(mes)
     const { data } = await supabase
       .from('fin_lancamentos')
-      .select('id, descricao, valor, data_competencia, data_caixa, metodo_pagamento, conta_pagamento_id, status, observacoes, fornecedor_nome, categoria_id, natureza, rateio_meses, fin_categorias(nome, icone)')
+      .select('id, descricao, valor, data_competencia, data_caixa, metodo_pagamento, conta_pagamento_id, status, observacoes, fornecedor_nome, categoria_id, natureza, rateio_meses, divisao_id, fin_categorias(nome, icone)')
       .eq('unidade_id', currentUnit.id)
       .gte('data_competencia', ini)
       .lte('data_competencia', fim)
       .order('data_competencia', { ascending: false })
+      // As partes de uma divisão nascem no MESMO insert, com o mesmo
+      // `created_at` — ordenar por ele as mantém lado a lado no dia.
+      .order('created_at', { ascending: false })
     setLancamentos(((data as unknown as Lancamento[]) || []))
 
     // Custo de cremação: nasce do acolhimento, não de digitação (mig 114).
@@ -435,7 +461,7 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
   const faturasPossiveis = faturas.filter(f => f.venc >= data || f.venc === dataCaixa)
 
   function limpar() {
-    setCatId(''); setValor(''); setData(hojeISO())
+    setCatId(''); setValor(''); setData(hojeISO()); setPartes([])
     setFornecedor(''); setDescricao(''); setDuravel(null)
     setRateado(false); setMeses('12')
     setDataCaixa(''); setContaId(''); setNovaFatura(false)
@@ -460,7 +486,7 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
     setDuravel(l.natureza === 'capex' ? true : (l.natureza === 'opex' ? false : null))
     const r = Number(l.rateio_meses || 1)
     setRateado(r > 1); setMeses(String(r > 1 ? r : 12))
-    setDataCaixa((l.data_caixa || '').slice(0, 10)); setNovaFatura(false)
+    setDataCaixa((l.data_caixa || '').slice(0, 10)); setNovaFatura(false); setPartes([])
     setContaId(l.conta_pagamento_id || '')
     setMetodo(l.metodo_pagamento || '')
     // Reabre fiel ao gravado: se a data do gasto não é hoje, o toggle tem que
@@ -515,6 +541,14 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
     if (catSelecionada?.pergunta_capex && duravel === null) {
       return toast('Responda se vai durar mais de um ano', 'error')
     }
+    if (partes.length) {
+      if (partes.some(pt => !pt.catId)) return toast('Escolha a categoria de cada parte', 'error')
+      if (partes.some(pt => digitosParaNumero(pt.valor) <= 0)) return toast('Cada parte precisa de um valor', 'error')
+      // A principal fica com o que sobra, então ela precisa sobrar com algo.
+      if (restante <= 0) return toast('As partes somam o total ou mais — sobra nada para a categoria principal', 'error')
+      // Uma cobrança pra outra unidade sobre só uma das partes seria ambígua.
+      if (paraOutra) return toast('Lançamento dividido não pode ser "comprado para outra unidade"', 'error')
+    }
 
     setSalvando(true)
     try {
@@ -557,8 +591,7 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
         // conferência do módulo é a entre unidades (`CobrancasCard`: Reconhecer
         // / Não é meu). Errou? Quem lançou edita ou exclui.
         const { data: { user } } = await supabase.auth.getUser()
-        const { data: novo, error } = await supabase.from('fin_lancamentos').insert({
-          ...campos,
+        const criacao = {
           unidade_id: currentUnit.id,
           origem: 'manual',
           criado_por_nome: userName || null,
@@ -566,6 +599,40 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
           aprovado_por: user?.id || null,
           aprovado_por_nome: userName || null,
           aprovado_em: new Date().toISOString(),
+        }
+
+        if (partes.length) {
+          // DIVIDIDO: um insert só com todas as partes — ou entram todas, ou
+          // nenhuma (um pagamento pela metade descasaria do banco). Cada parte
+          // deriva conta e natureza da PRÓPRIA categoria, como a principal.
+          const divisao_id = crypto.randomUUID()
+          const linhas = [
+            { ...campos, ...criacao, valor: restante, divisao_id },
+            ...partes.map(pt => {
+              const cat = categorias.find(c => c.id === pt.catId)
+              const cc = cat?.fin_contas
+              return {
+                ...campos, ...criacao, divisao_id,
+                categoria_id: pt.catId,
+                conta_id: cat?.fin_conta_id || null,
+                conta_codigo: cc?.codigo || null,
+                conta_nome: cc?.nome || null,
+                natureza: cc?.natureza || 'opex',
+                valor: digitosParaNumero(pt.valor),
+              }
+            }),
+          ]
+          const { error } = await supabase.from('fin_lancamentos').insert(linhas)
+          if (error) throw new Error(error.message)
+          toast(`Lançado ${fmtBRL(v)} dividido em ${linhas.length} categorias`, 'success')
+          limpar()
+          await carregar()
+          return
+        }
+
+        const { data: novo, error } = await supabase.from('fin_lancamentos').insert({
+          ...campos,
+          ...criacao,
         }).select('id').single()
         if (error) throw new Error(error.message)
 
@@ -763,6 +830,17 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
                   )}
                 </p>
                 <p className="text-xs text-[var(--surface-500)] truncate">
+                  {/* O IDENTIFICADOR: "cadê o de 200 e o de 800 no extrato? Ah,
+                      é dividido — tá aqui os 1.000" (Lucas). O total é o que
+                      aparece no banco, e ele é o que se procura lá. */}
+                  {l.divisao_id && divisoes.get(l.divisao_id) && (
+                    <span className="inline-flex items-center gap-0.5 mr-1.5 px-1.5 rounded-full align-middle"
+                          style={{ background: 'rgba(99,102,241,0.14)', color: '#818cf8' }}
+                          title="Partes de um só pagamento — no extrato do banco aparece o total">
+                      <Divide className="h-2.5 w-2.5" />
+                      {divisoes.get(l.divisao_id)!.ids.indexOf(l.id) + 1}/{divisoes.get(l.divisao_id)!.ids.length} de {fmtBRL(divisoes.get(l.divisao_id)!.total)}
+                    </span>
+                  )}
                   {fmtData(l.data_competencia)}
                   {l.descricao && ` · ${l.descricao}`}
                   {l.status === 'rejeitado' && l.observacoes && ` · ${l.observacoes}`}
@@ -1010,9 +1088,15 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
             <label className="text-xs text-[var(--surface-500)] block mb-1.5">Categoria</label>
 
             {catId ? (
+              <>
               <div className="flex items-center gap-2 px-3 py-2 rounded-[var(--radius-md)] border"
                    style={{ borderColor: '#10b981', background: 'rgba(16,185,129,0.10)' }}>
                 <span className="flex-1 text-sm text-emerald-400 truncate">{caminhoDe(catId)}</span>
+                {partes.length > 0 && (
+                  <span className="text-xs text-mono text-emerald-400 shrink-0" title="O que sobra do total fica aqui">
+                    {fmtBRL(Math.max(restante, 0))}
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => { setCatId(''); setDuravel(null); setBusca('') }}
@@ -1021,6 +1105,76 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
                   <X className="h-4 w-4" />
                 </button>
               </div>
+
+              {/* Editando uma PARTE: o total da divisão é o que o banco mostra;
+                  mudar o valor daqui sem mexer nas irmãs descasa do extrato. */}
+              {editandoId && (() => {
+                const esta = lancamentos.find(x => x.id === editandoId)
+                const dv = esta?.divisao_id ? divisoes.get(esta.divisao_id) : null
+                return dv ? (
+                  <p className="text-[11px] mt-1.5" style={{ color: '#818cf8' }}>
+                    ÷ Parte {dv.ids.indexOf(editandoId) + 1} de {dv.ids.length} de um pagamento de {fmtBRL(dv.total)}.
+                    Se mudar o valor, ajuste as outras partes para a soma continuar batendo com o banco.
+                  </p>
+                ) : null
+              })()}
+
+              {/* DIVIDIR — só em lançamento NOVO: numa edição, mexer nas partes
+                  de uma divisão que já existe descasaria as outras do banco. */}
+              {!editandoId && (
+                <div className="mt-2 space-y-1.5">
+                  {partes.map((pt, i) => (
+                    <div key={pt.key} className="flex items-center gap-1.5">
+                      <input
+                        list="lanc-cats-folhas"
+                        value={pt.texto}
+                        placeholder="Categoria desta parte…"
+                        onChange={e => {
+                          const texto = e.target.value
+                          const achou = folhas.find(f => caminhoDe(f.id) === texto)
+                          setPartes(ps => ps.map((x, j) => j === i ? { ...x, texto, catId: achou?.id || '' } : x))
+                        }}
+                        className="input text-sm flex-1 min-w-0"
+                        style={pt.texto && !pt.catId ? { borderColor: '#f59e0b' } : undefined}
+                      />
+                      <input
+                        inputMode="numeric"
+                        value={pt.valor ? digitosParaTexto(pt.valor) : ''}
+                        placeholder="0,00"
+                        onChange={e => {
+                          const d = soDigitos(e.target.value)
+                          setPartes(ps => ps.map((x, j) => j === i ? { ...x, valor: d } : x))
+                        }}
+                        className="input text-sm text-mono w-28 text-right"
+                      />
+                      <button type="button" title="Tirar esta parte"
+                              onClick={() => setPartes(ps => ps.filter((_, j) => j !== i))}
+                              className="text-[var(--surface-400)] hover:text-red-400 shrink-0">
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                  <datalist id="lanc-cats-folhas">
+                    {folhas.map(f => <option key={f.id} value={caminhoDe(f.id)} />)}
+                  </datalist>
+                  <button
+                    type="button"
+                    onClick={() => setPartes(ps => [...ps, { key: crypto.randomUUID(), texto: '', catId: '', valor: '' }])}
+                    className="text-[11px] text-[var(--brand-500)] hover:underline inline-flex items-center gap-1"
+                  >
+                    <Divide className="h-3 w-3" />
+                    {partes.length ? '+ outra parte' : 'Dividir em mais categorias'}
+                  </button>
+                  {partes.length > 0 && (
+                    <p className="text-[11px]" style={{ color: restante > 0 ? 'var(--surface-500)' : '#ef4444' }}>
+                      {restante > 0
+                        ? <>Total {fmtBRL(digitosParaNumero(valor))} → vira {partes.length + 1} lançamentos com o mesmo identificador. O que sobra fica na categoria de cima.</>
+                        : <>As partes já somam {fmtBRL(somaPartes)} — passam do total de {fmtBRL(digitosParaNumero(valor))}.</>}
+                    </p>
+                  )}
+                </div>
+              )}
+              </>
             ) : (
               <div className="space-y-2">
                 {/* O FORNECEDOR LEMBRA A CATEGORIA. Sugere, nunca preenche: a
