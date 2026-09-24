@@ -482,8 +482,16 @@ export default function ReceitasPrazoTab({ somenteLeitura = false, mes }: {
         }
       >
         <div className="space-y-4">
-          {/* 1. QUAL OPERADORA — some quando só existe uma */}
-          {operadoras.length > 1 && (
+          {/* 1. QUAL OPERADORA — com uma só, mostra o nome fixo em vez de sumir
+              (24/09/2026). Sumir deixava o formulário sem dizer em lugar nenhum
+              de qual maquininha era o crédito; é o mesmo padrão do "Entrou na
+              conta" logo abaixo, que com uma conta só também mostra o nome. */}
+          {operadoras.length === 1 ? (
+            <div>
+              <label className="text-xs text-[var(--surface-500)] block mb-1">De qual operadora</label>
+              <span className="text-sm text-[var(--surface-700)]">{operadoras[0].nome}</span>
+            </div>
+          ) : operadoras.length > 1 && (
             <div>
               <label className="text-xs text-[var(--surface-500)] block mb-1.5">De qual operadora</label>
               <div className="flex flex-wrap gap-1.5">
