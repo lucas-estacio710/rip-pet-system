@@ -20,7 +20,6 @@ import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
 import Modal from '@/components/ui/Modal'
 import CobrancasCard from './CobrancasCard'
-import RevisaoCard from './RevisaoCard'
 import ReceitasPrazoTab from './ReceitasPrazoTab'
 import UnderlineTabs from '@/components/ui/UnderlineTabs'
 import {
@@ -123,10 +122,7 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
   const supabase = supabaseTipado as unknown as SupabaseClient
   const { toast } = useToast()
   const { currentUnit, userName } = useUnit()
-  const { isVisible, canEdit } = useFieldPermission()
-  // Quem pode CONFERIR a fila (FLS `btn_lancamento_aprovar`; super_admin sempre).
-  // O lançamento dessa pessoa já nasce conferido — ver `salvar`.
-  const confere = canEdit('tela_financeiro', 'btn_lancamento_aprovar')
+  const { isVisible } = useFieldPermission()
 
   const [mes, setMes] = useState(mesAtual())
   /**
@@ -489,29 +485,22 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
         const { error } = await supabase.from('fin_lancamentos').update(campos).eq('id', editandoId)
         if (error) throw new Error(error.message)
       } else {
-        // QUEM CONFERE NÃO CONFERE A SI MESMO (Lucas, 24/09/2026: "o primeiro
-        // lançamento que eu fiz caiu para uma aprovação?! acho que não está
-        // certo"). A fila existe para alguém OLHAR o que OUTRA pessoa lançou —
-        // o erro típico é de categoria, e quem lançou não o vê. Mandar o
-        // próprio lançamento de quem confere pra fila só cria um clique de
-        // ritual. Ele nasce `aprovado`, com a MESMA marca que o botão Conferir
-        // grava, então o histórico continua dizendo quem aprovou e quando.
-        // ⚠️ Não muda número nenhum: `pendente` e `aprovado` contam igual na
-        // DRE e no Caixa (as views filtram `status in ('pendente','aprovado')`).
+        // LANÇOU, LANÇOU (Lucas, 24/09/2026): *"se um concierge de SJC lançar,
+        // não precisa cair pro gerente aprovar... a conferência era uma coisa
+        // apenas entre unidades"*. Não há fila de aprovação de despesa: o
+        // lançamento nasce `aprovado`, marcado com quem lançou. A única
+        // conferência do módulo é a entre unidades (`CobrancasCard`: Reconhecer
+        // / Não é meu). Errou? Quem lançou edita ou exclui.
         const { data: { user } } = await supabase.auth.getUser()
         const { data: novo, error } = await supabase.from('fin_lancamentos').insert({
           ...campos,
           unidade_id: currentUnit.id,
           origem: 'manual',
           criado_por_nome: userName || null,
-          ...(confere
-            ? {
-                status: 'aprovado',
-                aprovado_por: user?.id || null,
-                aprovado_por_nome: userName || null,
-                aprovado_em: new Date().toISOString(),
-              }
-            : { status: 'pendente' }),
+          status: 'aprovado',
+          aprovado_por: user?.id || null,
+          aprovado_por_nome: userName || null,
+          aprovado_em: new Date().toISOString(),
         }).select('id').single()
         if (error) throw new Error(error.message)
 
@@ -578,9 +567,6 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
       {/* FILA DE REVISÃO — o que ainda ninguém conferiu. Some sozinha quando não
           há pendente. Não filtra por mês: um lançamento de junho não conferido
           precisa continuar aparecendo em setembro. */}
-      {isVisible('tela_financeiro', 'btn_lancamento_aprovar') && (
-        <RevisaoCard key={`rev-${recarregarCobrancas}`} onMudou={() => void carregar()} />
-      )}
 
       {/* As duas faixas. O seletor de mês é COMPARTILHADO (fica logo abaixo,
           dentro de cada uma) — o operador pensa "setembro", não "setembro das

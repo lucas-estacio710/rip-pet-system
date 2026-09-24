@@ -100,6 +100,14 @@ export default function CobrancasCard({ onMudou }: { onMudou?: () => void }) {
       // direito a receber o dinheiro que ficou na conta da outra unidade.
       if (c.tipo === 'despesa_rateada' || c.tipo === 'outro') {
         const conta = c.fin_categorias?.fin_contas
+        const { data: { user } } = await supabase.auth.getUser()
+        // As duas pernas nascem conferidas por quem RECONHECEU a cobrança.
+        const marca = {
+          status: 'aprovado',
+          aprovado_por: user?.id || null,
+          aprovado_por_nome: userName || null,
+          aprovado_em: new Date().toISOString(),
+        }
 
         // 1) a despesa, no livro de quem aceita — foi ele quem consumiu.
         //    Sem `data_caixa`: o dinheiro não saiu da conta dele. Vai sair
@@ -118,7 +126,9 @@ export default function CobrancasCard({ onMudou }: { onMudou?: () => void }) {
             data_caixa: null,
             descricao: c.descricao || 'Compra por outra unidade',
             fornecedor_nome: c.credora?.nome || null,
-            status: 'pendente',
+            // RECONHECER JÁ É A CONFERÊNCIA — é a única do módulo (24/09/2026).
+            // Nascer `pendente` pedia uma segunda conferência do mesmo gasto.
+            ...marca,
             origem: 'cobranca',
             criado_por_nome: userName || null,
             rateio_meses: 1,
@@ -145,7 +155,7 @@ export default function CobrancasCard({ onMudou }: { onMudou?: () => void }) {
           data_competencia: c.data,
           data_caixa: null,
           descricao: `Reembolso — ${c.descricao || 'compra'} (${currentUnit.codigo})`,
-          status: 'pendente',
+          ...marca,
           origem: 'cobranca',
           criado_por_nome: userName || null,
           rateio_meses: 1,
