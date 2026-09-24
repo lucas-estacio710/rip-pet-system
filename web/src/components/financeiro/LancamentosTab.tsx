@@ -389,16 +389,56 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
   // contrário — que é o caso da esmagadora maioria (pix, dinheiro, débito).
   useEffect(() => { if (!caixaOutra) setDataCaixa(data) }, [data, caixaOutra])
 
-  // No CRÉDITO as duas datas nunca são iguais: a compra é de hoje, o dinheiro
-  // sai na fatura. Abre já em "Outra" pra pergunta não passar despercebida —
-  // mas quem responde é o operador, o sistema não calcula (decisão do Lucas).
-  useEffect(() => { if (metodo === 'credito') setCaixaOutra(true) }, [metodo])
+  // SÓ O CRÉDITO É A PRAZO (Lucas, 24/09/2026): *"método instantâneo — pix,
+  // débito, transferência, boleto — só registra o dia do gasto e já usa ele
+  // mesmo para o pagamento; quando for aprazado, acho que só crédito"*. Nos
+  // instantâneos `caixaOutra` fica travado em false, e o efeito acima iguala
+  // `data_caixa` à data do gasto. No crédito a pergunta vira "qual fatura".
+  // Medido antes de mudar: 0 de 12 lançamentos não-crédito tinham as duas
+  // datas diferentes — nada existente é reescrito ao editar.
+  const aPrazo = metodo === 'credito'
+  useEffect(() => { setCaixaOutra(metodo === 'credito') }, [metodo])
+
+  /**
+   * AS FATURAS DO CARTÃO. Não há tabela de fatura, e não precisa: no crédito o
+   * `data_caixa` já é o VENCIMENTO (é quando a despesa sai de verdade), então
+   * uma fatura é "os lançamentos de crédito deste cartão que vencem em tal dia".
+   * O sistema não calcula vencimento nenhum a partir de `dia_vencimento` — o
+   * Lucas recusou isso ("banco é tudo doido"): a pessoa ESCOLHE uma fatura que
+   * já existe ou CRIA uma nova dizendo o dia em que ela vence.
+   */
+  const [faturas, setFaturas] = useState<{ venc: string; total: number; qtd: number }[]>([])
+  const [novaFatura, setNovaFatura] = useState(false)
+  useEffect(() => {
+    if (!aPrazo || !contaId) { setFaturas([]); return }
+    let cancelado = false
+    void (async () => {
+      const { data: ls } = await supabase.from('fin_lancamentos')
+        .select('data_caixa, valor')
+        .eq('conta_pagamento_id', contaId).eq('metodo_pagamento', 'credito')
+        .neq('status', 'rejeitado').not('data_caixa', 'is', null)
+      if (cancelado) return
+      const m = new Map<string, { total: number; qtd: number }>()
+      for (const l of (ls as { data_caixa: string; valor: number }[] | null) || []) {
+        const k = l.data_caixa.slice(0, 10)
+        const a = m.get(k) || { total: 0, qtd: 0 }
+        m.set(k, { total: a.total + Number(l.valor || 0), qtd: a.qtd + 1 })
+      }
+      setFaturas([...m.entries()].map(([venc, v]) => ({ venc, ...v }))
+        .sort((a, b) => a.venc.localeCompare(b.venc)))
+    })()
+    return () => { cancelado = true }
+  }, [aPrazo, contaId, supabase])
+
+  // Uma compra não entra numa fatura que venceu ANTES dela. Fica de fora da
+  // lista — menos a fatura do próprio lançamento em edição, que tem de aparecer.
+  const faturasPossiveis = faturas.filter(f => f.venc >= data || f.venc === dataCaixa)
 
   function limpar() {
     setCatId(''); setValor(''); setData(hojeISO())
     setFornecedor(''); setDescricao(''); setDuravel(null)
     setRateado(false); setMeses('12')
-    setDataCaixa(''); setContaId('')
+    setDataCaixa(''); setContaId(''); setNovaFatura(false)
     setBusca(''); setNivel1(null); setNivel2(null)
     setParaOutra(''); setMetodo(''); setMaisOpcoes(false); setSugestaoCat(null)
     setDataOutra(false); setCaixaOutra(false)
@@ -420,7 +460,7 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
     setDuravel(l.natureza === 'capex' ? true : (l.natureza === 'opex' ? false : null))
     const r = Number(l.rateio_meses || 1)
     setRateado(r > 1); setMeses(String(r > 1 ? r : 12))
-    setDataCaixa((l.data_caixa || '').slice(0, 10))
+    setDataCaixa((l.data_caixa || '').slice(0, 10)); setNovaFatura(false)
     setContaId(l.conta_pagamento_id || '')
     setMetodo(l.metodo_pagamento || '')
     // Reabre fiel ao gravado: se a data do gasto não é hoje, o toggle tem que
@@ -462,6 +502,15 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
     // valor preenchido) era mandar o operador procurar um erro que não existe.
     const v = digitosParaNumero(valor)
     if (!catId) return toast('Escolha a categoria', 'error')
+    // No crédito a fatura é obrigatória, e conferida contra a LISTA — não
+    // contra "dataCaixa preenchido": quem troca de Pix para Crédito chega aqui
+    // com a data do Pix ainda guardada, e ela passaria como vencimento.
+    if (aPrazo && !novaFatura && !faturasPossiveis.some(f => f.venc === dataCaixa)) {
+      return toast('Escolha a fatura do cartão (ou crie uma nova)', 'error')
+    }
+    if (aPrazo && novaFatura && (!dataCaixa || dataCaixa < data)) {
+      return toast('A fatura nova precisa vencer no dia do gasto ou depois', 'error')
+    }
     if (!Number.isFinite(v) || v <= 0) return toast('O valor precisa ser maior que zero', 'error')
     if (catSelecionada?.pergunta_capex && duravel === null) {
       return toast('Responda se vai durar mais de um ano', 'error')
@@ -897,36 +946,47 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
             </div>
           )}
 
-          {/* 4. Quando o dinheiro saiu — sempre perguntado, nunca calculado */}
-          {metodo && (
+          {/* 4. QUAL FATURA — só no crédito, o único meio de pagamento a prazo.
+              Nos instantâneos (pix, débito, dinheiro, boleto, transferência) não
+              há pergunta: o dinheiro sai no dia do gasto (24/09/2026). */}
+          {aPrazo && (
             <div>
-              <label className="text-xs text-[var(--surface-500)] block mb-1">Pago em</label>
-              <div className="flex gap-1 mb-1">
-                {[{ v: false, l: 'Mesma data' }, { v: true, l: 'Outra' }].map(op => {
-                  const on = caixaOutra === op.v
-                  return (
-                    <button
-                      key={op.l} type="button"
-                      onClick={() => { setCaixaOutra(op.v); setDataCaixa(op.v ? (dataCaixa || data) : data) }}
-                      className="flex-1 text-xs py-1 rounded-[var(--radius-md)] border transition-colors"
-                      style={{
-                        background: on ? 'rgba(16,185,129,0.12)' : 'transparent',
-                        borderColor: on ? '#10b981' : 'var(--surface-200)',
-                        color: on ? '#10b981' : 'var(--surface-600)',
-                      }}
-                    >{op.l}</button>
-                  )
-                })}
-              </div>
-              {caixaOutra && (
-                <input type="date" value={dataCaixa} onChange={e => setDataCaixa(e.target.value)}
-                       className="input text-sm w-full" />
+              <label className="text-xs text-[var(--surface-500)] block mb-1">Fatura</label>
+              {!novaFatura ? (
+                <select
+                  value={faturasPossiveis.some(f => f.venc === dataCaixa) ? dataCaixa : ''}
+                  onChange={e => {
+                    if (e.target.value === '__nova') { setNovaFatura(true); setDataCaixa('') }
+                    else setDataCaixa(e.target.value)
+                  }}
+                  className="input text-sm w-full"
+                >
+                  <option value="">Escolher…</option>
+                  {faturasPossiveis.map(f => (
+                    <option key={f.venc} value={f.venc}>
+                      Vence {fmtData(f.venc)} · {fmtBRL(f.total)} em {f.qtd} {f.qtd === 1 ? 'lançamento' : 'lançamentos'}
+                    </option>
+                  ))}
+                  <option value="__nova">+ Nova fatura…</option>
+                </select>
+              ) : (
+                <div className="flex gap-1">
+                  <input type="date" value={dataCaixa} min={data}
+                         onChange={e => setDataCaixa(e.target.value)}
+                         className="input text-sm flex-1 min-w-0" autoFocus />
+                  <button type="button" onClick={() => { setNovaFatura(false); setDataCaixa('') }}
+                          className="text-[11px] text-[var(--surface-400)] hover:underline shrink-0 px-1">
+                    voltar à lista
+                  </button>
+                </div>
               )}
-              {metodo === 'credito' && (
-                <p className="text-[11px] text-[var(--surface-400)] mt-1">
-                  No crédito, informe o dia em que a fatura foi (ou será) paga de verdade.
-                </p>
-              )}
+              <p className="text-[11px] text-[var(--surface-400)] mt-1">
+                {novaFatura
+                  ? 'Informe o dia em que esta fatura vence. Os próximos lançamentos deste cartão já vão encontrá-la na lista.'
+                  : faturasPossiveis.length
+                    ? 'A despesa conta no mês do gasto; sai do caixa quando a fatura vence.'
+                    : 'Nenhuma fatura aberta neste cartão — crie a primeira em "+ Nova fatura".'}
+              </p>
             </div>
           )}
 
@@ -1191,7 +1251,10 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
               {(() => {
                 const conta = contas.find(c => c.id === contaId)
                   || (contasQuePagam.length === 1 ? contasQuePagam[0] : null)
-                const quando = dataCaixa || data
+                // No crédito, só diz "quando sai" depois de escolhida a fatura.
+                const quando = aPrazo
+                  ? ((novaFatura || faturasPossiveis.some(f => f.venc === dataCaixa)) ? dataCaixa : '')
+                  : data
                 const nat = duravel === true ? 'investimento'
                   : catSelecionada?.fin_contas?.natureza === 'capex' ? 'investimento' : null
                 const grupo = catSelecionada?.fin_contas?.nome
