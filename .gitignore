@@ -4,6 +4,11 @@
 # Tríade de doc interna (contém credenciais / fluxos de negócio)
 CLAUDE.md
 FLOW.md
+# Anexos da triade (planos, auditorias, handoffs). Estava so UNTRACKED, e um
+# "git add docs/" distraido commitaria a pasta toda. Barra INICIAL de proposito:
+# o "supabase/" sem barra logo abaixo casa com qualquer pasta desse nome em
+# qualquer nivel e engoliu a do portal-parceiros - ver CLAUDE.md, secao do Portal.
+/docs/
 .claude/
 
 # Dados sensíveis
