@@ -136,7 +136,7 @@ function getPrimeiroNome(nomeCompleto: string | null | undefined): string {
 // Árvore de valores rápidos — plano → forma de pagamento → ajuste ±100
 // CHUMBADO por enquanto (fase futura: puxar de /admin/planos). FLS: sel_valor_plano_arvore
 // (tela_fichas). Preços de Santos — atualizados pelo Lucas em 24/09/2026 (os de 18/08 subiram;
-// Lembranças e Eternidade não mudaram; Descanse em Paz ainda com o valor de 18/08).
+// Lembranças, Eternidade e Descanse em Paz não mudaram).
 // ============================================
 type FormaPagPlano = 'vista' | '6x' | '12x'
 const FORMAS_PLANO: { key: FormaPagPlano; label: string }[] = [
