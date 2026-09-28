@@ -19,7 +19,10 @@ type Props = {
   contrato: ContratoMinimal
 }
 
-type TutorTitulo = 'Sr.' | 'Sra.'
+// '' = só o nome, sem tratamento (o pronome vira "você")
+type TutorTitulo = 'Sr.' | 'Sra.' | ''
+
+const comTitulo = (titulo: TutorTitulo, nome: string) => (titulo ? `${titulo} ${nome}` : nome)
 type Familia = 'sozinho' | 'familia'
 type Tom = 'neutro' | 'acolhedor'
 type Recebimento = 'entrega' | 'retirada' | 'digital'
@@ -123,7 +126,7 @@ export default function ChegaramModal({ isOpen, onClose, contrato }: Props) {
     if (outrosTutores.length > 0) {
       outrosTutoresTexto = ', ' + outrosTutores
         .filter(t => t.nome.trim())
-        .map(t => `${t.titulo} ${t.nome}`)
+        .map(t => comTitulo(t.titulo, t.nome))
         .join(', ')
     }
 
@@ -133,7 +136,7 @@ export default function ChegaramModal({ isOpen, onClose, contrato }: Props) {
       pronome = 'voces'
       verboEstar = 'estao'
     } else {
-      pronome = tutorTitulo === 'Sr.' ? 'o senhor' : 'a senhora'
+      pronome = tutorTitulo === 'Sr.' ? 'o senhor' : tutorTitulo === 'Sra.' ? 'a senhora' : 'você'
       verboEstar = 'esta'
     }
 
@@ -141,7 +144,7 @@ export default function ChegaramModal({ isOpen, onClose, contrato }: Props) {
     const pronomeDisplay = familia === 'familia' ? 'voc\u00EAs' : pronome
     const verboEstarDisplay = familia === 'familia' ? 'est\u00E3o' : 'est\u00E1'
 
-    let saudacao = `Oi, ${tutorTitulo} ${tutorNome}${outrosTutoresTexto}. Como ${pronomeDisplay} ${verboEstarDisplay}? Esperamos que`
+    let saudacao = `Oi, ${comTitulo(tutorTitulo, tutorNome)}${outrosTutoresTexto}. Como ${pronomeDisplay} ${verboEstarDisplay}? Esperamos que`
 
     if (tom === 'neutro') {
       saudacao += ' bem \uD83D\uDE4F\uD83E\uDE75'
@@ -210,7 +213,9 @@ export default function ChegaramModal({ isOpen, onClose, contrato }: Props) {
           ? 'Voc\u00EAs conseguiram'
           : tutorTitulo === 'Sr.'
             ? 'O senhor conseguiu'
-            : 'A senhora conseguiu'
+            : tutorTitulo === 'Sra.'
+              ? 'A senhora conseguiu'
+              : 'Você conseguiu'
 
         // Build item list
         const itensTextoArr: string[] = []
@@ -386,11 +391,23 @@ export default function ChegaramModal({ isOpen, onClose, contrato }: Props) {
                   onClick={() => setForm(f => ({ ...f, tutorTitulo: 'Sra.' }))}
                   className={`px-3 py-2 text-sm font-medium transition-colors ${
                     form.tutorTitulo === 'Sra.'
-                      ? 'bg-pink-600/30 text-pink-300'
-                      : 'text-slate-400 hover:text-slate-300'
+                      ? 'bg-pink-600/30 text-pink-300 border-r border-pink-500/50'
+                      : 'text-slate-400 hover:text-slate-300 border-r border-slate-600'
                   }`}
                 >
                   Sra.
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm(f => ({ ...f, tutorTitulo: '' }))}
+                  title="Só o nome, sem Sr./Sra."
+                  className={`px-3 py-2 text-sm font-medium transition-colors ${
+                    form.tutorTitulo === ''
+                      ? 'bg-slate-500/40 text-slate-100'
+                      : 'text-slate-400 hover:text-slate-300'
+                  }`}
+                >
+                  Nome
                 </button>
               </div>
               <input
@@ -423,11 +440,23 @@ export default function ChegaramModal({ isOpen, onClose, contrato }: Props) {
                   onClick={() => updateOutroTutor(idx, 'titulo', 'Sra.')}
                   className={`px-2.5 py-1.5 text-xs font-medium transition-colors ${
                     tutor.titulo === 'Sra.'
-                      ? 'bg-pink-600/30 text-pink-300'
-                      : 'text-slate-400 hover:text-slate-300'
+                      ? 'bg-pink-600/30 text-pink-300 border-r border-pink-500/50'
+                      : 'text-slate-400 hover:text-slate-300 border-r border-slate-600'
                   }`}
                 >
                   Sra.
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateOutroTutor(idx, 'titulo', '')}
+                  title="Só o nome, sem Sr./Sra."
+                  className={`px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    tutor.titulo === ''
+                      ? 'bg-slate-500/40 text-slate-100'
+                      : 'text-slate-400 hover:text-slate-300'
+                  }`}
+                >
+                  Nome
                 </button>
               </div>
               <input
