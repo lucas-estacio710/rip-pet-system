@@ -18,7 +18,8 @@ type Props = {
   contrato: ContratoMinimal
 }
 
-type TutorTitulo = 'Sr.' | 'Sra.'
+// '' = só o nome, sem tratamento (o pronome vira "você")
+type TutorTitulo = 'Sr.' | 'Sra.' | ''
 type Familia = 'sozinho' | 'familia'
 
 type FormState = {
@@ -67,11 +68,11 @@ export default function FinalizadoraModal({ isOpen, onClose, contrato }: Props) 
 
     const voces = familia === 'familia'
       ? 'vocês'
-      : tutorTitulo === 'Sr.' ? 'o senhor' : 'a senhora'
+      : tutorTitulo === 'Sr.' ? 'o senhor' : tutorTitulo === 'Sra.' ? 'a senhora' : 'você'
 
     const precisarem = familia === 'familia' ? 'precisarem' : 'precisar'
 
-    let msg = `${tutorTitulo} ${tutorNome},\n\n`
+    let msg = `${tutorTitulo ? `${tutorTitulo} ` : ''}${tutorNome},\n\n`
     msg += `Sabemos que não é um serviço desejado, mas esperamos ter trazido um pouco de acolhimento e conforto nesse momento delicado para ${voces}.\n\n`
     msg += `Estamos por aqui sempre, para o que ${precisarem}. \u{1F91D}\n\n`
     msg += `Um abraço de toda equipe R.I.P. Pet Crematório de Animais \u{1FA75}`
@@ -169,11 +170,23 @@ export default function FinalizadoraModal({ isOpen, onClose, contrato }: Props) 
                   onClick={() => setForm(f => ({ ...f, tutorTitulo: 'Sra.' }))}
                   className={`px-3 py-2 text-sm font-medium transition-colors ${
                     form.tutorTitulo === 'Sra.'
-                      ? 'bg-pink-600/30 text-pink-300'
-                      : 'text-slate-400 hover:text-slate-300'
+                      ? 'bg-pink-600/30 text-pink-300 border-r border-pink-500/50'
+                      : 'text-slate-400 hover:text-slate-300 border-r border-slate-600'
                   }`}
                 >
                   Sra.
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm(f => ({ ...f, tutorTitulo: '' }))}
+                  title="Só o nome, sem Sr./Sra."
+                  className={`px-3 py-2 text-sm font-medium transition-colors ${
+                    form.tutorTitulo === ''
+                      ? 'bg-slate-500/40 text-slate-100'
+                      : 'text-slate-400 hover:text-slate-300'
+                  }`}
+                >
+                  Nome
                 </button>
               </div>
               <input
