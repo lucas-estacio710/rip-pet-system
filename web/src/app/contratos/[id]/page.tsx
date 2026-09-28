@@ -2365,15 +2365,30 @@ ${petNome}`
             <span>Pet Acolhido</span>
           </button>
         </div>
-        <AtivacaoPVModal
-          isOpen={finalizarAtivacaoPVOpen}
-          onClose={() => setFinalizarAtivacaoPVOpen(false)}
-          contrato={contrato}
-          tarefaTipo={contrato.tipo_plano === 'preventivo' ? 'ativacao_pv' : 'remocao'}
-          onSuccess={(updated) => {
-            setContrato(prev => prev ? { ...prev, ...updated } : prev)
-          }}
-        />
+        {/* 🔴 Montagem CONDICIONAL, e isso é correção, não estilo. Este era o único dos 3
+            lugares que abrem o `AtivacaoPVModal` deixando-o **sempre montado** (os outros dois
+            — `contratos/page.tsx` e `tarefas/page.tsx` — já usam `{x && <Modal/>}`). O modal
+            tem `if (!isOpen) return null` **depois** dos hooks, então fechado ele desaparece da
+            tela mas o estado continua vivo: reabrir no mesmo contrato trazia de volta a escolha
+            anterior (lacre digitado, foto, e o seletor Agora/Outra).
+            Isso ficou grave em 28/09/2026, quando o "Agora" passou a nascer **sem
+            pré-marcação** de propósito — justamente pra ninguém dar OK sem escolher e gravar
+            data errada. Com o estado persistindo, a segunda abertura reapresentava uma escolha
+            que o operador não fez agora. Achado pela sessão e7 na revisão do diff.
+            ⚠️ Desmontar limpa **todos** os campos, não só o seletor — que é o que se quer de um
+            popup de conclusão. E nada útil roda com ele fechado: o `useEffect` dele depende de
+            `isOpen` e sai cedo. */}
+        {finalizarAtivacaoPVOpen && (
+          <AtivacaoPVModal
+            isOpen
+            onClose={() => setFinalizarAtivacaoPVOpen(false)}
+            contrato={contrato}
+            tarefaTipo={contrato.tipo_plano === 'preventivo' ? 'ativacao_pv' : 'remocao'}
+            onSuccess={(updated) => {
+              setContrato(prev => prev ? { ...prev, ...updated } : prev)
+            }}
+          />
+        )}
       </div>
     )
   }
