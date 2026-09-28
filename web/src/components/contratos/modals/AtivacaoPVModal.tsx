@@ -98,7 +98,11 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
   const [info, setInfo] = useState<InfoAcolhimento | null>(null)
 
   const [lacre, setLacre] = useState('')
-  const [modoData, setModoData] = useState<'agora' | 'outra'>('agora')
+  // 🔴 Nasce `null`: NADA pré-marcado. Ver o comentário do `AgoraOutraToggle` em
+  // `app/tarefas/page.tsx` — o mesmo risco vale aqui, e este modal também grava
+  // `data_acolhimento`. Este toggle é escrito à mão e não usa o componente compartilhado,
+  // então a mudança tem que ser feita nos dois lugares.
+  const [modoData, setModoData] = useState<'agora' | 'outra' | null>(null)
   const [dataHoraManual, setDataHoraManual] = useState('')
   const [executadoPorFuncionarioId, setExecutadoPorFuncionarioId] = useState('')
   const [anotacao, setAnotacao] = useState('')
@@ -153,7 +157,7 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
 
   if (!isOpen) return null
 
-  const podeConcluir = !!lacre.trim() && (modoData === 'agora' || !!dataHoraManual) && (!isPosicao || !!executadoPorFuncionarioId)
+  const podeConcluir = !!lacre.trim() && (modoData === 'agora' || (modoData === 'outra' && !!dataHoraManual)) && (!isPosicao || !!executadoPorFuncionarioId)
     && (!exigeFotoAqui || !!fotoProva || podeDispensarFoto)
 
   // Onde buscar o pet — mesma lógica da remoção normal (`tarefas/page.tsx`), adaptada pros
@@ -384,7 +388,7 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
 
             <div>
               <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Data e Hora do Acolhimento <span className="text-red-400">*</span></label>
-              <div className="flex items-center gap-1 bg-[var(--surface-100)] rounded px-1 w-fit mb-1.5">
+              <div className={`flex items-center gap-1 bg-[var(--surface-100)] rounded px-1 w-fit mb-1.5 ${modoData ? '' : 'ring-1 ring-amber-500/60'}`}>
                 <button type="button" onClick={() => setModoData('agora')} className={`px-2 py-0.5 rounded text-[11px] transition-colors ${modoData === 'agora' ? 'bg-[var(--surface-0)] text-emerald-500 font-medium' : 'text-[var(--surface-400)]'}`}>Agora</button>
                 <button type="button" onClick={() => setModoData('outra')} className={`px-2 py-0.5 rounded text-[11px] transition-colors ${modoData === 'outra' ? 'bg-[var(--surface-0)] text-emerald-500 font-medium' : 'text-[var(--surface-400)]'}`}>Outra</button>
               </div>

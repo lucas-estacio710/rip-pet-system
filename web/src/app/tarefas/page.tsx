@@ -616,9 +616,22 @@ function PetConcluidasCard({ petGroup, onAbrirRecibo, nomePorId, funcionarioNome
 
 // Seletor "Agora" (preenche sozinho, na hora de concluir) vs "Outra" (Operacional escolhe —
 // registrando depois do fato, ex: só lembrou de mexer no celular horas depois).
-function AgoraOutraToggle({ modo, setModo, outraLabel = 'Outra' }: { modo: 'agora' | 'outra'; setModo: (m: 'agora' | 'outra') => void; outraLabel?: string }) {
+//
+// 🔴 **`modo` nasce `null` — NADA vem pré-marcado, e isso é a feature.** Até 28/09/2026 o
+// "Agora" vinha selecionado, e o Lucas apontou o risco: *"pode induzir o erro de não registrar
+// a hora certa... dar ok sem ver que está 'agora' setado e na verdade foi outra hora ou pior,
+// outro dia"*. Numa fila de tarefas que se conclui de relance, um default invisível vira
+// **data errada gravada sem ninguém perceber** — e para remoção a data é o que ordena o
+// pipeline e a competência do financeiro.
+// ⚠️ Escolher passa a ser **obrigatório**, tratado como qualquer campo obrigatório vazio desta
+// tela: mesma condição no `disabled` do botão e mesma mensagem no guarda da função. Não há
+// mecanismo de aviso novo — decisão explícita do Lucas (*"pode ser como já é hoje o alerta"*).
+// ⚠️ A borda fica âmbar enquanto nada foi escolhido. Sem isso os dois botões ficam cinza-em-
+// cinza e não se leem como "falta escolher" — o âmbar é o mesmo que a tela já usa pra
+// "preencha aqui".
+function AgoraOutraToggle({ modo, setModo, outraLabel = 'Outra' }: { modo: 'agora' | 'outra' | null; setModo: (m: 'agora' | 'outra') => void; outraLabel?: string }) {
   return (
-    <div className="flex rounded-lg border border-[var(--surface-200)] overflow-hidden text-xs font-semibold">
+    <div className={`flex rounded-lg border overflow-hidden text-xs font-semibold ${modo ? 'border-[var(--surface-200)]' : 'border-amber-500/60'}`}>
       <button type="button" onClick={() => setModo('agora')} className={`flex-1 py-1.5 transition-colors ${modo === 'agora' ? 'bg-[var(--brand-600)] text-white' : 'text-[var(--surface-500)]'}`}>
         Agora
       </button>
@@ -880,10 +893,15 @@ export default function TarefasPage() {
   // A foto NÃO sobe aqui — fica em memória e só vai pro bucket quando a conclusão confirma.
   const [fotoProva, setFotoProva] = useState<FotoComprimida | null>(null)
   // Data de entrega: "agora" (hoje) ou "outra" (registrando depois) — só entrega usa (é `date`, sem hora).
-  const [modoDataEntrega, setModoDataEntrega] = useState<'agora' | 'outra'>('agora')
+  const [modoDataEntrega, setModoDataEntrega] = useState<'agora' | 'outra' | null>(null)
   const [dataEntregaManual, setDataEntregaManual] = useState('')
 
   async function concluirTarefaSimples(tarefa: TarefaGrupo) {
+    // Nada pré-marcado: escolher é obrigatório. Ver AgoraOutraToggle.
+    if (tarefa.tipo === 'entrega' && !modoDataEntrega) {
+      toast('Escolha quando foi entregue: Agora ou outra data', 'error')
+      return
+    }
     if (tarefa.tipo === 'entrega' && modoDataEntrega === 'outra' && !dataEntregaManual) {
       toast('Informe a data da entrega', 'error')
       return
@@ -981,7 +999,7 @@ export default function TarefasPage() {
       setTarefaAbertaRascunho(false)
       setAnotacaoSimples('')
       setLeuObservacao(false)
-      setModoDataEntrega('agora')
+      setModoDataEntrega(null)
       setDataEntregaManual('')
       setExecutadoPorFuncionarioId('')
       // carregarEmAndamento/carregarConcluidasRecentes já no-opam sozinhas se quem concluiu
@@ -1004,7 +1022,7 @@ export default function TarefasPage() {
   const [erroRemocao, setErroRemocao] = useState<string | null>(null)
   const [gerandoPdf, setGerandoPdf] = useState(false)
   // Data/hora do acolhimento: "agora" ou "outra" (datetime-local — precisa de hora, é timestamptz).
-  const [modoDataRemocao, setModoDataRemocao] = useState<'agora' | 'outra'>('agora')
+  const [modoDataRemocao, setModoDataRemocao] = useState<'agora' | 'outra' | null>(null)
   const [dataHoraRemocaoManual, setDataHoraRemocaoManual] = useState('')
 
   function unidadeDaFicha(ficha: FichaRemocao) {
@@ -1088,6 +1106,8 @@ export default function TarefasPage() {
       setErroRemocao('Esta tarefa exige a Foto de Conclusão')
       return
     }
+    // Nada pré-marcado: escolher é obrigatório. Ver AgoraOutraToggle.
+    if (!modoDataRemocao) { setErroRemocao('Escolha quando aconteceu o acolhimento: Agora ou outra data/hora'); return }
     if (modoDataRemocao === 'outra' && !dataHoraRemocaoManual) { setErroRemocao('Informe a data/hora da remoção'); return }
     if (isPosicao && !executadoPorFuncionarioId) { setErroRemocao('Informe quem executou'); return }
     setConcluindoRemocao(true)
@@ -1181,7 +1201,7 @@ export default function TarefasPage() {
       setTarefaAberta(null)
       setLacreRemocao('')
       setAnotacaoRemocao('')
-      setModoDataRemocao('agora')
+      setModoDataRemocao(null)
       setDataHoraRemocaoManual('')
       setExecutadoPorFuncionarioId('')
       await Promise.all([carregarMinhas(), carregarMinhasConcluidas()])
@@ -1685,7 +1705,7 @@ export default function TarefasPage() {
       setTarefaAbertaRascunho(true)
       setAnotacaoSimples('')
       setLeuObservacao(false)
-      setModoDataEntrega('agora')
+      setModoDataEntrega(null)
       setDataEntregaManual('')
       carregarPool()
       carregarEmAndamento()
@@ -1769,9 +1789,9 @@ export default function TarefasPage() {
     setAnotacaoSimples('')
     setErroRemocao(null)
     setLeuObservacao(false)
-    setModoDataEntrega('agora')
+    setModoDataEntrega(null)
     setDataEntregaManual('')
-    setModoDataRemocao('agora')
+    setModoDataRemocao(null)
     setDataHoraRemocaoManual('')
   }
 
@@ -2511,7 +2531,7 @@ export default function TarefasPage() {
                     {erroRemocao && <p className="text-xs text-red-400">{erroRemocao}</p>}
                     <button
                       onClick={() => concluirRemocao(tarefaAberta, ficha)}
-                      disabled={concluindoRemocao || !lacreRemocao.trim() || (modoDataRemocao === 'outra' && !dataHoraRemocaoManual) || (isPosicao && !executadoPorFuncionarioId) || (tipoExigeFoto(tarefaAberta.tipo) && !fotoProva && !podeDispensarFoto)}
+                      disabled={concluindoRemocao || !lacreRemocao.trim() || !modoDataRemocao || (modoDataRemocao === 'outra' && !dataHoraRemocaoManual) || (isPosicao && !executadoPorFuncionarioId) || (tipoExigeFoto(tarefaAberta.tipo) && !fotoProva && !podeDispensarFoto)}
                       className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-emerald-600 text-white font-semibold disabled:opacity-50"
                     >
                       {concluindoRemocao ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
@@ -2618,7 +2638,7 @@ export default function TarefasPage() {
                   )}
                   <button
                     onClick={() => concluirTarefaSimples(tarefaAberta)}
-                    disabled={concluindoSimples || (!!tarefaAberta.observacao_atribuicao && !leuObservacao) || (tarefaAberta.tipo === 'entrega' && modoDataEntrega === 'outra' && !dataEntregaManual) || (isPosicao && !executadoPorFuncionarioId) || (tipoExigeFoto(tarefaAberta.tipo) && !fotoProva && !podeDispensarFoto)}
+                    disabled={concluindoSimples || (!!tarefaAberta.observacao_atribuicao && !leuObservacao) || (tarefaAberta.tipo === 'entrega' && !modoDataEntrega) || (tarefaAberta.tipo === 'entrega' && modoDataEntrega === 'outra' && !dataEntregaManual) || (isPosicao && !executadoPorFuncionarioId) || (tipoExigeFoto(tarefaAberta.tipo) && !fotoProva && !podeDispensarFoto)}
                     className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-emerald-600 text-white font-semibold disabled:opacity-50"
                   >
                     {concluindoSimples ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
