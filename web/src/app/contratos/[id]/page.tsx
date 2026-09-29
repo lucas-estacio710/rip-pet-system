@@ -246,11 +246,6 @@ type Contrato = {
   nfse_link_pdf: string | null
   // Protocolo de entrega salvo
   protocolo_data: ProtocoloData | null
-  // Compartilhamento entre unidades
-  unidade_remocao_id: string | null
-  unidade_remocao: { id: string; codigo: string; nome: string } | null
-  unidade_entrega_id: string | null
-  unidade_entrega: { id: string; codigo: string; nome: string } | null
   // Certificado
   certificado_nome_1: string | null
   certificado_nome_2: string | null
@@ -544,12 +539,6 @@ export default function ContratoDetalhe() {
   // id de fontes_conhecimento p/ 'Indicação em Clínica' — resolvido 1x, alimenta o farol de Indicação
   const [indicacaoFonteId, setIndicacaoFonteId] = useState<string | null>(null)
 
-  // Modal Compartilhar
-  const [compartilharModal, setCompartilharModal] = useState(false)
-  const [compartilharTipo, setCompartilharTipo] = useState<'remocao' | 'entrega'>('remocao')
-  const [compartilharUnidadeId, setCompartilharUnidadeId] = useState('')
-  const [salvandoCompartilhar, setSalvandoCompartilhar] = useState(false)
-  const [todasUnidades, setTodasUnidades] = useState<{ id: string; codigo: string; nome: string }[]>([])
 
   const supabase = createClient()
   const { hasModule, currentUnit, currentRole, isSuperAdmin, allUnidades, userName } = useUnit()
@@ -1858,7 +1847,7 @@ export default function ContratoDetalhe() {
     const contratoId = params.id as string
     const { data, error } = await supabase
       .from('contratos')
-      .select('*, tutor:tutores(*), supinda:supindas!fk_contrato_supinda(numero, data), funcionario:funcionarios!contratos_funcionario_id_fkey(nome), estabelecimento_coleta:estabelecimentos!contratos_estabelecimento_id_fkey(nome), contato:contatos!contratos_contato_id_fkey(nome, cargo), estabelecimento_indicacao:estabelecimentos!contratos_estabelecimento_indicacao_id_fkey(nome), unidade_remocao:unidades!contratos_unidade_remocao_id_fkey(id, codigo, nome), unidade_entrega:unidades!contratos_unidade_entrega_id_fkey(id, codigo, nome), contrato_gc(etapa, cinzas_prontas, certificado_pronto, contato_status)')
+      .select('*, tutor:tutores(*), supinda:supindas!fk_contrato_supinda(numero, data), funcionario:funcionarios!contratos_funcionario_id_fkey(nome), estabelecimento_coleta:estabelecimentos!contratos_estabelecimento_id_fkey(nome), contato:contatos!contratos_contato_id_fkey(nome, cargo), estabelecimento_indicacao:estabelecimentos!contratos_estabelecimento_indicacao_id_fkey(nome), contrato_gc(etapa, cinzas_prontas, certificado_pronto, contato_status)')
       .eq('id', contratoId)
       .single()
 
@@ -2946,55 +2935,6 @@ ${petNome}`
                 </button>
               )
             })()}
-
-            {/* Botão Compartilhar (FLS: btn_compartilhar) */}
-            {isVisible(T, 'btn_compartilhar') && (
-              <button
-                onClick={async () => {
-                  setCompartilharTipo('remocao'); setCompartilharUnidadeId(''); setCompartilharModal(true)
-                  if (todasUnidades.length === 0) {
-                    const { data } = await supabase.from('unidades').select('id, codigo, nome').eq('ativa', true).order('ordem').order('nome')
-                    if (data) setTodasUnidades(data as { id: string; codigo: string; nome: string }[])
-                  }
-                }}
-                className="flex items-center justify-center w-7 h-7 bg-purple-600 text-white rounded-full hover:bg-purple-700 transition-colors"
-                title="Compartilhar com outra unidade"
-              >
-                <span className="text-sm">🔄</span>
-              </button>
-            )}
-            {/* Badges de compartilhamento (sempre visíveis, informativos) */}
-            {contrato.unidade_remocao && (
-              <span className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-full font-bold bg-amber-900/40 text-amber-400 border border-amber-500/30">
-                📍 Remoção: {contrato.unidade_remocao.codigo}
-                {isVisible(T, 'btn_compartilhar') && (
-                  <button
-                    onClick={async () => {
-                      await supabase.from('contratos').update({ unidade_remocao_id: null } as never).eq('id', contrato.id)
-                      setContrato({ ...contrato, unidade_remocao_id: null, unidade_remocao: null })
-                    }}
-                    className="ml-1 hover:text-red-400"
-                    title="Remover compartilhamento de remoção"
-                  >✕</button>
-                )}
-              </span>
-            )}
-            {contrato.unidade_entrega && (
-              <span className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-full font-bold bg-cyan-900/40 text-cyan-400 border border-cyan-500/30">
-                🛍️ Entrega: {contrato.unidade_entrega.codigo}
-                {isVisible(T, 'btn_compartilhar') && (
-                  <button
-                    onClick={async () => {
-                      await supabase.from('contratos').update({ unidade_entrega_id: null } as never).eq('id', contrato.id)
-                      setContrato({ ...contrato, unidade_entrega_id: null, unidade_entrega: null })
-                    }}
-                    className="ml-1 hover:text-red-400"
-                    title="Remover compartilhamento de entrega"
-                  >✕</button>
-                )}
-              </span>
-            )}
-
           </div>
 
           {/* Ação crítica acima do DocMenu — só gerente/super_admin */}
@@ -5305,70 +5245,6 @@ ${petNome}`
           }}
           onClose={() => setProtocoloEdit(null)}
         />
-      )}
-
-      {/* Modal Compartilhar */}
-      {compartilharModal && contrato && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" onClick={() => setCompartilharModal(false)}>
-          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-5" onClick={e => e.stopPropagation()}>
-            <h3 className="text-base font-semibold text-gray-900 mb-1">🔄 Compartilhar</h3>
-            <p className="text-xs text-gray-500 mb-4">{contrato.pet_nome} — {contrato.codigo}</p>
-
-            <div className="flex gap-2 mb-4">
-              <button
-                onClick={() => setCompartilharTipo('remocao')}
-                className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium border-2 transition-colors ${
-                  compartilharTipo === 'remocao' ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-gray-200 text-gray-500'
-                }`}
-              >
-                📍 Remoção
-              </button>
-              <button
-                onClick={() => setCompartilharTipo('entrega')}
-                className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium border-2 transition-colors ${
-                  compartilharTipo === 'entrega' ? 'border-cyan-500 bg-cyan-50 text-cyan-700' : 'border-gray-200 text-gray-500'
-                }`}
-              >
-                🛍️ Entrega
-              </button>
-            </div>
-
-            <select
-              value={compartilharUnidadeId}
-              onChange={e => setCompartilharUnidadeId(e.target.value)}
-              className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:border-purple-400"
-            >
-              <option value="">Selecione a unidade...</option>
-              {todasUnidades
-                .filter(u => u.id !== currentUnit?.id)
-                .map(u => (
-                  <option key={u.id} value={u.id}>{u.codigo} — {u.nome}</option>
-                ))
-              }
-            </select>
-
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => setCompartilharModal(false)} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">
-                Cancelar
-              </button>
-              <button
-                onClick={async () => {
-                  if (!compartilharUnidadeId) return
-                  setSalvandoCompartilhar(true)
-                  const campo = compartilharTipo === 'remocao' ? 'unidade_remocao_id' : 'unidade_entrega_id'
-                  await supabase.from('contratos').update({ [campo]: compartilharUnidadeId } as never).eq('id', contrato.id)
-                  setContrato({ ...contrato, [campo]: compartilharUnidadeId })
-                  setSalvandoCompartilhar(false)
-                  setCompartilharModal(false)
-                }}
-                disabled={!compartilharUnidadeId || salvandoCompartilhar}
-                className="px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
-              >
-                {salvandoCompartilhar ? 'Salvando...' : 'Confirmar'}
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
       {/* Modal Ficha de Remoção */}

@@ -149,11 +149,6 @@ type Contrato = {
     data_cremacao: string | null
     data_disponivel: string | null
   } | null
-  // Compartilhamento entre unidades
-  unidade_remocao_id: string | null
-  unidade_remocao: { id: string; codigo: string; nome: string } | null
-  unidade_entrega_id: string | null
-  unidade_entrega: { id: string; codigo: string; nome: string } | null
 }
 
 type Produto = {
@@ -652,10 +647,6 @@ function ContratosContent() {
   const [entregaModal, setEntregaModal] = useState(false)
   const [entregaContrato, setEntregaContrato] = useState<Contrato | null>(null)
 
-  // Toggle mostrar compartilhados
-  const [mostrarCompartilhados, setMostrarCompartilhados] = useState(false)
-  const [compartilhadosCount, setCompartilhadosCount] = useState(0)
-
 
   // Modal Bypass — finalizar pulando etapas (temporário)
   const [bypassContrato, setBypassContrato] = useState<Contrato | null>(null)
@@ -731,13 +722,6 @@ function ContratosContent() {
     }
     setSalvandoBypass(false)
   }
-
-  // Modal Compartilhar (remoção/entrega entre unidades)
-  const [compartilharModal, setCompartilharModal] = useState(false)
-  const [compartilharContrato, setCompartilharContrato] = useState<Contrato | null>(null)
-  const [compartilharTipo, setCompartilharTipo] = useState<'remocao' | 'entrega'>('remocao')
-  const [compartilharUnidadeId, setCompartilharUnidadeId] = useState<string>('')
-  const [salvandoCompartilhar, setSalvandoCompartilhar] = useState(false)
 
   // Seleção batch para protocolo de entrega
   // Lazy init via sessionStorage — não perde seleção ao navegar pra contrato e voltar
@@ -997,7 +981,7 @@ function ContratosContent() {
       paginaRef.current = pagina
       carregarContratos(append ? { append: true } : {})
     }
-  }, [pagina, statusFiltro, ordenacao, ordemAsc, mostrarCompartilhados, currentUnit?.id])
+  }, [pagina, statusFiltro, ordenacao, ordemAsc, currentUnit?.id])
 
   // IntersectionObserver: dispara carregamento da próxima página quando chega no fim da lista
   useEffect(() => {
@@ -1018,18 +1002,6 @@ function ContratosContent() {
     obs.observe(sentinel)
     return () => obs.disconnect()
   }, [loading, carregandoMais, contratos.length, total, buscaDebounced, cargaTotalDaEtapa])
-
-  // Contar compartilhados (ativo a pendente) em background
-  useEffect(() => {
-    if (!currentUnit?.id) return
-    supabase
-      .from('contratos')
-      .select('id', { count: 'exact', head: true })
-      .or(`unidade_remocao_id.eq.${currentUnit.id},unidade_entrega_id.eq.${currentUnit.id}`)
-      .neq('unidade_id', currentUnit.id)
-      .in('status', ['ativo', 'pinda', 'retorno', 'pendente'])
-      .then(({ count }) => setCompartilhadosCount(count || 0))
-  }, [currentUnit?.id])
 
   async function carregarContagens() {
     if (!currentUnit) { setLoading(false); return }
@@ -1172,21 +1144,15 @@ function ContratosContent() {
 
     // SELECT principal — só dados base + embeds leves essenciais (tutor + supinda + pagamentos).
     // Embeds pesados (contrato_produtos, contrato_gc, fonte_conhecimento) carregam em paralelo após.
-    const SELECT_CONTRATO = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone, endereco, numero, complemento, bairro, cidade, cep), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, tutor_endereco, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, aguardando_acolhimento, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, data_leva_pinda, unidade_remocao_id, unidade_entrega_id, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
+    const SELECT_CONTRATO = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone, endereco, numero, complemento, bairro, cidade, cep), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, tutor_endereco, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, aguardando_acolhimento, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, data_leva_pinda, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
 
-    // Helper para aplicar filtros comuns (unidade + status + compartilhados).
+    // Helper para aplicar filtros comuns (unidade + status).
     // Tipo `any` aqui porque o builder do supabase-js encadeia tipos genéricos complexos
     // e os filtros são todos string-based — sem perda real de segurança.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const aplicarFiltros = (q: any) => {
       let r = q
-      if (currentUnit) {
-        if (mostrarCompartilhados) {
-          r = r.or(`unidade_id.eq.${currentUnit.id},unidade_remocao_id.eq.${currentUnit.id},unidade_entrega_id.eq.${currentUnit.id}`)
-        } else {
-          r = r.eq('unidade_id', currentUnit.id)
-        }
-      }
+      if (currentUnit) r = r.eq('unidade_id', currentUnit.id)
       if (statusFiltro) r = r.eq('status', statusFiltro)
       return r
     }
@@ -1342,7 +1308,7 @@ function ContratosContent() {
     const agruparPorSupinda = agruparSupinda && statusFiltro !== 'preventivo' && !fluxoLocal
 
     // Mesmo padrão da listagem: SELECT leve + enriquecimento paralelo
-    const SELECT_BUSCA = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone, endereco, numero, complemento, bairro, cidade, cep), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, tutor_endereco, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, aguardando_acolhimento, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, data_leva_pinda, unidade_remocao_id, unidade_entrega_id, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
+    const SELECT_BUSCA = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone, endereco, numero, complemento, bairro, cidade, cep), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, tutor_endereco, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, aguardando_acolhimento, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_confirmado, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, data_leva_pinda, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
     // Sanitiza: escapa wildcards SQL (% _) e caracteres reservados PostgREST (, ( ) : * \)
     // + limita 80 chars. Protege contra termo malicioso quebrar o filtro `or`.
     const t = sanitizeBuscaPostgrest(termoBusca)
@@ -1358,13 +1324,7 @@ function ContratosContent() {
       query = query.order('data', { foreignTable: 'supinda', ascending, nullsFirst: true })
     }
     query = query.order(campoOrdem, { ascending, nullsFirst: false })
-    if (currentUnit) {
-      if (mostrarCompartilhados) {
-        query = query.or(`unidade_id.eq.${currentUnit.id},unidade_remocao_id.eq.${currentUnit.id},unidade_entrega_id.eq.${currentUnit.id}`)
-      } else {
-        query = query.eq('unidade_id', currentUnit.id)
-      }
-    }
+    if (currentUnit) query = query.eq('unidade_id', currentUnit.id)
 
     // Paginação tradicional (range) — banco já entrega ordenado, sem precisar
     // carregar tudo no client. Limita a 200 hits por página de busca.
@@ -2081,95 +2041,6 @@ function ContratosContent() {
         {trilha('Etapa', trilhaEtapa, iEtapa)}
       </div>
     )
-  }
-
-  // Badge de compartilhamento entre unidades
-  function renderBadgesCompartilhamento(contrato: Contrato) {
-    if (!currentUnit) return null
-    const badges: React.ReactNode[] = []
-    const isOwner = contrato.unidade_id === currentUnit.id || (!contrato.unidade_id)
-
-    // Remoção compartilhada
-    if (contrato.unidade_remocao_id) {
-      if (contrato.unidade_remocao_id === currentUnit.id && !isOwner) {
-        // Eu faço a remoção pra outra unidade
-        badges.push(
-          <span key="rem" className="text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-amber-900/40 text-amber-400 border border-amber-500/30">
-            📍 Remoção p/ {contrato.unidade_remocao?.codigo || '?'}
-          </span>
-        )
-      } else if (isOwner) {
-        // Outra unidade faz a remoção pra mim
-        badges.push(
-          <span key="rem" className="text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-amber-900/40 text-amber-400 border border-amber-500/30">
-            📍 Remoção: {contrato.unidade_remocao?.codigo || '?'}
-          </span>
-        )
-      }
-    }
-
-    // Entrega compartilhada
-    if (contrato.unidade_entrega_id) {
-      if (contrato.unidade_entrega_id === currentUnit.id && !isOwner) {
-        // Eu entrego pra outra unidade
-        badges.push(
-          <span key="ent" className="text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-cyan-900/40 text-cyan-400 border border-cyan-500/30">
-            🛍️ Entrega p/ {contrato.unidade_entrega?.codigo || '?'}
-          </span>
-        )
-      } else if (isOwner) {
-        // Outra unidade entrega pra mim
-        badges.push(
-          <span key="ent" className="text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-cyan-900/40 text-cyan-400 border border-cyan-500/30">
-            🛍️ Entrega: {contrato.unidade_entrega?.codigo || '?'}
-          </span>
-        )
-      }
-    }
-
-    if (badges.length === 0) return null
-    return <div className="flex flex-wrap gap-1">{badges}</div>
-  }
-
-  function abrirCompartilharModal(contrato: Contrato) {
-    setCompartilharContrato(contrato)
-    setCompartilharTipo('remocao')
-    setCompartilharUnidadeId('')
-    setCompartilharModal(true)
-  }
-
-  async function salvarCompartilhamento() {
-    if (!compartilharContrato || !compartilharUnidadeId) return
-    setSalvandoCompartilhar(true)
-    const campo = compartilharTipo === 'remocao' ? 'unidade_remocao_id' : 'unidade_entrega_id'
-    await supabase
-      .from('contratos')
-      .update({ [campo]: compartilharUnidadeId } as never)
-      .eq('id', compartilharContrato.id)
-
-    // Atualizar local
-    setContratos(prev => prev.map(c =>
-      c.id === compartilharContrato.id
-        ? { ...c, [campo]: compartilharUnidadeId, [`unidade_${compartilharTipo}`]: allUnidades.find(u => u.id === compartilharUnidadeId) || null }
-        : c
-    ))
-
-    setSalvandoCompartilhar(false)
-    setCompartilharModal(false)
-  }
-
-  async function removerCompartilhamento(contratoId: string, tipo: 'remocao' | 'entrega') {
-    const campo = tipo === 'remocao' ? 'unidade_remocao_id' : 'unidade_entrega_id'
-    await supabase
-      .from('contratos')
-      .update({ [campo]: null } as never)
-      .eq('id', contratoId)
-
-    setContratos(prev => prev.map(c =>
-      c.id === contratoId
-        ? { ...c, [campo]: null, [`unidade_${tipo}`]: null }
-        : c
-    ))
   }
 
   // Nome de tratamento e sua separação vêm de lib/nome-tutor (fonte única):
@@ -4336,28 +4207,6 @@ ${petNome}`
             </button>
           )}
         </div>
-        {/* Toggle compartilhados (FLS: btn_compartilhar) */}
-        {isVisible('tela_contrato', 'btn_compartilhar') && (
-          <button
-            onClick={() => setMostrarCompartilhados(!mostrarCompartilhados)}
-            className={`relative h-8 px-2.5 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1 shrink-0 ${
-              mostrarCompartilhados
-                ? 'bg-purple-600 border-purple-500 text-white'
-                : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-purple-500'
-            }`}
-            title={mostrarCompartilhados ? 'Mostrando compartilhados — clique pra esconder' : `Mostrar ${compartilhadosCount} contrato(s) compartilhado(s)`}
-          >
-            🔄
-            {!mostrarCompartilhados && compartilhadosCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-[16px] items-center justify-center">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                <span className="relative inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full bg-red-500 text-[9px] font-bold text-white">
-                  {compartilhadosCount}
-                </span>
-              </span>
-            )}
-          </button>
-        )}
         <select
           value={campoBusca}
           onChange={(e) => { setCampoBusca(e.target.value as typeof campoBusca); setPagina(0) }}
@@ -5603,7 +5452,6 @@ ${petNome}`
                             {contrato.pet_genero && <span style={{ marginLeft: '3px', fontSize: '0.8rem' }}>{contrato.pet_genero === 'macho' ? '♂' : '♀'}</span>}
                           </span>
                         </Link>
-                        {renderBadgesCompartilhamento(contrato)}
                         {(contrato.pet_raca || contrato.pet_cor) && (
                           <span className="text-xs font-medium truncate inline-block align-middle max-w-[190px]" title={[contrato.pet_raca, contrato.pet_cor].filter(Boolean).join(' | ')} style={{ background: 'linear-gradient(90deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', color: '#475569', padding: '1px 5px', borderRadius: '4px' }}>{[contrato.pet_raca, contrato.pet_cor].filter(Boolean).join(' | ')}</span>
                         )}
@@ -5681,8 +5529,6 @@ ${petNome}`
                           </svg>
                         </a>
                       )}
-
-                      {/* Botão Compartilhar — removido do pipeline, disponível no contrato [id] */}
 
                       {/* Action Buttons — Mensagens Personalizadas (FLS: btn_mensagens) */}
                       {isVisible(T, 'btn_mensagens') && (
@@ -5911,7 +5757,6 @@ ${petNome}`
                             {contrato.pet_genero && <span style={{ marginLeft: '2px', fontSize: '0.7rem' }}>{contrato.pet_genero === 'macho' ? '♂' : '♀'}</span>}
                           </span>
                         </Link>
-                        {renderBadgesCompartilhamento(contrato)}
                         <div className="h-6 flex items-center">
                           {(contrato.pet_raca || contrato.pet_cor) && (
                             <span className="text-[10px] font-medium truncate max-w-[140px] h-6 flex items-center" style={{ background: 'linear-gradient(90deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', color: '#475569', padding: '0 5px', borderRadius: '4px' }}>{[contrato.pet_raca, contrato.pet_cor].filter(Boolean).join(' | ')}</span>
@@ -7805,7 +7650,6 @@ ${petNome}`
         </div>
       )}
 
-      {/* Modal Compartilhar */}
       {/* Modal Bypass — finalizar pulando etapas */}
       {bypassContrato && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setBypassContrato(null)}>
@@ -7863,82 +7707,6 @@ ${petNome}`
         </div>
       )}
 
-      {compartilharModal && compartilharContrato && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" onClick={() => setCompartilharModal(false)}>
-          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-5" onClick={e => e.stopPropagation()}>
-            <h3 className="text-base font-semibold text-gray-900 mb-1">🔄 Compartilhar</h3>
-            <p className="text-xs text-gray-500 mb-4">{compartilharContrato.pet_nome} — {compartilharContrato.codigo}</p>
-
-            {/* Tipo */}
-            <div className="flex gap-2 mb-4">
-              <button
-                onClick={() => setCompartilharTipo('remocao')}
-                className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium border-2 transition-colors ${
-                  compartilharTipo === 'remocao' ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-gray-200 text-gray-500'
-                }`}
-              >
-                📍 Remoção
-              </button>
-              <button
-                onClick={() => setCompartilharTipo('entrega')}
-                className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium border-2 transition-colors ${
-                  compartilharTipo === 'entrega' ? 'border-cyan-500 bg-cyan-50 text-cyan-700' : 'border-gray-200 text-gray-500'
-                }`}
-              >
-                🛍️ Entrega
-              </button>
-            </div>
-
-            {/* Info existente */}
-            {((compartilharTipo === 'remocao' && compartilharContrato.unidade_remocao_id) ||
-              (compartilharTipo === 'entrega' && compartilharContrato.unidade_entrega_id)) && (
-              <div className="mb-3 p-2 rounded-lg bg-gray-50 flex items-center justify-between">
-                <span className="text-xs text-gray-600">
-                  Atual: <strong>{compartilharTipo === 'remocao' ? compartilharContrato.unidade_remocao?.nome : compartilharContrato.unidade_entrega?.nome}</strong>
-                </span>
-                <button
-                  onClick={async () => {
-                    await removerCompartilhamento(compartilharContrato.id, compartilharTipo)
-                    setCompartilharModal(false)
-                  }}
-                  className="text-xs text-red-500 hover:text-red-700 font-medium"
-                >
-                  Remover
-                </button>
-              </div>
-            )}
-
-            {/* Dropdown unidade */}
-            <select
-              value={compartilharUnidadeId}
-              onChange={e => setCompartilharUnidadeId(e.target.value)}
-              className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:border-purple-400"
-            >
-              <option value="">Selecione a unidade...</option>
-              {allUnidades
-                .filter(u => u.id !== currentUnit?.id)
-                .map(u => (
-                  <option key={u.id} value={u.id}>{u.codigo} — {u.nome}</option>
-                ))
-              }
-            </select>
-
-            {/* Botões */}
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => setCompartilharModal(false)} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">
-                Cancelar
-              </button>
-              <button
-                onClick={salvarCompartilhamento}
-                disabled={!compartilharUnidadeId || salvandoCompartilhar}
-                className="px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
-              >
-                {salvandoCompartilhar ? 'Salvando...' : 'Confirmar'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Modal Marcar Entregue */}
       {entregaContrato && (
