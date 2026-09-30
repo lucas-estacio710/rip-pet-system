@@ -150,8 +150,6 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
   const autosaveTimer = useRef<NodeJS.Timeout | null>(null)
   const easterEggSeq = useRef<string[]>([])
   const easterEggTimer = useRef<NodeJS.Timeout | null>(null)
-  const numeroRef = useRef<HTMLInputElement>(null)
-
   // Forçar tema claro nesta página pública
   useEffect(() => {
     const prev = document.documentElement.getAttribute('data-theme')
@@ -358,10 +356,7 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
           }
           autosave(next)
           return next
-        })
-        // Os Correios não trazem o número: o cursor já cai onde o tutor precisa digitar
-        numeroRef.current?.focus()
-      }
+        })      }
     } catch { /* ignore */ }
     setBuscandoCep(false)
   }
@@ -835,7 +830,7 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
                 </div>
                 <div>
                   <label className={labelClass}>Nº <span className="text-red-400">*</span></label>
-                  <input ref={numeroRef} className={inputClass('numero')} value={form.numero} onChange={e => updateField('numero', e.target.value)} placeholder="1000" />
+                  <input className={inputClass('numero')} value={form.numero} onChange={e => updateField('numero', e.target.value)} placeholder="1000" />
                   {errors.numero && <p className={errorClass}>{errors.numero}</p>}
                 </div>
               </div>
