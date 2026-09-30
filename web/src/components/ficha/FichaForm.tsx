@@ -150,6 +150,7 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
   const autosaveTimer = useRef<NodeJS.Timeout | null>(null)
   const easterEggSeq = useRef<string[]>([])
   const easterEggTimer = useRef<NodeJS.Timeout | null>(null)
+  const numeroRef = useRef<HTMLInputElement>(null)
 
   // Forçar tema claro nesta página pública
   useEffect(() => {
@@ -358,6 +359,8 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
           autosave(next)
           return next
         })
+        // Os Correios não trazem o número: o cursor já cai onde o tutor precisa digitar
+        numeroRef.current?.focus()
       }
     } catch { /* ignore */ }
     setBuscandoCep(false)
@@ -388,11 +391,11 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
       else if (form.tipoDocumento === 'cnpj' && !validarCNPJ(form.cpf)) errs.cpf = 'CNPJ inválido'
       if (!form.telefone.trim()) errs.telefone = 'Obrigatório'
       if (!form.cep.trim()) errs.cep = 'Obrigatório'
-      if (!form.estado) errs.estado = 'Obrigatório'
-      if (!form.cidade.trim()) errs.cidade = 'Obrigatório'
-      if (!form.bairro.trim()) errs.bairro = 'Obrigatório'
       if (!form.endereco.trim()) errs.endereco = 'Obrigatório'
       if (!form.numero.trim()) errs.numero = 'Obrigatório'
+      if (!form.bairro.trim()) errs.bairro = 'Obrigatório'
+      if (!form.cidade.trim()) errs.cidade = 'Obrigatório'
+      if (!form.estado) errs.estado = 'Obrigatório'
     }
 
     if (s === 2) {
@@ -821,10 +824,25 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
                 {errors.cep && <p className={errorClass}>{errors.cep}</p>}
               </div>
 
+              {/* Endereço + Número na mesma linha: com o Número lá embaixo, depois de UF,
+                  parte dos tutores não o via e digitava o número no Endereço — e o contrato
+                  saía "Av. Ana Costa 335, 335 apto 30" */}
+              <div className="grid grid-cols-4 gap-3">
+                <div className="col-span-3">
+                  <label className={labelClass}>Endereço <span className="text-red-400">*</span></label>
+                  <input className={inputClass('endereco')} value={form.endereco} onChange={e => updateField('endereco', e.target.value)} placeholder="Av. Paulista" />
+                  {errors.endereco && <p className={errorClass}>{errors.endereco}</p>}
+                </div>
+                <div>
+                  <label className={labelClass}>Nº <span className="text-red-400">*</span></label>
+                  <input ref={numeroRef} className={inputClass('numero')} value={form.numero} onChange={e => updateField('numero', e.target.value)} placeholder="1000" />
+                  {errors.numero && <p className={errorClass}>{errors.numero}</p>}
+                </div>
+              </div>
+
               <div>
-                <label className={labelClass}>Endereço <span className="text-red-400">*</span></label>
-                <input className={inputClass('endereco')} value={form.endereco} onChange={e => updateField('endereco', e.target.value)} placeholder="Av. Paulista" />
-                {errors.endereco && <p className={errorClass}>{errors.endereco}</p>}
+                <label className={labelClass}>Complemento</label>
+                <input className={inputClass('complemento')} value={form.complemento} onChange={e => updateField('complemento', e.target.value)} placeholder="Apto 123, Bloco A" />
               </div>
 
               <div>
@@ -847,18 +865,6 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
                     {UF_LIST.map(uf => <option key={uf} value={uf}>{uf}</option>)}
                   </select>
                   {errors.estado && <p className={errorClass}>{errors.estado}</p>}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className={labelClass}>Número <span className="text-red-400">*</span></label>
-                  <input className={inputClass('numero')} value={form.numero} onChange={e => updateField('numero', e.target.value)} placeholder="1000" />
-                  {errors.numero && <p className={errorClass}>{errors.numero}</p>}
-                </div>
-                <div>
-                  <label className={labelClass}>Complemento</label>
-                  <input className={inputClass('complemento')} value={form.complemento} onChange={e => updateField('complemento', e.target.value)} placeholder="Apto 123, Bloco A" />
                 </div>
               </div>
 
