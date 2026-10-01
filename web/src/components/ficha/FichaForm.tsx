@@ -830,7 +830,9 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
                 </div>
                 <div>
                   <label className={labelClass}>Nº <span className="text-red-400">*</span></label>
-                  <input className={inputClass('numero')} value={form.numero} onChange={e => updateField('numero', e.target.value)} placeholder="1000" />
+                  {/* maxLength = limite de `tutores.numero` (varchar 20). Sem ele, bairro digitado
+                      aqui travava a criação do contrato (caso Filomena, SJ, 01/10/2026). */}
+                  <input maxLength={20} className={inputClass('numero')} value={form.numero} onChange={e => updateField('numero', e.target.value)} placeholder="1000" />
                   {errors.numero && <p className={errorClass}>{errors.numero}</p>}
                 </div>
               </div>

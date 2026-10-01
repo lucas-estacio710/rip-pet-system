@@ -141,6 +141,36 @@ export async function criarContratoDeFicha(
     throw new ContratoValidationError(`Preencha antes: ${faltam.join(', ')}`)
   }
 
+  // 🔴 Campo da ficha maior que a coluna do banco (tutores/contratos são varchar com limite).
+  // Sem esta checagem o insert do tutor falha com "value too long for type character
+  // varying(20)" — mensagem que ninguém na unidade entende, e o contrato não nasce. Caso real
+  // (01/10/2026, SJ, pet Filomena): o tutor pôs o BAIRRO no campo Nº (34 caracteres). Limites
+  // conferidos no swagger de `tutores` e `contratos` — se a coluna mudar, mudar aqui.
+  const LIMITES: [string, string | null | undefined, number][] = [
+    ['Nome do tutor', ficha.nome_completo, 200],
+    ['CPF', ficha.cpf, 20],
+    ['Telefone', ficha.telefone, 20],
+    ['Telefone 2', telefone2, 20],
+    ['E-mail', ficha.email, 200],
+    ['CEP', ficha.cep, 10],
+    ['Endereço', ficha.endereco, 300],
+    ['Nº', ficha.numero, 20],
+    ['Complemento', ficha.complemento, 100],
+    ['Bairro', ficha.bairro, 100],
+    ['Cidade', ficha.cidade, 100],
+    ['Estado', ficha.estado, 2],
+    ['Nome do pet', ficha.nome_pet, 100],
+    ['Raça', ficha.raca, 100],
+    ['Cor', ficha.cor, 100],
+  ]
+  const longos = LIMITES.filter(([, v, max]) => (v || '').length > max)
+  if (longos.length > 0) {
+    throw new ContratoValidationError(
+      'Corrija na ficha antes de iniciar o fluxo — ' +
+      longos.map(([rotulo, v, max]) => `${rotulo} "${v}" tem ${(v || '').length} caracteres (máx. ${max})`).join('; ')
+    )
+  }
+
   // Step 1: Find or create tutor
   const hasTel2 = !!telefone2
   const tel1NomeVal = telefone1Nome.trim() || null
