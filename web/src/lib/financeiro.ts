@@ -429,3 +429,28 @@ export function caminhoComprovante(unidadeCodigo: string, arquivo: File): string
   const ext = arquivo.name.split('.').pop()?.toLowerCase() || 'jpg'
   return `${unidadeCodigo || 'un'}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`
 }
+
+/**
+ * VALOR COLADO → dígitos em centavos, para os campos com máscara de centavos.
+ *
+ * 🔴 O defeito que isto conserta custou um saldo errado em 24/09/2026: o CSV do
+ * Inter escreve `966,1` (sem o zero final) e `1.360` (sem centavos). A máscara
+ * trata todo dígito como centavo, então colar `966,1` virava 9661 centavos =
+ * R$ 96,61, e `1.360` viraria R$ 13,60 — sem erro nenhum na tela. Uma liquidação
+ * de R$ 966,10 entrou como R$ 96,61 e o saldo descasou do banco em R$ 869,49.
+ *
+ * Ao COLAR, o texto é lido como número brasileiro: vírgula decimal, ponto de
+ * milhar. Ao DIGITAR nada muda — a vírgula continua andando sozinha.
+ * Sinal e "R$" são ignorados: numa tela que já sabe a direção, "-2.440,00" do
+ * extrato quer dizer 2.440,00. Devolve null quando não há número no texto.
+ */
+export function colarValorBR(texto: string): string | null {
+  const t = texto.trim().replace(/R\$|\s/g, '').replace(/^[-+]/, '')
+  if (!/\d/.test(t)) return null
+  let n: number
+  if (t.includes(',')) n = Number(t.replace(/\./g, '').replace(',', '.'))      // 1.234,5
+  else if (/^\d{1,3}(\.\d{3})+$/.test(t)) n = Number(t.replace(/\./g, ''))    // 1.360
+  else n = Number(t)                                                            // 966 · 966.1
+  if (!Number.isFinite(n)) return null
+  return String(Math.round(Math.abs(n) * 100)).slice(0, 12)
+}

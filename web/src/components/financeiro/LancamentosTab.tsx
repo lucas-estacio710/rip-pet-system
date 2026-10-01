@@ -23,7 +23,7 @@ import CobrancasCard from './CobrancasCard'
 import ReceitasPrazoTab from './ReceitasPrazoTab'
 import UnderlineTabs from '@/components/ui/UnderlineTabs'
 import {
-  fmtBRL, fmtData, hojeISO, limitesDoMes
+  fmtBRL, fmtData, hojeISO, limitesDoMes, colarValorBR
 } from '@/lib/financeiro'
 
 type Categoria = {
@@ -939,6 +939,8 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
                   type="text" inputMode="decimal"
                   value={valor ? digitosParaTexto(valor) : ''}
                   onChange={e => setValor(soDigitos(e.target.value))}
+                  // Colar lê como número brasileiro: "966,1" do CSV = 966,10 (ver colarValorBR).
+                  onPaste={e => { const d = colarValorBR(e.clipboardData.getData('text')); if (d !== null) { e.preventDefault(); setValor(d) } }}
                   placeholder="0,00"
                   className="w-full bg-transparent border-0 outline-none text-sm text-mono px-2 py-2 text-[var(--surface-800)]"
                 />
@@ -1143,6 +1145,12 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
                         placeholder="0,00"
                         onChange={e => {
                           const d = soDigitos(e.target.value)
+                          setPartes(ps => ps.map((x, j) => j === i ? { ...x, valor: d } : x))
+                        }}
+                        onPaste={e => {
+                          const d = colarValorBR(e.clipboardData.getData('text'))
+                          if (d === null) return
+                          e.preventDefault()
                           setPartes(ps => ps.map((x, j) => j === i ? { ...x, valor: d } : x))
                         }}
                         className="input text-sm text-mono w-28 text-right"

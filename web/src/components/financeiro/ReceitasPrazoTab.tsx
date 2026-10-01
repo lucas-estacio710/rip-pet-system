@@ -28,7 +28,7 @@ import { Plus, Loader2, Check, Smartphone, ArrowDownRight, ArrowUpRight, Copy } 
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import Modal from '@/components/ui/Modal'
-import { fmtBRL, fmtData, hojeISO, limitesDoMes } from '@/lib/financeiro'
+import { fmtBRL, fmtData, hojeISO, limitesDoMes, colarValorBR } from '@/lib/financeiro'
 import {
   montarEsteira, retratoDaMaquininha, contaCalibrada,
   type PagamentoCartao, type RetratoMaquininha,
@@ -573,6 +573,8 @@ export default function ReceitasPrazoTab({ somenteLeitura = false, mes }: {
                   type="text" inputMode="decimal"
                   value={valor ? emTexto(valor) : ''}
                   onChange={e => setValor(soDigitos(e.target.value))}
+                  // Colar lê como número brasileiro: "966,1" do CSV = 966,10 (ver colarValorBR).
+                  onPaste={e => { const d = colarValorBR(e.clipboardData.getData('text')); if (d !== null) { e.preventDefault(); setValor(d) } }}
                   placeholder="0,00"
                   className="w-full bg-transparent border-0 outline-none text-sm text-mono px-2 py-2 text-[var(--surface-800)]"
                 />
