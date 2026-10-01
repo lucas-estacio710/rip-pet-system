@@ -4,15 +4,18 @@
 //
 // O Lucas tem ~370 liquidações da InterPag de junho a setembro pra registrar, e
 // cada dia do extrato traz 3, 4, 6 delas. Aqui ele cola as linhas do jeito que
-// copiou do banco, confere a prévia e registra tudo de uma vez.
+// copiou do banco, confere e registra tudo de uma vez.
 //
-// Quem lê o texto é `lib/extrato.ts` (data/valor/descrição de qualquer banco,
-// validado linha a linha contra o extrato real de Santos) e quem diz "é da
-// maquininha X" é o dicionário de lá. Esta tela só mostra, deixa corrigir e grava.
-//
-// 🔴 NADA É GRAVADO SEM PASSAR PELA PRÉVIA, e a prévia nunca esconde linha:
-// o que não é da maquininha aparece apagado com o motivo, em vez de sumir —
-// sumir em silêncio é como se perde dinheiro numa conciliação.
+// O DESENHO É DELE: "a maquininha eu decido no lançamento; o colar linhas é só
+// para parsear e montar separadinho... o que vier no extrato como descrição vai
+// para observações, e a identificação por similaridade busca desse campo... com
+// o passar do tempo, tudo vai ficando mais fácil."
+//   - quem LÊ é `lib/extrato.ts` (validado contra o extrato real de Santos);
+//   - a maquininha e a conta são escolhidas UMA vez, em cima, pro lote;
+//   - o texto do banco vira a OBSERVAÇÃO do registro;
+//   - na colagem seguinte, uma linha com texto parecido com um registro já feito
+//     herda a maquininha e o movimento dele (`chaveSimilaridade`). Sem tabela:
+//     a memória são os registros.
 //
 // 🔴 COLAR DUAS VEZES NÃO DUPLICA: cada linha é comparada com o que já está
 // registrado (mesma maquininha, mesma data, mesmo valor), contando OCORRÊNCIAS —
@@ -21,14 +24,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { Loader2, ClipboardPaste } from 'lucide-react'
+import { Loader2, ClipboardPaste, History } from 'lucide-react'
 import Modal from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import { fmtBRL, fmtData } from '@/lib/financeiro'
-import {
-  lerExtrato, adquirenteDe, movimentoDe, operadorasDaAdquirente, naoEDaqui, type LinhaExtrato,
-} from '@/lib/extrato'
+import { lerExtrato, movimentoDe, chaveSimilaridade, type LinhaExtrato } from '@/lib/extrato'
 
 type Operadora = { conta_id: string; nome: string }
 type ContaDestino = { id: string; nome: string; preferencial_recebimento: boolean | null }
@@ -44,13 +45,20 @@ const ROTULO: Record<Mov, string> = {
 }
 const ENTRA: Record<Mov, boolean> = { liquidacao: true, antecipacao: true, chargeback: false, taxa: false }
 
+/** Rótulo do começo da descrição gravada → movimento (o mais longo primeiro:
+ *  "Liquidação antecipada" começa com "Liquidação"). */
+function movDoRegistro(descricao: string): Mov | null {
+  const m = (Object.keys(ROTULO) as Mov[])
+    .sort((a, b) => ROTULO[b].length - ROTULO[a].length)
+    .find(k => descricao.startsWith(`${ROTULO[k]} · `))
+  return m ?? null
+}
+
 type Item = LinhaExtrato & {
-  operadoraId: string            // '' = precisa escolher
-  candidatas: Operadora[]        // >1 quando a adquirente tem duas maquininhas
-  movimento: Mov | ''            // '' = precisa escolher
-  motivoFora: string | null      // não é desta tela
-  jaRegistrado: boolean
   marcado: boolean
+  movimento: Mov | ''            // '' = precisa escolher
+  operadoraId: string            // '' = a escolhida em cima, pro lote
+  doHistorico: boolean           // sugerido por um registro anterior parecido
 }
 
 export default function ColarExtratoModal({ aberto, onClose, operadoras, destinos, mes, onRegistrou }: {
@@ -67,91 +75,105 @@ export default function ColarExtratoModal({ aberto, onClose, operadoras, destino
 
   const [texto, setTexto] = useState('')
   const [itens, setItens] = useState<Item[]>([])
+  const [maquininhaLote, setMaquininhaLote] = useState('')
   const [destinoId, setDestinoId] = useState('')
+  const [existentes, setExistentes] = useState<Map<string, number>>(new Map())
   const [lendo, setLendo] = useState(false)
   const [salvando, setSalvando] = useState(false)
 
   useEffect(() => {
     if (!aberto) return
-    setTexto(''); setItens([])
+    setTexto(''); setItens([]); setExistentes(new Map())
+    setMaquininhaLote(operadoras.length === 1 ? operadoras[0].conta_id : '')
     setDestinoId((destinos.find(d => d.preferencial_recebimento) || destinos[0])?.id || '')
-  }, [aberto, destinos])
+  }, [aberto, destinos, operadoras])
 
   async function ler() {
     const ano = Number(mes.slice(0, 4)) || new Date().getFullYear()
     const linhas = lerExtrato(texto, ano)
     if (!linhas.length) { setItens([]); return toast('Nenhuma linha com data e valor no texto colado', 'error') }
     setLendo(true)
-
-    // O que JÁ foi registrado nas datas coladas, pra marcar e não duplicar.
-    const datas = linhas.map(l => l.data).sort()
     const ids = operadoras.map(o => o.conta_id)
-    const { data: movs } = ids.length
-      ? await supabase.from('fin_movimentos')
-          .select('data, valor, conta_id, conta_destino_id')
-          .eq('tipo', 'transferencia')
-          .or(`conta_id.in.(${ids.join(',')}),conta_destino_id.in.(${ids.join(',')})`)
-          .gte('data', datas[0]).lte('data', datas[datas.length - 1])
-      : { data: [] }
+    const datas = linhas.map(l => l.data).sort()
+
+    const [{ data: movs }, { data: hist }] = ids.length
+      ? await Promise.all([
+          // O que JÁ foi registrado nas datas coladas — pra não duplicar.
+          supabase.from('fin_movimentos')
+            .select('data, valor, conta_id, conta_destino_id')
+            .eq('tipo', 'transferencia')
+            .or(`conta_id.in.(${ids.join(',')}),conta_destino_id.in.(${ids.join(',')})`)
+            .gte('data', datas[0]).lte('data', datas[datas.length - 1]),
+          // A MEMÓRIA: registros anteriores que guardaram o texto do banco na
+          // observação ("Liquidação · InterPag — <texto do extrato>").
+          supabase.from('fin_movimentos')
+            .select('descricao, conta_id, conta_destino_id')
+            .eq('tipo', 'transferencia')
+            .or(`conta_id.in.(${ids.join(',')}),conta_destino_id.in.(${ids.join(',')})`)
+            .like('descricao', '% — %')
+            .order('created_at', { ascending: false })
+            .limit(1000),
+        ])
+      : [{ data: [] }, { data: [] }]
+
     // chave "maquininha|data|valor" → quantas já existem (ocorrências, não presença)
-    const existentes = new Map<string, number>()
+    const ex = new Map<string, number>()
     for (const m of (movs as { data: string; valor: number; conta_id: string; conta_destino_id: string }[] | null) || []) {
       const maq = ids.includes(m.conta_id) ? m.conta_id : m.conta_destino_id
       const k = `${maq}|${m.data}|${Number(m.valor).toFixed(2)}`
-      existentes.set(k, (existentes.get(k) || 0) + 1)
+      ex.set(k, (ex.get(k) || 0) + 1)
+    }
+    setExistentes(ex)
+
+    // texto do banco (sem números) → maquininha e movimento do registro MAIS RECENTE
+    const memoria = new Map<string, { opId: string; mov: Mov | null }>()
+    for (const h of (hist as { descricao: string; conta_id: string; conta_destino_id: string }[] | null) || []) {
+      const obs = h.descricao.slice(h.descricao.indexOf(' — ') + 3)
+      const chave = chaveSimilaridade(obs)
+      if (!chave || memoria.has(chave)) continue
+      memoria.set(chave, { opId: ids.includes(h.conta_id) ? h.conta_id : h.conta_destino_id, mov: movDoRegistro(h.descricao) })
     }
 
-    const novos: Item[] = linhas.map(l => {
-      // Tem cara de maquininha mas não se registra aqui (quitação de antecipação,
-      // custo de antecipação): mostrar o porquê em vez de classificar errado.
-      const naoAqui = naoEDaqui(l.descricao)
-      if (naoAqui) {
-        return { ...l, operadoraId: '', candidatas: [], movimento: '', motivoFora: naoAqui, jaRegistrado: false, marcado: false }
+    setItens(linhas.map(l => {
+      const lembra = memoria.get(chaveSimilaridade(l.descricao))
+      const movHist = lembra?.mov && ENTRA[lembra.mov] === (l.valor > 0) ? lembra.mov : null
+      return {
+        ...l,
+        marcado: true,
+        operadoraId: lembra?.opId || '',
+        movimento: movHist || movimentoDe(l.descricao, l.valor) || '',
+        doHistorico: !!lembra,
       }
-      const adq = adquirenteDe(l.descricao)
-      if (!adq) {
-        const motivo = l.valor > 0
-          ? (/pix recebido|transfer/i.test(l.descricao)
-              ? 'Pix/TED recebido — se for de tutor, já está no contrato'
-              : 'entrada que não é de maquininha')
-          : 'saída — se for gasto, vai em Despesas'
-        return { ...l, operadoraId: '', candidatas: [], movimento: '', motivoFora: motivo, jaRegistrado: false, marcado: false }
-      }
-      const cand = operadorasDaAdquirente(adq, operadoras)
-      if (!cand.length) {
-        return { ...l, operadoraId: '', candidatas: [], movimento: '', jaRegistrado: false, marcado: false,
-                 motivoFora: adq === 'cartao'
-                   ? 'crédito de cartão, mas a unidade não tem maquininha cadastrada (aba Contas)'
-                   : `maquininha ${adq} não cadastrada nesta unidade (aba Contas)` }
-      }
-      const mov = movimentoDe(l.descricao, l.valor) || ''
-      const opId = cand.length === 1 ? cand[0].conta_id : ''
-      return { ...l, operadoraId: opId, candidatas: cand, movimento: mov, motivoFora: null, jaRegistrado: false, marcado: true }
-    })
-
-    // Marca "já registrado" consumindo as ocorrências existentes uma a uma.
-    const saldoOcorr = new Map(existentes)
-    for (const it of novos) {
-      if (it.motivoFora || !it.operadoraId) continue
-      const k = `${it.operadoraId}|${it.data}|${Math.abs(it.valor).toFixed(2)}`
-      const n = saldoOcorr.get(k) || 0
-      if (n > 0) { it.jaRegistrado = true; it.marcado = false; saldoOcorr.set(k, n - 1) }
-    }
-    setItens(novos)
+    }))
     setLendo(false)
   }
 
-  const prontos = useMemo(
-    () => itens.filter(i => i.marcado && !i.motivoFora && i.operadoraId && i.movimento),
-    [itens],
-  )
-  const pendentesEscolha = itens.filter(i => i.marcado && !i.motivoFora && (!i.operadoraId || !i.movimento)).length
+  // "Já registrado" é DERIVADO — recalcula quando a maquininha do lote muda.
+  const jaRegistrado = useMemo(() => {
+    const resto = new Map(existentes)
+    const out = new Set<number>()
+    for (const i of itens) {
+      const op = i.operadoraId || maquininhaLote
+      if (!op) continue
+      const k = `${op}|${i.data}|${Math.abs(i.valor).toFixed(2)}`
+      const n = resto.get(k) || 0
+      if (n > 0) { out.add(i.n); resto.set(k, n - 1) }
+    }
+    return out
+  }, [itens, existentes, maquininhaLote])
+
+  const prontos = itens.filter(i =>
+    i.marcado && !jaRegistrado.has(i.n) && (i.operadoraId || maquininhaLote) && i.movimento)
+  const semMovimento = itens.filter(i => i.marcado && !jaRegistrado.has(i.n) && !i.movimento).length
   const total = prontos.reduce((a, i) => a + Math.abs(i.valor) * (ENTRA[i.movimento as Mov] ? 1 : -1), 0)
   const muda = (n: number, patch: Partial<Item>) => setItens(xs => xs.map(x => (x.n === n ? { ...x, ...patch } : x)))
 
   async function registrar() {
     if (!currentUnit?.id) return
     if (!destinoId) return toast('Escolha a conta onde o dinheiro entrou', 'error')
+    if (itens.some(i => i.marcado && !jaRegistrado.has(i.n) && !(i.operadoraId || maquininhaLote))) {
+      return toast('Escolha a maquininha do lote', 'error')
+    }
     if (!prontos.length) return toast('Nenhuma linha marcada pronta pra registrar', 'error')
     setSalvando(true)
     try {
@@ -159,15 +181,18 @@ export default function ColarExtratoModal({ aberto, onClose, operadoras, destino
       // o saldo do dia sem bater com o banco e sem dizer onde parou.
       const linhas = prontos.map(i => {
         const mov = i.movimento as Mov
-        const op = operadoras.find(o => o.conta_id === i.operadoraId)!
+        const opId = i.operadoraId || maquininhaLote
+        const op = operadoras.find(o => o.conta_id === opId)!
         return {
           unidade_id: currentUnit.id,
           tipo: 'transferencia',
-          conta_id: ENTRA[mov] ? i.operadoraId : destinoId,
-          conta_destino_id: ENTRA[mov] ? destinoId : i.operadoraId,
+          conta_id: ENTRA[mov] ? opId : destinoId,
+          conta_destino_id: ENTRA[mov] ? destinoId : opId,
           data: i.data,
           valor: Math.abs(i.valor),
-          descricao: `${ROTULO[mov]} · ${op.nome}`,
+          // O texto do banco vai na OBSERVAÇÃO — é o que a próxima colagem usa
+          // pra reconhecer linhas parecidas.
+          descricao: `${ROTULO[mov]} · ${op.nome} — ${i.descricao}`,
           criado_por_nome: userName || null,
         }
       })
@@ -192,7 +217,7 @@ export default function ColarExtratoModal({ aberto, onClose, operadoras, destino
         <div className="flex items-center justify-between gap-2 w-full">
           <span className="text-xs text-[var(--surface-500)]">
             {prontos.length} {prontos.length === 1 ? 'linha' : 'linhas'} · <span className="text-mono">{fmtBRL(total)}</span>
-            {pendentesEscolha > 0 && <span className="text-amber-500"> · {pendentesEscolha} esperando escolha</span>}
+            {semMovimento > 0 && <span className="text-amber-500"> · {semMovimento} sem movimento escolhido</span>}
           </span>
           <div className="flex gap-2">
             <button onClick={() => setItens([])} className="btn-secondary text-sm">Voltar</button>
@@ -213,8 +238,8 @@ export default function ColarExtratoModal({ aberto, onClose, operadoras, destino
       {!itens.length ? (
         <div className="space-y-2">
           <p className="text-xs text-[var(--surface-500)]">
-            Copie as linhas do extrato do banco (do CSV, da planilha ou do internet banking) e cole aqui.
-            Pode vir tudo junto — o que não for de maquininha aparece separado na prévia.
+            Copie do extrato do banco as linhas desta maquininha (do CSV, da planilha ou do internet
+            banking) e cole aqui. Cada linha vira um registro, com o texto do banco na observação.
           </p>
           <textarea
             value={texto} onChange={e => setTexto(e.target.value)} rows={10} autoFocus
@@ -224,56 +249,72 @@ export default function ColarExtratoModal({ aberto, onClose, operadoras, destino
         </div>
       ) : (
         <div className="space-y-3">
-          <div>
-            <label className="text-xs text-[var(--surface-500)] block mb-1">Entrou na conta</label>
-            <select value={destinoId} onChange={e => setDestinoId(e.target.value)} className="input text-sm w-full">
-              <option value="">Escolher…</option>
-              {destinos.map(d => (
-                <option key={d.id} value={d.id}>{d.preferencial_recebimento ? '⭐ ' : ''}{d.nome}</option>
-              ))}
-            </select>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs text-[var(--surface-500)] block mb-1">Maquininha</label>
+              {operadoras.length === 1 ? (
+                <span className="text-sm text-[var(--surface-700)]">{operadoras[0].nome}</span>
+              ) : (
+                <select value={maquininhaLote} onChange={e => setMaquininhaLote(e.target.value)}
+                        className="input text-sm w-full"
+                        style={!maquininhaLote ? { borderColor: '#f59e0b' } : undefined}>
+                  <option value="">Escolher…</option>
+                  {operadoras.map(o => <option key={o.conta_id} value={o.conta_id}>{o.nome}</option>)}
+                </select>
+              )}
+            </div>
+            <div>
+              <label className="text-xs text-[var(--surface-500)] block mb-1">Entrou na conta</label>
+              <select value={destinoId} onChange={e => setDestinoId(e.target.value)} className="input text-sm w-full">
+                <option value="">Escolher…</option>
+                {destinos.map(d => (
+                  <option key={d.id} value={d.id}>{d.preferencial_recebimento ? '⭐ ' : ''}{d.nome}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="divide-y divide-[var(--surface-200)] max-h-[50vh] overflow-y-auto">
             {itens.map(i => {
-              const fora = !!i.motivoFora
+              const ja = jaRegistrado.has(i.n)
               return (
-                <div key={i.n} className="flex items-start gap-2 py-1.5" style={{ opacity: fora || i.jaRegistrado ? 0.55 : 1 }}>
-                  <input
-                    type="checkbox" className="mt-1"
-                    checked={i.marcado} disabled={fora}
-                    onChange={e => muda(i.n, { marcado: e.target.checked })}
-                  />
+                <div key={i.n} className="flex items-start gap-2 py-1.5" style={{ opacity: ja || !i.marcado ? 0.55 : 1 }}>
+                  <input type="checkbox" className="mt-1" checked={i.marcado && !ja} disabled={ja}
+                         onChange={e => muda(i.n, { marcado: e.target.checked })} />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs text-[var(--surface-700)] truncate" title={i.original}>
                       {fmtData(i.data)} · {i.descricao}
                     </p>
-                    {fora ? (
-                      <p className="text-[11px] text-[var(--surface-400)]">{i.motivoFora}</p>
-                    ) : (
-                      <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
-                        {i.candidatas.length > 1 ? (
-                          <select value={i.operadoraId} onChange={e => muda(i.n, { operadoraId: e.target.value })}
-                                  className="input text-[11px] py-0.5 px-1"
-                                  style={!i.operadoraId ? { borderColor: '#f59e0b' } : undefined}>
-                            <option value="">qual maquininha?</option>
-                            {i.candidatas.map(c => <option key={c.conta_id} value={c.conta_id}>{c.nome}</option>)}
-                          </select>
-                        ) : (
-                          <span className="text-[11px] text-emerald-500">{i.candidatas[0]?.nome}</span>
-                        )}
-                        <select value={i.movimento} onChange={e => muda(i.n, { movimento: e.target.value as Mov })}
-                                className="input text-[11px] py-0.5 px-1"
-                                style={!i.movimento ? { borderColor: '#f59e0b' } : undefined}>
-                          <option value="">o que é?</option>
-                          {(Object.keys(ROTULO) as Mov[])
-                            .filter(m => ENTRA[m] === (i.valor > 0))
-                            .map(m => <option key={m} value={m}>{ROTULO[m]}</option>)}
+                    <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                      <select value={i.movimento} onChange={e => muda(i.n, { movimento: e.target.value as Mov })}
+                              className="input text-[11px] py-0.5 px-1"
+                              style={!i.movimento ? { borderColor: '#f59e0b' } : undefined}>
+                        <option value="">o que é?</option>
+                        {(Object.keys(ROTULO) as Mov[])
+                          .filter(m => ENTRA[m] === (i.valor > 0))
+                          .map(m => <option key={m} value={m}>{ROTULO[m]}</option>)}
+                      </select>
+                      {/* Só aparece quando o histórico apontou OUTRA maquininha
+                          que a do lote — aí a pessoa vê e decide. */}
+                      {i.operadoraId && i.operadoraId !== maquininhaLote && operadoras.length > 1 && (
+                        <select value={i.operadoraId} onChange={e => muda(i.n, { operadoraId: e.target.value })}
+                                className="input text-[11px] py-0.5 px-1">
+                          {operadoras.map(o => <option key={o.conta_id} value={o.conta_id}>{o.nome}</option>)}
                         </select>
-                        {i.jaRegistrado && <span className="text-[11px] text-sky-500">já registrado</span>}
-                        {i.sinalIncerto && <span className="text-[11px] text-amber-500" title="O texto não traz sinal nem saldo pra conferir">confira se entrou ou saiu</span>}
-                      </div>
-                    )}
+                      )}
+                      {i.doHistorico && (
+                        <span className="text-[11px] text-sky-500 inline-flex items-center gap-0.5"
+                              title="Texto parecido com um registro anterior — maquininha e movimento vieram de lá">
+                          <History className="h-3 w-3" /> como da última vez
+                        </span>
+                      )}
+                      {ja && <span className="text-[11px] text-sky-500">já registrado</span>}
+                      {i.sinalIncerto && (
+                        <span className="text-[11px] text-amber-500" title="O texto não traz sinal nem saldo pra conferir">
+                          confira se entrou ou saiu
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <span className={`text-xs text-mono shrink-0 ${i.valor > 0 ? 'text-emerald-500' : 'text-red-400'}`}>
                     {i.valor > 0 ? '' : '−'}{fmtBRL(Math.abs(i.valor))}

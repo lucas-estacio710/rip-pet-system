@@ -2,9 +2,9 @@
 //
 // Pedido do Lucas (01/10/2026): "um campo texto com uma inteligência" que aceite
 // o que vier do banco — Inter PJ em Santos, Itaú em SJC — sem tela de
-// configuração por banco. Este módulo é só a LEITURA (puro, sem I/O, como
-// `recebiveis.ts`); a CLASSIFICAÇÃO de cada linha (é liquidação de qual
-// maquininha?) fica num dicionário à parte.
+// configuração por banco. Este módulo é puro, sem I/O, como `recebiveis.ts`.
+// Ele só LÊ e separa as linhas; quem diz de qual maquininha é cada uma é a
+// pessoa, ajudada pelo histórico (ver "SIMILARIDADE" abaixo).
 //
 // COMO LÊ: cada linha é quebrada em campos (tabulação, ponto e vírgula ou dois+
 // espaços — o que o Excel e o internet banking produzem ao copiar). O campo que
@@ -33,115 +33,47 @@ export type LinhaExtrato = {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// CLASSIFICAR — esta linha é movimento de qual maquininha?
+// SIMILARIDADE — o histórico é a memória
 // ════════════════════════════════════════════════════════════════════════════
 //
-// O texto é escrito pelo BANCO onde o dinheiro cai, não pela adquirente: a mesma
-// venda da Rede sai diferente no Itaú, na Caixa e no Inter. Por isso o
-// dicionário reconhece PADRÕES. Fontes (pesquisa de 01/10/2026): o exemplo real
-// do Inter de Santos e o glossário oficial de históricos da Caixa
-// (caixa.gov.br/Downloads/contas-pessoa-fisica/glossario.pdf), que traz
-// "<ADQUIRENTE> <BANDEIRA> C CREDITO | C DEBITO | ANTECIP".
+// Decisão do Lucas (01/10/2026): "a maquininha eu decido no lançamento; o colar
+// linhas é só para parsear e montar separadinho... o que vier no extrato como
+// descrição vai para observações, e a identificação por similaridade busca
+// desse campo... com o passar do tempo, tudo vai ficando mais fácil."
 //
-// 🔴 SEM REGRA POR CNPJ, de propósito. No CSV do Inter o número em "Cp :NNNNNNNN-"
-// é o código da instituição de QUEM RECEBEU o Pix: "Cp :10573521-Rafael ..." é um
-// Pix pra uma pessoa com conta no Mercado Pago (10.573.521 é o CNPJ dele). Uma
-// regra por CNPJ leria esse pagamento como liquidação de maquininha.
-//
-// 🔴 "REDE" SOZINHA NÃO BASTA: a Caixa tem "REDE COMPARTILHADA", "REDE SHOP".
-// Exige-se "REDECARD" ou "REDE" seguida de bandeira/modalidade.
-
-export type ChaveAdquirente =
-  | 'interpag' | 'rede' | 'infinitepay' | 'cielo' | 'stone' | 'getnet'
-  | 'pagseguro' | 'mercadopago' | 'sumup' | 'safrapay' | 'vero' | 'sicredi' | 'sipag'
-  | 'stelo' | 'elavon' | 'bin'
-  /** crédito de cartão SEM nome da credenciadora ("CR VD CART", "CR COMPRAS",
-   *  "CRED ANTECIPACAO RECEBIVEIS"): vale a única maquininha da unidade, ou pergunta */
-  | 'cartao'
-
-/** Adquirente → padrões no texto (já normalizado: maiúsculo, sem acento).
- *  Fontes: extrato real do Inter de Santos; glossário de históricos da Caixa;
- *  códigos de conciliação do Bradesco (CNAB 2017); manual de antecipação do Inter;
- *  OFX real do Sicoob em código aberto. Itaú: nenhum rótulo público encontrado. */
-export const ADQUIRENTES: { chave: ChaveAdquirente; padroes: RegExp[]; apelidos: string[] }[] = [
-  { chave: 'interpag',    padroes: [/\bINTER\s*PAG\b/, /\bGRANITO\b/], apelidos: ['INTERPAG', 'INTER PAG', 'GRANITO'] },
-  { chave: 'rede',        padroes: [/\bREDECARD\b/, /\bREDE\s*(-\s*CREDICARD|VISA|VS|MAST\w*|MC|ELO|EL|HIPER\w*|AMEX|CRED\w*|DEB\w*|POP|ANTEC\w*|COMPRA)\b/, /\bRECEBIMENTO\s+REDE\b/, /\bREDEPAY\b/], apelidos: ['REDE', 'REDECARD'] },
-  { chave: 'infinitepay', padroes: [/\bCLOUD\s*WALK\b/, /\bINFINITE\s*PAY\b/, /\bINFINITY\s*PAY\b/], apelidos: ['INFINITEPAY', 'INFINITYPAY', 'INFINITE PAY', 'INFINITY PAY', 'CLOUDWALK'] },
-  { chave: 'cielo',       padroes: [/\bCIELO\b/], apelidos: ['CIELO'] },
-  { chave: 'stone',       padroes: [/\bSTONE\b/], apelidos: ['STONE', 'TON'] },
-  { chave: 'getnet',      padroes: [/\bGETNET\b/], apelidos: ['GETNET'] },
-  { chave: 'pagseguro',   padroes: [/\bPAG\s*SEGURO\b/, /\bPAGBANK\b/], apelidos: ['PAGSEGURO', 'PAGBANK'] },
-  { chave: 'mercadopago', padroes: [/\bMERC\s*PAGO\b/, /\bMERCADO\s*PAGO\b/], apelidos: ['MERCADO PAGO', 'MERCADOPAGO', 'MERCPAGO'] },
-  { chave: 'sumup',       padroes: [/\bSUMUP\b/], apelidos: ['SUMUP'] },
-  { chave: 'safrapay',    padroes: [/\bSAFRA\s*(PAY|CREDEN)\b/, /\bSAFRA\s+(VISA|MASTERCARD|ELO)\b/], apelidos: ['SAFRAPAY', 'SAFRA PAY', 'SAFRA'] },
-  { chave: 'vero',        padroes: [/\bVERO\b/], apelidos: ['VERO', 'BANRISUL'] },
-  { chave: 'sicredi',     padroes: [/\bSICREDI\s+(VISA|MASTERCARD|ELO|AMERICAN)\b/], apelidos: ['SICREDI'] },
-  { chave: 'sipag',       padroes: [/\bSIPAG\b/, /\bBANCOOB\s+ADQ\b/], apelidos: ['SIPAG', 'SICOOB', 'BANCOOB'] },
-  { chave: 'stelo',       padroes: [/\bSTELO\b/], apelidos: ['STELO'] },
-  { chave: 'elavon',      padroes: [/\bELAVON\b/], apelidos: ['ELAVON'] },
-  // "BIN" sozinho é palavra curta demais: só com bandeira ou no molde do Inter.
-  { chave: 'bin',         padroes: [/\bBIN\s+(SIPAG|VISA|MASTER\w*|ELO)\b/, /DOMICILIO CARTAO\W+BIN\b/], apelidos: ['BIN', 'FISERV'] },
-  // Por último: só entra quando nenhuma credenciadora foi nomeada.
-  { chave: 'cartao',      padroes: [/\bCR\s+(VD\s+CART|COMPRAS)\b/, /\bCREDITO\s+VENDA\s+CARTAO\b/, /\bCRED(ITO)?\s+ANTECIPACAO\s+RECEBIVEIS\b/, /\bVENDA\s+CARTAO\s+DE\s+CREDITO\b/, /\bANTECIP(ACAO)?\s+(DE\s+)?CARTAO\b/], apelidos: [] },
-]
-
-/**
- * Linhas que PARECEM de maquininha mas não são registro desta tela. A prévia
- * mostra o porquê em vez de classificar errado. Ordem importa: testadas antes
- * da classificação.
- */
-const NAO_E_DAQUI: { re: RegExp; motivo: string }[] = [
-  // Inter: o débito que quita a antecipação tem o valor do crédito do dia —
-  // registrá-lo como chargeback tiraria dinheiro que nunca saiu.
-  { re: /\bDEB(ITO)?\s+LIQUIDACAO\s+ANTECIPA/, motivo: 'quitação de antecipação (par do crédito do dia) — não é chargeback nem despesa' },
-  { re: /\bCOMISSAO\s+LIQ\w*\s+ANTECIPAD|\bTAXA\s+DE\s+ANTECIPACAO\b|\bDESCONTO\s+DE\s+ANTECIPACAO\b/, motivo: 'custo da antecipação — é despesa: lance em Despesas, Financeiro › Encargos' },
-]
+// Então NÃO há dicionário de adquirentes aqui (chegou a existir, montado de
+// pesquisa — o que se aprendeu está no FLOW_FINANCEIRO §9.1.15). A tela grava o
+// texto do banco na observação do registro; na colagem seguinte, uma linha cujo
+// texto "se parece" com o de um registro anterior herda a maquininha e o
+// movimento daquele registro. A memória são os registros que a pessoa já fez.
 
 export const normTexto = (s: string) =>
-  s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase()
+  s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase()
 
-export function adquirenteDe(descricao: string): ChaveAdquirente | null {
-  const t = normTexto(descricao)
-  return ADQUIRENTES.find(a => a.padroes.some(p => p.test(t)))?.chave ?? null
+/**
+ * Chave de semelhança entre dois históricos de extrato: maiúsculo, sem acento,
+ * SEM NÚMEROS e sem pontuação. Números saem porque mudam a cada linha (NSU,
+ * parcela, data, agência) enquanto o "tipo" do lançamento é o resto:
+ *   'Credito domicilio cartao: "CARTAO DE CREDITO - INTER PAG"'
+ *   → 'CREDITO DOMICILIO CARTAO CARTAO DE CREDITO INTER PAG'
+ */
+export function chaveSimilaridade(texto: string): string {
+  return normTexto(texto).replace(/\d+/g, ' ').replace(/[^A-Z ]/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
-/** Motivo pelo qual uma linha com cara de maquininha NÃO se registra aqui. */
-export function naoEDaqui(descricao: string): string | null {
-  const t = normTexto(descricao)
-  return NAO_E_DAQUI.find(x => x.re.test(t))?.motivo ?? null
-}
-
-/** Movimento sugerido pelo texto + direção. null = não dá pra afirmar. */
+/**
+ * Movimento SUGERIDO quando o histórico não diz nada: pela direção do dinheiro
+ * e por palavras inequívocas. A pessoa pode trocar na prévia.
+ * "CREDITO"/"DEBITO" no texto é o TIPO DO CARTÃO da venda, não a direção —
+ * por isso a direção vem só do sinal.
+ */
 export function movimentoDe(descricao: string, valor: number):
   'liquidacao' | 'antecipacao' | 'chargeback' | 'taxa' | null {
   const t = normTexto(descricao)
-  // "CREDITO"/"DEBITO" no texto é o TIPO DO CARTÃO da venda, não a direção do
-  // dinheiro (Bradesco tem "GETNET VISA DEBITO" como crédito e como débito).
-  // Por isso a direção vem só do sinal.
-  if (valor > 0) return /\bANTECIP\w*|\bANTEC\b|\bARV\b|\bORPAGS\b/.test(t) ? 'antecipacao' : 'liquidacao'
-  if (/\bALUGUEL\b|\bTARIFA\b|\bTAR\b|\bMENSALIDADE\b|\bREMUNERACAO\s+POS\b|\bDEBITO\s+AUTOMATICO\b|\bCOMISSAO\s+VENDAS?\s+CARTAO\b/.test(t)) return 'taxa'
+  if (valor > 0) return /\bANTECIP\w*|\bANTEC\b/.test(t) ? 'antecipacao' : 'liquidacao'
+  if (/\bALUGUEL\b|\bTARIFA\b|\bMENSALIDADE\b|\bREMUNERACAO\s+POS\b/.test(t)) return 'taxa'
   if (/\bESTORNO\b|\bCHARGEBACK\b|\bCONTESTAC\w*|\bCANCEL\w*/.test(t)) return 'chargeback'
-  return null                                        // saída de maquininha sem palavra-chave
-}
-
-/**
- * Qual maquininha DA UNIDADE é esta adquirente. Casa pelo nome cadastrado
- * ("InterPag", "Rede Prina 1"). Devolve TODAS as que casam: duas da mesma
- * adquirente ("Rede Prina 1" e "Rede Prina 2") não se distinguem pelo texto do
- * banco, e a tela tem de perguntar.
- */
-export function operadorasDaAdquirente<T extends { nome: string }>(
-  chave: ChaveAdquirente, operadoras: T[],
-): T[] {
-  // Crédito de cartão sem credenciadora nomeada: qualquer maquininha serve — se a
-  // unidade tem uma só, é ela; se tem mais, a tela pergunta.
-  if (chave === 'cartao') return [...operadoras]
-  const ap = ADQUIRENTES.find(a => a.chave === chave)!.apelidos
-  return operadoras.filter(o => {
-    const n = normTexto(o.nome).replace(/[^A-Z0-9 ]/g, ' ')
-    const junto = n.replace(/\s+/g, '')
-    return ap.some(a => n.includes(a) || junto.includes(a.replace(/\s+/g, '')))
-  })
+  return null
 }
 
 /** Número em formato brasileiro (ou inglês sem milhar), com sinal. */
