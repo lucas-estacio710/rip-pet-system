@@ -24,10 +24,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { Plus, Loader2, Check, Smartphone, ArrowDownRight, ArrowUpRight, Copy } from 'lucide-react'
+import { Plus, Loader2, Check, Smartphone, ArrowDownRight, ArrowUpRight, Copy, ClipboardPaste } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import Modal from '@/components/ui/Modal'
+import ColarExtratoModal from './ColarExtratoModal'
 import { fmtBRL, fmtData, hojeISO, limitesDoMes, colarValorBR } from '@/lib/financeiro'
 import {
   montarEsteira, retratoDaMaquininha, contaCalibrada,
@@ -118,6 +119,7 @@ export default function ReceitasPrazoTab({ somenteLeitura = false, mes }: {
 
   // formulário
   const [aberto, setAberto] = useState(false)
+  const [colarAberto, setColarAberto] = useState(false)   // lote colado do extrato
   const [operadoraId, setOperadoraId] = useState('')
   const [movimento, setMovimento] = useState<MovimentoV>('liquidacao')
   const [data, setData] = useState(hojeISO())
@@ -359,9 +361,17 @@ export default function ReceitasPrazoTab({ somenteLeitura = false, mes }: {
         </span>
         {carregando && <Loader2 className="h-4 w-4 animate-spin text-[var(--surface-400)]" />}
         {!somenteLeitura && (
-          <button onClick={() => abrir()} className="btn-primary text-sm ml-auto">
-            <Plus className="h-4 w-4" /> Registrar do extrato
-          </button>
+          <div className="flex gap-2 ml-auto">
+            {/* O LOTE: cola as linhas do extrato e registra tudo de uma vez
+                (ColarExtratoModal). O avulso continua pro caso de uma linha. */}
+            <button onClick={() => setColarAberto(true)} disabled={!operadoras.length}
+                    className="btn-secondary text-sm">
+              <ClipboardPaste className="h-4 w-4" /> Colar do extrato
+            </button>
+            <button onClick={() => abrir()} className="btn-primary text-sm">
+              <Plus className="h-4 w-4" /> Registrar do extrato
+            </button>
+          </div>
         )}
       </div>
 
@@ -623,6 +633,15 @@ export default function ReceitasPrazoTab({ somenteLeitura = false, mes }: {
           )}
         </div>
       </Modal>
+
+      <ColarExtratoModal
+        aberto={colarAberto}
+        onClose={() => setColarAberto(false)}
+        operadoras={operadoras}
+        destinos={destinos}
+        mes={mes}
+        onRegistrou={() => void carregar()}
+      />
     </div>
   )
 }
