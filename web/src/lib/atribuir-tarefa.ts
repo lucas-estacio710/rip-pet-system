@@ -55,6 +55,47 @@ export async function concluirTarefasOperacionais(
   }
 }
 
+/**
+ * Fecha as tarefas PENDENTES de um item que foi resolvido fora do /tarefas (✓ de rescaldo no
+ * pipeline/detalhe, entrega pelo EntregaModal, bypass, lote, Tratativa). Devolve os ids que
+ * fechou (vazio = não havia tarefa). Erro conferido: se o trigger da mig 147 recusar, LANÇA —
+ * e quem chama não grava o efeito (ou avisa, se o efeito já não tem volta).
+ */
+export async function concluirTarefasPendentesDe(
+  sb: Supabase,
+  filtro: { contratoProdutoId?: string; contratoIds?: string[]; fichaId?: string; tipo?: string },
+  anotacao: string,
+): Promise<string[]> {
+  let q = sb.from('tarefas_operacionais').select('id').eq('status', 'pendente')
+  if (filtro.contratoProdutoId) q = q.eq('contrato_produto_id', filtro.contratoProdutoId)
+  if (filtro.contratoIds) q = q.in('contrato_id', filtro.contratoIds)
+  if (filtro.fichaId) q = q.eq('ficha_id', filtro.fichaId)
+  if (filtro.tipo) q = q.eq('tipo', filtro.tipo)
+  if (!filtro.contratoProdutoId && !filtro.contratoIds && !filtro.fichaId) throw new Error('Filtro de tarefa vazio')
+  const { data, error } = await q
+  if (error) throw new Error(error.message)
+  const ids = ((data || []) as { id: string }[]).map(r => r.id)
+  if (ids.length === 0) return []
+  await concluirTarefasOperacionais(sb, ids, { anotacao })
+  return ids
+}
+
+/**
+ * Pode marcar "feito" um item cujo tipo de tarefa exige foto, sem foto?
+ * Espelha o trigger da mig 147: só super_admin ou gerente. Concierge não. Vale só onde a
+ * unidade tem o Operacional (`cb_operacional`) — sem o módulo não nasce tarefa e nada recusa.
+ * (P-29: esconder o botão em vez de recusar depois; o erro do banco segue como rede.)
+ */
+export function podeMarcarFeitoSemFoto(p: {
+  exigeFoto: boolean
+  unidadeTemOperacional: boolean
+  isSuperAdmin: boolean
+  role: string | null
+}): boolean {
+  if (!p.unidadeTemOperacional || !p.exigeFoto) return true
+  return p.isSuperAdmin || p.role === 'gerente'
+}
+
 /** Volta as tarefas `ids` a pendente (desfazer conclusão, ou desfazer a própria conclusão quando o efeito falhou). */
 export async function reabrirTarefasOperacionais(sb: Supabase, ids: string[]): Promise<void> {
   const { error } = await sb.from('tarefas_operacionais').update({

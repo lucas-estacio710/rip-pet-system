@@ -300,13 +300,17 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
             .select('id').eq('contrato_id', contrato.id).eq('tipo', 'ativacao_pv').eq('status', 'pendente').maybeSingle() as { data: { id: string } | null }
           if (!tarefaExistente) {
             const { data: { user } } = await supabase.auth.getUser()
-            await supabase.from('tarefas_operacionais').insert({
+            const { error: errTarefa } = await supabase.from('tarefas_operacionais').insert({
               unidade_id: contrato.unidade_id || currentUnit?.id,
               tipo: 'ativacao_pv',
               contrato_id: contrato.id,
               atribuido_a: atribuidoA,
               atribuido_por: user?.id || null,
             } as never)
+            // Erro conferido (B-01): um 23505 (o índice de tarefa pendente por contrato não olha
+            // o tipo) sumia calado — o contrato ficava "aguardando acolhimento" sem ninguém com
+            // a tarefa. Lança: o catch deste modal mostra a mensagem.
+            if (errTarefa) throw new Error(`Ativação gravada, mas a tarefa NÃO foi atribuída (${errTarefa.message}). Atribua pelo /tarefas.`)
             // Notificação best-effort — uniformizada com o resto de /tarefas (mesmo padrão de
             // notificarAtribuicaoRemocao do TratativaModal): emoji+título fixo, corpo
             // "{nome da atividade} — {pet}" (TIPO_INFO.ativacao_pv.label em tarefas/page.tsx é
@@ -377,7 +381,9 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
       onClose()
     } catch (err) {
       console.error('Erro ao ativar contrato:', err)
-      alert('Erro ao ativar contrato. Tente novamente.')
+      // Mensagem própria quando existe (ex.: "Ativação gravada, mas a tarefa NÃO foi atribuída")
+      // — o "Tente novamente" genérico escondia que a ativação já tinha sido gravada.
+      alert(err instanceof Error && err.message ? err.message : 'Erro ao ativar contrato. Tente novamente.')
     } finally {
       setSalvando(false)
     }

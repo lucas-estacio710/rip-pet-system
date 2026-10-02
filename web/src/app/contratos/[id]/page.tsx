@@ -39,6 +39,8 @@ import { ordenarCategoriasUrnas } from '@/lib/categorias'
 import { hojeLocal } from '@/lib/date-local'
 import { tituloNome, primeiroNome } from '@/lib/nome-tutor'
 import { nomeParaAgenda } from '@/lib/nome-agenda'
+import { concluirTarefasPendentesDe, reabrirTarefasOperacionais, podeMarcarFeitoSemFoto } from '@/lib/atribuir-tarefa'
+import { carregarExigeFoto, type ExigeFotoPorTipo } from '@/lib/foto-tarefa'
 import ProdutosFilterBar from '@/components/ui/ProdutosFilterBar'
 
 function PixIcon({ className = "h-5 w-5" }: { className?: string }) {
@@ -544,6 +546,16 @@ export default function ContratoDetalhe() {
   const { hasModule, currentUnit, currentRole, isSuperAdmin, allUnidades, userName } = useUnit()
   // cb_operacional: Responsável do acolhimento vem de perfis, não de funcionarios.
   const temOperacionalContrato = !!allUnidades.find(u => u.id === contrato?.unidade_id)?.modulos_ativos?.includes('cb_operacional')
+  // P-29: o ✓ de personalizado/pelinho some pra quem não pode concluir sem foto (concierge numa
+  // unidade com o Operacional). Config lida 1× — é a mesma do trigger da mig 147.
+  const [exigeFotoPorTipo, setExigeFotoPorTipo] = useState<ExigeFotoPorTipo>({})
+  useEffect(() => { carregarExigeFoto(supabase).then(setExigeFotoPorTipo).catch(() => {}) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const podeMarcarRescaldoFeito = (rescaldoTipo: string | null | undefined) => podeMarcarFeitoSemFoto({
+    exigeFoto: !!rescaldoTipo && exigeFotoPorTipo[rescaldoTipo] === true,
+    unidadeTemOperacional: temOperacionalContrato,
+    isSuperAdmin,
+    role: currentRole,
+  })
   const [responsavelNomeResolvido, setResponsavelNomeResolvido] = useState<string | null>(null)
   const [executadoPorNomeResolvido, setExecutadoPorNomeResolvido] = useState<string | null>(null)
   const podeAlterarDados = isSuperAdmin || currentRole === 'gerente'
@@ -1934,10 +1946,26 @@ export default function ContratoDetalhe() {
   }
 
   async function toggleRescaldoFeito(cpId: string, novoValor: boolean) {
+    // 🔴 A tarefa do Operacional (se houver) fecha ANTES do produto, com erro conferido
+    // (B-01/P-29) — mesma correção do pipeline (`contratos/page.tsx`). O ✓ já some pra quem
+    // não pode (RescaldoModal `podeMarcarFeito`); isto é a rede.
+    let tarefasFechadas: string[] = []
+    if (novoValor) {
+      try {
+        tarefasFechadas = await concluirTarefasPendentesDe(supabase, { contratoProdutoId: cpId }, 'Marcado como feito direto no contrato (fora do app do Operacional).')
+      } catch (err) {
+        alert(err instanceof Error ? err.message : 'Erro ao concluir a tarefa do Operacional')
+        return
+      }
+    }
+
     const { error } = await supabase
       .from('contrato_produtos')
       .update({ rescaldo_feito: novoValor } as never)
       .eq('id', cpId)
+
+    if (error && tarefasFechadas.length > 0) await reabrirTarefasOperacionais(supabase, tarefasFechadas).catch(() => {})
+    if (error) alert('Erro ao salvar: ' + error.message)
 
     if (!error) {
       setContratoProdutos(prev => prev.map(cp => cp.id === cpId ? { ...cp, rescaldo_feito: novoValor } : cp))
@@ -1948,11 +1976,6 @@ export default function ContratoDetalhe() {
       // direto no pipeline?".
       if (novoValor) {
         const { data: { user } } = await supabase.auth.getUser()
-        await supabase.from('tarefas_operacionais').update({
-          status: 'concluida',
-          concluido_em: new Date().toISOString(),
-          anotacao_conclusao: 'Marcado como feito direto no contrato (fora do app do Operacional).',
-        } as never).eq('contrato_produto_id', cpId).eq('status', 'pendente')
         await supabase.from('historico_alteracoes').insert({
           entidade: 'contrato_produtos',
           entidade_id: cpId,
@@ -5308,6 +5331,7 @@ ${petNome}`
           produtosRescaldo={produtosRescaldo}
           salvando={salvandoRescaldo}
           onToggleFeito={toggleRescaldoFeito}
+          podeMarcarFeito={podeMarcarRescaldoFeito}
           onAdicionar={adicionarProdutoRescaldo}
           onAdicionarNenhum={async () => {
             setSalvandoRescaldo(true)

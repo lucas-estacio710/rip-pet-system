@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { hojeLocal } from '@/lib/date-local'
+import { concluirTarefasPendentesDe, reabrirTarefasOperacionais } from '@/lib/atribuir-tarefa'
 
 type ContratoMinimal = {
   id: string
@@ -42,6 +43,10 @@ export default function EntregaModal({ isOpen, onClose, contrato, onSuccess }: P
     setSalvando(true)
 
     try {
+      // Tarefa de Entrega pendente do Operacional fecha PRIMEIRO, com erro conferido (B-01):
+      // senão, se o banco recusasse, o contrato ficava finalizado e a tarefa órfã em /tarefas.
+      const tarefasFechadas = await concluirTarefasPendentesDe(supabase, { contratoIds: [contrato.id], tipo: 'entrega' }, 'Marcado como entregue direto no contrato (fora do app do Operacional).')
+
       const { error } = await supabase
         .from('contratos')
         .update({
@@ -50,18 +55,12 @@ export default function EntregaModal({ isOpen, onClose, contrato, onSuccess }: P
         } as never)
         .eq('id', contrato.id)
 
-      if (error) throw error
+      if (error) {
+        if (tarefasFechadas.length > 0) await reabrirTarefasOperacionais(supabase, tarefasFechadas).catch(() => {})
+        throw error
+      }
 
-      // Se tinha tarefa de Entrega pendente pro Operacional nesse contrato, marca concluída —
-      // senão fica órfã em /tarefas pra sempre (a entrega já foi confirmada por aqui, direto
-      // no pipeline/detalhe, não pelo app). Mesma classe de bug do cancelamento de ficha órfão
-      // (ver CHANGELOG 23/08/2026).
       const { data: { user } } = await supabase.auth.getUser()
-      await supabase.from('tarefas_operacionais').update({
-        status: 'concluida',
-        concluido_em: new Date().toISOString(),
-        anotacao_conclusao: 'Marcado como entregue direto no contrato (fora do app do Operacional).',
-      } as never).eq('contrato_id', contrato.id).eq('tipo', 'entrega').eq('status', 'pendente')
       await supabase.from('historico_alteracoes').insert({
         entidade: 'contratos',
         entidade_id: contrato.id,

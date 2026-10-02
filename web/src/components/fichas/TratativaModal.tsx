@@ -11,6 +11,7 @@ import { useFieldPermission } from '@/hooks/useFieldPermission'
 import { gerarContratoPDF, contratoFilename } from '@/lib/contrato-pdf'
 import { criarContratoDeFicha, ContratoValidationError } from '@/lib/criar-contrato-de-ficha'
 import { hojeLocal } from '@/lib/date-local'
+import { concluirTarefasPendentesDe } from '@/lib/atribuir-tarefa'
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ⚠️  MODAIS GÊMEOS — TratativaModal (este)  ⇄  AtivarModal
@@ -811,14 +812,20 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       // padrão do AtivarModal na Ativação de Preventivo.
       if (aguardarAcolhimento && responsavelUserId) {
         const { data: { user: userAtual } } = await supabase.auth.getUser()
-        await supabase.from('tarefas_operacionais').insert({
+        const { error: errTarefa } = await supabase.from('tarefas_operacionais').insert({
           unidade_id: ficha.unidade_id,
           tipo: 'remocao',
           contrato_id: contratoId,
           atribuido_a: responsavelUserId,
           atribuido_por: userAtual?.id || null,
         } as never)
-        await notificarAtribuicaoRemocao(responsavelUserId, ficha.nome_pet || 'um pet')
+        // Erro conferido (B-01): antes um 23505 (já havia tarefa pendente no contrato) sumia
+        // calado e ninguém recebia a remoção. O contrato já existe — avisa em vez de desfazer.
+        if (errTarefa) {
+          toast(`Contrato criado, mas a tarefa de remoção NÃO foi atribuída (${errTarefa.message}). Atribua pelo /tarefas.`, 'error')
+        } else {
+          await notificarAtribuicaoRemocao(responsavelUserId, ficha.nome_pet || 'um pet')
+        }
       }
 
       // Se a ficha tinha remoção pendente pro Operacional (Responsável era Operacional —
@@ -826,15 +833,18 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       // nascer direto pelo Tratativa, sem passar pela confirmação do Operacional em
       // /tarefas — senão a tarefa fica pendurada pra sempre (mesma classe dos outros 7
       // gatilhos de tarefa órfã, achado em produção 01/09/2026).
-      const { data: tarefaPendente } = await supabase.from('tarefas_operacionais')
-        .select('id').eq('ficha_id', ficha.id).eq('tipo', 'remocao').eq('status', 'pendente').maybeSingle() as { data: { id: string } | null }
+      // Erro conferido (B-01): remoção exige foto, então o trigger da mig 147 recusa quem não é
+      // gerente. Antes o update ia sem olhar o erro e a tarefa ficava órfã calada. O contrato
+      // já foi criado — então avisa, em vez de desfazer tudo.
+      let tarefasFechadas: string[] = []
+      try {
+        tarefasFechadas = await concluirTarefasPendentesDe(supabase, { fichaId: ficha.id, tipo: 'remocao' }, 'Contrato criado direto pelo Tratativa — sem passar pela confirmação do Operacional em /tarefas.')
+      } catch (errFechar) {
+        toast(`Contrato criado, mas a tarefa de remoção do Operacional continua aberta: ${errFechar instanceof Error ? errFechar.message : 'erro'}`, 'error')
+      }
+      const tarefaPendente = tarefasFechadas.length > 0 ? { id: tarefasFechadas[0] } : null
       if (tarefaPendente) {
         const { data: { user: userAtual } } = await supabase.auth.getUser()
-        await supabase.from('tarefas_operacionais').update({
-          status: 'concluida',
-          concluido_em: new Date().toISOString(),
-          anotacao_conclusao: 'Contrato criado direto pelo Tratativa — sem passar pela confirmação do Operacional em /tarefas.',
-        } as never).eq('id', tarefaPendente.id)
         await supabase.from('historico_alteracoes').insert({
           entidade: 'tarefa_operacional',
           entidade_id: tarefaPendente.id,

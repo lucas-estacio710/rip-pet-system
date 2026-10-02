@@ -42,6 +42,8 @@ import { gerarFichaPDFA4Duplicada, nomeFicha } from '@/lib/ficha-generator'
 import { baixarContratoPDF } from '@/lib/contrato-pdf-download'
 import { tituloNome, primeiroNome, separarPrimeiroNome } from '@/lib/nome-tutor'
 import { consultaEmLotes } from '@/lib/consulta-em-lotes'
+import { concluirTarefasPendentesDe, reabrirTarefasOperacionais, podeMarcarFeitoSemFoto } from '@/lib/atribuir-tarefa'
+import { carregarExigeFoto, type ExigeFotoPorTipo } from '@/lib/foto-tarefa'
 import EditarContratoModal from '@/components/contratos/modals/EditarContratoModal'
 import EditarFichaModal from '@/components/contratos/modals/EditarFichaModal'
 
@@ -344,7 +346,7 @@ function calcFinanceiroProtocolo(
 function ContratosContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const { currentUnit, allUnidades, isLoading: unitLoading, hasModule, userName } = useUnit()
+  const { currentUnit, allUnidades, isLoading: unitLoading, hasModule, userName, isSuperAdmin, currentRole } = useUnit()
   const { isVisible } = useFieldPermission()
   const T = 'tela_pipeline'
 
@@ -662,6 +664,11 @@ function ContratosContent() {
     try {
       const c = bypassContrato
 
+      // 0. Tarefa de Entrega pendente do Operacional fecha PRIMEIRO, com erro conferido
+      // (B-01): se o banco recusar, o bypass nem começa — antes ia por último, sem olhar o
+      // erro, e a tarefa ficava órfã em /tarefas com o contrato já finalizado.
+      await concluirTarefasPendentesDe(supabase, { contratoIds: [c.id], tipo: 'entrega' }, 'Contrato finalizado via bypass no pipeline (fora do app do Operacional).')
+
       // 1. Desvincular de supinda de IDA (se houver) + recalcular
       if (c.supinda_id) {
         await supabase.from('contratos').update({ supinda_id: null } as never).eq('id', c.id)
@@ -703,15 +710,6 @@ function ContratosContent() {
       }
       if (bypassDataEntrega) updates.data_entrega = bypassDataEntrega
       await supabase.from('contratos').update(updates as never).eq('id', c.id)
-
-      // Se tinha tarefa de Entrega pendente pro Operacional nesse contrato, marca concluída —
-      // senão fica órfã em /tarefas pra sempre (o bypass já finalizou o contrato, pulando a
-      // etapa). Mesma classe de bug do EntregaModal/RescaldoModal (ver CHANGELOG 25/08/2026).
-      await supabase.from('tarefas_operacionais').update({
-        status: 'concluida',
-        concluido_em: new Date().toISOString(),
-        anotacao_conclusao: 'Contrato finalizado via bypass no pipeline (fora do app do Operacional).',
-      } as never).eq('contrato_id', c.id).eq('tipo', 'entrega').eq('status', 'pendente')
 
       setBypassContrato(null)
       setBypassDataCremacao('')
@@ -775,6 +773,17 @@ function ContratosContent() {
 
   const POR_PAGINA = 30
   const supabase = createClient()
+
+  // P-29: o ✓ de personalizado/pelinho some pra quem não pode concluir sem foto (concierge numa
+  // unidade com o Operacional). Config lida 1× — é a mesma do trigger da mig 147.
+  const [exigeFotoPorTipo, setExigeFotoPorTipo] = useState<ExigeFotoPorTipo>({})
+  useEffect(() => { carregarExigeFoto(supabase).then(setExigeFotoPorTipo).catch(() => {}) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const podeMarcarRescaldoFeito = (rescaldoTipo: string | null | undefined) => podeMarcarFeitoSemFoto({
+    exigeFoto: !!rescaldoTipo && exigeFotoPorTipo[rescaldoTipo] === true,
+    unidadeTemOperacional: !!allUnidades.find(u => u.id === rescaldoContrato?.unidade_id)?.modulos_ativos?.includes('cb_operacional'),
+    isSuperAdmin,
+    role: currentRole,
+  })
 
   useEffect(() => {
     supabase.from('fontes_conhecimento').select('id').eq('nome', 'Indicação em Clínica').maybeSingle()
@@ -3220,19 +3229,18 @@ ${petNome}`
 
     setEntregaBatchLoading(true)
     try {
+      // Tarefas de Entrega pendentes do Operacional fecham PRIMEIRO, com erro conferido (B-01)
+      // — senão cada contrato da leva ficava finalizado com a tarefa órfã em /tarefas.
+      const tarefasFechadas = await concluirTarefasPendentesDe(supabase, { contratoIds: ids, tipo: 'entrega' }, 'Contrato finalizado via entrega em lote no pipeline (fora do app do Operacional).')
+
       const { error } = await supabase
         .from('contratos')
         .update({ status: 'finalizado', data_entrega: dataEntrega } as never)
         .in('id', ids)
-      if (error) throw error
-
-      // Mesma limpeza do EntregaModal/executarBypass — senão cada contrato dessa leva que
-      // tinha tarefa de Entrega pendente pro Operacional fica órfão em /tarefas.
-      await supabase.from('tarefas_operacionais').update({
-        status: 'concluida',
-        concluido_em: new Date().toISOString(),
-        anotacao_conclusao: 'Contrato finalizado via entrega em lote no pipeline (fora do app do Operacional).',
-      } as never).in('contrato_id', ids).eq('tipo', 'entrega').eq('status', 'pendente')
+      if (error) {
+        if (tarefasFechadas.length > 0) await reabrirTarefasOperacionais(supabase, tarefasFechadas).catch(() => {})
+        throw error
+      }
 
       // Atualiza lista local + contadores
       const countByStatus: Record<string, number> = {}
@@ -4123,10 +4131,27 @@ ${petNome}`
   async function toggleRescaldoFeito(cpId: string, novoValor: boolean) {
     if (!rescaldoContrato) return
 
+    // 🔴 A tarefa do Operacional (se houver) fecha ANTES do produto, com erro conferido
+    // (B-01/P-29). Era o contrário e sem olhar o erro: o trigger da mig 147 recusava (pede foto,
+    // não é gerente), o produto ficava "feito" e a tarefa pendente pra sempre — as órfãs de
+    // 17/09. O ✓ já some pra quem não pode (RescaldoModal `podeMarcarFeito`); isto é a rede.
+    let tarefasFechadas: string[] = []
+    if (novoValor) {
+      try {
+        tarefasFechadas = await concluirTarefasPendentesDe(supabase, { contratoProdutoId: cpId }, 'Marcado como feito direto no pipeline (fora do app do Operacional).')
+      } catch (err) {
+        alert(err instanceof Error ? err.message : 'Erro ao concluir a tarefa do Operacional')
+        return
+      }
+    }
+
     const { error } = await supabase
       .from('contrato_produtos')
       .update({ rescaldo_feito: novoValor } as never)
       .eq('id', cpId)
+
+    if (error && tarefasFechadas.length > 0) await reabrirTarefasOperacionais(supabase, tarefasFechadas).catch(() => {})
+    if (error) alert('Erro ao salvar: ' + error.message)
 
     if (!error) {
       const atualizarProdutos = (prods?: ContratoProduto[]) =>
@@ -4146,11 +4171,6 @@ ${petNome}`
       // órfão (ver CHANGELOG 23/08/2026).
       if (novoValor) {
         const { data: { user } } = await supabase.auth.getUser()
-        await supabase.from('tarefas_operacionais').update({
-          status: 'concluida',
-          concluido_em: new Date().toISOString(),
-          anotacao_conclusao: 'Marcado como feito direto no pipeline (fora do app do Operacional).',
-        } as never).eq('contrato_produto_id', cpId).eq('status', 'pendente')
         await supabase.from('historico_alteracoes').insert({
           entidade: 'contrato_produtos',
           entidade_id: cpId,
@@ -8047,6 +8067,7 @@ ${petNome}`
           produtosRescaldo={produtosRescaldo}
           salvando={salvandoRescaldo}
           onToggleFeito={toggleRescaldoFeito}
+          podeMarcarFeito={podeMarcarRescaldoFeito}
           onAdicionar={adicionarProdutoRescaldo}
           onAdicionarNenhum={async () => {
             setSalvandoRescaldo(true)

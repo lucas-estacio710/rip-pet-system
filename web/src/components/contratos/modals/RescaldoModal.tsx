@@ -56,6 +56,12 @@ type RescaldoModalProps = {
   onAdicionarNenhum: () => void
   onRemover: (cpId: string, produtoId: string) => void
   onClose: () => void
+  /**
+   * Pode marcar "feito" este tipo sem foto? (P-29, `podeMarcarFeitoSemFoto` em
+   * lib/atribuir-tarefa.ts). Falso = o ✓ não aparece: concierge conclui pelo /tarefas, com
+   * foto, ou chama o gerente. Ausente = pode (comportamento antigo).
+   */
+  podeMarcarFeito?: (rescaldoTipo: string | null | undefined) => boolean
 }
 
 function produtoIdDe(cp: RescaldoLinha): string {
@@ -74,6 +80,7 @@ export default function RescaldoModal({
   onAdicionarNenhum,
   onRemover,
   onClose,
+  podeMarcarFeito,
 }: RescaldoModalProps) {
   const [busca, setBusca] = useState('')
 
@@ -162,7 +169,15 @@ export default function RescaldoModal({
                   </div>
                 </div>
 
-                {/* Toggle feito */}
+                {/* Toggle feito — sem o ✓ quando este tipo pede foto e quem está logado não é gerente */}
+                {!cp.rescaldo_feito && podeMarcarFeito && !podeMarcarFeito(cp.produto?.rescaldo_tipo) ? (
+                  <span
+                    className="flex items-center justify-center w-9 h-9 rounded-full bg-slate-700 text-slate-400 text-sm"
+                    title="Pede foto: conclua pelo /tarefas ou chame o gerente"
+                  >
+                    📷
+                  </span>
+                ) : (
                 <button
                   onClick={() => onToggleFeito(cp.id, !cp.rescaldo_feito)}
                   className={`flex items-center justify-center w-9 h-9 rounded-full transition-colors ${
@@ -174,6 +189,7 @@ export default function RescaldoModal({
                 >
                   {cp.rescaldo_feito ? '✓' : '○'}
                 </button>
+                )}
 
                 {/* Remover */}
                 <button
