@@ -1,0 +1,44 @@
+/* ============================================================================
+   Pipeline redesenhado — peças visuais que não cabem em classe Tailwind.
+   docs/PLAYBOOK_REDESENHO_PIPELINE.md §1.8 e docs/playbook_redesenho/07_layout_infra.md §2.
+
+   Regras deste arquivo:
+   - Tudo prefixado `pl-` (não colidir com slideUp/scaleIn do globals.css).
+   - Cor só por token (--surface-*, --brand-*) — o tema CLARO remapeia classes Tailwind com
+     !important (globals.css, bloco [data-theme="white"]); token não mente.
+   - Todo movimento tem saída em prefers-reduced-motion (o app não tinha nenhuma até aqui).
+   ============================================================================ */
+
+/* Dock do desktop (D3): a escala de cada bolinha vem do mouse via --k (useDock). Registrada pra
+   poder animar; sem suporte (Safari < 16.4) o valor pula sem animar — degradação aceitável. */
+@property --k {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 1;
+}
+
+/* Entrada do PopupCentral: scale(.94) → 1, igual ao rpCentro da bancada. */
+@keyframes pl-popup-in {
+  from { opacity: 0; transform: scale(0.94); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes pl-overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.pl-popup-in {
+  animation: pl-popup-in 180ms var(--ease-out, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+
+.pl-overlay-in {
+  animation: pl-overlay-in 150ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pl-popup-in,
+  .pl-overlay-in {
+    animation: none;
+  }
+}

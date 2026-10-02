@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* Pipeline redesenhado (prefixo pl-, tokens, reduced-motion) — ver o cabeçalho do arquivo. */
+@import "./pipeline.css";
 
 /* ============================================
    R.I.P. Pet CRM — Design Tokens 2026
