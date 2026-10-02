@@ -216,6 +216,54 @@ function dataISO(campo: string, anoPadrao: number, hoje: string): string | null 
   return iso(ano)
 }
 
+// ── Fatura do Inter colada do PDF (02/10/2026) ─────────────────────────────
+// "13 de mai. 2026 ELYON SOLUCOES GRAFICA (Parcela 03 de 03) - R$ 265,00"
+const MESES_NOME: Record<string, number> = {
+  jan: 1, fev: 2, mar: 3, abr: 4, mai: 5, jun: 6, jul: 7, ago: 8, set: 9, out: 10, nov: 11, dez: 12,
+}
+/** Data por extenso no começo da linha vira dd/mm/aaaa ("13 de mai. 2026", "13 mai 2026", "13/mai/2026"). */
+function dataPorExtenso(linha: string): string {
+  return linha.replace(/^(\d{1,2})(?:\s+de\s+|\s+|[/-])([a-zç]{3,9})\.?(?:\s+de\s+|\s+|[/-])(\d{4})(?=\s|$|;)/i, (todo, d, mes, a) => {
+    const m = MESES_NOME[mes.slice(0, 3).toLowerCase()]
+    return m ? `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${a}` : todo
+  })
+}
+/** "- R$ 265,00" → "-265,00": o espaço entre sinal e moeda impedia o número de ser lido. */
+const semMoeda = (linha: string) => linha.replace(/([-+])\s*R\$\s*/g, '$1').replace(/R\$\s*/g, '')
+
+/**
+ * Linhas da fatura que não são lançamento nem continuação dele — sem este filtro
+ * elas grudavam na descrição da compra anterior e sujavam a semelhança: o câmbio
+ * da compra internacional, o cabeçalho, o número mascarado do cartão.
+ */
+const RE_RUIDO_FATURA = /^(valor e s[ií]mbolo da moeda|valor em d[oó]lar|cota[cç][aã]o d[oa]|despesas da fatura|data\s+movimenta|cart[aã]o\s+\d{4})|\d{4}\*{4}\d{4}/i
+
+/**
+ * O cabeçalho da fatura do Inter: "5497****0153 10/06/2026 R$5.400,96" — cartão,
+ * VENCIMENTO e TOTAL. Preenche a fatura sozinho e permite conferir a soma.
+ */
+export function cabecalhoFatura(texto: string): { venc: string; total: number } | null {
+  const m = texto.match(/\d{4}\*{4}\d{4}\s+(\d{2})\/(\d{2})\/(\d{4})\s+R?\$?\s*([\d.]+,\d{2})/)
+  if (!m) return null
+  const total = numeroBR(m[4])
+  return total === null ? null : { venc: `${m[3]}-${m[2]}-${m[1]}`, total }
+}
+
+/** "(Parcela 03 de 03)", "PARC 02/10", "Parcela 2/3" → [atual, total]. */
+export function parcelaDe(descricao: string): [number, number] | null {
+  const m = descricao.match(/PARC(?:ELA)?\.?\s*(\d{1,2})\s*(?:DE|\/)\s*(\d{1,2})/i)
+  if (!m) return null
+  const a = Number(m[1]), t = Number(m[2])
+  return a >= 1 && t >= a ? [a, t] : null
+}
+/** Soma meses a uma data ISO, segurando o dia no fim do mês (31/01 + 1 = 28/02). */
+function somaMeses(iso: string, meses: number): string {
+  const [a, m, d] = iso.split('-').map(Number)
+  const alvo = new Date(Date.UTC(a, m - 1 + meses, 1))
+  const ultimo = new Date(Date.UTC(alvo.getUTCFullYear(), alvo.getUTCMonth() + 1, 0)).getUTCDate()
+  return `${alvo.getUTCFullYear()}-${String(alvo.getUTCMonth() + 1).padStart(2, '0')}-${String(Math.min(d, ultimo)).padStart(2, '0')}`
+}
+
 /** Linhas que têm data e valor mas NÃO são lançamento — entrariam em dobro. */
 const RE_NAO_LANCAMENTO = /^(saldo|sdo|s\s*a\s*l\s*d\s*o)\b|saldo (do dia|anterior|final|inicial|em conta|dispon|aplic)/i
 
@@ -247,6 +295,11 @@ export function lerExtrato(
   texto: string,
   anoPadrao = new Date().getFullYear(),
   hoje = new Date().toISOString().slice(0, 10),
+  /** Fatura de cartão: sem "continuação" (o nome do titular grudaria na compra
+   *  anterior) e parcela datada no mês DELA — a 3/3 de uma compra de 13/03 é
+   *  13/05; com a data da compra, ela teria a mesma data e valor da 1/3 e o
+   *  "já no sistema" a esconderia como repetida. */
+  opts: { cartao?: boolean } = {},
 ): LinhaExtrato[] {
   const linhas = texto.split(/\r?\n/)
   const out: LinhaExtrato[] = []
@@ -255,8 +308,9 @@ export function lerExtrato(
   // Fica esperando a próxima, que traz o resto do histórico e o número.
   let pendente: { n: number; data: string; descricao: string; original: string } | null = null
   linhas.forEach((orig, idx) => {
-    const linha = orig.trim()
+    const linha = semMoeda(dataPorExtenso(orig.trim()))
     if (!linha) return
+    if (RE_RUIDO_FATURA.test(linha)) return             // não mexe no `pendente`
     let cs = campos(linha)
     if (!cs.length) return                              // ";;;" — só separadores
     if (pendente && !/^\d{1,2}\/\d{1,2}/.test(linha)) {
@@ -288,14 +342,17 @@ export function lerExtrato(
     // data no começo e sem número no fim → junta na linha anterior.
     const comecaComData = /^\d{1,2}\/\d{1,2}/.test(linha)
     if (!comecaComData && numeroBR(cs[cs.length - 1]) === null && out.length) {
-      out[out.length - 1].descricao += ' ' + linha.replace(/\s+/g, ' ')
+      if (!opts.cartao) out[out.length - 1].descricao += ' ' + linha.replace(/\s+/g, ' ')
       return
     }
     // linha com espaço simples (copiada de PDF): tenta separar data e números do resto
     if (cs.length === 1) {
       const m = linha.match(/^(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\s+(.*?)\s+([-+]?[\d.,]+[-DC]?)(?:\s+([-+]?[\d.,]+[-DC]?))?$/i)
-      if (!m) return
-      cs = [m[1], m[2], m[3], ...(m[4] ? [m[4]] : [])]
+      // Data + histórico SEM valor (compra internacional: o valor vem linhas
+      // abaixo, depois do câmbio) → vira `pendente` lá embaixo.
+      const s = m ? null : linha.match(/^(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\s+(.+)$/)
+      if (!m && !s) return
+      cs = m ? [m[1], m[2], m[3], ...(m[4] ? [m[4]] : [])] : [s![1], s![2]]
     }
     // A data só vale no COMEÇO da linha: "PARC 03/10" no meio do histórico
     // parece data sem ano e não é.
@@ -324,5 +381,10 @@ export function lerExtrato(
       original: orig,
     })
   })
-  return out
+  if (!opts.cartao) return out
+  // Parcela no mês DELA (ver `opts`): a N-ésima de uma compra vai N−1 meses à frente.
+  return out.map(l => {
+    const p = parcelaDe(l.descricao)
+    return p && p[0] > 1 ? { ...l, data: somaMeses(l.data, p[0] - 1) } : l
+  })
 }

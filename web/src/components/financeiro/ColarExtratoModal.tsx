@@ -32,11 +32,11 @@ import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import { fmtBRL, fmtData } from '@/lib/financeiro'
 import {
-  lerExtrato, movimentoDe, pareceMaquininha, metodoDe, fornecedorDe, naoEDespesa, quitacaoDe, foraDoCartao,
+  lerExtrato, movimentoDe, pareceMaquininha, metodoDe, fornecedorDe, naoEDespesa, quitacaoDe, foraDoCartao, cabecalhoFatura,
   ROTULO_MOV, ENTRA_MOV, movDoRegistro, type MovMaquininha, type LinhaExtrato,
 } from '@/lib/extrato'
 import { criarIndice, sugerir, type Sugestao } from '@/lib/similaridade'
-import { buscarCategorias, type CategoriaBuscavel } from '@/lib/busca-categoria'
+import { buscarCategorias, sugerirPorSinonimo, type CategoriaBuscavel } from '@/lib/busca-categoria'
 
 type ContaRow = { id: string; nome: string; produto: string | null; tipo: string | null; preferencial_recebimento: boolean | null }
 type Cat = {
@@ -68,6 +68,7 @@ type Item = LinhaExtrato & {
   metodo: string
   fornecedor: string
   doHistorico: boolean
+  porSinonimo: boolean           // categoria veio do sinônimo (sem histórico) — confira
   sugestoes: Sugestao<Decisao>[]
 }
 
@@ -112,6 +113,8 @@ export default function ColarExtratoModal({
   const [faturas, setFaturas] = useState<{ venc: string; total: number; qtd: number }[]>([])
   const [vencimento, setVencimento] = useState('')
   const [novaFatura, setNovaFatura] = useState(false)
+  // Cabeçalho da fatura colada (vencimento + total), pra preencher e conferir.
+  const [cabecalho, setCabecalho] = useState<{ venc: string; total: number } | null>(null)
   useEffect(() => {
     setVencimento(''); setNovaFatura(false); setFaturas([])
     if (!ehCartao || !contaId) return
@@ -158,7 +161,7 @@ export default function ColarExtratoModal({
     const ano = Number(mes.slice(0, 4)) || new Date().getFullYear()
     // No cartão o sinal do banco não serve: há fatura que lista a compra positiva.
     // Toda linha que não é pagamento nem estorno é COMPRA, e compra é saída.
-    const linhas = lerExtrato(texto, ano).map(l =>
+    const linhas = lerExtrato(texto, ano, undefined, { cartao: ehCartao }).map(l =>
       ehCartao && !foraDoCartao(l.descricao) ? { ...l, valor: -Math.abs(l.valor) } : l)
     if (!linhas.length) { setItens([]); return toast('Nenhuma linha com data e valor no texto colado', 'error') }
     setLendo(true)
@@ -285,7 +288,7 @@ export default function ColarExtratoModal({
         ...l, jaNoSistema: null as string | null, motivoFora: null as string | null, marcado: true,
         opId: '', mov: '' as MovMaquininha | '', catId: '', catTexto: '',
         metodo: ehCartao ? 'credito' : (metodoDe(l.descricao) || 'pix'), fornecedor: fornecedorDe(l.descricao),
-        doHistorico: false, sugestoes: [] as Sugestao<Decisao>[],
+        doHistorico: false, porSinonimo: false, sugestoes: [] as Sugestao<Decisao>[],
       }
       // 1) já está no sistema?
       const par = pares.get(l.n)
@@ -333,8 +336,18 @@ export default function ColarExtratoModal({
       if (destino === 'despesa' && alta && top?.decisao.tipo === 'despesa') {
         item.catId = top.decisao.catId; item.catTexto = caminhoDe(top.decisao.catId); item.doHistorico = true
       }
+      // Sem decisão do histórico: tenta o sinônimo da árvore (palavra inteira).
+      if (destino === 'despesa' && !item.catId) {
+        const s = sugerirPorSinonimo(folhas, l.descricao)
+        if (s) { item.catId = s.id; item.catTexto = caminhoDe(s.id); item.porSinonimo = true }
+      }
       return item
     }))
+    // Fatura: o cabeçalho traz vencimento e total — preenche a fatura (se ainda
+    // não escolhida) e guarda o total pra conferir a soma das compras.
+    const cab = ehCartao ? cabecalhoFatura(texto) : null
+    setCabecalho(cab)
+    if (cab && !vencimento) { setVencimento(cab.venc); setNovaFatura(!faturas.some(f => f.venc === cab.venc)) }
     setLendo(false)
   }
 
@@ -457,7 +470,7 @@ export default function ColarExtratoModal({
                   {/* A MESMA busca do formulário (lib/busca-categoria): nome, caminho
                       e SINÔNIMOS, sem acento — "lavagem" acha Veículos › Limpeza. */}
                   <input value={i.catTexto} placeholder="Categoria… (ex.: lavagem, gasolina)"
-                         onChange={e => muda(i.n, { catTexto: e.target.value, catId: '', doHistorico: false })}
+                         onChange={e => muda(i.n, { catTexto: e.target.value, catId: '', doHistorico: false, porSinonimo: false })}
                          className="input text-[11px] py-0.5 px-1.5 flex-1 min-w-[170px]"
                          style={!i.catId ? { borderColor: '#f59e0b' } : undefined} />
                   <select value={i.metodo} onChange={e => muda(i.n, { metodo: e.target.value })} className="input text-[11px] py-0.5 px-1">
@@ -470,6 +483,11 @@ export default function ColarExtratoModal({
               {i.doHistorico && (
                 <span className="text-[11px] text-sky-500 inline-flex items-center gap-0.5" title="Muito parecido com registros anteriores">
                   <History className="h-3 w-3" /> como das outras vezes
+                </span>
+              )}
+              {i.porSinonimo && i.destino === 'despesa' && (
+                <span className="text-[11px] text-amber-500" title="Sugerida pelos sinônimos da categoria — não há histórico ainda. Se estiver errada, troque: da próxima vez vem pelo histórico">
+                  pelo nome — confira
                 </span>
               )}
               {i.destino === 'fora' && i.motivoFora && <span className="text-[11px] text-amber-500">{i.motivoFora}</span>}
@@ -491,7 +509,7 @@ export default function ColarExtratoModal({
               <div className="rounded-[var(--radius-md)] border border-[var(--surface-200)] divide-y divide-[var(--surface-200)]">
                 {achados.map(({ c, termoBatido, forte }) => (
                   <button key={c.id} type="button"
-                          onClick={() => muda(i.n, { catId: c.id, catTexto: caminhoDe(c.id) })}
+                          onClick={() => muda(i.n, { catId: c.id, catTexto: caminhoDe(c.id), porSinonimo: false })}
                           className="w-full text-left px-2 py-1 text-[11px] hover:bg-[var(--surface-50)] flex items-center gap-2">
                     <span className="flex-1 truncate text-[var(--surface-700)]">{caminhoDe(c.id)}</span>
                     {!forte && termoBatido && <span className="text-[10px] text-[var(--surface-400)] shrink-0">“{termoBatido}”</span>}
@@ -513,7 +531,7 @@ export default function ColarExtratoModal({
                 return (
                   <button key={s.chave} type="button"
                           onClick={() => muda(i.n, d.tipo === 'despesa'
-                            ? { catId: d.catId, catTexto: caminhoDe(d.catId) }
+                            ? { catId: d.catId, catTexto: caminhoDe(d.catId), porSinonimo: false }
                             : { opId: d.opId, mov: d.mov || '' })}
                           className="text-[10px] px-1.5 py-0.5 rounded-full border border-[var(--surface-300)] text-[var(--surface-500)] hover:border-sky-500 hover:text-sky-500"
                           title={`Parecido com ${s.vezes} registro(s); o mais recente em ${fmtData(s.ultima)}`}>
@@ -635,6 +653,17 @@ export default function ColarExtratoModal({
                 <span className="text-[11px] text-amber-500">nenhuma maquininha cadastrada (aba Contas)</span>
               ))}
             {secao('Despesas', despesas)}
+            {ehCartao && cabecalho && (() => {
+              // Conferência: compras lidas (as já no sistema contam) contra o total da fatura.
+              const soma = itens.filter(i => !foraDoCartao(i.descricao)).reduce((a, i) => a + Math.abs(i.valor), 0)
+              const bate = Math.abs(soma - cabecalho.total) < 0.005
+              return (
+                <p className={`text-[11px] ${bate ? 'text-emerald-500' : 'text-amber-500'}`}>
+                  {bate ? '✓ ' : '⚠ '}Compras lidas somam {fmtBRL(soma)} · fatura de {fmtData(cabecalho.venc)}: {fmtBRL(cabecalho.total)}
+                  {!bate && ` — faltam ${fmtBRL(cabecalho.total - soma)}; confira se o texto colado está inteiro`}
+                </p>
+              )
+            })()}
             {secao('Já no sistema ou fora', fora)}
             {itens.some(i => i.destino === 'receita' && i.mov === 'antecipacao' && i.marcado) && (
               <p className="text-[11px] text-amber-500">

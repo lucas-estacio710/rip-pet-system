@@ -15,6 +15,33 @@ export type CategoriaBuscavel = { id: string; nome: string; termos: string[] | n
 export const normCat = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
 /**
+ * SUGESTÃO POR SINÔNIMO a partir do texto do banco/fatura (02/10/2026) — a
+ * segunda fonte do Colar, pra quando não há histórico (a 1ª fatura colada não
+ * tem nenhum). Compara PALAVRA INTEIRA do texto com palavra inteira do nome e
+ * dos sinônimos: pedaço de palavra faria "posto" casar com "imposto" (9 falsos).
+ * Só devolve quando há UM vencedor. Não é certeza ("Google One" cai em Tráfego
+ * pago pela palavra "google") — a tela marca "confira", e o histórico, quando
+ * existir, manda.
+ */
+const ALIAS_CARTAO: Record<string, string> = { ifd: 'ifood' }   // "IFD*RAPOSO BAR" = iFood
+const PALAVRA_VAZIA = new Set(['parcela', 'parc', 'inc', 'ltda', 'eireli', 'subscr', 'subscription', 'pagamento', 'compra', 'vista', 'internacional'])
+export function sugerirPorSinonimo<T extends CategoriaBuscavel>(folhas: T[], descricao: string): T | null {
+  const palavras = (s: string) => normCat(s).split(/[^a-z0-9]+/).filter(w => w.length >= 3 && !/^\d+$/.test(w))
+  const doTexto = palavras(
+    descricao.replace(/([a-z])([A-Z])/g, '$1 $2')       // "AutoPostoViaPraia" → "Auto Posto Via Praia"
+             .replace(/\d{4,}/g, ' '),                  // "ADS39457549" → "ADS"
+  ).map(w => ALIAS_CARTAO[w] || w).filter(w => !PALAVRA_VAZIA.has(w))
+  if (!doTexto.length) return null
+  let melhor: T | null = null, nota = 0, empate = false
+  for (const c of folhas) {
+    const daCat = new Set(palavras(`${c.nome} ${(c.termos || []).join(' ')}`))
+    const k = doTexto.filter(w => daCat.has(w)).length
+    if (k > nota) { melhor = c; nota = k; empate = false } else if (k && k === nota) empate = true
+  }
+  return nota && !empate ? melhor : null
+}
+
+/**
  * Busca no NOME, no CAMINHO e nos SINÔNIMOS. Todas as palavras digitadas têm de
  * aparecer; quem bate no nome do item vem antes de quem bate só por sinônimo.
  */
