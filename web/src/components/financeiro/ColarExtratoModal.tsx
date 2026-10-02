@@ -32,7 +32,7 @@ import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import { fmtBRL, fmtData } from '@/lib/financeiro'
 import {
-  lerExtrato, movimentoDe, pareceMaquininha, metodoDe, fornecedorDe, naoEDespesa, quitacaoDe,
+  lerExtrato, movimentoDe, pareceMaquininha, metodoDe, fornecedorDe, naoEDespesa, quitacaoDe, foraDoCartao,
   ROTULO_MOV, ENTRA_MOV, movDoRegistro, type MovMaquininha, type LinhaExtrato,
 } from '@/lib/extrato'
 import { criarIndice, sugerir, type Sugestao } from '@/lib/similaridade'
@@ -101,6 +101,39 @@ export default function ColarExtratoModal({
 
   const maquininhas = contas.filter(c => c.produto === 'maquininha')
   const correntes = contas.filter(c => c.produto !== 'maquininha' && c.tipo !== 'cartao')
+  // FATURA DE CARTÃO também se cola (02/10/2026). Muda três coisas: (1) cada compra
+  // sai do caixa no VENCIMENTO da fatura, não no dia — então pergunta-se qual
+  // fatura; (2) o "já no sistema" compara pela data da COMPRA (data_competencia),
+  // porque no Caixa o lançamento de crédito está na data do vencimento; (3) o
+  // pagamento da fatura e o estorno ficam de fora — o pagamento é o Pagamento de
+  // fatura em Lançamentos especiais, lançado do lado da conta corrente.
+  const cartoes = contas.filter(c => c.tipo === 'cartao')
+  const ehCartao = cartoes.some(c => c.id === contaId)
+  const [faturas, setFaturas] = useState<{ venc: string; total: number; qtd: number }[]>([])
+  const [vencimento, setVencimento] = useState('')
+  const [novaFatura, setNovaFatura] = useState(false)
+  useEffect(() => {
+    setVencimento(''); setNovaFatura(false); setFaturas([])
+    if (!ehCartao || !contaId) return
+    let cancelado = false
+    void (async () => {
+      const { data: ls } = await supabase.from('fin_lancamentos')
+        .select('data_caixa, valor')
+        .eq('conta_pagamento_id', contaId).eq('metodo_pagamento', 'credito')
+        .neq('status', 'rejeitado').not('data_caixa', 'is', null)
+      if (cancelado) return
+      const m = new Map<string, { total: number; qtd: number }>()
+      for (const l of (ls as { data_caixa: string; valor: number }[] | null) || []) {
+        const k = l.data_caixa.slice(0, 10)
+        const a = m.get(k) || { total: 0, qtd: 0 }
+        m.set(k, { total: a.total + Number(l.valor || 0), qtd: a.qtd + 1 })
+      }
+      const lista = [...m.entries()].map(([venc, v]) => ({ venc, ...v })).sort((a, b) => b.venc.localeCompare(a.venc))
+      setFaturas(lista)
+      if (!lista.length) setNovaFatura(true)
+    })()
+    return () => { cancelado = true }
+  }, [ehCartao, contaId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // As contas da unidade (as dela + as compartilhadas com ela), sem legado.
   useEffect(() => {
@@ -123,7 +156,10 @@ export default function ColarExtratoModal({
   async function ler() {
     if (!contaId) return toast('Escolha de qual conta é o extrato', 'error')
     const ano = Number(mes.slice(0, 4)) || new Date().getFullYear()
-    const linhas = lerExtrato(texto, ano)
+    // No cartão o sinal do banco não serve: há fatura que lista a compra positiva.
+    // Toda linha que não é pagamento nem estorno é COMPRA, e compra é saída.
+    const linhas = lerExtrato(texto, ano).map(l =>
+      ehCartao && !foraDoCartao(l.descricao) ? { ...l, valor: -Math.abs(l.valor) } : l)
     if (!linhas.length) { setItens([]); return toast('Nenhuma linha com data e valor no texto colado', 'error') }
     setLendo(true)
     const datas = linhas.map(l => l.data).sort()
@@ -132,12 +168,17 @@ export default function ColarExtratoModal({
 
     const [caixa, divs, histMov, histDesp] = await Promise.all([
       // 1) O QUE JÁ ESTÁ no Caixa desta conta nessas datas — de qualquer origem.
-      supabase.from('vw_caixa').select('data, valor, origem, origem_id, descricao')
-        .eq('conta_id', contaId).gte('data', ini).lte('data', fim),
+      //    No CARTÃO, pela data da compra: no Caixa ele está no vencimento.
+      ehCartao
+        ? supabase.from('fin_lancamentos').select('id, data_competencia, valor')
+            .eq('conta_pagamento_id', contaId).neq('status', 'rejeitado')
+            .gte('data_competencia', ini).lte('data_competencia', fim)
+        : supabase.from('vw_caixa').select('data, valor, origem, origem_id, descricao')
+            .eq('conta_id', contaId).gte('data', ini).lte('data', fim),
       // 2) As divisões dessas despesas, pra somar as partes (uma linha no banco).
       supabase.from('fin_lancamentos').select('id, divisao_id')
         .eq('conta_pagamento_id', contaId).not('divisao_id', 'is', null)
-        .gte('data_caixa', ini).lte('data_caixa', fim),
+        .gte(ehCartao ? 'data_competencia' : 'data_caixa', ini).lte(ehCartao ? 'data_competencia' : 'data_caixa', fim),
       // 3) A MEMÓRIA de receitas: registros que guardaram o texto do banco.
       maqIds.length
         ? supabase.from('fin_movimentos').select('descricao, conta_id, conta_destino_id, data')
@@ -157,7 +198,13 @@ export default function ColarExtratoModal({
     const divisaoDe = new Map(((divs.data as { id: string; divisao_id: string }[] | null) || []).map(d => [d.id, d.divisao_id]))
     type Reg = { data: string; valor: number; rotulo: string; contrato: string | null; usado: boolean }
     const agrup = new Map<string, Reg>()
-    ;((caixa.data as CX[] | null) || []).forEach((r, idx) => {
+    // Cartão: o lançamento vira o mesmo formato do Caixa, na data da compra.
+    const linhasCaixa: CX[] = ehCartao
+      ? ((caixa.data as { id: string; data_competencia: string; valor: number }[] | null) || []).map(l => ({
+          data: l.data_competencia.slice(0, 10), valor: -Number(l.valor), origem: 'lancamento', origem_id: l.id, descricao: null,
+        }))
+      : ((caixa.data as CX[] | null) || [])
+    linhasCaixa.forEach((r, idx) => {
       const grupo = r.origem === 'lancamento' && divisaoDe.get(r.origem_id)
       const id = grupo ? `div-${grupo}` : `${r.origem}-${idx}`
       const contrato = r.origem === 'pagamento' ? (r.descricao || '').trim() : null
@@ -237,7 +284,7 @@ export default function ColarExtratoModal({
       const base = {
         ...l, jaNoSistema: null as string | null, motivoFora: null as string | null, marcado: true,
         opId: '', mov: '' as MovMaquininha | '', catId: '', catTexto: '',
-        metodo: metodoDe(l.descricao) || 'pix', fornecedor: fornecedorDe(l.descricao),
+        metodo: ehCartao ? 'credito' : (metodoDe(l.descricao) || 'pix'), fornecedor: fornecedorDe(l.descricao),
         doHistorico: false, sugestoes: [] as Sugestao<Decisao>[],
       }
       // 1) já está no sistema?
@@ -247,8 +294,13 @@ export default function ColarExtratoModal({
         return { ...base, destino: 'fora' as Destino, marcado: false,
                  motivoFora: 'estornado no mesmo dia — a saída e o estorno se anulam' }
       }
+      // 2a) cartão: pagamento da fatura e estorno não são compra
+      if (ehCartao) {
+        const motivo = foraDoCartao(l.descricao)
+        if (motivo) return { ...base, destino: 'fora' as Destino, motivoFora: motivo, marcado: false }
+      }
       // 2) saída que não é despesa (fatura, aplicação)
-      const nao = l.valor < 0 ? naoEDespesa(l.descricao) : null
+      const nao = l.valor < 0 && !ehCartao ? naoEDespesa(l.descricao) : null
       if (nao) return { ...base, destino: 'fora' as Destino, motivoFora: nao, marcado: false }
 
       // 3) o histórico, só com decisões compatíveis com a direção do dinheiro
@@ -265,6 +317,7 @@ export default function ColarExtratoModal({
       else if (l.valor > 0) destino = pareceMaquininha(l.descricao) ? 'receita' : 'fora'
       else destino = 'despesa'
       if (destino === 'receita' && !permiteReceitas) destino = l.valor < 0 ? 'despesa' : 'fora'
+      if (ehCartao) destino = 'despesa'
 
       const item: Item = { ...base, destino, sugestoes: validas }
       if (destino === 'fora') {
@@ -302,6 +355,7 @@ export default function ColarExtratoModal({
   async function registrar() {
     if (!currentUnit?.id || !contaId) return
     if (!recProntas.length && !despProntas.length) return toast('Nada pronto pra registrar', 'error')
+    if (ehCartao && despProntas.length && !vencimento) return toast('Escolha a fatura (o vencimento) dessas compras', 'error')
     setSalvando(true)
     let entrouRec = 0
     try {
@@ -335,7 +389,8 @@ export default function ColarExtratoModal({
             conta_codigo: cc?.codigo || null, conta_nome: cc?.nome || null,   // SNAPSHOT da DRE
             natureza: cc?.natureza || 'opex',
             descricao: null, observacoes: i.descricao,   // texto do banco: ensina a próxima colagem
-            valor: Math.abs(i.valor), data_competencia: i.data, data_caixa: i.data,
+            valor: Math.abs(i.valor), data_competencia: i.data,
+            data_caixa: ehCartao ? vencimento : i.data,   // cartão: sai do caixa no vencimento
             fornecedor_nome: i.fornecedor.trim() || null, conta_pagamento_id: contaId,
             metodo_pagamento: i.metodo, rateio_meses: 1, origem: 'manual',
             criado_por_nome: userName || null, status: 'aprovado',
@@ -521,8 +576,37 @@ export default function ColarExtratoModal({
           <select value={contaId} onChange={e => { setContaId(e.target.value); setItens([]) }} className="input text-sm w-full">
             <option value="">Escolher…</option>
             {correntes.map(c => <option key={c.id} value={c.id}>{c.preferencial_recebimento ? '⭐ ' : ''}{c.nome}</option>)}
+            {cartoes.length > 0 && (
+              <optgroup label="Fatura de cartão">
+                {cartoes.map(c => <option key={c.id} value={c.id}>💳 {c.nome}</option>)}
+              </optgroup>
+            )}
           </select>
         </div>
+
+        {ehCartao && (
+          <div>
+            <label className="text-xs text-[var(--surface-500)] block mb-1">Fatura (vencimento) — é quando essas compras saem do caixa</label>
+            <div className="flex flex-wrap items-center gap-2">
+              {!novaFatura ? (
+                <select value={vencimento} onChange={e => setVencimento(e.target.value)} className="input text-sm flex-1"
+                        style={!vencimento ? { borderColor: '#f59e0b' } : undefined}>
+                  <option value="">Escolher a fatura…</option>
+                  {faturas.map(f => (
+                    <option key={f.venc} value={f.venc}>vence {fmtData(f.venc)} · {f.qtd} compras · {fmtBRL(f.total)}</option>
+                  ))}
+                </select>
+              ) : (
+                <input type="date" value={vencimento} onChange={e => setVencimento(e.target.value)} className="input text-sm flex-1"
+                       style={!vencimento ? { borderColor: '#f59e0b' } : undefined} />
+              )}
+              <button type="button" onClick={() => { setNovaFatura(v => !v); setVencimento('') }}
+                      className="text-xs text-emerald-500 hover:underline shrink-0">
+                {novaFatura ? (faturas.length ? 'escolher existente' : '') : '+ nova fatura'}
+              </button>
+            </div>
+          </div>
+        )}
 
         {!itens.length ? (
           <div className="space-y-2">

@@ -157,6 +157,24 @@ export function quitacaoDe(descricao: string): 'repasse' | 'fatura' | null {
   return null
 }
 
+/**
+ * Numa FATURA DE CARTÃO, a linha que não é compra (02/10/2026): o pagamento da
+ * própria fatura (já é o Pagamento de fatura, lançado do lado da conta corrente)
+ * e o estorno/crédito de uma compra. Devolve o motivo, ou null = é compra.
+ */
+export function foraDoCartao(descricao: string): string | null {
+  const t = normTexto(descricao)
+  // ⚠️ Não excluir por "COMPRA": a fatura do Inter põe "Compra à vista" na coluna
+  // Tipo até da linha do pagamento ("PAGAMENTO ON LINE · OUTROS · Compra à vista").
+  if (/^(PAGAMENTO|PAGTO|PGTO)|PAGAMENTO\s+(ON\s*LINE|EFETUADO|RECEBIDO|(DE\s+|DA\s+)?FATURA)|DEBITO\s+AUTOMATICO/.test(t)) {
+    return 'pagamento da fatura — já entra como Pagamento de fatura (Lançamentos especiais)'
+  }
+  if (/ESTORNO|CREDITO\s+(DE\s+)?COMPRA|REEMBOLSO|CASHBACK|AJUSTE\s+A\s+CREDITO/.test(t)) {
+    return 'estorno/crédito no cartão — abate a fatura, não é compra; confira'
+  }
+  return null
+}
+
 /** Número em formato brasileiro (ou inglês sem milhar), com sinal. */
 export function numeroBR(texto: string): number | null {
   let t = texto.trim().replace(/R\$|\s/g, '')
