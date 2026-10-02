@@ -14,13 +14,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import * as Icons from 'lucide-react'
-import { Plus, Loader2, X, Check, Trash2, Flame, Copy, Divide } from 'lucide-react'
+import { Plus, Loader2, X, Check, Trash2, Flame, Copy, Divide, ClipboardPaste } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
 import Modal from '@/components/ui/Modal'
 import CobrancasCard from './CobrancasCard'
 import ReceitasPrazoTab from './ReceitasPrazoTab'
+import ColarDespesasModal from './ColarDespesasModal'
 import UnderlineTabs from '@/components/ui/UnderlineTabs'
 import { criarIndice, sugerir, type Indice } from '@/lib/similaridade'
 import {
@@ -215,6 +216,7 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
   const [fornecedoresUsados, setFornecedoresUsados] = useState<string[]>([])
   // Histórico da unidade pra sugerir categoria por SEMELHANÇA (lib/similaridade).
   const [indiceCat, setIndiceCat] = useState<Indice<string> | null>(null)
+  const [colarAberto, setColarAberto] = useState(false)   // Colar do extrato (despesas)
 
   const catSelecionada = categorias.find(c => c.id === catId)
 
@@ -363,14 +365,14 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
     if (!currentUnit?.id) return
     supabase
       .from('fin_lancamentos')
-      .select('fornecedor_nome, descricao, categoria_id, data_competencia')
+      .select('fornecedor_nome, descricao, observacoes, categoria_id, data_competencia')
       .eq('unidade_id', currentUnit.id)
       .not('categoria_id', 'is', null)
       .neq('status', 'rejeitado')
       .order('created_at', { ascending: false })
       .limit(2000)
       .then(({ data }) => {
-        type H = { fornecedor_nome: string | null; descricao: string | null; categoria_id: string; data_competencia: string }
+        type H = { fornecedor_nome: string | null; descricao: string | null; observacoes: string | null; categoria_id: string; data_competencia: string }
         const linhas = (data as unknown as H[]) || []
         const vistos = new Set<string>()
         const nomes: string[] = []
@@ -382,13 +384,15 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
         setFornecedoresUsados(nomes)
         // O índice de semelhança: o que foi escrito naquela vez → a categoria.
         setIndiceCat(criarIndice(linhas.map(l => ({
-          texto: `${l.fornecedor_nome || ''} ${l.descricao || ''}`.trim(),
+          // O texto do banco (lançamentos colados guardam em `observacoes`) vem
+          // PRIMEIRO: é dele que a natureza ("Pix enviado:") é lida.
+          texto: `${l.observacoes || ''} ${l.fornecedor_nome || ''} ${l.descricao || ''}`.trim(),
           decisao: l.categoria_id,
           chave: l.categoria_id,
           data: (l.data_competencia || '').slice(0, 10),
         }))))
       })
-  }, [supabase, currentUnit?.id, aberto])
+  }, [supabase, currentUnit?.id, aberto, colarAberto])
 
   /**
    * O HISTÓRICO LEMBRA A CATEGORIA — por SEMELHANÇA (01/10/2026).
@@ -745,9 +749,16 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
         </span>
         {carregando && <Loader2 className="h-4 w-4 animate-spin text-[var(--surface-400)]" />}
         {!somenteLeitura && (
-          <button onClick={() => setAberto(true)} className="btn-primary text-sm ml-auto">
-            <Plus className="h-4 w-4" /> Novo lançamento
-          </button>
+          <div className="flex gap-2 ml-auto">
+            {/* O LOTE: cola as saídas do extrato, cada uma vira uma despesa
+                (ColarDespesasModal). O formulário continua pro avulso. */}
+            <button onClick={() => setColarAberto(true)} className="btn-secondary text-sm">
+              <ClipboardPaste className="h-4 w-4" /> Colar do extrato
+            </button>
+            <button onClick={() => setAberto(true)} className="btn-primary text-sm">
+              <Plus className="h-4 w-4" /> Novo lançamento
+            </button>
+          </div>
         )}
       </div>
 
@@ -847,7 +858,9 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
                   )}
                   {fmtData(l.data_competencia)}
                   {l.descricao && ` · ${l.descricao}`}
-                  {l.status === 'rejeitado' && l.observacoes && ` · ${l.observacoes}`}
+                  {/* Em lançamento colado do extrato, a observação é o texto do
+                      banco — é o que se procura no extrato na conferência. */}
+                  {l.observacoes && ` · ${l.observacoes}`}
                 </p>
               </div>
               <span
@@ -881,6 +894,18 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
           ))}
         </div>
       </div>
+
+      <ColarDespesasModal
+        aberto={colarAberto}
+        onClose={() => setColarAberto(false)}
+        contas={contas}
+        categorias={categorias}
+        folhas={folhas}
+        caminhoDe={caminhoDe}
+        indice={indiceCat}
+        mes={mes}
+        onRegistrou={() => { void carregar() }}
+      />
 
       {/* Novo lançamento */}
       <Modal
