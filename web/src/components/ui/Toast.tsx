@@ -5,14 +5,18 @@ import { X, CheckCircle2, AlertTriangle, AlertCircle, Info } from 'lucide-react'
 
 type ToastVariant = 'success' | 'error' | 'warning' | 'info'
 
+/** Botão dentro do aviso (ex.: "Desfazer"). Clicar executa e fecha o aviso. */
+export type ToastAction = { label: string; onClick: () => void }
+
 type Toast = {
   id: string
   message: string
   variant: ToastVariant
+  action?: ToastAction
 }
 
 type ToastContextType = {
-  toast: (message: string, variant?: ToastVariant) => void
+  toast: (message: string, variant?: ToastVariant, opts?: { action?: ToastAction }) => void
 }
 
 const ToastContext = createContext<ToastContextType>({ toast: () => {} })
@@ -32,16 +36,17 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
   const counterRef = useRef(0)
 
-  const addToast = useCallback((message: string, variant: ToastVariant = 'info') => {
+  const addToast = useCallback((message: string, variant: ToastVariant = 'info', opts?: { action?: ToastAction }) => {
     const id = `toast-${++counterRef.current}`
-    setToasts(prev => [...prev, { id, message, variant }])
+    setToasts(prev => [...prev, { id, message, variant, action: opts?.action }])
 
     // Erros NÃO somem sozinhos (2026/69) — o usuário fecha no X quando terminar de ler.
-    // Demais variantes auto-dismiss (warning fica um pouco mais).
+    // Demais variantes auto-dismiss (warning fica um pouco mais; com botão de ação, mais
+    // ainda — 4s não dá tempo de achar o "Desfazer").
     if (variant !== 'error') {
       setTimeout(() => {
         setToasts(prev => prev.filter(t => t.id !== id))
-      }, variant === 'warning' ? 6000 : 4000)
+      }, opts?.action ? 8000 : variant === 'warning' ? 6000 : 4000)
     }
   }, [])
 
@@ -53,8 +58,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <ToastContext.Provider value={{ toast: addToast }}>
       {children}
 
-      {/* Toast container — bottom-right desktop, bottom-center mobile */}
-      <div role="status" aria-live="polite" className="fixed bottom-4 right-4 left-4 md:left-auto md:w-96 z-[100] flex flex-col gap-2 pointer-events-none">
+      {/* Toast container — bottom-right desktop, bottom-center mobile. Sobe acima da barra de
+          atalhos do celular pela `--bottom-nav-h` que o MobileBottomNav publica (0 sem barra). */}
+      <div role="status" aria-live="polite" className="fixed right-4 left-4 md:left-auto md:w-96 z-[100] flex flex-col gap-2 pointer-events-none" style={{ bottom: 'calc(1rem + var(--bottom-nav-h, 0px))' }}>
         {toasts.map(t => {
           const config = VARIANT_CONFIG[t.variant]
           const Icon = config.icon
@@ -70,6 +76,14 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             >
               <Icon className="h-5 w-5 flex-shrink-0 mt-0.5" />
               <p className="flex-1 text-sm font-medium">{t.message}</p>
+              {t.action && (
+                <button
+                  onClick={() => { t.action!.onClick(); removeToast(t.id) }}
+                  className="flex-shrink-0 text-sm font-bold underline underline-offset-2"
+                >
+                  {t.action.label}
+                </button>
+              )}
               <button
                 onClick={() => removeToast(t.id)}
                 aria-label="Fechar aviso"

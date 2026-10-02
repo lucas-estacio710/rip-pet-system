@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { TextSelect, FileCheck, ListTodo, Route, MessagesSquare, ShelvingUnit, BarChart3 } from 'lucide-react'
@@ -90,11 +90,29 @@ export function MobileBottomNav() {
     return () => obs.disconnect()
   }, [barraVisivel])
 
-  if (!barraVisivel || visibleItems.length === 0 || overlayAberto) return null
+  const mostrando = barraVisivel && visibleItems.length > 0 && !overlayAberto
+
+  // Publica a altura real da barra em `--bottom-nav-h` (no <html>) pra quem flutua no rodapé —
+  // o Toast sobe por ela em vez de cair em cima dos atalhos. 0 quando a barra some (FLS,
+  // overlay aberto) ou no desktop (`md:hidden` → offsetHeight 0). Inclui o safe-area do iPhone.
+  const navRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const raiz = document.documentElement
+    const nav = navRef.current
+    if (!mostrando || !nav) { raiz.style.setProperty('--bottom-nav-h', '0px'); return }
+    const publicar = () => raiz.style.setProperty('--bottom-nav-h', `${nav.offsetHeight}px`)
+    publicar()
+    const ro = new ResizeObserver(publicar)
+    ro.observe(nav)
+    return () => { ro.disconnect(); raiz.style.setProperty('--bottom-nav-h', '0px') }
+  }, [mostrando])
+
+  if (!mostrando) return null
 
   return (
     // theme-content (não theme-sidebar) → a barra segue o tema claro/escuro do app
     <nav
+      ref={navRef}
       className="theme-content fixed bottom-0 left-0 right-0 z-40 md:hidden border-t"
       style={{ background: 'var(--surface-0)', borderColor: 'var(--surface-200)' }}
     >
