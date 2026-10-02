@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import * as Icons from 'lucide-react'
-import { Plus, Loader2, X, Check, Trash2, Flame, Copy, Divide, ClipboardPaste } from 'lucide-react'
+import { Plus, Loader2, X, Check, Trash2, Flame, Copy, Divide, ClipboardPaste, Sparkles } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
@@ -22,6 +22,7 @@ import Modal from '@/components/ui/Modal'
 import CobrancasCard from './CobrancasCard'
 import ReceitasPrazoTab from './ReceitasPrazoTab'
 import ColarExtratoModal from './ColarExtratoModal'
+import LancamentosEspeciaisModal, { type QuitacaoInicial } from './LancamentosEspeciaisModal'
 import UnderlineTabs from '@/components/ui/UnderlineTabs'
 import { criarIndice, sugerir, type Indice } from '@/lib/similaridade'
 import { buscarCategorias } from '@/lib/busca-categoria'
@@ -220,6 +221,9 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
   const [colarAberto, setColarAberto] = useState(false)   // Colar do extrato (um botão só)
   // Muda a cada colagem registrada: remonta Receitas a Prazo, que carrega sozinha.
   const [versaoColar, setVersaoColar] = useState(0)
+  const [especiaisAberto, setEspeciaisAberto] = useState(false)   // pagar repasse / fatura
+  // Vindo do Colar: a linha do banco já diz valor, data e conta (null = aberto pelo botão).
+  const [especiaisInicial, setEspeciaisInicial] = useState<QuitacaoInicial | null>(null)
 
   const catSelecionada = categorias.find(c => c.id === catId)
 
@@ -746,9 +750,16 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
         </span>
         {carregando && <Loader2 className="h-4 w-4 animate-spin text-[var(--surface-400)]" />}
         {!somenteLeitura && (
-          <button onClick={() => setAberto(true)} className="btn-primary text-sm ml-auto">
-            <Plus className="h-4 w-4" /> Novo lançamento
-          </button>
+          <div className="flex gap-2 ml-auto">
+            {/* QUITAR obrigações — repasse e fatura de cartão (mig 150). Não é
+                despesa: só registra o dinheiro saindo (LancamentosEspeciaisModal). */}
+            <button onClick={() => { setEspeciaisInicial(null); setEspeciaisAberto(true) }} className="btn-secondary text-sm">
+              <Sparkles className="h-4 w-4" /> Lançamentos especiais
+            </button>
+            <button onClick={() => setAberto(true)} className="btn-primary text-sm">
+              <Plus className="h-4 w-4" /> Novo lançamento
+            </button>
+          </div>
         )}
       </div>
 
@@ -893,6 +904,14 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
         caminhoDe={caminhoDe}
         mes={mes}
         permiteReceitas={veReceitas}
+        onRegistrou={() => { void carregar(); setVersaoColar(v => v + 1) }}
+        onQuitar={q => { setColarAberto(false); setEspeciaisInicial(q); setEspeciaisAberto(true) }}
+      />
+
+      <LancamentosEspeciaisModal
+        aberto={especiaisAberto}
+        inicial={especiaisInicial}
+        onClose={() => { setEspeciaisAberto(false); setEspeciaisInicial(null) }}
         onRegistrou={() => { void carregar(); setVersaoColar(v => v + 1) }}
       />
 

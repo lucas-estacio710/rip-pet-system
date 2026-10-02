@@ -28,7 +28,6 @@ import { hojeISO } from '@/lib/financeiro'
 import { saveAs } from 'file-saver'
 
 type UnidadePagante = { id: string; nome: string; codigo: string }
-type ContaSimples = { id: string; nome: string }
 
 /** Mesmo esquema de cores do GC / Visibilidade / Funcionários */
 const UNIT_COLORS: Record<string, string> = {
@@ -84,14 +83,6 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
   const [permValor, setPermValor] = useState('')
   const [permDirecao, setPermDirecao] = useState<'abate' | 'acresce'>('abate')
   const descRef = useRef<HTMLInputElement>(null)   // volta o foco pra encadear lançamentos
-  // Pagar o repasse: as duas contas da transferência, e o dia em que ela ocorreu.
-  const [pagarAberto, setPagarAberto] = useState(false)
-  const [pagando, setPagando] = useState(false)
-  const [contaOrigem, setContaOrigem] = useState('')    // conta da unidade
-  const [contaDestino, setContaDestino] = useState('')  // conta da Matriz
-  const [dataPagto, setDataPagto] = useState(hojeISO())
-  const [contasUnidade, setContasUnidade] = useState<ContaSimples[]>([])
-  const [contasMatriz, setContasMatriz] = useState<ContaSimples[]>([])
   // Resumo do mês por unidade — alimenta o valor que aparece em cada aba
   const [resumo, setResumo] = useState<Map<string, { qtd: number; valor: number; fechado: boolean }>>(new Map())
 
@@ -146,19 +137,6 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
   // o CNPJ é DERIVADO da conta em que o dinheiro entra (mig 121/128), não uma
   // escolha do fechamento.
 
-  // As contas das duas pontas da transferência do repasse. Conta de legado fica
-  // de fora: ela é histórico congelado, não recebe nem paga nada novo (mig 127).
-  useEffect(() => {
-    if (!pagarAberto) return
-    const carregar = async (uid: string, set: (c: ContaSimples[]) => void) => {
-      if (!uid) return set([])
-      const { data } = await supabase.from('contas').select('id, nome')
-        .eq('unidade_id', uid).eq('ativo', true).eq('legado', false).order('nome')
-      set((data as ContaSimples[]) || [])
-    }
-    void carregar(unidadeId, setContasUnidade)
-    void carregar(matrizId, setContasMatriz)
-  }, [pagarAberto, unidadeId, matrizId, supabase])
 
   // Resumo do mês inteiro (todas as unidades) — o número que cada aba mostra.
   // Fechado: usa `vw_repasse_totais`, que JÁ desconta/soma as permutas.
@@ -520,42 +498,6 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
     void buscar()
   }
 
-  /**
-   * PAGO = O DINHEIRO ANDOU. Marcar como pago passa a registrar a transferência
-   * no caixa das duas empresas: sai da conta da unidade, entra na da Matriz.
-   *
-   * Antes, "pago" era só uma etiqueta no repasse — o caixa da unidade continuava
-   * mostrando o dinheiro que ela já tinha mandado embora, e o da Matriz não
-   * mostrava o que tinha recebido. O repasse é a maior movimentação do mês entre
-   * as empresas; ficar fora do caixa fazia os dois extratos mentirem juntos.
-   *
-   * É `fin_movimentos`, não lançamento: o custo da cremação já está na DRE da
-   * unidade por competência (mig 114). Lançar aqui contaria duas vezes.
-   */
-  async function confirmarPagamento() {
-    if (!existente) return
-    if (!contaOrigem || !contaDestino) return toast('Escolha as duas contas', 'error')
-    setPagando(true)
-    try {
-      const { error } = await supabase.from('fin_movimentos').insert({
-        unidade_id: unidadeId,
-        tipo: 'transferencia',
-        conta_id: contaOrigem,        // sai da unidade
-        conta_destino_id: contaDestino, // entra na Matriz
-        data: dataPagto || hojeISO(),
-        valor: totais.aPagar,
-        descricao: `Repasse ${rotuloMes(mesParaData(mes))} · ${nomeUnidade}`,
-        criado_por_nome: userName || null,
-      })
-      if (error) throw new Error(error.message)
-      await marcar('pago_em')
-      setPagarAberto(false)
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Falha ao registrar', 'error')
-    } finally {
-      setPagando(false)
-    }
-  }
 
   function baixarPlanilha() {
     const csv = planilhaRepasse(nomeUnidade, mesParaData(mes), itens, permutas)
@@ -706,8 +648,14 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
                 {existente.status === 'aberto' && !somenteLeitura && (
                   <button onClick={() => void marcar('enviado_em')} className="underline hover:text-[var(--surface-700)]">enviado</button>
                 )}
-                {existente.status !== 'pago' && !somenteLeitura && (
-                  <button onClick={() => setPagarAberto(true)} className="underline hover:text-[var(--surface-700)]">pago</button>
+                {/* O "pago" SAIU daqui (02/10/2026, mig 150): quem paga é a unidade,
+                    em Lançamentos › Lançamentos especiais › Pagamento de repasse —
+                    lá ela confere o que a Matriz cobrou e registra conta, data e o
+                    valor que saiu DE VERDADE. Aqui a Matriz só prepara e fecha. */}
+                {existente.status !== 'pago' && (
+                  <span className="text-[var(--surface-400)]" title="A unidade quita em Lançamentos › Lançamentos especiais">
+                    · a unidade quita em Lançamentos
+                  </span>
                 )}
               </span>
             )}
@@ -1033,64 +981,6 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
         </>
       )}
 
-      {/* PAGAR O REPASSE — o dinheiro anda, e o caixa das duas empresas precisa
-          saber. Duas contas e uma data: nada além disso é perguntado, porque
-          nada além disso o sistema não consegue deduzir. */}
-      <Modal
-        isOpen={pagarAberto}
-        onClose={() => setPagarAberto(false)}
-        title="Registrar o pagamento do repasse"
-        footer={
-          <div className="flex justify-end gap-2">
-            <button onClick={() => setPagarAberto(false)} className="btn-secondary text-sm">Cancelar</button>
-            <button onClick={() => void confirmarPagamento()} disabled={pagando} className="btn-primary text-sm">
-              {pagando
-                ? <><Loader2 className="h-4 w-4 animate-spin" /> Registrando…</>
-                : <><Check className="h-4 w-4" /> Confirmar</>}
-            </button>
-          </div>
-        }
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-[var(--surface-600)]">
-            {nomeUnidade} paga{' '}
-            <span className="text-mono text-[var(--surface-800)]">{fmtBRL(totais.aPagar)}</span>{' '}
-            à Matriz. Sai do caixa de uma e entra no da outra.
-          </p>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-[var(--surface-500)] block mb-1">
-                Saiu desta conta ({nomeUnidade})
-              </label>
-              <select value={contaOrigem} onChange={e => setContaOrigem(e.target.value)}
-                      className="input text-sm w-full">
-                <option value="">Escolher…</option>
-                {contasUnidade.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs text-[var(--surface-500)] block mb-1">Entrou nesta conta (Matriz)</label>
-              <select value={contaDestino} onChange={e => setContaDestino(e.target.value)}
-                      className="input text-sm w-full">
-                <option value="">Escolher…</option>
-                {contasMatriz.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <label className="text-xs text-[var(--surface-500)] block mb-1">Quando</label>
-            <input type="date" value={dataPagto} onChange={e => setDataPagto(e.target.value)}
-                   className="input text-sm w-full sm:w-48" />
-          </div>
-
-          <p className="text-[11px] text-[var(--surface-400)]">
-            Isto move dinheiro, não altera resultado: o custo das cremações já
-            está na DRE da unidade pelo mês do acolhimento.
-          </p>
-        </div>
-      </Modal>
     </div>
   )
 }

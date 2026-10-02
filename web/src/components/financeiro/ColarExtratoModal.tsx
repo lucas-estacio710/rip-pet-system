@@ -32,7 +32,7 @@ import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import { fmtBRL, fmtData } from '@/lib/financeiro'
 import {
-  lerExtrato, movimentoDe, pareceMaquininha, metodoDe, fornecedorDe, naoEDespesa,
+  lerExtrato, movimentoDe, pareceMaquininha, metodoDe, fornecedorDe, naoEDespesa, quitacaoDe,
   ROTULO_MOV, ENTRA_MOV, movDoRegistro, type MovMaquininha, type LinhaExtrato,
 } from '@/lib/extrato'
 import { criarIndice, sugerir, type Sugestao } from '@/lib/similaridade'
@@ -72,7 +72,7 @@ type Item = LinhaExtrato & {
 }
 
 export default function ColarExtratoModal({
-  aberto, onClose, categorias, folhas, caminhoDe, mes, onRegistrou, permiteReceitas = true,
+  aberto, onClose, categorias, folhas, caminhoDe, mes, onRegistrou, permiteReceitas = true, onQuitar,
 }: {
   aberto: boolean
   onClose: () => void
@@ -83,6 +83,9 @@ export default function ColarExtratoModal({
   onRegistrou: () => void
   /** FLS `obj_fin_receitas_prazo`: escondida a faixa, o colar não cria receita a prazo. */
   permiteReceitas?: boolean
+  /** Linha que é quitação (repasse à Matriz, fatura de cartão): abre o pagamento
+   *  em Lançamentos especiais já preenchido com valor, data e conta da linha. */
+  onQuitar?: (q: { tipo: 'repasse' | 'fatura'; valor: number; data: string; contaId: string }) => void
 }) {
   const supabase = createClient() as unknown as SupabaseClient
   const { toast } = useToast()
@@ -415,6 +418,15 @@ export default function ColarExtratoModal({
                 </span>
               )}
               {i.destino === 'fora' && i.motivoFora && <span className="text-[11px] text-amber-500">{i.motivoFora}</span>}
+              {/* QUITAÇÃO: atalho pro pagamento certo, preenchido com a linha do banco.
+                  Depois de pagar, colar de novo mostra a linha como "já no sistema". */}
+              {i.destino === 'fora' && onQuitar && i.valor < 0 && quitacaoDe(i.descricao) && (
+                <button type="button"
+                        onClick={() => onQuitar({ tipo: quitacaoDe(i.descricao)!, valor: Math.abs(i.valor), data: i.data, contaId })}
+                        className="text-[11px] px-2 py-0.5 rounded-full border border-[var(--brand-500)] text-[var(--brand-500)] hover:bg-[var(--brand-50)]">
+                  {quitacaoDe(i.descricao) === 'repasse' ? 'Pagar repasse →' : 'Pagar fatura →'}
+                </button>
+              )}
             </div>
           )}
           {/* Resultados da busca digitada — aparecem enquanto não há categoria escolhida. */}

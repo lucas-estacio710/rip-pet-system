@@ -145,6 +145,18 @@ export function naoEDespesa(descricao: string): string | null {
   return null
 }
 
+/**
+ * Saída que é QUITAÇÃO de uma obrigação — tem lugar próprio em Lançamentos ›
+ * Lançamentos especiais (mig 150): pagamento à empresa do grupo = repasse;
+ * pagamento de fatura = fatura de cartão. O Colar oferece o atalho pra lá.
+ */
+export function quitacaoDe(descricao: string): 'repasse' | 'fatura' | null {
+  const t = normTexto(descricao)
+  if (/FATURA\s+(DO\s+)?CART(AO|OES)|PAGAMENTO\s+(DE\s+)?FATURA/.test(t)) return 'fatura'
+  if (/\bRIP\s*PET\b|\bPRINA\b/.test(t)) return 'repasse'
+  return null
+}
+
 /** Número em formato brasileiro (ou inglês sem milhar), com sinal. */
 export function numeroBR(texto: string): number | null {
   let t = texto.trim().replace(/R\$|\s/g, '')
