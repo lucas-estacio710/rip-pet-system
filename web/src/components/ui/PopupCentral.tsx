@@ -14,10 +14,11 @@
  * - cor só por token (o tema claro remapeia classes Tailwind de cor)
  *
  * O botão voltar é do `usePopupHistory` — quem abre o popup decide; este componente só desenha.
- * ⚠️ Ainda sem scroll lock com contador (commit 0.8 do playbook).
+ * Trava a rolagem do fundo com contador (lib/scroll-lock) — popup sobre popup não destrava.
  */
 import { useEffect, useRef, type ReactNode } from 'react'
 import { X } from 'lucide-react'
+import { useTravarRolagem } from '@/lib/scroll-lock'
 
 type Props = {
   aberto: boolean
@@ -35,6 +36,8 @@ type Props = {
 export default function PopupCentral({ aberto, onFechar, titulo, children, rodape, largura = 500, fecharNoFundo = true }: Props) {
   const overlayRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
+
+  useTravarRolagem(aberto)
 
   // Altura visível de verdade (teclado aberto encolhe o visualViewport, não o 100dvh).
   useEffect(() => {

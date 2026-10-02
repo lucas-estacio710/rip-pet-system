@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
+import { useTravarRolagem } from '@/lib/scroll-lock'
 
 type Props = {
   isOpen: boolean
@@ -25,15 +26,9 @@ const SIZE_MAP = {
 export default function Modal({ isOpen, onClose, title, children, footer, size = 'md' }: Props) {
   const overlayRef = useRef<HTMLDivElement>(null)
 
-  // Lock body scroll
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
-    }
-    return () => { document.body.style.overflow = '' }
-  }, [isOpen])
+  // Trava a rolagem do fundo — com contador (lib/scroll-lock): um modal fechando não destrava
+  // o fundo enquanto outro continua aberto por cima.
+  useTravarRolagem(isOpen)
 
   // Close on Escape
   useEffect(() => {

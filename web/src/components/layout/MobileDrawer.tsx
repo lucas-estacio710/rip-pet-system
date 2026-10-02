@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect } from 'react'
 import { X } from 'lucide-react'
+import { useTravarRolagem } from '@/lib/scroll-lock'
 
 type Props = {
   isOpen: boolean
@@ -10,17 +10,8 @@ type Props = {
 }
 
 export function MobileDrawer({ isOpen, onClose, children }: Props) {
-  // Prevent body scroll when drawer is open
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
-    }
-    return () => {
-      document.body.style.overflow = ''
-    }
-  }, [isOpen])
+  // Trava a rolagem do fundo enquanto o drawer está aberto — com contador (lib/scroll-lock).
+  useTravarRolagem(isOpen)
 
   if (!isOpen) return null
 
