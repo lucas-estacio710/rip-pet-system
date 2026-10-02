@@ -24,7 +24,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { Plus, Loader2, Check, Smartphone, ArrowDownRight, ArrowUpRight, Copy } from 'lucide-react'
+import { Plus, Loader2, Check, Smartphone, ArrowDownRight, ArrowUpRight, Copy, Trash2 } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import Modal from '@/components/ui/Modal'
@@ -256,6 +256,22 @@ export default function ReceitasPrazoTab({ somenteLeitura = false, mes }: {
    * começa com "Liquidação", e na ordem errada toda antecipação voltaria como
    * liquidação normal.
    */
+  /**
+   * APAGAR (02/10/2026 — "não tem botão de apagar a liquidação"). Um registro
+   * daqui é só movimento de caixa (nunca DRE: a venda já é receita), então
+   * apagar não deixa nada pendurado. Dois cliques: o 1º arma, o 2º apaga.
+   */
+  const [armado, setArmado] = useState<string | null>(null)
+  async function apagar(r: Registro) {
+    if (somenteLeitura) return
+    if (armado !== r.id) { setArmado(r.id); return }
+    setArmado(null)
+    const { error } = await supabase.from('fin_movimentos').delete().eq('id', r.id)
+    if (error) return toast(error.message, 'error')
+    toast(`Apagado — ${fmtBRL(Number(r.valor))}`, 'success')
+    void carregar()
+  }
+
   function reutilizar(r: Registro) {
     if (somenteLeitura) return
     const entrou = operadoras.some(o => o.conta_id === r.conta_id)
@@ -452,6 +468,16 @@ export default function ReceitasPrazoTab({ somenteLeitura = false, mes }: {
                       className="text-[var(--surface-400)] hover:text-[var(--brand-500)] shrink-0"
                     >
                       <Copy className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  {!somenteLeitura && (
+                    <button
+                      onClick={() => void apagar(r)}
+                      onBlur={() => setArmado(a => (a === r.id ? null : a))}
+                      title={armado === r.id ? 'Clique de novo para apagar' : 'Apagar'}
+                      className={`shrink-0 inline-flex items-center gap-1 text-[11px] ${armado === r.id ? 'text-red-500' : 'text-[var(--surface-400)] hover:text-red-400'}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />{armado === r.id && 'apagar?'}
                     </button>
                   )}
                 </div>
