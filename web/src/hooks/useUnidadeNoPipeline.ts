@@ -8,8 +8,8 @@
  * 🔴 POR QUE NÃO USAR `useFieldPermission` AQUI
  *
  * O hook de FLS responde *"esta PESSOA pode ver?"*, e para super_admin ele devolve `edit`
- * por hardcode — o `flsPermissions` do UnitContext nem chega a ser carregado
- * (`UnitContext.tsx`: `if (... || isSuperAdmin) { setFlsPermissions(new Map()); return }`).
+ * por hardcode — o `flsPermissions` do UnitContext nem chega a ser carregado para ele
+ * (o efeito de FLS do `UnitContext.tsx` sai cedo quando `isSuperAdmin`).
  *
  * A pergunta aqui é outra: *"esta UNIDADE migrou?"*. É estado da unidade, não permissão de
  * pessoa. Usar o hook de FLS faria a `/encaminhamentos` virar somente-leitura para o
@@ -46,8 +46,16 @@ export function useUnidadeNoPipeline(): boolean {
       .select('permissao')
       .eq('unidade_id', unidadeId)
       .eq('campo', 'obj_enc_pipeline')
-      .then(({ data }) => {
+      .then(({ data, error }) => {
         if (!vivo) return
+        // Erro NÃO é "sem rows": tratar `data=null` como lista vazia dava a unidade por
+        // migrada e travava a /encaminhamentos em leitura sem ela ter migrado (B-18).
+        // Na dúvida, fluxo antigo — o mesmo default conservador do "carregando" abaixo.
+        if (error) {
+          console.error('[useUnidadeNoPipeline] Erro ao consultar obj_enc_pipeline:', error)
+          setResposta({ unidadeId, migrada: false })
+          return
+        }
         const rows = (data || []) as { permissao: string }[]
         setResposta({ unidadeId, migrada: !rows.some(r => r.permissao === 'hidden') })
       })

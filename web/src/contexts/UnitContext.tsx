@@ -71,7 +71,17 @@ type UnitContextType = {
 
   // FLS
   flsPermissions: Map<string, string>  // campo → permissao ('read'|'hidden'), default 'edit' se ausente
+  // Situação da carga do FLS para a unidade+role+identidade ATUAIS. Enquanto 'carregando',
+  // o Map está vazio e tudo responde 'edit' — quem decide fluxo por FLS (ex: card novo do
+  // pipeline) tem que esperar 'pronto' em vez de tratar o vazio como resposta. 'erro' devolve
+  // o Map vazio (permissivo, como sempre foi); quem precisa de "erro = desligado" lê daqui.
+  flsStatus: FlsStatus
 }
+
+export type FlsStatus = 'carregando' | 'pronto' | 'erro'
+
+// Referência estável: o Map vazio entra em deps de useCallback (hasModule, useFieldPermission).
+const FLS_VAZIO: Map<string, string> = new Map()
 
 const UnitContext = createContext<UnitContextType | null>(null)
 
@@ -93,10 +103,18 @@ export function UnitProvider({ children }: { children: ReactNode }) {
   const [impersonatedEmail, setImpersonatedEmail] = useState<string | null>(null)
   const [impersonatedUserId, setImpersonatedUserId] = useState<string | null>(null)
   const [realUserData, setRealUserData] = useState<{ perfis: UserPerfil[]; allUnidades: Unidade[]; userName: string | null; userEmail: string | null } | null>(null)
-  // FLS: cache de permissões (field_permissions) — Map<campo, permissao> para unidade+role atual
-  const [flsPermissions, setFlsPermissions] = useState<Map<string, string>>(new Map())
+  // FLS: cache de permissões (field_permissions) — Map<campo, permissao> para unidade+role atual.
+  // Guarda a CHAVE da consulta junto da resposta: uma resposta só vale enquanto a chave atual
+  // for a mesma (ver flsChave abaixo).
+  const [flsCarga, setFlsCarga] = useState<{ chave: string; status: 'pronto' | 'erro'; map: Map<string, string> } | null>(null)
 
   const isSuperAdmin = userPerfis.some(p => p.role === 'super_admin')
+
+  // Identidade COMPLETA da consulta de FLS. Só (unidade) não basta: "Logar como" um gerente da
+  // MESMA unidade em que o super_admin estava passaria por carregado com o Map vazio do SA.
+  const flsChave = currentUnit?.id && currentRole
+    ? [currentUnit.id, currentRole, isSuperAdmin ? 'sa' : '-', impersonatedUserId ?? ''].join('|')
+    : null
 
   const fetchData = useCallback(async () => {
     setIsLoading(true)
@@ -230,25 +248,42 @@ export function UnitProvider({ children }: { children: ReactNode }) {
     fetchData()
   }, [fetchData])
 
-  // FLS: carregar permissões quando unidade/role muda
+  // FLS: carregar permissões quando unidade/role/identidade muda. Super_admin não consulta
+  // (é 'edit' por hardcode). Resposta de uma chave antiga é descartada (`vivo`).
   useEffect(() => {
-    if (!currentUnit?.id || !currentRole || isSuperAdmin) {
-      setFlsPermissions(new Map())
-      return
-    }
+    if (!flsChave || !currentUnit?.id || !currentRole || isSuperAdmin) return
+    const chave = flsChave
+    let vivo = true
     supabase
       .from('field_permissions')
       .select('campo, permissao')
       .eq('unidade_id', currentUnit.id)
       .eq('role', currentRole)
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (!vivo) return
+        if (error) {
+          console.error('[UnitContext] Erro ao carregar FLS:', error)
+          setFlsCarga({ chave, status: 'erro', map: new Map() })
+          return
+        }
         const map = new Map<string, string>()
         for (const row of (data || []) as { campo: string; permissao: string }[]) {
           map.set(row.campo, row.permissao)
         }
-        setFlsPermissions(map)
+        setFlsCarga({ chave, status: 'pronto', map })
       })
-  }, [currentUnit?.id, currentRole, isSuperAdmin])
+    return () => { vivo = false }
+  }, [flsChave, currentUnit?.id, currentRole, isSuperAdmin])
+
+  // Derivados da carga: só valem se forem da chave ATUAL — na troca de unidade/identidade o
+  // Map da anterior nunca vaza para a nova (volta a 'carregando' com o Map vazio).
+  const flsDaChaveAtual = !isSuperAdmin && flsCarga !== null && flsCarga.chave === flsChave
+  const flsPermissions = flsDaChaveAtual ? flsCarga.map : FLS_VAZIO
+  const flsStatus: FlsStatus = !flsChave
+    ? 'carregando'
+    : isSuperAdmin
+      ? 'pronto'
+      : flsDaChaveAtual ? flsCarga.status : 'carregando'
 
   const switchUnit = useCallback((unitId: string) => {
     const perfil = userPerfis.find(p => p.unidade.id === unitId)
@@ -403,6 +438,7 @@ export function UnitProvider({ children }: { children: ReactNode }) {
       viewAllUnits: isSuperAdmin ? viewAllUnits : false,
       setViewAllUnits,
       flsPermissions,
+      flsStatus,
     }}>
       {children}
     </UnitContext.Provider>
