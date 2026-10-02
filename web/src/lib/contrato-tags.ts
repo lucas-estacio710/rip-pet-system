@@ -62,7 +62,9 @@ export type TagStyle = { bg: string; color: string; borderColor: string }
 
 export const TAG_STATE_STYLES: Record<TagState, TagStyle> = {
   completed:   { bg: 'rgba(220,252,231,0.5)', color: '#15803d', borderColor: '#16a34a' },
-  rejected:    { bg: 'rgba(254,226,226,0.5)', color: '#dc2626', borderColor: '#dc2626' },
+  // Recusado ("Não tem", "Sem pelinho", "Não quer") é CINZA desde 02/10/2026 (D9) — era vermelho,
+  // e o vermelho fica só pro Alerta (pagamento em aberto), que é problema de verdade.
+  rejected:    { bg: 'rgba(241,245,249,0.6)', color: '#64748b', borderColor: '#94a3b8' },
   pending:     { bg: 'rgba(254,249,195,0.5)', color: '#ca8a04', borderColor: '#ca8a04' },
   in_progress: { bg: 'rgba(219,234,254,0.5)', color: '#2563eb', borderColor: '#2563eb' },
   alert:       { bg: 'rgba(254,226,226,0.5)', color: '#dc2626', borderColor: '#dc2626' },
@@ -252,15 +254,19 @@ export function computeIndicacao(c: ContratoTagData): ComputedTag {
 
 // --- Main computation ---
 
+// Ordem FIXA dos faróis (item 26 do redesenho, 01/10/2026; global desde 02/10 — P-01 = b):
+// Pelinho · Pagamento · Urna · Personalizados · Foto · Certificado · Indicação · Protocolo.
+// O 🚐 Encaminhamento (que abre a ordem no pipeline redesenhado) NÃO entra aqui de propósito:
+// senão apareceria no detalhe do contrato, em /tutores e em PI.
 const ALL_COMPUTE_FNS = [
   computePelinho,
-  computeUrna,
-  computeCertificado,
-  computeFoto,
   computePagamento,
-  computeProtocolo,
+  computeUrna,
   computeRescaldo,
+  computeFoto,
+  computeCertificado,
   computeIndicacao,
+  computeProtocolo,
 ]
 
 export function computeAllTags(contrato: ContratoTagData): ComputedTag[] {

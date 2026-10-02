@@ -3,8 +3,6 @@
 import { computeAllTags, TAG_STATE_STYLES, type ContratoTagData, type ComputedTag, type TagStyle } from '@/lib/contrato-tags'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
 
-const AMBER_STYLE: TagStyle = { bg: 'rgba(254,243,199,0.6)', color: '#f59e0b', borderColor: '#d97706' }
-
 type TagHandlers = Partial<Record<string, () => void>>
 
 type Props = {
@@ -14,8 +12,9 @@ type Props = {
   stopPropagation?: boolean
 }
 
+// Personalizado em andamento era âmbar (override próprio daqui); desde 02/10/2026 (D9) segue a
+// tabela como todo farol: Em andamento = AZUL ("já está com alguém").
 function getStyle(tag: ComputedTag): TagStyle {
-  if (tag.id === 'rescaldo' && tag.state === 'in_progress') return AMBER_STYLE
   return TAG_STATE_STYLES[tag.state]
 }
 
