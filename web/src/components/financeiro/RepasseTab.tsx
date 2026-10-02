@@ -27,6 +27,8 @@ import {
   type DeflatorTipo, type ItemRepasse, type Permuta,
 } from '@/lib/repasse'
 import { saveAs } from 'file-saver'
+import { gerarXlsx } from '@/lib/xlsx-simples'
+import { abasRepasseExcel, nomeArquivoRepasseExcel, type AcertoExcel, type ExtraPet } from '@/lib/repasse-excel'
 
 type UnidadePagante = { id: string; nome: string; codigo: string }
 
@@ -472,6 +474,64 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
     toast('Planilha gerada', 'success')
   }
 
+  /**
+   * Excel "aberto" do Resumo (02/10/2026): além do que a tela mostra, puxa
+   * espécie/raça/peso/plano/local de cada pet e a lista de acertos com data e
+   * categoria. Busca na hora do clique — ninguém paga essas queries só por abrir.
+   */
+  const [gerandoExcel, setGerandoExcel] = useState(false)
+  async function baixarExcel() {
+    if (!itens.length && !permutas.length) return toast('Nada para exportar neste mês', 'error')
+    setGerandoExcel(true)
+    try {
+      const extras = new Map<string, ExtraPet>()
+      const ids = itens.map(i => i.contrato_id)
+      for (let k = 0; k < ids.length; k += 200) {
+        const { data, error } = await supabase.from('contratos')
+          .select('id, pet_especie, pet_raca, pet_peso, tipo_plano, estabelecimento:estabelecimentos!contratos_estabelecimento_id_fkey(nome)')
+          .in('id', ids.slice(k, k + 200))
+        if (error) throw new Error(error.message)
+        type C = { id: string; pet_especie: string | null; pet_raca: string | null; pet_peso: number | null; tipo_plano: string | null; estabelecimento: { nome: string } | null }
+        for (const c of (data as unknown as C[]) || []) {
+          extras.set(c.id, { especie: c.pet_especie, raca: c.pet_raca, peso: c.pet_peso, plano: c.tipo_plano, local: c.estabelecimento?.nome || null })
+        }
+      }
+
+      // Acertos: o mesmo recorte da aba Acertos (par Matriz↔unidade, soltos ou deste repasse).
+      let acertos: AcertoExcel[] = []
+      if (matrizId) {
+        const { data, error } = await supabase.from('fin_cobrancas')
+          .select('descricao, valor, data, status, unidade_credora, repasse_id, criado_por_nome, fin_categorias(nome)')
+          .or(`and(unidade_credora.eq.${matrizId},unidade_devedora.eq.${unidadeId}),` +
+              `and(unidade_credora.eq.${unidadeId},unidade_devedora.eq.${matrizId})`)
+          .in('tipo', ['despesa_rateada', 'outro']).in('status', ['emitida', 'aceita', 'liquidada'])
+          .order('data')
+        if (error) throw new Error(error.message)
+        type A = { descricao: string | null; valor: number; data: string | null; status: string; unidade_credora: string; repasse_id: string | null; criado_por_nome: string | null; fin_categorias: { nome: string } | null }
+        const situacao: Record<string, string> = { emitida: 'não conta ainda', aceita: 'conta', liquidada: 'quitado' }
+        acertos = ((data as unknown as A[]) || [])
+          .filter(a => a.repasse_id === null || a.repasse_id === (existente?.id || null))
+          .map(a => ({
+            data: a.data, descricao: a.descricao || 'Acerto', categoria: a.fin_categorias?.nome || null,
+            direcao: a.unidade_credora === matrizId ? 'acresce' : 'abate',
+            valor: Number(a.valor), status: situacao[a.status] || a.status, lancadoPor: a.criado_por_nome,
+          }))
+      }
+
+      const blob = await gerarXlsx(abasRepasseExcel({
+        unidade: nomeUnidade, mesRef: mesParaData(mes), itens, permutas, acertos, extras,
+        situacao: existente ? existente.status : 'ainda não salvo',
+        enviadoEm: existente?.enviado_em, pagamento,
+      }))
+      saveAs(blob, nomeArquivoRepasseExcel(nomeUnidade, mes))
+      toast('Excel gerado', 'success')
+    } catch (e) {
+      toast(`Falha ao gerar o Excel: ${(e as Error).message}`, 'error')
+    } finally {
+      setGerandoExcel(false)
+    }
+  }
+
   const copiar = async () => {
     await navigator.clipboard.writeText(mensagemRepasse(nomeUnidade, mesParaData(mes), itens, permutas))
     setCopiado(true)
@@ -676,9 +736,16 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
 
           {aba === 'resumo' && (
             <div className="card p-4 space-y-3 max-w-xl">
-              <h3 className="text-xs font-semibold text-[var(--surface-600)] uppercase tracking-wide">
-                {nomeUnidade} · {rotuloMes(mesParaData(mes))}
-              </h3>
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-xs font-semibold text-[var(--surface-600)] uppercase tracking-wide">
+                  {nomeUnidade} · {rotuloMes(mesParaData(mes))}
+                </h3>
+                <button onClick={() => void baixarExcel()} disabled={gerandoExcel}
+                  title="Resumo, pet a pet (espécie, raça, peso, local), acertos com categoria e IND × COL"
+                  className="btn-secondary text-xs py-1 inline-flex items-center gap-1">
+                  <FileSpreadsheet size={13} /> {gerandoExcel ? 'Gerando…' : 'Baixar Excel'}
+                </button>
+              </div>
               <div className="text-sm space-y-1">
                 <p className="flex justify-between"><span className="text-[var(--surface-500)]">{totais.qtd} cremações · tabela</span><span className="text-mono">{fmtBRL(totais.bruto)}</span></p>
                 {totais.deflator > 0 && <p className="flex justify-between"><span className="text-[var(--surface-500)]">descontos por pet</span><span className="text-mono text-amber-500">− {fmtBRL(totais.deflator)}</span></p>}
