@@ -161,23 +161,9 @@ export default function AcertosRepasse({
     }
   }
 
-  /** Acerto antigo, ainda `emitida` (de antes desta tela): passa a contar. */
-  async function contar(a: Acerto) {
-    try {
-      const cat = a.categoria_id ? porId.get(a.categoria_id) : undefined
-      const matrizCobrou = a.unidade_credora === matrizId
-      await reconhecerCobranca(supabase, {
-        id: a.id, tipo: 'despesa_rateada', valor: Number(a.valor), data: a.data, descricao: a.descricao,
-        categoria_id: a.categoria_id, unidade_credora: a.unidade_credora, unidade_devedora: a.unidade_devedora,
-        credoraNome: matrizCobrou ? matrizNome : unidadeNome,
-        devedoraCodigo: matrizCobrou ? unidadeCodigo : 'Matriz',
-        fin_categorias: cat ? { fin_conta_id: cat.fin_conta_id, fin_contas: cat.fin_contas } : null,
-      }, { userName: userName || null }, { guardarReembolsoEmOrigem: true })
-      void carregar(); onMudou()
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Falha', 'error')
-    }
-  }
+  // O "contar" SAIU (02/10/2026): deixava a Matriz pular o aceite de uma cobrança
+  // lançada como "cobrar agora". O que vai pelo repasse já nasce contando; o que é
+  // `emitida` aqui espera a unidade reconhecer em Acertos entre unidades.
 
   /** Apagar = ajustar. Leva as duas pernas da DRE junto. */
   async function apagar(a: Acerto) {
@@ -309,9 +295,10 @@ export default function AcertosRepasse({
                   <span className="text-mono text-sm shrink-0" style={{ color: matrizCobrou ? '#3b82f6' : '#10b981' }}>
                     {matrizCobrou ? '+' : '−'}{fmtBRL(Number(a.valor))}
                   </span>
-                  {a.status === 'emitida' && !travado && (
-                    <button onClick={() => void contar(a)} className="text-[11px] underline text-amber-500 shrink-0"
-                            title="Acerto antigo, ainda sem as pernas na DRE: passa a contar">contar</button>
+                  {a.status === 'emitida' && (
+                    <span className="text-[11px] text-amber-500 shrink-0" title="Não conta no total até a unidade reconhecer em Acertos entre unidades">
+                      aguardando a unidade
+                    </span>
                   )}
                   {!travado && (
                     <button onClick={() => void apagar(a)} title="Apagar (leva as duas pernas da DRE)"

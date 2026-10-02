@@ -60,6 +60,7 @@ type RepasseSalvo = {
   enviado_em: string | null
   pago_em: string | null
   pago_movimento_id: string | null   // a transferência que quitou (mig 150)
+  updated_at: string                 // última gravação (trigger) — mostrada como "Salvo em"
 }
 
 const mesAtual = () => new Date().toISOString().slice(0, 7)
@@ -238,7 +239,7 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
     // Já existe fechamento vivo desse mês?
     const { data: jaTem } = await supabase
       .from('fin_repasses')
-      .select('id, status, mes_referencia, qtd_pets, total_liquido, empresa_id, enviado_em, pago_em, pago_movimento_id')
+      .select('id, status, mes_referencia, qtd_pets, total_liquido, empresa_id, enviado_em, pago_em, pago_movimento_id, updated_at')
       .eq('unidade_id', unidadeId)
       .eq('mes_referencia', mesParaData(mes))
       .neq('status', 'cancelado')
@@ -309,8 +310,11 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
     : existente.status === 'pago'
       ? { rotulo: `✓ Pago${existente.pago_em ? ` em ${fmtData(existente.pago_em)}` : ''}`,
           classe: 'bg-emerald-500/15 text-emerald-500', dica: 'A unidade quitou — não muda mais' }
-      : { rotulo: 'Salvo · a unidade já pode pagar', classe: 'bg-amber-500/15 text-amber-500',
-          dica: 'A unidade paga em Lançamentos › Lançamentos especiais. Até lá, dá pra editar e salvar de novo' }
+      // A hora da última versão salva (02/10/2026): dá a segurança de que o que a
+      // unidade vê é o que está na tela — clicou Salvar, a hora atualiza.
+      : { rotulo: `Salvo em ${new Date(existente.updated_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+          classe: 'bg-amber-500/15 text-amber-500',
+          dica: 'Última versão salva — é ela que a unidade vê para pagar. Mexeu? Salve de novo e a hora atualiza' }
   const salvo = !!existente
 
   const alterar = (i: number, campo: keyof ItemRepasse, valor: unknown) =>
