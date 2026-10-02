@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import * as Icons from 'lucide-react'
-import { Plus, Loader2, X, Check, Trash2, Flame, Copy, Divide, ClipboardPaste, Sparkles } from 'lucide-react'
+import { Plus, Loader2, X, Check, Trash2, Copy, Divide, ClipboardPaste, Sparkles } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
@@ -58,15 +58,8 @@ type Lancamento = {
   observacoes: string | null     // motivo, quando rejeitado na fila de revisão
   rateio_meses: number | null    // idem, pro checkbox "cobre mais de um mês"
   divisao_id: string | null      // partes de um pagamento dividido (mig 149)
+  origem: string                 // 'sistema' = perna de acerto, nasceu de uma cobrança
   fin_categorias?: { nome: string; icone: string | null } | null
-}
-
-/** Custo de cremação do mês (mig 114). Nasce do acolhimento, não é digitado. */
-type CustoAuto = {
-  tipo_cremacao: 'individual' | 'coletiva'
-  qtd_pets: number
-  preco_unitario: number
-  valor: number
 }
 
 /** Conta de onde o dinheiro sai. Tabela `contas`, escopada por unidade —
@@ -159,7 +152,9 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
   const veReceitas = isVisible('tela_financeiro', 'obj_fin_receitas_prazo')
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([])
-  const [custosAuto, setCustosAuto] = useState<CustoAuto[]>([])
+  const [nomeConta, setNomeConta] = useState<Map<string, string>>(new Map())
+  // id do lançamento → é perna de acerto lançado por outra unidade (ver `carregar`)
+  const [acertoDe, setAcertoDe] = useState<Map<string, { papel: 'despesa' | 'reembolso'; outra: string }>>(new Map())
   const [carregando, setCarregando] = useState(false)
 
   // formulário — o mesmo modal serve pra criar e pra editar. `editandoId` decide:
@@ -300,7 +295,7 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
     const { ini, fim } = limitesDoMes(mes)
     const { data } = await supabase
       .from('fin_lancamentos')
-      .select('id, descricao, valor, data_competencia, data_caixa, metodo_pagamento, conta_pagamento_id, status, observacoes, fornecedor_nome, categoria_id, natureza, rateio_meses, divisao_id, fin_categorias(nome, icone)')
+      .select('id, descricao, valor, data_competencia, data_caixa, metodo_pagamento, conta_pagamento_id, status, observacoes, fornecedor_nome, categoria_id, natureza, rateio_meses, divisao_id, origem, fin_categorias(nome, icone)')
       .eq('unidade_id', currentUnit.id)
       .gte('data_competencia', ini)
       .lte('data_competencia', fim)
@@ -308,16 +303,41 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
       // As partes de uma divisão nascem no MESMO insert, com o mesmo
       // `created_at` — ordenar por ele as mantém lado a lado no dia.
       .order('created_at', { ascending: false })
-    setLancamentos(((data as unknown as Lancamento[]) || []))
+    const lista = ((data as unknown as Lancamento[]) || [])
+    setLancamentos(lista)
 
-    // Custo de cremação: nasce do acolhimento, não de digitação (mig 114).
-    // A Matriz e a unidade que crema no próprio local (PI) não têm linha aqui.
-    const { data: auto } = await supabase
-      .from('vw_custo_cremacao_competencia')
-      .select('tipo_cremacao, qtd_pets, preco_unitario, valor')
-      .eq('unidade_id', currentUnit.id)
-      .eq('mes', `${mes}-01`)
-    setCustosAuto(((auto as unknown as CustoAuto[]) || []))
+    // DE QUAL CONTA saiu — o nome, pra conferir com o extrato (02/10/2026).
+    // Busca à parte, e não pelo `contas` do formulário: aquele é só o que ainda
+    // se pode usar (sem legado, sem inativa), e um lançamento antigo pode ter
+    // saído de uma conta que já não está lá.
+    const idsConta = [...new Set(lista.map(l => l.conta_pagamento_id).filter((x): x is string => !!x))]
+    const { data: cs } = idsConta.length
+      ? await supabase.from('contas').select('id, nome').in('id', idsConta)
+      : { data: [] }
+    setNomeConta(new Map(((cs as { id: string; nome: string }[] | null) || []).map(c => [c.id, c.nome])))
+
+    // QUEM LANÇOU — perna de acerto (origem 'sistema') nasce de uma cobrança que
+    // OUTRA unidade lançou. Sem dizer isso, a despesa aparece aqui como se a
+    // unidade a tivesse digitado.
+    const idsSis = lista.filter(l => l.origem === 'sistema').map(l => l.id)
+    const acerto = new Map<string, { papel: 'despesa' | 'reembolso'; outra: string }>()
+    if (idsSis.length) {
+      const lstIds = idsSis.join(',')
+      const [{ data: cobs }, { data: us }] = await Promise.all([
+        supabase.from('fin_cobrancas')
+          .select('unidade_credora, unidade_devedora, lancamento_aceite_id, lancamento_origem_id')
+          .or(`lancamento_aceite_id.in.(${lstIds}),lancamento_origem_id.in.(${lstIds})`),
+        supabase.from('unidades').select('id, nome'),
+      ])
+      const nomeU = new Map(((us as { id: string; nome: string }[] | null) || []).map(u => [u.id, u.nome]))
+      type C = { unidade_credora: string; unidade_devedora: string; lancamento_aceite_id: string | null; lancamento_origem_id: string | null }
+      for (const c of (cobs as C[] | null) || []) {
+        if (c.lancamento_aceite_id) acerto.set(c.lancamento_aceite_id, { papel: 'despesa', outra: nomeU.get(c.unidade_credora) || 'outra unidade' })
+        if (c.lancamento_origem_id && idsSis.includes(c.lancamento_origem_id))
+          acerto.set(c.lancamento_origem_id, { papel: 'reembolso', outra: nomeU.get(c.unidade_devedora) || 'outra unidade' })
+      }
+    }
+    setAcertoDe(acerto)
 
     setCarregando(false)
   }, [supabase, currentUnit?.id, mes])
@@ -736,9 +756,7 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
     toast('Lançamento excluído', 'success')
   }
 
-  const totalDigitado = lancamentos.reduce((s, l) => s + Number(l.valor || 0), 0)
-  const totalAuto = custosAuto.reduce((s, c) => s + Number(c.valor || 0), 0)
-  const total = totalDigitado + totalAuto
+  const total = lancamentos.reduce((s, l) => s + Number(l.valor || 0), 0)
 
   return (
     <div className="animate-fade-in space-y-3">
@@ -802,7 +820,6 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
         <span className="text-xs text-[var(--surface-500)]">
           <span className="text-mono text-[var(--surface-700)]">{fmtBRL(total)}</span>
           {' · '}{lancamentos.length} {lancamentos.length === 1 ? 'lançamento' : 'lançamentos'}
-          {totalAuto > 0 && ' + cremações'}
         </span>
         {carregando && <Loader2 className="h-4 w-4 animate-spin text-[var(--surface-400)]" />}
         {!somenteLeitura && (
@@ -819,50 +836,9 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
         )}
       </div>
 
-      {/* CUSTOS AUTOMÁTICOS — fixos no topo, não se digita.
-          A cremação é custo do mês em que o pet foi ACOLHIDO, não do mês em que
-          a Matriz cobra (dia 20 do mês seguinte) nem do mês em que a unidade
-          paga: ter pago ou não NÃO altera este número. Ver FLOW §9.4.1. */}
-      {custosAuto.length > 0 && (
-        <div className="card p-3 space-y-2">
-          <div className="flex items-center gap-2">
-            <h3 className="text-xs font-semibold text-[var(--surface-600)] uppercase tracking-wide">
-              Custos automáticos
-            </h3>
-            <span className="text-[10px] text-[var(--surface-400)]">pelos pets acolhidos no mês</span>
-            <span className="ml-auto text-mono text-sm text-[var(--surface-700)]">{fmtBRL(totalAuto)}</span>
-          </div>
-
-          <div className="divide-y divide-[var(--surface-200)]">
-            {['individual', 'coletiva'].map(t => {
-              const c = custosAuto.find(x => x.tipo_cremacao === t)
-              if (!c || !c.qtd_pets) return null
-              const ind = t === 'individual'
-              return (
-                <div key={t} className="flex items-center gap-3 py-2">
-                  <div
-                    className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
-                    style={{ background: ind ? 'rgba(16,185,129,0.14)' : 'rgba(139,92,246,0.14)' }}
-                  >
-                    <Flame className="h-4 w-4" style={{ color: ind ? '#10b981' : '#8b5cf6' }} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm text-[var(--surface-800)]">
-                      Cremações {ind ? 'individuais' : 'coletivas'}
-                    </p>
-                    <p className="text-xs text-[var(--surface-500)]">
-                      {c.qtd_pets} {c.qtd_pets === 1 ? 'pet acolhido' : 'pets acolhidos'}
-                      {' × '}{fmtBRL(c.preco_unitario)}
-                    </p>
-                  </div>
-                  <span className="text-mono text-sm text-[var(--surface-800)] shrink-0">{fmtBRL(c.valor)}</span>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
+      {/* O bloco "Custos automáticos" (cremações do mês pelo acolhimento) SAIU
+          daqui em 02/10/2026: é custo da DRE, não despesa digitada — "isso é DRE
+          entrando aqui" (Lucas). Continua na DRE, por vw_custo_cremacao_competencia. */}
       {/* Lista do mês — o espelho que dá confiança no que foi digitado */}
       <div className="card p-3 space-y-2">
         <h3 className="text-xs font-semibold text-[var(--surface-600)] uppercase tracking-wide">
@@ -876,12 +852,21 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
         )}
 
         <div className="divide-y divide-[var(--surface-200)]">
-          {lancamentos.map(l => (
+          {lancamentos.map(l => {
+            // Perna de acerto: nasceu de uma cobrança. Editar ou excluir por aqui
+            // desencontraria a cobrança, o repasse e a DRE da outra ponta — o
+            // ajuste é na aba Acertos do Repasse (ou no "Não é meu" da cobrança).
+            const ac = acertoDe.get(l.id)
+            const travadaAqui = somenteLeitura || !!ac
+            return (
             <div
               key={l.id}
-              onClick={() => { if (!somenteLeitura) editar(l) }}
-              className={`flex items-center gap-3 py-2 -mx-1 px-1 rounded-[var(--radius-sm)] transition-colors ${somenteLeitura ? '' : 'cursor-pointer hover:bg-[var(--surface-50)]'}`}
-              title={somenteLeitura ? undefined : 'Editar lançamento'}
+              onClick={() => {
+                if (ac) return toast(`Lançado por ${ac.papel === 'despesa' ? ac.outra : 'um acerto'} — ajuste na aba Acertos do Repasse`, 'error')
+                if (!somenteLeitura) editar(l)
+              }}
+              className={`flex items-center gap-3 py-2 -mx-1 px-1 rounded-[var(--radius-sm)] transition-colors ${travadaAqui ? '' : 'cursor-pointer hover:bg-[var(--surface-50)]'}`}
+              title={travadaAqui ? undefined : 'Editar lançamento'}
             >
               <div className="w-8 h-8 rounded-full bg-[var(--surface-100)] flex items-center justify-center shrink-0">
                 <IconeCat nome={l.fin_categorias?.icone} className="h-4 w-4 text-[var(--surface-500)]" />
@@ -913,7 +898,17 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
                       {divisoes.get(l.divisao_id)!.ids.indexOf(l.id) + 1}/{divisoes.get(l.divisao_id)!.ids.length} de {fmtBRL(divisoes.get(l.divisao_id)!.total)}
                     </span>
                   )}
+                  {ac && (
+                    <span className="inline-block mr-1.5 px-1.5 rounded-full align-middle"
+                          style={{ background: 'rgba(245,158,11,0.14)', color: '#f59e0b' }}
+                          title="Nasceu de um acerto entre unidades — não foi digitado aqui">
+                      {ac.papel === 'despesa' ? `lançado por ${ac.outra}` : `reembolso de ${ac.outra}`}
+                    </span>
+                  )}
                   {fmtData(l.data_competencia)}
+                  {l.conta_pagamento_id && nomeConta.get(l.conta_pagamento_id) && (
+                    <span className="text-[var(--surface-600)]"> · {nomeConta.get(l.conta_pagamento_id)}</span>
+                  )}
                   {l.descricao && ` · ${l.descricao}`}
                   {/* Em lançamento colado do extrato, a observação é o texto do
                       banco — é o que se procura no extrato na conferência. */}
@@ -929,7 +924,7 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
               >
                 {fmtBRL(l.valor)}
               </span>
-              {!somenteLeitura && (
+              {!travadaAqui && (
                 <button
                   onClick={e => { e.stopPropagation(); reutilizar(l) }}
                   title="Reutilizar lançamento — abre um novo igual a este"
@@ -938,7 +933,7 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
                   <Copy className="h-3.5 w-3.5" />
                 </button>
               )}
-              {!somenteLeitura && (
+              {!travadaAqui && (
                 <button
                   onClick={e => { e.stopPropagation(); void excluir(l.id) }}
                   title="Excluir"
@@ -948,7 +943,8 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
                 </button>
               )}
             </div>
-          ))}
+            )
+          })}
         </div>
       </div>
 
