@@ -26,6 +26,7 @@ import LancamentosEspeciaisModal, { type QuitacaoInicial } from './LancamentosEs
 import UnderlineTabs from '@/components/ui/UnderlineTabs'
 import { criarIndice, sugerir, type Indice } from '@/lib/similaridade'
 import { buscarCategorias } from '@/lib/busca-categoria'
+import { reconhecerCobranca } from '@/lib/reconhecer-cobranca'
 import {
   fmtBRL, fmtData, hojeISO, limitesDoMes, colarValorBR
 } from '@/lib/financeiro'
@@ -97,6 +98,13 @@ const mesAtual = () => new Date().toISOString().slice(0, 7)
  * Efeito colateral bom: colar "-255,88" do extrato vira 255,88 sozinho, porque
  * tudo que não é dígito é descartado na entrada — o sinal e o separador junto.
  */
+type Destino = { unidadeId: string; valor: string; modo: 'agora' | 'repasse'; repasseId: string }
+type UnidadeDestino = { id: string; codigo: string; nome: string; is_matriz: boolean }
+type RepasseAberto = { id: string; unidade_id: string; mes_referencia: string; status: string }
+const MESES_CURTOS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+const rotuloRepasse = (r: RepasseAberto) =>
+  `${MESES_CURTOS[Number(r.mes_referencia.slice(5, 7)) - 1]}/${r.mes_referencia.slice(0, 4)} · ${r.status}`
+
 const soDigitos = (t: string) => t.replace(/\D/g, '').replace(/^0+(?=\d)/, '').slice(0, 12)
 const digitosParaNumero = (d: string) => Number(d || '0') / 100
 const digitosParaTexto = (d: string) =>
@@ -206,8 +214,13 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
   // outra unidade por conta própria (o que o repasse fazia, e que o Lucas com
   // razão achou esquisito), emite-se uma cobrança que ela reconhece ou recusa.
   // Ver docs/COBRANCAS_ENTRE_UNIDADES.md.
-  const [paraOutra, setParaOutra] = useState('')      // id da unidade que consumiu
-  const [unidades, setUnidades] = useState<{ id: string; codigo: string; nome: string }[]>([])
+  // COMPRA PARA OUTRAS UNIDADES (02/10/2026): várias unidades, cada uma com a sua
+  // parte; o que sobra fica com quem comprou. Quando uma das pontas é a Matriz, cada
+  // parte escolhe: cobrança direta agora (a unidade reconhece) ou dentro de um
+  // repasse ainda não pago (já reconhecida — "o pagamento é o reconhecimento").
+  const [destinos, setDestinos] = useState<Destino[]>([])
+  const [unidades, setUnidades] = useState<UnidadeDestino[]>([])
+  const [repassesAbertos, setRepassesAbertos] = useState<RepasseAberto[]>([])
   const [recarregarCobrancas, setRecarregarCobrancas] = useState(0)
   // "é de outra unidade" e "cobre mais de um mês" vivem atrás deste toggle: são
   // casos raros que ocupavam o meio do modal, no caminho do olho.
@@ -404,10 +417,25 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
   useEffect(() => {
     if (!currentUnit?.id) return
     supabase
-      .from('unidades').select('id, codigo, nome')
+      .from('unidades').select('id, codigo, nome, is_matriz')
       .eq('ativa', true).neq('id', currentUnit.id).order('nome')
-      .then(({ data }) => setUnidades((data as unknown as { id: string; codigo: string; nome: string }[]) || []))
+      .then(({ data }) => setUnidades((data as unknown as UnidadeDestino[]) || []))
+    // Repasses que ainda aceitam acerto: salvos e não pagos (pago trava).
+    supabase
+      .from('fin_repasses').select('id, unidade_id, mes_referencia, status')
+      .in('status', ['aberto', 'enviado']).order('mes_referencia', { ascending: false })
+      .then(({ data }) => setRepassesAbertos((data as unknown as RepasseAberto[]) || []))
   }, [supabase, currentUnit?.id])
+
+  /** O repasse é sempre Matriz ↔ unidade: só há opção de repasse se uma ponta é a Matriz. */
+  const unidadeDoRepasse = (destinoId: string): string | null => {
+    const dest = unidades.find(u => u.id === destinoId)
+    if (currentUnit?.is_matriz) return destinoId
+    if (dest?.is_matriz) return currentUnit?.id || null
+    return null
+  }
+  const somaDestinos = destinos.reduce((a, d) => a + digitosParaNumero(d.valor), 0)
+  const restanteDestinos = Math.round((digitosParaNumero(valor) - somaDestinos) * 100) / 100
 
 
   // A data do pagamento acompanha a do gasto enquanto o operador não disser o
@@ -465,7 +493,7 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
     setRateado(false); setMeses('12')
     setDataCaixa(''); setContaId(''); setNovaFatura(false)
     setBusca(''); setNivel1(null); setNivel2(null)
-    setParaOutra(''); setMetodo(''); setMaisOpcoes(false)
+    setDestinos([]); setMetodo(''); setMaisOpcoes(false)
     setDataOutra(false); setCaixaOutra(false)
     setAberto(false)
     setEditandoId(null)
@@ -545,7 +573,13 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
       // A principal fica com o que sobra, então ela precisa sobrar com algo.
       if (restante <= 0) return toast('As partes somam o total ou mais — sobra nada para a categoria principal', 'error')
       // Uma cobrança pra outra unidade sobre só uma das partes seria ambígua.
-      if (paraOutra) return toast('Lançamento dividido não pode ser "comprado para outra unidade"', 'error')
+      if (destinos.length) return toast('Lançamento dividido não pode ser "comprado para outra unidade"', 'error')
+    }
+    if (destinos.length) {
+      if (destinos.some(d => !d.unidadeId)) return toast('Escolha a unidade de cada cobrança', 'error')
+      if (new Set(destinos.map(d => d.unidadeId)).size !== destinos.length) return toast('Cada unidade entra uma vez só', 'error')
+      if (destinos.some(d => digitosParaNumero(d.valor) <= 0)) return toast('Cada unidade precisa de um valor', 'error')
+      if (restanteDestinos < 0) return toast('As cobranças passam do total do lançamento', 'error')
     }
 
     setSalvando(true)
@@ -634,32 +668,54 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
         }).select('id').single()
         if (error) throw new Error(error.message)
 
-        // COMPRA EXTERNA: o gasto sai do caixa daqui e o custo é de lá. Emite a
-        // cobrança, que a outra unidade reconhece ou recusa. Enquanto ela não
-        // responde, a despesa fica AQUI — é assim que tem de ser: quem comprou
-        // carrega o custo até que o outro assuma. Ver docs/COBRANCAS_ENTRE_UNIDADES.md.
-        if (paraOutra) {
-          const { error: e2 } = await supabase.from('fin_cobrancas').insert({
+        // COMPRA PARA OUTRAS UNIDADES: o gasto sai do caixa daqui e o custo é de
+        // lá. O lançamento acima fica com o valor CHEIO; cada cobrança, quando
+        // conta, põe a despesa na unidade e o reembolso aqui — então aqui sobra só
+        // a parte de quem comprou. Ver FLOW_FINANCEIRO §9.5.
+        //   · agora   → cobrança `emitida`: a unidade reconhece (ou recusa).
+        //   · repasse → já reconhecida (pernas na DRE agora) e, se um repasse foi
+        //               escolhido, presa nele (`repasse_id`, `liquidada`) — é como o
+        //               Salvar do repasse marca o que compensou. Sem repasse
+        //               escolhido, fica `aceita` e entra no próximo que for salvo.
+        const desc = descricao.trim() || fornecedor.trim() || caminhoDe(catId)
+        for (const d of destinos) {
+          const vd = digitosParaNumero(d.valor)
+          const alvo = unidades.find(u => u.id === d.unidadeId)
+          const { data: cob, error: e2 } = await supabase.from('fin_cobrancas').insert({
             unidade_credora: currentUnit.id,     // quem pagou, tem a receber
-            unidade_devedora: paraOutra,         // quem consumiu, deve
+            unidade_devedora: d.unidadeId,       // quem consumiu, deve
             tipo: 'despesa_rateada',
-            valor: v,
-            data: data_competencia,
-            descricao: descricao.trim() || fornecedor.trim() || caminhoDe(catId),
+            valor: vd,
+            data: data_competencia,              // o custo é do mês do gasto
+            descricao: desc,
             categoria_id: catId,                 // a classificação viaja junto
             status: 'emitida',
             lancamento_origem_id: (novo as { id: string }).id,
             criado_por_nome: userName || null,
-          })
-          if (e2) throw new Error(e2.message)
-          setRecarregarCobrancas(n => n + 1)
+          }).select('id').single()
+          if (e2) throw new Error(`${alvo?.nome || 'Unidade'}: ${e2.message}`)
+          if (d.modo === 'repasse' && unidadeDoRepasse(d.unidadeId)) {
+            const cobId = (cob as { id: string }).id
+            await reconhecerCobranca(supabase, {
+              id: cobId, tipo: 'despesa_rateada', valor: vd, data: data_competencia,
+              descricao: desc, categoria_id: catId,
+              unidade_credora: currentUnit.id, unidade_devedora: d.unidadeId,
+              credoraNome: currentUnit.nome, devedoraCodigo: alvo?.codigo || null,
+              fin_categorias: catSelecionada ? { fin_conta_id: catSelecionada.fin_conta_id, fin_contas: catSelecionada.fin_contas || null } : null,
+            }, { userName })
+            if (d.repasseId) {
+              const { error: e3 } = await supabase.from('fin_cobrancas')
+                .update({ repasse_id: d.repasseId, status: 'liquidada' }).eq('id', cobId)
+              if (e3) throw new Error(`${alvo?.nome || 'Unidade'}: ${e3.message}`)
+            }
+          }
         }
+        if (destinos.length) setRecarregarCobrancas(n => n + 1)
       }
 
-      const alvo = unidades.find(u => u.id === paraOutra)
       toast(
         editandoId ? `Lançamento atualizado — ${fmtBRL(v)}`
-          : alvo ? `Lançado ${fmtBRL(v)} — ${alvo.nome} vai receber o acerto`
+          : destinos.length ? `Lançado ${fmtBRL(v)} — ${destinos.length} ${destinos.length > 1 ? 'unidades cobradas' : 'unidade cobrada'}`
           : `Lançado ${fmtBRL(v)}`,
         'success'
       )
@@ -1374,25 +1430,94 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
             <div>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
-                  type="checkbox" checked={!!paraOutra}
-                  onChange={e => setParaOutra(e.target.checked ? (unidades[0]?.id || '') : '')}
+                  type="checkbox" checked={destinos.length > 0}
+                  onChange={e => setDestinos(e.target.checked
+                    ? [{ unidadeId: '', valor: '', modo: 'repasse', repasseId: '' }] : [])}
                   className="h-4 w-4 accent-emerald-500"
                 />
-                <span className="text-xs text-[var(--surface-600)]">Comprei para outra unidade</span>
+                <span className="text-xs text-[var(--surface-600)]">Comprei para outras unidades</span>
               </label>
 
-              {paraOutra && (
-                <div className="mt-2 pl-6 space-y-1.5">
-                  <select
-                    value={paraOutra} onChange={e => setParaOutra(e.target.value)}
-                    className="input text-sm w-full sm:w-64"
-                  >
-                    {unidades.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
-                  </select>
+              {destinos.length > 0 && (
+                <div className="mt-2 pl-6 space-y-2">
+                  {destinos.map((d, idx) => {
+                    const doRepasse = d.unidadeId ? unidadeDoRepasse(d.unidadeId) : null
+                    const opcoes = repassesAbertos.filter(r => r.unidade_id === doRepasse)
+                    const mudar = (patch: Partial<Destino>) =>
+                      setDestinos(prev => prev.map((x, k) => (k === idx ? { ...x, ...patch } : x)))
+                    return (
+                      <div key={idx} className="rounded-[var(--radius-md)] border border-[var(--surface-200)] p-2 space-y-1.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <select
+                            value={d.unidadeId}
+                            onChange={e => mudar({ unidadeId: e.target.value, repasseId: '',
+                              modo: unidadeDoRepasse(e.target.value) ? d.modo : 'agora' })}
+                            className="input text-sm flex-1 min-w-[9rem]"
+                          >
+                            <option value="">Unidade…</option>
+                            {unidades.map(u => (
+                              <option key={u.id} value={u.id}
+                                disabled={destinos.some((x, k) => k !== idx && x.unidadeId === u.id)}>{u.nome}</option>
+                            ))}
+                          </select>
+                          <div className="flex items-center rounded-[var(--radius-md)] border overflow-hidden w-32"
+                               style={{ borderColor: 'var(--surface-300)', background: 'var(--surface-0)' }}>
+                            <span className="text-xs text-[var(--surface-400)] pl-2">R$</span>
+                            <input
+                              type="text" inputMode="decimal"
+                              value={d.valor ? digitosParaTexto(d.valor) : ''}
+                              onChange={e => mudar({ valor: soDigitos(e.target.value) })}
+                              onPaste={e => { const v2 = colarValorBR(e.clipboardData.getData('text')); if (v2 !== null) { e.preventDefault(); mudar({ valor: v2 }) } }}
+                              placeholder="0,00"
+                              className="w-full bg-transparent border-0 outline-none text-sm text-mono px-1.5 py-1.5 text-[var(--surface-800)]"
+                            />
+                          </div>
+                          <button type="button" onClick={() => setDestinos(prev => prev.filter((_, k) => k !== idx))}
+                            className="p-1 text-[var(--surface-400)] hover:text-red-400" title="Tirar esta unidade">
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                        {d.unidadeId && (doRepasse ? (
+                          <div className="flex flex-wrap items-center gap-2 text-xs">
+                            <label className="flex items-center gap-1 cursor-pointer">
+                              <input type="radio" checked={d.modo === 'repasse'} onChange={() => mudar({ modo: 'repasse' })} className="accent-emerald-500" />
+                              no repasse
+                            </label>
+                            {d.modo === 'repasse' && (
+                              <select value={d.repasseId} onChange={e => mudar({ repasseId: e.target.value })} className="input text-xs py-1">
+                                <option value="">o próximo que for salvo</option>
+                                {opcoes.map(r => <option key={r.id} value={r.id}>{rotuloRepasse(r)}</option>)}
+                              </select>
+                            )}
+                            <label className="flex items-center gap-1 cursor-pointer">
+                              <input type="radio" checked={d.modo === 'agora'} onChange={() => mudar({ modo: 'agora' })} className="accent-emerald-500" />
+                              cobrar agora
+                            </label>
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-[var(--surface-400)]">Cobrança direta — a unidade reconhece em Acertos entre unidades.</p>
+                        ))}
+                      </div>
+                    )
+                  })}
+                  <div className="flex flex-wrap items-center gap-3">
+                    {destinos.length < unidades.length && (
+                      <button type="button"
+                        onClick={() => setDestinos(prev => [...prev, { unidadeId: '', valor: '', modo: 'repasse', repasseId: '' }])}
+                        className="text-xs text-emerald-500 hover:underline">+ outra unidade</button>
+                    )}
+                    {digitosParaNumero(valor) > 0 && (
+                      <span className={`text-[11px] ${restanteDestinos < 0 ? 'text-red-400' : 'text-[var(--surface-400)]'}`}>
+                        {restanteDestinos < 0
+                          ? `As cobranças passam do total em ${fmtBRL(-restanteDestinos)}`
+                          : `Fica com ${currentUnit?.nome}: ${fmtBRL(restanteDestinos)}`}
+                      </span>
+                    )}
+                  </div>
                   <p className="text-[11px] text-[var(--surface-400)]">
-                    O pagamento sai daqui e o custo vai para lá — depois que a
-                    unidade reconhecer o acerto. Até isso acontecer, a despesa
-                    permanece nesta unidade.
+                    No repasse: já conta na DRE da unidade, no mês do gasto, e o
+                    dinheiro anda quando ela quitar o repasse. Cobrar agora: a
+                    unidade reconhece antes de contar.
                   </p>
                 </div>
               )}

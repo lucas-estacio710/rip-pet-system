@@ -649,16 +649,28 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
 
             {existente && (
               <span className="flex items-center gap-1.5 text-xs text-[var(--surface-500)]">
+                {/* A SITUAÇÃO do fechamento (02/10/2026 — "abertoenviado" lia como uma
+                    palavra só): salvo = Aberto · a Matriz avisou a unidade = Enviado ·
+                    a unidade quitou em Lançamentos especiais = Pago (trava). */}
                 <Lock className="h-3.5 w-3.5 text-amber-400" />
-                {existente.status}
-                {existente.enviado_em && ` · env ${fmtData(existente.enviado_em)}`}
+                Situação:
+                <span className={`px-1.5 py-0.5 rounded font-medium ${
+                  existente.status === 'pago' ? 'bg-emerald-500/15 text-emerald-500'
+                    : existente.status === 'enviado' ? 'bg-blue-500/15 text-blue-400'
+                    : 'bg-amber-500/15 text-amber-500'}`}>
+                  {existente.status === 'pago' ? 'Pago' : existente.status === 'enviado' ? 'Enviado à unidade' : 'Aberto'}
+                </span>
+                {existente.enviado_em && ` · enviado ${fmtData(existente.enviado_em)}`}
                 {existente.pago_em && ` · pago ${fmtData(existente.pago_em)}`}
                 {/* ⚠️ O seletor de CNPJ saiu daqui (02/09/2026). O CNPJ não é
                     escolhido: ele é DERIVADO da conta em que o dinheiro entra
                     (mig 121/128). Perguntar de novo abria espaço para o repasse
                     dizer um CNPJ e o extrato mostrar outro. */}
                 {existente.status === 'aberto' && !somenteLeitura && (
-                  <button onClick={() => void marcar('enviado_em')} className="underline hover:text-[var(--surface-700)]">enviado</button>
+                  <button onClick={() => void marcar('enviado_em')} className="btn-secondary text-xs py-0.5 px-2"
+                    title="Registra que a cobrança foi mandada para a unidade (só um marco; continua editável)">
+                    marcar como enviado
+                  </button>
                 )}
                 {/* O "pago" SAIU daqui (02/10/2026, mig 150): quem paga é a unidade,
                     em Lançamentos › Lançamentos especiais › Pagamento de repasse —
@@ -666,7 +678,7 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
                     valor que saiu DE VERDADE. Aqui a Matriz só prepara e fecha. */}
                 {existente.status !== 'pago' && (
                   <span className="text-[var(--surface-400)]" title="A unidade quita em Lançamentos › Lançamentos especiais">
-                    · a unidade quita em Lançamentos
+                    · vira Pago quando a unidade quitar
                   </span>
                 )}
               </span>
