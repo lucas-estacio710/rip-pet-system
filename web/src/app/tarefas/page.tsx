@@ -26,6 +26,7 @@ import { hojeLocal, inputLocalParaIso } from '@/lib/date-local'
 import AtivacaoPVModal from '@/components/contratos/modals/AtivacaoPVModal'
 import FotoProva from '@/components/tarefas/FotoProva'
 import type { FotoComprimida } from '@/lib/comprimir-imagem'
+import { concluirTarefasOperacionais, reabrirTarefasOperacionais, registrarObservacaoContrato, formatarIdade } from '@/lib/atribuir-tarefa'
 import { carregarExigeFoto, enviarFotoTarefa, listarFotosDasTarefas, urlAssinadaFoto, type ExigeFotoPorTipo } from '@/lib/foto-tarefa'
 
 // `entrega_pendente` NÃO é um tipo real de `tarefas_operacionais.tipo` (a constraint do banco
@@ -921,18 +922,33 @@ export default function TarefasPage() {
       // tarefa continua pendente — melhor que concluir e perder a prova.
       if (fotoProva) await enviarFotoTarefa(supabase, tarefa.ids, fotoProva, userId)
 
+      // 🔴 A TAREFA conclui ANTES do efeito (B-02 do playbook do redesenho). Era o contrário,
+      // sem conferir erro: o trigger da mig 147 recusava, o contrato já estava finalizado / o
+      // produto já estava feito, o toast dizia "concluída" e a tarefa ficava órfã.
+      await concluirTarefasOperacionais(supabase, tarefa.ids, {
+        anotacao: anotacaoSimples.trim() || null,
+        executadoPorFuncionarioId: isPosicao ? (executadoPorFuncionarioId || null) : null,
+      })
+
       let contratoId = tarefa.contrato_id
-      if (tarefa.tipo === 'entrega' && tarefa.contrato_id) {
-        const dataEntregaFinal = modoDataEntrega === 'agora' ? hojeLocal() : dataEntregaManual
-        const { error } = await supabase.from('contratos').update({
-          status: 'finalizado',
-          data_entrega: dataEntregaFinal,
-        } as never).eq('id', tarefa.contrato_id)
-        if (error) throw new Error(error.message)
-      } else if (tarefa.contratoProdutoIds.length > 0) {
-        const { error } = await supabase.from('contrato_produtos').update({ rescaldo_feito: true } as never).in('id', tarefa.contratoProdutoIds)
-        if (error) throw new Error(error.message)
-        contratoId = tarefa.contratoIdResolvido
+      try {
+        if (tarefa.tipo === 'entrega' && tarefa.contrato_id) {
+          const dataEntregaFinal = modoDataEntrega === 'agora' ? hojeLocal() : dataEntregaManual
+          // Guarda de status: se o pipeline já finalizou o contrato, não reescreve a data dele.
+          const { error } = await supabase.from('contratos').update({
+            status: 'finalizado',
+            data_entrega: dataEntregaFinal,
+          } as never).eq('id', tarefa.contrato_id).in('status', ['retorno', 'pendente'])
+          if (error) throw new Error(error.message)
+        } else if (tarefa.contratoProdutoIds.length > 0) {
+          const { error } = await supabase.from('contrato_produtos').update({ rescaldo_feito: true } as never).in('id', tarefa.contratoProdutoIds)
+          if (error) throw new Error(error.message)
+          contratoId = tarefa.contratoIdResolvido
+        }
+      } catch (errEfeito) {
+        // O efeito falhou: a tarefa volta a pendente, pra nada ficar meio feito.
+        await reabrirTarefasOperacionais(supabase, tarefa.ids).catch(() => {})
+        throw errEfeito
       }
 
       const rotulo = tarefa.quantidade > 1 ? `${TIPO_INFO[tarefa.tipo].label} (×${tarefa.quantidade})` : TIPO_INFO[tarefa.tipo].label
@@ -952,33 +968,14 @@ export default function TarefasPage() {
         : ''
 
       if (contratoId) {
-        const { data: tipoTarefa } = await supabase.from('tarefa_tipos').select('id').eq('nome', 'Observação da Unidade').maybeSingle() as { data: { id: string } | null }
         const partes = [`${rotulo} concluído por ${userName || 'Operacional'}${emNomeDe}${nomeExecutor ? ` (colaborador na posição: ${nomeExecutor})` : ''}.`]
         if (tarefa.tipo === 'entrega' && modoDataEntrega === 'outra') partes.push(`Data de entrega registrada retroativa: ${new Date(dataEntregaManual + 'T00:00:00').toLocaleDateString('pt-BR')}.`)
         if (tarefa.observacao_atribuicao) partes.push(`Pedido específico confirmado: "${tarefa.observacao_atribuicao}".`)
         if (anotacaoSimples.trim()) partes.push(`Nota: ${anotacaoSimples.trim()}`)
-        await supabase.from('tarefas').insert({
-          contrato_id: contratoId,
-          descricao: partes.join(' '),
-          tipo_id: tipoTarefa?.id || null,
-          // 🔴 `false`: **automático NUNCA nasce importante** (decisão do Lucas, 23/09/2026).
-          // Só é importante o que alguém MARCA à mão no card Observações ou escreve pelo
-          // botão 🚨 da /gruposencaminhamentos. Antes isto era `true` e o resultado era que
-          // quase toda observação de contrato entrava em destaque — medido: 449 linhas com
-          // `importante=true`, das quais **172 eram log automático**. O destaque parou de
-          // significar algo, que é o oposto de destacar. O registro continua na timeline do
-          // contrato; só não grita.
-          importante: false,
-          criado_por: userName || 'Operacional',
-        } as never)
+        // Automático NUNCA nasce importante (23/09/2026: 172 das 449 observações em destaque
+        // eram log automático) — `registrarObservacaoContrato` já grava `importante: false`.
+        await registrarObservacaoContrato(supabase, { contratoId, unidadeId: tarefa.unidade_id, descricao: partes.join(' '), criadoPor: userName || 'Operacional' })
       }
-
-      await supabase.from('tarefas_operacionais').update({
-        status: 'concluida',
-        concluido_em: new Date().toISOString(),
-        anotacao_conclusao: anotacaoSimples.trim() || null,
-        executado_por_funcionario_id: isPosicao ? (executadoPorFuncionarioId || null) : null,
-      } as never).in('id', tarefa.ids)
 
       await supabase.from('historico_alteracoes').insert({
         entidade: 'tarefa_operacional',
@@ -994,7 +991,7 @@ export default function TarefasPage() {
       } as never)
 
       toast('Tarefa concluída!', 'success')
-      notificarConclusaoUnidade(rotulo, tarefa.petNome)
+      notificarConclusaoUnidade(rotulo, tarefa.petNome, tarefa.unidade_id)
       setTarefaAberta(null)
       setTarefaAbertaRascunho(false)
       setAnotacaoSimples('')
@@ -1117,6 +1114,14 @@ export default function TarefasPage() {
       // CRIA O CONTRATO — falhar depois disso deixaria contrato criado e tarefa pendente.
       if (fotoProva) await enviarFotoTarefa(supabase, tarefa.ids, fotoProva, userId)
 
+      // 🔴 A TAREFA conclui ANTES de criar o contrato (B-02): se o trigger da mig 147 recusar,
+      // nada foi criado. Se a criação falhar depois, a tarefa volta a pendente.
+      await concluirTarefasOperacionais(supabase, [tarefa.id], {
+        lacre: lacreRemocao.trim(),
+        anotacao: anotacaoRemocao.trim() || null,
+        executadoPorFuncionarioId: isPosicao ? (executadoPorFuncionarioId || null) : null,
+      })
+
       const dataHoraFinal = modoDataRemocao === 'agora' ? new Date().toISOString() : inputLocalParaIso(dataHoraRemocaoManual)
       const opAtual = (ficha.op_dados || {}) as Record<string, unknown>
       const opAtualizado = {
@@ -1130,22 +1135,28 @@ export default function TarefasPage() {
         // contratos.executado_por_funcionario_id.
         executadoPorFuncionarioId: isPosicao ? (executadoPorFuncionarioId || null) : null,
       }
-      const { error: errUpdate } = await supabase.from('fichas').update({ op_dados: opAtualizado } as never).eq('id', ficha.id)
-      if (errUpdate) throw new Error(errUpdate.message)
+      let contratoId: string
+      try {
+        const { error: errUpdate } = await supabase.from('fichas').update({ op_dados: opAtualizado } as never).eq('id', ficha.id)
+        if (errUpdate) throw new Error(errUpdate.message)
 
-      const unidade = unidadeDaFicha(ficha)
-      const { contratoId } = await criarContratoDeFicha(
-        supabase,
-        { ...ficha, op_dados: opAtualizado },
-        {
-          codigo: unidade?.codigo || '',
-          endereco: unidade?.endereco || null,
-          cidade: unidade?.cidade || null,
-          modulos_ativos: unidade?.modulos_ativos || [],
-        },
-        userName || 'Operacional',
-        true // responsavelEhOperacional — lacre já validado acima, obrigatório sem escape
-      )
+        const unidade = unidadeDaFicha(ficha)
+        ;({ contratoId } = await criarContratoDeFicha(
+          supabase,
+          { ...ficha, op_dados: opAtualizado },
+          {
+            codigo: unidade?.codigo || '',
+            endereco: unidade?.endereco || null,
+            cidade: unidade?.cidade || null,
+            modulos_ativos: unidade?.modulos_ativos || [],
+          },
+          userName || 'Operacional',
+          true // responsavelEhOperacional — lacre já validado acima, obrigatório sem escape
+        ))
+      } catch (errEfeito) {
+        await reabrirTarefasOperacionais(supabase, [tarefa.id]).catch(() => {})
+        throw errEfeito
+      }
 
       const nomeExecutor = isPosicao ? funcionariosUnidade.find(f => f.id === executadoPorFuncionarioId)?.nome : null
 
@@ -1157,31 +1168,12 @@ export default function TarefasPage() {
         : ''
 
       {
-        const { data: tipoTarefa } = await supabase.from('tarefa_tipos').select('id').eq('nome', 'Observação da Unidade').maybeSingle() as { data: { id: string } | null }
         const partes = [`Remoção concluída por ${userName || 'Operacional'}${emNomeDe}${nomeExecutor ? ` (colaborador na posição: ${nomeExecutor})` : ''} — lacre ${lacreRemocao.trim()}.`]
         if (modoDataRemocao === 'outra') partes.push(`Data/hora do acolhimento registrada retroativa: ${new Date(dataHoraFinal!).toLocaleString('pt-BR')}.`)
         if (tarefa.observacao_atribuicao) partes.push(`Pedido específico confirmado: "${tarefa.observacao_atribuicao}".`)
         if (anotacaoRemocao.trim()) partes.push(`Nota: ${anotacaoRemocao.trim()}`)
-        await supabase.from('tarefas').insert({
-          contrato_id: contratoId,
-          descricao: partes.join(' '),
-          tipo_id: tipoTarefa?.id || null,
-          // 🔴 `false`: **automático NUNCA nasce importante** (decisão do Lucas, 23/09/2026).
-          // Só é importante o que alguém MARCA à mão no card Observações ou escreve pelo
-          // botão 🚨 da /gruposencaminhamentos. O registro continua na timeline do contrato;
-          // só não grita. Ver o CHANGELOG de 23/09 pra os números que motivaram isso.
-          importante: false,
-          criado_por: userName || 'Operacional',
-        } as never)
+        await registrarObservacaoContrato(supabase, { contratoId, unidadeId: tarefa.unidade_id, descricao: partes.join(' '), criadoPor: userName || 'Operacional' })
       }
-
-      await supabase.from('tarefas_operacionais').update({
-        status: 'concluida',
-        concluido_em: new Date().toISOString(),
-        lacre: lacreRemocao.trim(),
-        anotacao_conclusao: anotacaoRemocao.trim() || null,
-        executado_por_funcionario_id: isPosicao ? (executadoPorFuncionarioId || null) : null,
-      } as never).eq('id', tarefa.id)
 
       await supabase.from('historico_alteracoes').insert({
         entidade: 'tarefa_operacional',
@@ -1197,7 +1189,7 @@ export default function TarefasPage() {
       } as never)
 
       toast('Remoção confirmada — contrato criado!', 'success')
-      notificarConclusaoUnidade(TIPO_INFO.remocao.label, ficha.nome_pet || '—')
+      notificarConclusaoUnidade(TIPO_INFO.remocao.label, ficha.nome_pet || '—', tarefa.unidade_id)
       setTarefaAberta(null)
       setLacreRemocao('')
       setAnotacaoRemocao('')
@@ -1297,21 +1289,19 @@ export default function TarefasPage() {
   // carrega quando a aba "Gestão de Tarefas" é aberta, e um Operacional puro nunca vê essa
   // aba (só "Minhas Tarefas"), então o array ficaria sempre vazio pra quem mais completa
   // tarefa no dia a dia.
-  async function notificarConclusaoUnidade(label: string, petNome: string) {
-    if (!currentUnit) return
+  //
+  // 🔴 A gestão é resolvida NO SERVIDOR (`gestaoDaUnidadeId`), não pela RPC
+  // `listar_atribuiveis_operacional`: ela recusa quem é Operacional (mig 145), o `catch` engolia
+  // e o aviso nunca saía justamente quando quem concluiu foi o Operacional. E a unidade é a DA
+  // TAREFA, não a selecionada — a posição dos carros SJ+PI vê as duas filas juntas (§10.19) e
+  // avisaria a gestão errada.
+  async function notificarConclusaoUnidade(label: string, petNome: string, unidadeId: string | null | undefined) {
+    if (!unidadeId) return
     try {
-      // Sem `p_para` de propósito (mig 145): aqui não se está ATRIBUINDO nada, e sim avisando a
-      // gestão da unidade que uma tarefa terminou. Quem não executa tarefa continua precisando
-      // saber que ela acabou.
-      const { data } = await supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: currentUnit.id } as never) as { data: { user_id: string; role: string }[] | null }
-      const destinatarios = (data || [])
-        .filter(p => (p.role === 'gerente' || p.role === 'operador') && p.user_id !== userId)
-        .map(p => p.user_id)
-      if (destinatarios.length === 0) return
       await fetch('/api/push/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userIds: destinatarios, title: '✅ Tarefa concluída', body: `${label} — ${petNome}`, url: '/tarefas' }),
+        body: JSON.stringify({ gestaoDaUnidadeId: unidadeId, excetoUserId: userId, title: '✅ Tarefa concluída', body: `${label} — ${petNome}`, url: '/tarefas' }),
       })
     } catch { /* push é best-effort — não trava o fluxo se falhar */ }
   }
@@ -1367,14 +1357,12 @@ export default function TarefasPage() {
       } as never)
 
       if (tarefa.contratoIdResolvido) {
-        const { data: tipoTarefa } = await supabase.from('tarefa_tipos').select('id').eq('nome', 'Observação da Unidade').maybeSingle() as { data: { id: string } | null }
-        await supabase.from('tarefas').insert({
-          contrato_id: tarefa.contratoIdResolvido,
+        await registrarObservacaoContrato(supabase, {
+          contratoId: tarefa.contratoIdResolvido,
+          unidadeId: tarefa.unidade_id,
           descricao: `${userName || 'Alguém'} reatribuiu ${TIPO_INFO[tarefa.tipo].label} — tirou de ${nomeAntigo}, passou pra ${nomeNovo}.`,
-          tipo_id: tipoTarefa?.id || null,
-          importante: false,
-          criado_por: userName || 'Sistema',
-        } as never)
+          criadoPor: userName || 'Sistema',
+        })
       }
 
       await notificarAtribuicao(novoId, TIPO_INFO[tarefa.tipo].label, tarefa.petNome, tarefa.quantidade)
@@ -1404,8 +1392,14 @@ export default function TarefasPage() {
       const { data: { user } } = await supabase.auth.getUser()
       const nomeAtual = operacionais.find(o => o.user_id === tarefa.atribuido_a)?.nome || 'alguém'
 
-      const { error } = await supabase.from('tarefas_operacionais').delete().in('id', tarefa.ids)
+      // Só as pendentes: se alguém concluiu nesse meio-tempo, desatribuir não apaga o feito
+      // (nem a foto dele, que iria junto pelo CASCADE).
+      const { data: apagadas, error } = await supabase.from('tarefas_operacionais').delete().in('id', tarefa.ids).eq('status', 'pendente').select('id')
       if (error) throw new Error(error.message)
+      if ((apagadas || []).length !== tarefa.ids.length) {
+        await Promise.all([carregarEmAndamento(), carregarPool()])
+        throw new Error('Esta tarefa já foi concluída — nada foi desatribuído além do que ainda estava pendente. Atualizei a lista.')
+      }
 
       await supabase.from('historico_alteracoes').insert({
         entidade: 'tarefa_operacional',
@@ -1421,14 +1415,12 @@ export default function TarefasPage() {
       } as never)
 
       if (tarefa.contratoIdResolvido) {
-        const { data: tipoTarefa } = await supabase.from('tarefa_tipos').select('id').eq('nome', 'Observação da Unidade').maybeSingle() as { data: { id: string } | null }
-        await supabase.from('tarefas').insert({
-          contrato_id: tarefa.contratoIdResolvido,
+        await registrarObservacaoContrato(supabase, {
+          contratoId: tarefa.contratoIdResolvido,
+          unidadeId: tarefa.unidade_id,
           descricao: `${userName || 'Alguém'} cancelou a atribuição de ${rotulo} (estava com ${nomeAtual}) — voltou pro pool.`,
-          tipo_id: tipoTarefa?.id || null,
-          importante: false,
-          criado_por: userName || 'Sistema',
-        } as never)
+          criadoPor: userName || 'Sistema',
+        })
       }
 
       toast('Atribuição cancelada — voltou pro pool', 'success')
@@ -1502,7 +1494,10 @@ export default function TarefasPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser()
 
+      let dataEntregaAnterior: string | null = null
       if (tarefa.tipo === 'entrega' && tarefa.contrato_id) {
+        const { data: atual } = await supabase.from('contratos').select('data_entrega').eq('id', tarefa.contrato_id).maybeSingle() as { data: { data_entrega: string | null } | null }
+        dataEntregaAnterior = atual?.data_entrega ?? null
         const { error } = await supabase.from('contratos').update({ status: 'retorno', data_entrega: null } as never).eq('id', tarefa.contrato_id)
         if (error) throw new Error(error.message)
       } else if (tarefa.contratoProdutoIds.length > 0) {
@@ -1510,11 +1505,18 @@ export default function TarefasPage() {
         if (error) throw new Error(error.message)
       }
 
-      await supabase.from('tarefas_operacionais').update({
-        status: 'pendente',
-        concluido_em: null,
-        anotacao_conclusao: null,
-      } as never).in('id', tarefa.ids)
+      // Erro conferido (antes não era): se a tarefa não reabrir, o efeito volta — senão o
+      // contrato voltava pra retorno com a tarefa ainda "concluída" e ninguém via.
+      try {
+        await reabrirTarefasOperacionais(supabase, tarefa.ids)
+      } catch (errTarefa) {
+        if (tarefa.tipo === 'entrega' && tarefa.contrato_id) {
+          await supabase.from('contratos').update({ status: 'finalizado', data_entrega: dataEntregaAnterior } as never).eq('id', tarefa.contrato_id)
+        } else if (tarefa.contratoProdutoIds.length > 0) {
+          await supabase.from('contrato_produtos').update({ rescaldo_feito: true } as never).in('id', tarefa.contratoProdutoIds)
+        }
+        throw errTarefa
+      }
 
       await supabase.from('historico_alteracoes').insert({
         entidade: 'tarefa_operacional',
@@ -1531,18 +1533,12 @@ export default function TarefasPage() {
       } as never)
 
       if (tarefa.contratoIdResolvido) {
-        const { data: tipoTarefa } = await supabase.from('tarefa_tipos').select('id').eq('nome', 'Observação da Unidade').maybeSingle() as { data: { id: string } | null }
-        await supabase.from('tarefas').insert({
-          contrato_id: tarefa.contratoIdResolvido,
+        await registrarObservacaoContrato(supabase, {
+          contratoId: tarefa.contratoIdResolvido,
+          unidadeId: tarefa.unidade_id,
           descricao: `${userName || 'Alguém'} desfez a conclusão de ${TIPO_INFO[tarefa.tipo].label} — voltou pendente, ainda com quem já estava.`,
-          tipo_id: tipoTarefa?.id || null,
-          // 🔴 `false`: **automático NUNCA nasce importante** (decisão do Lucas, 23/09/2026).
-          // Só é importante o que alguém MARCA à mão no card Observações ou escreve pelo
-          // botão 🚨 da /gruposencaminhamentos. O registro continua na timeline do contrato;
-          // só não grita. Ver o CHANGELOG de 23/09 pra os números que motivaram isso.
-          importante: false,
-          criado_por: userName || 'Sistema',
-        } as never)
+          criadoPor: userName || 'Sistema',
+        })
       }
 
       // Desfazer NÃO devolve pro pool — a tarefa continua atribuída à mesma pessoa, só volta a
@@ -1615,7 +1611,16 @@ export default function TarefasPage() {
         ? origem.contratoProdutoIds.map(cpId => ({ ...linhasBase, contrato_id: null, contrato_produto_id: cpId }))
         : [{ ...linhasBase, contrato_id: origem.contratoId || null, contrato_produto_id: null }]
       const { data: novasTarefas, error } = await supabase.from('tarefas_operacionais').insert(rows as never).select('id')
-      if (error) throw new Error(error.message)
+      if (error) {
+        // 23505 = índice único de tarefa pendente (mig 116): alguém atribuiu antes, ou o
+        // contrato tem outra tarefa pendente (o índice por contrato não olha o tipo — ex.:
+        // acolhimento ainda aberto). A mensagem crua do Postgres não dizia nada pra quem atribui.
+        if ((error as { code?: string }).code === '23505') {
+          await carregarPool()
+          throw new Error('Este item já tem uma tarefa pendente (foi atribuído agora há pouco, ou o contrato ainda tem o acolhimento em aberto). Atualizei a lista.')
+        }
+        throw new Error(error.message)
+      }
 
       const petNome = origem.contratoId
         ? poolEntrega.find(c => c.id === origem.contratoId)?.pet_nome
@@ -1638,18 +1643,14 @@ export default function TarefasPage() {
       // Fica registrado nas Observações do contrato também — é onde gerente/concierge já olham todo dia.
       const contratoIdParaObs = origem.contratoId || poolRescaldo.find(p => origem.contratoProdutoIds?.includes(p.id))?.contrato_id
       if (contratoIdParaObs) {
-        const { data: tipoTarefa } = await supabase.from('tarefa_tipos').select('id').eq('nome', 'Observação da Unidade').maybeSingle() as { data: { id: string } | null }
-        await supabase.from('tarefas').insert({
-          contrato_id: contratoIdParaObs,
+        // Era `importante: !!observacao` até 23/09 — o pedido específico continua no texto,
+        // mas destaque é decisão de pessoa, não do sistema.
+        await registrarObservacaoContrato(supabase, {
+          contratoId: contratoIdParaObs,
+          unidadeId: origem.unidadeId,
           descricao: `${userName || 'Alguém'} atribuiu para ${atribuidoNome || 'Operacional'} fazer ${rotulo}${observacao ? ` — pedido específico: "${observacao}"` : '.'}`,
-          tipo_id: tipoTarefa?.id || null,
-          // 🔴 Era `!!observacao` — a atribuição COM pedido específico nascia importante.
-          // Mesmo assim é automático, e a regra nova não abre exceção: quem decide o destaque
-          // é uma pessoa marcando, não o sistema deduzindo. O pedido específico continua no
-          // texto da observação, legível.
-          importante: false,
-          criado_por: userName || 'Sistema',
-        } as never)
+          criadoPor: userName || 'Sistema',
+        })
       }
 
       await notificarAtribuicao(operacionalId, TIPO_INFO[tipo].label, petNome || 'um pet', quantidade)
@@ -2116,7 +2117,7 @@ export default function TarefasPage() {
                           petNome={t.petNome}
                           tutorNome={t.tutorNome}
                           quantidade={t.quantidade}
-                          linhaExtra={<p className="text-xs text-[var(--surface-500)] truncate mt-0.5">Com {nomeAtual} · <span className={corIdade}>{horasParado < 1 ? 'agora' : `${Math.floor(horasParado)}h`}</span></p>}
+                          linhaExtra={<p className="text-xs text-[var(--surface-500)] truncate mt-0.5">Com {nomeAtual} · <span className={corIdade}>{formatarIdade(horasParado)}</span></p>}
                           onClick={() => abrirTarefaMinhas(t)}
                           acao={
                             <div className="flex flex-col items-stretch gap-2 shrink-0">
@@ -2127,7 +2128,8 @@ export default function TarefasPage() {
                               >
                                 Reatribuir
                               </button>
-                              {t.tipo !== 'remocao' && (
+                              {/* Remoção e Ativação de PV não voltam pra pool (cancelarAtribuicao recusa) — o botão era clique morto em ativacao_pv. */}
+                              {t.tipo !== 'remocao' && t.tipo !== 'ativacao_pv' && (
                                 <button
                                   onClick={e => { e.stopPropagation(); cancelarAtribuicao(t) }}
                                   disabled={cancelandoId === t.id}

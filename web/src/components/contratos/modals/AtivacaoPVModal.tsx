@@ -8,6 +8,7 @@ import { baixarContratoPDF } from '@/lib/contrato-pdf-download'
 import FotoProva from '@/components/tarefas/FotoProva'
 import type { FotoComprimida } from '@/lib/comprimir-imagem'
 import { carregarExigeFoto, enviarFotoTarefa } from '@/lib/foto-tarefa'
+import { concluirTarefasOperacionais, reabrirTarefasOperacionais } from '@/lib/atribuir-tarefa'
 
 // ============================================================================
 // AtivacaoPVModal — conclusão da tarefa "Ativar Preventivo" (mig 138).
@@ -213,6 +214,17 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
 
       const dataHoraIso = modoData === 'agora' ? new Date().toISOString() : new Date(dataHoraManual).toISOString()
 
+      // 🔴 A TAREFA conclui ANTES do contrato, com erro conferido (B-02 do playbook do
+      // redesenho). Era o contrário e sem olhar o erro: se o trigger da mig 147 recusasse, o
+      // acolhimento ficava gravado e a tarefa pendente pra sempre.
+      if (tarefaId) {
+        await concluirTarefasOperacionais(supabase, [tarefaId], {
+          lacre: lacre.trim(),
+          anotacao: anotacao.trim() || null,
+          executadoPorFuncionarioId: isPosicao ? (executadoPorFuncionarioId || null) : null,
+        })
+      }
+
       // status já virou 'ativo'/'pinda' na atribuição (AtivarModal.tsx) — não muda mais aqui.
       const { error: errContrato } = await supabase.from('contratos').update({
         data_acolhimento: dataHoraIso,
@@ -220,7 +232,10 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
         executado_por_funcionario_id: isPosicao ? (executadoPorFuncionarioId || null) : null,
         aguardando_acolhimento: false,
       } as never).eq('id', contrato.id)
-      if (errContrato) throw errContrato
+      if (errContrato) {
+        if (tarefaId) await reabrirTarefasOperacionais(supabase, [tarefaId]).catch(() => {})
+        throw errContrato
+      }
 
       const { data: { user } } = await supabase.auth.getUser()
       // Quem fez de verdade: se é posição, o colaborador escolhido; senão, o próprio login que
@@ -238,16 +253,6 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
       const sufixoExecutor = nomeExecutor
         ? (isPosicao ? ` (colaborador na posição: ${nomeExecutor})` : ` — por ${nomeExecutor}`)
         : ''
-
-      if (tarefaId) {
-        await supabase.from('tarefas_operacionais').update({
-          status: 'concluida',
-          concluido_em: new Date().toISOString(),
-          lacre: lacre.trim(),
-          anotacao_conclusao: anotacao.trim() || null,
-          executado_por_funcionario_id: isPosicao ? (executadoPorFuncionarioId || null) : null,
-        } as never).eq('id', tarefaId)
-      }
 
       await supabase.from('historico_alteracoes').insert({
         entidade: 'contratos',
@@ -282,19 +287,17 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
       // nem agora no Acolhimento novo). Mesmo padrão de `notificarConclusaoUnidade`
       // (tarefas/page.tsx) mas duplicado aqui, porque aquela função é privada daquele arquivo
       // e este modal é self-contido de propósito (chamado de 3 telas diferentes).
+      // 🔴 Gestão resolvida NO SERVIDOR (`gestaoDaUnidadeId`): a RPC
+      // `listar_atribuiveis_operacional` recusa quem é Operacional (mig 145), e o aviso saía
+      // mudo justamente quando o Operacional concluía. Antes ainda filtrava por
+      // `p_para:'remocao'`, então gerente sem "Faz remoção" nunca era avisado.
       if (unidadeId) {
         try {
-          const { data: atribuiveis } = await supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: unidadeId, p_para: 'remocao' } as never) as { data: { user_id: string; role: string }[] | null }
-          const destinatarios = (atribuiveis || [])
-            .filter(p => (p.role === 'gerente' || p.role === 'operador') && p.user_id !== user?.id)
-            .map(p => p.user_id)
-          if (destinatarios.length > 0) {
-            await fetch('/api/push/send', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ userIds: destinatarios, title: '✅ Tarefa concluída', body: `${rotulo} — ${contrato.pet_nome}`, url: '/tarefas' }),
-            })
-          }
+          await fetch('/api/push/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ gestaoDaUnidadeId: unidadeId, excetoUserId: user?.id ?? null, title: '✅ Tarefa concluída', body: `${rotulo} — ${contrato.pet_nome}`, url: '/tarefas' }),
+          })
         } catch { /* push é best-effort — não trava o fluxo se falhar */ }
       }
 

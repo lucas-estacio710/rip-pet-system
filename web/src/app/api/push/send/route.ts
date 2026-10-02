@@ -27,18 +27,41 @@ export async function POST(request: NextRequest) {
   try {
     ensureVapid()
     const supabaseAdmin = getSupabaseAdmin()
-    const { title, body, url, unidadeId, userId, userIds } = await request.json()
+    const { title, body, url, unidadeId, userId, userIds, gestaoDaUnidadeId, excetoUserId } = await request.json()
 
     if (!title || !body) {
       return NextResponse.json({ error: 'title e body obrigatórios' }, { status: 400 })
     }
 
+    // gestaoDaUnidadeId — gerente+concierge ATIVOS da unidade (ex: tarefa concluída). Resolvido
+    // AQUI, com service_role, porque a RPC `listar_atribuiveis_operacional` recusa quem é
+    // Operacional (mig 145) — e é justamente o Operacional quem mais conclui tarefa: o aviso
+    // saía mudo. `excetoUserId` tira quem concluiu.
+    let destinatariosGestao: string[] | null = null
+    if (gestaoDaUnidadeId) {
+      const { data: perfis, error: perfisError } = await supabaseAdmin
+        .from('perfis')
+        .select('user_id')
+        .eq('unidade_id', gestaoDaUnidadeId)
+        .in('role', ['gerente', 'operador'])
+        .eq('ativo', true)
+      if (perfisError) {
+        console.error('Erro ao buscar gestão da unidade:', perfisError)
+        return NextResponse.json({ error: perfisError.message }, { status: 500 })
+      }
+      destinatariosGestao = Array.from(new Set((perfis || []).map(p => p.user_id as string)))
+        .filter(id => id && id !== excetoUserId)
+      if (destinatariosGestao.length === 0) return NextResponse.json({ sent: 0 })
+    }
+
     // Buscar subscriptions: de um usuário específico (userId — ex: atribuição de tarefa),
-    // de uma lista de usuários (userIds — ex: gerente+concierge da unidade quando uma tarefa
-    // é concluída), da unidade inteira (unidadeId — broadcast), ou todas se nenhum filtro vier.
+    // de uma lista de usuários (userIds), da gestão de uma unidade (gestaoDaUnidadeId, acima),
+    // da unidade inteira (unidadeId — broadcast), ou todas se nenhum filtro vier.
     let query = supabaseAdmin.from('push_subscriptions').select('*')
     if (userId) {
       query = query.eq('user_id', userId)
+    } else if (destinatariosGestao) {
+      query = query.in('user_id', destinatariosGestao)
     } else if (Array.isArray(userIds) && userIds.length > 0) {
       query = query.in('user_id', userIds)
     } else if (unidadeId) {
