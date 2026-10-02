@@ -11,7 +11,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
-  Receipt, Loader2, Copy, Check, Lock, ExternalLink, Shield, RefreshCw, AlertTriangle,
+  Receipt, Loader2, Lock, ExternalLink, Shield, RefreshCw, AlertTriangle,
   FileSpreadsheet, Layers, Save,
 } from 'lucide-react'
 import Modal from '@/components/ui/Modal'
@@ -21,8 +21,7 @@ import EmptyState from '@/components/ui/EmptyState'
 import UnderlineTabs from '@/components/ui/UnderlineTabs'
 import AcertosRepasse from './AcertosRepasse'
 import {
-  calcularAbatimento, calcularValorFinal, totalAPagar, mensagemRepasse,
-  planilhaRepasse, nomeArquivoRepasse,
+  calcularAbatimento, calcularValorFinal, totalAPagar,
   fmtBRL, fmtData, mesParaData, rotuloMes,
   type DeflatorTipo, type ItemRepasse, type Permuta,
 } from '@/lib/repasse'
@@ -78,7 +77,6 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
   const [itens, setItens] = useState<ItemRepasse[]>([])
   const [carregando, setCarregando] = useState(false)
   const [fechando, setFechando] = useState(false)
-  const [copiado, setCopiado] = useState(false)
   const [existente, setExistente] = useState<RepasseSalvo | null>(null)
   const [buscou, setBuscou] = useState(false)
   // Permutas — o encontro de contas (mig 106). Só depois de fechado.
@@ -468,12 +466,6 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
   }
 
 
-  function baixarPlanilha() {
-    const csv = planilhaRepasse(nomeUnidade, mesParaData(mes), itens, permutas)
-    saveAs(new Blob([csv], { type: 'text/csv;charset=utf-8' }), nomeArquivoRepasse(nomeUnidade, mes))
-    toast('Planilha gerada', 'success')
-  }
-
   /**
    * Excel "aberto" do Resumo (02/10/2026): além do que a tela mostra, puxa
    * espécie/raça/peso/plano/local de cada pet e a lista de acertos com data e
@@ -530,13 +522,6 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
     } finally {
       setGerandoExcel(false)
     }
-  }
-
-  const copiar = async () => {
-    await navigator.clipboard.writeText(mensagemRepasse(nomeUnidade, mesParaData(mes), itens, permutas))
-    setCopiado(true)
-    setTimeout(() => setCopiado(false), 1500)
-    toast('Cobrança copiada', 'success')
   }
 
   return (
@@ -691,14 +676,6 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
               {!travado && (
                 <button onClick={() => setLoteAberto(true)} className="btn-secondary text-xs py-1">
                   <Layers className="h-3.5 w-3.5" /> Ajuste em lote
-                </button>
-              )}
-              <button onClick={baixarPlanilha} title="Baixar planilha" className="btn-secondary text-xs py-1">
-                <FileSpreadsheet className="h-3.5 w-3.5" /> Planilha
-              </button>
-              {!somenteLeitura && (
-                <button onClick={() => void copiar()} title="Copiar cobrança" className="btn-secondary text-xs py-1">
-                  {copiado ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
                 </button>
               )}
               {!travado && (
