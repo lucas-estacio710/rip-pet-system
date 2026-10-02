@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import EmptyState from '@/components/ui/EmptyState'
 import Link from 'next/link'
 import GCAcaoModal from '@/components/contratos/gc/GCAcaoModal'
+import { consultaEmLotes } from '@/lib/consulta-em-lotes'
 
 // ============================================
 // Types
@@ -149,20 +150,15 @@ export default function GCPage() {
   const carregarDados = useCallback(async () => {
     setLoading(true)
 
-    // 1) Buscar unidades + supindas em paralelo (precisa unidades antes pra montar filtro de contratos)
-    const [unidadesRes, supindasRes] = await Promise.all([
-      supabase
-        .from('unidades')
-        .select('id, codigo, nome, modulos_ativos')
-        .eq('ativa', true)
-        .neq('is_matriz', true)
-        .order('ordem')
-        .order('nome'),
-      supabase
-        .from('supindas')
-        .select('id, numero, data, status, unidades(codigo)')
-        .order('data'),
-    ])
+    // 1) Buscar unidades (precisa antes pra montar filtro de contratos). As supindas vêm no
+    // fim, SÓ as dos contratos carregados (ver passo 4).
+    const unidadesRes = await supabase
+      .from('unidades')
+      .select('id, codigo, nome, modulos_ativos')
+      .eq('ativa', true)
+      .neq('is_matriz', true)
+      .order('ordem')
+      .order('nome')
 
     // 2) Unidades com cb_cremacao_local — contratos delas entram no GC SEM precisar de supinda
     const unidadesLocais = (unidadesRes.data || []).filter((u: any) => (u.modulos_ativos as string[] | null | undefined)?.includes('cb_cremacao_local'))
@@ -194,6 +190,7 @@ export default function GCPage() {
       }
     }
     const rawData = (contratosRes.data || []).map(mergePet)
+    let lista = rawData
 
     // Criar contrato_gc automaticamente para pets sem row
     const semGC = rawData.filter((c: any) => !c.gc)
@@ -213,17 +210,38 @@ export default function GCPage() {
         .in('status', ['ativo', 'pinda'])
         .order('data_acolhimento', { ascending: true })
 
-      const data2 = (reloadData || []).map(mergePet)
-      setContratos(data2 as ContratoGC[])
-    } else {
-      setContratos(rawData as ContratoGC[])
+      lista = (reloadData || []).map(mergePet)
     }
 
+    // 4) Supindas SÓ dos contratos carregados, em lotes (B-04 do playbook do redesenho). Era
+    // `select` de TODAS as supindas, sem `range`, ordenado por data ASC: o PostgREST corta em
+    // 1000 linhas e as mais NOVAS — justamente as que estão em pinda — sumiriam caladas. Sem a
+    // supinda, `supindaStatus` vira null e a Matriz perde o "Confirmar Recebimento". Em
+    // 02/10/2026 eram 592 viagens (~86/mês): estouraria por volta de mar/2027.
+    const supindaIds = Array.from(new Set(lista.map((c: { supinda_id?: string | null }) => c.supinda_id).filter(Boolean))) as string[]
+    const supindasCarregadas: { id: string; numero: string; data: string; status: string; codigo_unidade: string }[] = []
+    await consultaEmLotes(
+      supindaIds,
+      (lote, de, ate) => supabase
+        .from('supindas')
+        .select('id, numero, data, status, unidades(codigo)')
+        .in('id', lote)
+        .order('id')
+        .range(de, ate),
+      (_lote, linhas) => {
+        for (const s of linhas as { id: string; numero: string; data: string; status: string; unidades: { codigo: string } | null }[]) {
+          supindasCarregadas.push({
+            id: s.id, numero: s.numero, data: s.data, status: s.status,
+            codigo_unidade: s.unidades?.codigo || '??',
+          })
+        }
+      },
+    )
+    supindasCarregadas.sort((a, b) => (a.data || '').localeCompare(b.data || ''))
+
+    setContratos(lista as ContratoGC[])
     setUnidades((unidadesRes.data || []) as UnidadeInfo[])
-    setSupindas((supindasRes.data || []).map((s: any) => ({
-      id: s.id, numero: s.numero, data: s.data, status: s.status,
-      codigo_unidade: s.unidades?.codigo || '??',
-    })))
+    setSupindas(supindasCarregadas)
     setLoading(false)
   }, [])
 

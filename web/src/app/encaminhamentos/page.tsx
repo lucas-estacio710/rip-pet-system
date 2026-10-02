@@ -341,7 +341,22 @@ export default function EncaminhamentosPage() {
       fu(supabase.from('contratos').select(campos)).eq('status', 'pinda').order('data_acolhimento', { ascending: true, nullsFirst: false }),
       fu(supabase.from('contratos').select(campos)).eq('status', 'ativo').order('data_acolhimento', { ascending: true, nullsFirst: false }),
       fu(supabase.from('funcionarios').select('id, nome')).eq('ativo', true).order('nome'),
-      supabase.from('supindas').select('id, numero, data, responsavel, quantidade_pets, peso_total, status, observacoes, unidades(codigo)').order('data'),
+      // 🔴 Paginado (B-04 do playbook do redesenho): o calendário precisa de TODAS as viagens,
+      // e sem `range` o PostgREST cortaria em 1000 por data ASC — as mais NOVAS sumiriam.
+      // 592 em 02/10/2026, ~86/mês: estouraria por volta de mar/2027.
+      (async () => {
+        const todas: Record<string, unknown>[] = []
+        for (let de = 0; ; de += 1000) {
+          const { data, error } = await supabase.from('supindas')
+            .select('id, numero, data, responsavel, quantidade_pets, peso_total, status, observacoes, unidades(codigo)')
+            .order('data').order('id')
+            .range(de, de + 999)
+          if (error || !data) break
+          todas.push(...(data as Record<string, unknown>[]))
+          if (data.length < 1000) break
+        }
+        return { data: todas }
+      })(),
       fu(supabase.from('contratos').select(campos)).in('status', ['ativo', 'pinda', 'retorno']).or('supinda_id.not.is.null,supinda_volta_id.not.is.null').order('data_acolhimento', { ascending: true, nullsFirst: false }),
     ])
     setCremados(((crem || []) as ContratoEnc[]).filter(c => {
