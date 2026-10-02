@@ -10,7 +10,7 @@
 //
 // Tom profissional: "lançar" é o verbo que a equipe já usa. Nada de gamificação.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import * as Icons from 'lucide-react'
@@ -22,6 +22,7 @@ import Modal from '@/components/ui/Modal'
 import CobrancasCard from './CobrancasCard'
 import ReceitasPrazoTab from './ReceitasPrazoTab'
 import UnderlineTabs from '@/components/ui/UnderlineTabs'
+import { criarIndice, sugerir, type Indice } from '@/lib/similaridade'
 import {
   fmtBRL, fmtData, hojeISO, limitesDoMes, colarValorBR
 } from '@/lib/financeiro'
@@ -212,7 +213,8 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
   // de categoria. Digitar o nome à mão toda vez produz "Gifonni" e "Giffoni",
   // e aí nenhuma memória casa (caso real, 13/09/2026).
   const [fornecedoresUsados, setFornecedoresUsados] = useState<string[]>([])
-  const [sugestaoCat, setSugestaoCat] = useState<{ id: string; caminho: string } | null>(null)
+  // Histórico da unidade pra sugerir categoria por SEMELHANÇA (lib/similaridade).
+  const [indiceCat, setIndiceCat] = useState<Indice<string> | null>(null)
 
   const catSelecionada = categorias.find(c => c.id === catId)
 
@@ -361,45 +363,48 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
     if (!currentUnit?.id) return
     supabase
       .from('fin_lancamentos')
-      .select('fornecedor_nome')
+      .select('fornecedor_nome, descricao, categoria_id, data_competencia')
       .eq('unidade_id', currentUnit.id)
-      .not('fornecedor_nome', 'is', null)
+      .not('categoria_id', 'is', null)
+      .neq('status', 'rejeitado')
       .order('created_at', { ascending: false })
-      .limit(300)
+      .limit(2000)
       .then(({ data }) => {
+        type H = { fornecedor_nome: string | null; descricao: string | null; categoria_id: string; data_competencia: string }
+        const linhas = (data as unknown as H[]) || []
         const vistos = new Set<string>()
         const nomes: string[] = []
-        for (const l of ((data as unknown as { fornecedor_nome: string }[]) || [])) {
+        for (const l of linhas) {
           const n = (l.fornecedor_nome || '').trim()
           const k = n.toLowerCase()
           if (n && !vistos.has(k)) { vistos.add(k); nomes.push(n) }
         }
         setFornecedoresUsados(nomes)
+        // O índice de semelhança: o que foi escrito naquela vez → a categoria.
+        setIndiceCat(criarIndice(linhas.map(l => ({
+          texto: `${l.fornecedor_nome || ''} ${l.descricao || ''}`.trim(),
+          decisao: l.categoria_id,
+          chave: l.categoria_id,
+          data: (l.data_competencia || '').slice(0, 10),
+        }))))
       })
   }, [supabase, currentUnit?.id, aberto])
 
   /**
-   * O FORNECEDOR LEMBRA A CATEGORIA.
+   * O HISTÓRICO LEMBRA A CATEGORIA — por SEMELHANÇA (01/10/2026).
    *
-   * Gasto avulso é quase sempre recorrente: mesmo posto, mesma contabilidade,
-   * mesmo freela. Em vez de a categoria sugerir o fornecedor, é o contrário —
-   * com o método já escolhendo a conta, o fornecedor é a única pista que sobra.
-   * Sugere, nunca preenche sozinho: a última vez pode ter sido outra coisa.
+   * Antes era "a última vez com ESTE fornecedor, escrito igual". Agora o que foi
+   * digitado (fornecedor + descrição) é comparado com as despesas anteriores da
+   * unidade pelo `lib/similaridade`: palavras raras pesam mais, nome cortado
+   * casa por prefixo, e a lista é de CATEGORIAS ("Urna — 3×, última 03/06"),
+   * não de lançamentos. Continua valendo a regra de antes: SUGERE, NUNCA
+   * PREENCHE — a última vez pode ter sido outra coisa.
    */
-  async function sugerirPorFornecedor(nome: string) {
-    const n = nome.trim()
-    if (!n || catId || !currentUnit?.id) return setSugestaoCat(null)
-    const { data } = await supabase
-      .from('fin_lancamentos')
-      .select('categoria_id')
-      .eq('unidade_id', currentUnit.id)
-      .ilike('fornecedor_nome', n)
-      .not('categoria_id', 'is', null)
-      .order('created_at', { ascending: false })
-      .limit(1)
-    const id = (data as unknown as { categoria_id: string }[] | null)?.[0]?.categoria_id
-    setSugestaoCat(id ? { id, caminho: caminhoDe(id) } : null)
-  }
+  const sugestoesCat = useMemo(() => {
+    const q = `${fornecedor} ${descricao}`.trim()
+    if (catId || !indiceCat || q.length < 2) return null
+    return sugerir(indiceCat, q, undefined, { max: 3 })
+  }, [catId, indiceCat, fornecedor, descricao])
 
   // As outras unidades do grupo — destino possível de uma compra externa.
   useEffect(() => {
@@ -466,7 +471,7 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
     setRateado(false); setMeses('12')
     setDataCaixa(''); setContaId(''); setNovaFatura(false)
     setBusca(''); setNivel1(null); setNivel2(null)
-    setParaOutra(''); setMetodo(''); setMaisOpcoes(false); setSugestaoCat(null)
+    setParaOutra(''); setMetodo(''); setMaisOpcoes(false)
     setDataOutra(false); setCaixaOutra(false)
     setAberto(false)
     setEditandoId(null)
@@ -495,7 +500,6 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
     setDataOutra((l.data_competencia || '').slice(0, 10) !== hojeISO())
     setCaixaOutra(!!l.data_caixa && (l.data_caixa || '').slice(0, 10) !== (l.data_competencia || '').slice(0, 10))
     setBusca(''); setNivel1(null); setNivel2(null)
-    setSugestaoCat(null)
     // Editando, abre já com as opções raras à vista se alguma estiver em uso —
     // esconder um rateio que existe faria o operador achar que sumiu.
     setMaisOpcoes(Number(l.rateio_meses || 1) > 1)
@@ -1076,7 +1080,6 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
             <input
               type="text" list="fornecedores-usados" value={fornecedor}
               onChange={e => setFornecedor(e.target.value)}
-              onBlur={e => void sugerirPorFornecedor(e.target.value)}
               placeholder="Ex.: Posto Ipiranga"
               className="input text-sm w-full"
             />
@@ -1185,20 +1188,36 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
               </>
             ) : (
               <div className="space-y-2">
-                {/* O FORNECEDOR LEMBRA A CATEGORIA. Sugere, nunca preenche: a
-                    última vez com esse fornecedor pode ter sido outra coisa. */}
-                {sugestaoCat && (
-                  <button
-                    type="button"
-                    onClick={() => { setCatId(sugestaoCat.id); setSugestaoCat(null); setBusca('') }}
-                    className="w-full text-left px-3 py-2 rounded-[var(--radius-md)] border transition-colors"
-                    style={{ borderColor: 'var(--surface-300)', background: 'var(--surface-50)' }}
-                  >
-                    <span className="text-[11px] text-[var(--surface-400)]">
-                      da última vez com {fornecedor.trim()} foi
-                    </span>
-                    <span className="block text-sm text-[var(--surface-700)]">{sugestaoCat.caminho}</span>
-                  </button>
+                {/* O HISTÓRICO LEMBRA A CATEGORIA, por semelhança. Sugere, nunca
+                    preenche. Com confiança alta a primeira vem destacada; abaixo
+                    disso todas em cinza — sugestão pré-escolhida e errada custa
+                    mais do que nenhuma. */}
+                {sugestoesCat && sugestoesCat.sugestoes.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-[11px] text-[var(--surface-400)]">parecido com o que já foi lançado:</p>
+                    {sugestoesCat.sugestoes.map((sg, k) => {
+                      const destaque = k === 0 && sugestoesCat.confianca === 'alta'
+                      return (
+                        <button
+                          key={sg.chave} type="button"
+                          onClick={() => { setCatId(sg.decisao); setBusca('') }}
+                          className="w-full text-left px-3 py-1.5 rounded-[var(--radius-md)] border transition-colors flex items-center gap-2"
+                          style={{
+                            borderColor: destaque ? '#10b981' : 'var(--surface-300)',
+                            background: destaque ? 'rgba(16,185,129,0.08)' : 'var(--surface-50)',
+                          }}
+                        >
+                          <span className="flex-1 min-w-0 text-sm truncate"
+                                style={{ color: destaque ? '#10b981' : 'var(--surface-700)' }}>
+                            {caminhoDe(sg.decisao)}
+                          </span>
+                          <span className="text-[11px] text-[var(--surface-400)] shrink-0">
+                            {sg.vezes}× · última {fmtData(sg.ultima)}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
                 )}
                 <div className="flex items-center rounded-[var(--radius-md)] border overflow-hidden"
                      style={{ borderColor: 'var(--surface-300)', background: 'var(--surface-0)' }}>

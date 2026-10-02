@@ -43,23 +43,12 @@ export type LinhaExtrato = {
 //
 // Então NÃO há dicionário de adquirentes aqui (chegou a existir, montado de
 // pesquisa — o que se aprendeu está no FLOW_FINANCEIRO §9.1.15). A tela grava o
-// texto do banco na observação do registro; na colagem seguinte, uma linha cujo
-// texto "se parece" com o de um registro anterior herda a maquininha e o
-// movimento daquele registro. A memória são os registros que a pessoa já fez.
+// texto do banco na observação do registro; na colagem seguinte, cada linha é
+// comparada por semelhança com os registros anteriores — isso mora em
+// `lib/similaridade.ts`, que também sugere categoria nas despesas.
 
 export const normTexto = (s: string) =>
   s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase()
-
-/**
- * Chave de semelhança entre dois históricos de extrato: maiúsculo, sem acento,
- * SEM NÚMEROS e sem pontuação. Números saem porque mudam a cada linha (NSU,
- * parcela, data, agência) enquanto o "tipo" do lançamento é o resto:
- *   'Credito domicilio cartao: "CARTAO DE CREDITO - INTER PAG"'
- *   → 'CREDITO DOMICILIO CARTAO CARTAO DE CREDITO INTER PAG'
- */
-export function chaveSimilaridade(texto: string): string {
-  return normTexto(texto).replace(/\d+/g, ' ').replace(/[^A-Z ]/g, ' ').replace(/\s+/g, ' ').trim()
-}
 
 /**
  * Movimento SUGERIDO quando o histórico não diz nada: pela direção do dinheiro

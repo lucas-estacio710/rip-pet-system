@@ -13,8 +13,9 @@
 //   - quem LÊ é `lib/extrato.ts` (validado contra o extrato real de Santos);
 //   - a maquininha e a conta são escolhidas UMA vez, em cima, pro lote;
 //   - o texto do banco vira a OBSERVAÇÃO do registro;
-//   - na colagem seguinte, uma linha com texto parecido com um registro já feito
-//     herda a maquininha e o movimento dele (`chaveSimilaridade`). Sem tabela:
+//   - na colagem seguinte, cada linha é comparada por SEMELHANÇA com os registros
+//     já feitos (`lib/similaridade`) e ganha uma listinha de decisões ("InterPag ·
+//     Liquidação — 14×"). Só vem pré-escolhida com confiança alta. Sem tabela:
 //     a memória são os registros.
 //
 // 🔴 COLAR DUAS VEZES NÃO DUPLICA: cada linha é comparada com o que já está
@@ -29,7 +30,8 @@ import Modal from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import { fmtBRL, fmtData } from '@/lib/financeiro'
-import { lerExtrato, movimentoDe, chaveSimilaridade, type LinhaExtrato } from '@/lib/extrato'
+import { lerExtrato, movimentoDe, type LinhaExtrato } from '@/lib/extrato'
+import { criarIndice, sugerir, type Sugestao } from '@/lib/similaridade'
 
 type Operadora = { conta_id: string; nome: string }
 type ContaDestino = { id: string; nome: string; preferencial_recebimento: boolean | null }
@@ -58,8 +60,11 @@ type Item = LinhaExtrato & {
   marcado: boolean
   movimento: Mov | ''            // '' = precisa escolher
   operadoraId: string            // '' = a escolhida em cima, pro lote
-  doHistorico: boolean           // sugerido por um registro anterior parecido
+  doHistorico: boolean           // pré-escolhido pelo histórico (confiança alta)
+  sugestoes: Sugestao<Decisao>[] // os registros parecidos, agrupados por decisão
 }
+
+type Decisao = { opId: string; mov: Mov | null }
 
 export default function ColarExtratoModal({ aberto, onClose, operadoras, destinos, mes, onRegistrou }: {
   aberto: boolean
@@ -107,7 +112,7 @@ export default function ColarExtratoModal({ aberto, onClose, operadoras, destino
           // A MEMÓRIA: registros anteriores que guardaram o texto do banco na
           // observação ("Liquidação · InterPag — <texto do extrato>").
           supabase.from('fin_movimentos')
-            .select('descricao, conta_id, conta_destino_id')
+            .select('descricao, conta_id, conta_destino_id, data')
             .eq('tipo', 'transferencia')
             .or(`conta_id.in.(${ids.join(',')}),conta_destino_id.in.(${ids.join(',')})`)
             .like('descricao', '% — %')
@@ -125,24 +130,34 @@ export default function ColarExtratoModal({ aberto, onClose, operadoras, destino
     }
     setExistentes(ex)
 
-    // texto do banco (sem números) → maquininha e movimento do registro MAIS RECENTE
-    const memoria = new Map<string, { opId: string; mov: Mov | null }>()
-    for (const h of (hist as { descricao: string; conta_id: string; conta_destino_id: string }[] | null) || []) {
-      const obs = h.descricao.slice(h.descricao.indexOf(' — ') + 3)
-      const chave = chaveSimilaridade(obs)
-      if (!chave || memoria.has(chave)) continue
-      memoria.set(chave, { opId: ids.includes(h.conta_id) ? h.conta_id : h.conta_destino_id, mov: movDoRegistro(h.descricao) })
-    }
+    // A MEMÓRIA vira um índice de semelhança: texto do banco daquela vez →
+    // maquininha + movimento decididos.
+    type H = { descricao: string; conta_id: string; conta_destino_id: string; data: string }
+    const indice = criarIndice(((hist as H[] | null) || []).map(h => {
+      const opId = ids.includes(h.conta_id) ? h.conta_id : h.conta_destino_id
+      const mov = movDoRegistro(h.descricao)
+      return {
+        texto: h.descricao.slice(h.descricao.indexOf(' — ') + 3),
+        decisao: { opId, mov },
+        chave: `${opId}|${mov}`,
+        data: h.data,
+      }
+    }))
 
     setItens(linhas.map(l => {
-      const lembra = memoria.get(chaveSimilaridade(l.descricao))
-      const movHist = lembra?.mov && ENTRA[lembra.mov] === (l.valor > 0) ? lembra.mov : null
+      const r = sugerir(indice, l.descricao, undefined, { max: 3 })
+      // Só serve decisão da MESMA direção do dinheiro (liquidação não vira
+      // sugestão de uma saída, e vice-versa).
+      const validas = r.sugestoes.filter(sg => sg.decisao.mov && ENTRA[sg.decisao.mov] === (l.valor > 0))
+      const top = validas[0]
+      const preEscolhe = r.confianca === 'alta' && top === r.sugestoes[0]
       return {
         ...l,
         marcado: true,
-        operadoraId: lembra?.opId || '',
-        movimento: movHist || movimentoDe(l.descricao, l.valor) || '',
-        doHistorico: !!lembra,
+        operadoraId: preEscolhe ? top.decisao.opId : '',
+        movimento: (preEscolhe ? top.decisao.mov : null) || movimentoDe(l.descricao, l.valor) || '',
+        doHistorico: preEscolhe,
+        sugestoes: validas,
       }
     }))
     setLendo(false)
@@ -304,8 +319,8 @@ export default function ColarExtratoModal({ aberto, onClose, operadoras, destino
                       )}
                       {i.doHistorico && (
                         <span className="text-[11px] text-sky-500 inline-flex items-center gap-0.5"
-                              title="Texto parecido com um registro anterior — maquininha e movimento vieram de lá">
-                          <History className="h-3 w-3" /> como da última vez
+                              title="Texto muito parecido com registros anteriores — maquininha e movimento vieram de lá">
+                          <History className="h-3 w-3" /> como das outras vezes
                         </span>
                       )}
                       {ja && <span className="text-[11px] text-sky-500">já registrado</span>}
@@ -315,6 +330,29 @@ export default function ColarExtratoModal({ aberto, onClose, operadoras, destino
                         </span>
                       )}
                     </div>
+                    {/* A LISTINHA: registros parecidos agrupados por decisão. Clicar
+                        aplica. Não aparece quando a primeira já foi pré-escolhida
+                        e é a única — aí ela só repetiria o que está na linha. */}
+                    {!ja && i.sugestoes.length > 0 && !(i.doHistorico && i.sugestoes.length === 1) && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {i.sugestoes.map(sg => {
+                          const op = operadoras.find(o => o.conta_id === sg.decisao.opId)
+                          const ativa = (i.operadoraId || maquininhaLote) === sg.decisao.opId && i.movimento === sg.decisao.mov
+                          return (
+                            <button key={sg.chave} type="button"
+                                    onClick={() => muda(i.n, { operadoraId: sg.decisao.opId, movimento: sg.decisao.mov || '' })}
+                                    className="text-[10px] px-1.5 py-0.5 rounded-full border transition-colors"
+                                    style={{
+                                      borderColor: ativa ? '#0ea5e9' : 'var(--surface-300)',
+                                      color: ativa ? '#0ea5e9' : 'var(--surface-500)',
+                                    }}
+                                    title={`Parecido com ${sg.vezes} registro(s); o mais recente em ${fmtData(sg.ultima)}`}>
+                              {op?.nome || '?'} · {sg.decisao.mov ? ROTULO[sg.decisao.mov] : '?'} — {sg.vezes}×
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
                   <span className={`text-xs text-mono shrink-0 ${i.valor > 0 ? 'text-emerald-500' : 'text-red-400'}`}>
                     {i.valor > 0 ? '' : '−'}{fmtBRL(Math.abs(i.valor))}
