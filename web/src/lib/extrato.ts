@@ -65,6 +65,86 @@ export function movimentoDe(descricao: string, valor: number):
   return null
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// PISTAS DO TEXTO — usadas pelo Colar do extrato (um botão só, 02/10/2026)
+// ════════════════════════════════════════════════════════════════════════════
+
+export type MovMaquininha = 'liquidacao' | 'antecipacao' | 'chargeback' | 'taxa'
+
+/** Rótulos do registro de Receitas a Prazo. A descrição gravada começa com eles
+ *  ("Liquidação · InterPag — …") e o Reutilizar e o histórico os leem de volta. */
+export const ROTULO_MOV: Record<MovMaquininha, string> = {
+  liquidacao: 'Liquidação',
+  antecipacao: 'Liquidação antecipada',
+  chargeback: 'Chargeback',
+  taxa: 'Taxa / aluguel da maquininha',
+}
+export const ENTRA_MOV: Record<MovMaquininha, boolean> = { liquidacao: true, antecipacao: true, chargeback: false, taxa: false }
+
+/** Rótulo do começo da descrição gravada → movimento (o mais longo primeiro:
+ *  "Liquidação antecipada" começa com "Liquidação"). */
+export function movDoRegistro(descricao: string): MovMaquininha | null {
+  const m = (Object.keys(ROTULO_MOV) as MovMaquininha[])
+    .sort((a, b) => ROTULO_MOV[b].length - ROTULO_MOV[a].length)
+    .find(k => descricao.startsWith(`${ROTULO_MOV[k]} · `))
+  return m ?? null
+}
+
+/**
+ * ENTRADA com cara de repasse de maquininha. Só decide o DESTINO da linha quando
+ * ainda não há histórico (receita a prazo × outra entrada) — a maquininha em si
+ * é escolhida pela pessoa. Palavras genéricas de cartão + as credenciadoras mais
+ * comuns; um rótulo que escape cai em "entrada sem par" e a pessoa reclassifica.
+ */
+export function pareceMaquininha(descricao: string): boolean {
+  const t = normTexto(descricao)
+  return /DOMICILIO CARTAO|\bCARTAO DE (CREDITO|DEBITO)\b|\bANTECIP|\bCR (VD CART|COMPRAS)\b|VENDA CARTAO|\bREDECARD\b|\bREDE (VISA|MAST|ELO|CRED|DEB|ANTEC)|\bCIELO\b|\bSTONE\b|\bGETNET\b|\bPAG ?SEGURO\b|\bINTER ?PAG\b|\bSUMUP\b|\bSIPAG\b|\bCLOUD ?WALK\b/.test(t)
+}
+
+/** Forma de pagamento de uma SAÍDA pelo texto do banco. null = a pessoa escolhe. */
+export function metodoDe(descricao: string): string | null {
+  const t = normTexto(descricao)
+  if (/\bPIX\b/.test(t)) return 'pix'
+  if (/PAGAMENTO DE (TITULO|CONVENIO)|PAGAMENTO EFETUADO|\bBOLETO\b|\bDARF\b|SIMPLES NACIONAL/.test(t)) return 'boleto'
+  if (/COMPRA NO DEBITO|DEBITO EM CONTA|CARTAO DE DEBITO/.test(t)) return 'debito'
+  if (/\bTED\b|\bDOC\b|TRANSFERENCIA/.test(t)) return 'transferencia'
+  return null
+}
+
+/** Nome de quem recebeu: no Pix, "Cp :10573521-Rafael Moreira Giffoni"; no
+ *  boleto do Inter, o texto entre aspas ('Pagamento efetuado: "CONTABILIDADE ALVORADA LTDA"'). */
+export function fornecedorDe(descricao: string): string {
+  const pix = descricao.match(/Cp\s*:\s*\d*\s*-\s*([^"]+)/i)
+  if (pix) return pix[1].trim()
+  const aspas = descricao.match(/:\s*"([^"]+)"/)
+  return aspas ? aspas[1].trim() : ''
+}
+
+/**
+ * SAÍDA que não é despesa — lançá-la contaria o mesmo gasto duas vezes ou poria
+ * na DRE dinheiro que só mudou de lugar. Achado na prévia contra o extrato real
+ * de Santos: "Pagamento fatura cartao Inter" (as despesas já estão no cartão).
+ * O IOF das contas de investimento é custo de verdade e PASSA.
+ */
+export function naoEDespesa(descricao: string): string | null {
+  const t = normTexto(descricao)
+  if (/FATURA\s+(DO\s+)?CART(AO|OES)|PAGAMENTO\s+(DE\s+)?FATURA/.test(t)) {
+    return 'pagamento de fatura de cartão — as despesas já estão no cartão; registre no Caixa como Movimento › fatura'
+  }
+  if (/\bAPLICACAO\b|\bRESGATE\b/.test(t) && !/\bIOF\b/.test(t)) {
+    return 'aplicação/resgate — dinheiro mudando de lugar, não é despesa'
+  }
+  // Pagamento a uma empresa DO GRUPO ("Pix enviado: ...-RIP PET II CREMATORIOS
+  // LTDA", R$ 11.499 em 22/06/2026) é quase sempre o REPASSE à Matriz ou um
+  // acerto entre unidades. Lançar como despesa dobraria o custo de cremação, que
+  // já entra sozinho pelo acolhimento (mig 114). `fin_empresas` não tem razão
+  // social pra casar, então vai pela marca no texto; a pessoa pode reclassificar.
+  if (/\bRIP\s*PET\b|\bPRINA\b/.test(t)) {
+    return 'pagamento a empresa do grupo — se for repasse, marque "pago" na aba Repasse; se for acerto, em Acertos'
+  }
+  return null
+}
+
 /** Número em formato brasileiro (ou inglês sem milhar), com sinal. */
 export function numeroBR(texto: string): number | null {
   let t = texto.trim().replace(/R\$|\s/g, '')

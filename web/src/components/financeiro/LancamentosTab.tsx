@@ -21,7 +21,7 @@ import { useFieldPermission } from '@/hooks/useFieldPermission'
 import Modal from '@/components/ui/Modal'
 import CobrancasCard from './CobrancasCard'
 import ReceitasPrazoTab from './ReceitasPrazoTab'
-import ColarDespesasModal from './ColarDespesasModal'
+import ColarExtratoModal from './ColarExtratoModal'
 import UnderlineTabs from '@/components/ui/UnderlineTabs'
 import { criarIndice, sugerir, type Indice } from '@/lib/similaridade'
 import {
@@ -216,7 +216,9 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
   const [fornecedoresUsados, setFornecedoresUsados] = useState<string[]>([])
   // Histórico da unidade pra sugerir categoria por SEMELHANÇA (lib/similaridade).
   const [indiceCat, setIndiceCat] = useState<Indice<string> | null>(null)
-  const [colarAberto, setColarAberto] = useState(false)   // Colar do extrato (despesas)
+  const [colarAberto, setColarAberto] = useState(false)   // Colar do extrato (um botão só)
+  // Muda a cada colagem registrada: remonta Receitas a Prazo, que carrega sozinha.
+  const [versaoColar, setVersaoColar] = useState(0)
 
   const catSelecionada = categorias.find(c => c.id === catId)
 
@@ -715,16 +717,27 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
           FLS: `obj_fin_receitas_prazo` esconde a faixa de receitas. Escondida,
           a barra de abas inteira some (uma aba só não é uma escolha) e a tela
           volta a ser a de Despesas que sempre foi. */}
-      {veReceitas && (
-        <UnderlineTabs
-          tabs={[
-            { key: 'despesas' as const, label: 'Despesas' },
-            { key: 'receitas' as const, label: 'Receitas a Prazo' },
-          ]}
-          value={faixa}
-          onChange={setFaixa}
-        />
-      )}
+      {/* COLAR DO EXTRATO — um botão só, acima das duas faixas (02/10/2026):
+          cola-se o extrato inteiro e cada linha vai pro seu lugar. */}
+      <div className="flex items-end gap-3">
+        <div className="flex-1 min-w-0">
+          {veReceitas && (
+            <UnderlineTabs
+              tabs={[
+                { key: 'despesas' as const, label: 'Despesas' },
+                { key: 'receitas' as const, label: 'Receitas a Prazo' },
+              ]}
+              value={faixa}
+              onChange={setFaixa}
+            />
+          )}
+        </div>
+        {!somenteLeitura && (
+          <button onClick={() => setColarAberto(true)} className="btn-secondary text-sm shrink-0 mb-1">
+            <ClipboardPaste className="h-4 w-4" /> Colar do extrato
+          </button>
+        )}
+      </div>
 
       {veReceitas && faixa === 'receitas' ? (
         <div className="space-y-3">
@@ -732,7 +745,7 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
             type="month" value={mes} onChange={e => setMes(e.target.value)}
             className="input text-sm w-36 py-1"
           />
-          <ReceitasPrazoTab somenteLeitura={somenteLeitura} mes={mes} />
+          <ReceitasPrazoTab key={versaoColar} somenteLeitura={somenteLeitura} mes={mes} />
         </div>
       ) : (<>
 
@@ -749,16 +762,9 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
         </span>
         {carregando && <Loader2 className="h-4 w-4 animate-spin text-[var(--surface-400)]" />}
         {!somenteLeitura && (
-          <div className="flex gap-2 ml-auto">
-            {/* O LOTE: cola as saídas do extrato, cada uma vira uma despesa
-                (ColarDespesasModal). O formulário continua pro avulso. */}
-            <button onClick={() => setColarAberto(true)} className="btn-secondary text-sm">
-              <ClipboardPaste className="h-4 w-4" /> Colar do extrato
-            </button>
-            <button onClick={() => setAberto(true)} className="btn-primary text-sm">
-              <Plus className="h-4 w-4" /> Novo lançamento
-            </button>
-          </div>
+          <button onClick={() => setAberto(true)} className="btn-primary text-sm ml-auto">
+            <Plus className="h-4 w-4" /> Novo lançamento
+          </button>
         )}
       </div>
 
@@ -895,16 +901,15 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
         </div>
       </div>
 
-      <ColarDespesasModal
+      <ColarExtratoModal
         aberto={colarAberto}
         onClose={() => setColarAberto(false)}
-        contas={contas}
         categorias={categorias}
         folhas={folhas}
         caminhoDe={caminhoDe}
-        indice={indiceCat}
         mes={mes}
-        onRegistrou={() => { void carregar() }}
+        permiteReceitas={veReceitas}
+        onRegistrou={() => { void carregar(); setVersaoColar(v => v + 1) }}
       />
 
       {/* Novo lançamento */}
