@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import { computePreviousRange, type PeriodRange } from '@/lib/dashboard-period'
 import { filtroModo, type DashboardModo } from '@/lib/dashboard-modo'
+import { ESPECIE_CORES, ESPECIE_LABELS, type EspecieKey } from '@/lib/dashboard-cores'
 
 type Props = {
   range: PeriodRange
@@ -14,12 +15,12 @@ type Props = {
   modo: DashboardModo
 }
 
-type EspKey = 'canina' | 'felina' | 'exotica'
+type EspKey = EspecieKey
 
 const ESPECIES: { key: EspKey; label: string; color: string; icon: LucideIcon }[] = [
-  { key: 'canina',  label: 'Canina',  color: '#ca8a04', icon: Dog },
-  { key: 'felina',  label: 'Felina',  color: '#ec4899', icon: Cat },
-  { key: 'exotica', label: 'Exótica', color: '#6366f1', icon: Bird },
+  { key: 'canina',  label: ESPECIE_LABELS.canina,  color: ESPECIE_CORES.canina,  icon: Dog },
+  { key: 'felina',  label: ESPECIE_LABELS.felina,  color: ESPECIE_CORES.felina,  icon: Cat },
+  { key: 'exotica', label: ESPECIE_LABELS.exotica, color: ESPECIE_CORES.exotica, icon: Bird },
 ]
 
 const ZERO: Record<EspKey, number> = { canina: 0, felina: 0, exotica: 0 }

@@ -7,15 +7,13 @@ import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import { computePreviousRange, type PeriodRange } from '@/lib/dashboard-period'
 import { filtroModo, type DashboardModo } from '@/lib/dashboard-modo'
+import { COLOR_IND, COLOR_COL } from '@/lib/dashboard-cores'
 
 type Props = {
   range: PeriodRange
   comparePrev: boolean
   modo: DashboardModo
 }
-
-const COLOR_IND = '#10b981' // verde
-const COLOR_COL = '#a855f7' // roxo
 
 export default function TipoCremacaoKPI({ range, comparePrev, modo }: Props) {
   const { currentUnit } = useUnit()

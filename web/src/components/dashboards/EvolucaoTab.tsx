@@ -10,6 +10,7 @@ import { useUnit } from '@/contexts/UnitContext'
 import { filtroModo, mesLocalDeCorte, type DashboardModo } from '@/lib/dashboard-modo'
 import ModoToggle from './ModoToggle'
 import { PERIODOS_DIA, periodoDoDia, type PeriodoKey } from './PeriodoRemocaoKPI'
+import { COLOR_IND, COLOR_COL, ESPECIE_CORES, ESPECIE_LABELS as ESPECIE_LABELS_LIB, FONTE_CONFIG, COLOR_OUTRAS } from '@/lib/dashboard-cores'
 
 type Props = {
   modo: DashboardModo
@@ -24,27 +25,11 @@ const COLOR_VOLUME  = '#2a78d6' // azul  (FinanceiroTab)
 const COLOR_RECEITA = '#199e70' // verde (FinanceiroTab)
 const COLOR_TICKET  = '#f59e0b' // âmbar
 
-const COLOR_IND = '#10b981' // verde  (TipoCremacaoKPI)
-const COLOR_COL = '#a855f7' // roxo   (TipoCremacaoKPI)
-
-const ESPECIE_COLORS: Record<string, string> = {
-  canina: '#ca8a04', felina: '#ec4899', exotica: '#6366f1', // (EspecieKPI)
-}
-const ESPECIE_LABELS: Record<string, string> = { canina: 'Canina', felina: 'Felina', exotica: 'Exótica' }
-
-// Cores das fontes canônicas mais comuns — mesmas do ComoConheceuKPI. As demais dobram em "Outras".
-const FONTE_COLORS: Record<string, string> = {
-  'Google': '#3b82f6',
-  'Instagram/Facebook': '#f97316',
-  'Indicação em Clínica': '#10b981',
-  'Cliente': '#7c3aed',
-  'Parente/Amigo': '#a78bfa',
-  'Seguradora': '#4338ca',
-  'Ponto': '#dc2626',
-  'IA': '#ec4899',
-  'Outro': '#64748b',
-}
-const COLOR_OUTRAS = '#94a3b8'
+// IND/COL, espécie e fonte: lib/dashboard-cores.ts (as mesmas do resto dos Dashboards).
+const ESPECIE_COLORS: Record<string, string> = ESPECIE_CORES
+const ESPECIE_LABELS: Record<string, string> = ESPECIE_LABELS_LIB
+// Fonte fora do catálogo dobra em "Outras" (COLOR_OUTRAS), não no cinza de fallback.
+const corDaFonte = (nome: string) => FONTE_CONFIG[nome.toLowerCase().trim()]?.color
 
 const JANELAS = [
   { meses: 6 as const,  label: '6 meses' },
@@ -611,7 +596,7 @@ export default function EvolucaoTab({ modo, selectModo }: Props) {
                     key={nome}
                     pontos={pontosComFontes}
                     dataKey={nome}
-                    color={nome === 'Outras' ? COLOR_OUTRAS : (FONTE_COLORS[nome] ?? COLOR_OUTRAS)}
+                    color={nome === 'Outras' ? COLOR_OUTRAS : (corDaFonte(nome) ?? COLOR_OUTRAS)}
                     titulo={nome}
                     janela={janela}
                   />

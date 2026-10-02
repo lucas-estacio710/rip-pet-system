@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import { computePreviousRange, type PeriodRange } from '@/lib/dashboard-period'
 import { filtroModo, type DashboardModo } from '@/lib/dashboard-modo'
+import { getFonteConfig } from '@/lib/dashboard-cores'
 
 type Props = {
   range: PeriodRange
@@ -33,24 +34,7 @@ const FONTES_CANONICAS: string[] = [
 
 type Mode = 'fracionario' | 'absoluto'
 
-// Config visual por fonte (busca case-insensitive)
-type FonteConfig = { color: string; img?: string; icon?: string }
-const FONTE_CONFIG: Record<string, FonteConfig> = {
-  'google':                { color: '#3b82f6', img: '/icons/google.svg' },     // azul
-  'instagram/facebook':    { color: '#f97316', img: '/icons/meta.svg' },       // laranja
-  'indicação em clínica':  { color: '#10b981', img: '/icons/hospital.svg' },   // verde
-  'cliente':               { color: '#7c3aed', icon: '🔄' },                   // roxo
-  'parente/amigo':         { color: '#a78bfa', icon: '👥' },                   // lilás
-  'seguradora':            { color: '#4338ca', icon: '🛡️' },                   // índigo
-  'ponto':                 { color: '#dc2626', icon: '📍' },
-  'ia':                    { color: '#ec4899', icon: '🤖' },                   // magenta
-  'outro':                 { color: '#64748b', icon: '📝' },                   // cinza
-}
-const FONTE_FALLBACK: FonteConfig = { color: 'var(--surface-400)' }
-
-function getFonteConfig(nome: string): FonteConfig {
-  return FONTE_CONFIG[nome.toLowerCase().trim()] ?? FONTE_FALLBACK
-}
+// Config visual por fonte: lib/dashboard-cores.ts (getFonteConfig, busca case-insensitive)
 
 type FonteRow = { id: string; nome: string }
 type ContratoRow = {
