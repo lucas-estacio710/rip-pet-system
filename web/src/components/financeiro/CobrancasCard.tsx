@@ -26,9 +26,10 @@ import { useUnit } from '@/contexts/UnitContext'
 import Modal from '@/components/ui/Modal'
 import { fmtBRL, fmtData } from '@/lib/financeiro'
 import {
-  TIPOS, STATUS, fraseDoSaldo, CONTA_ACERTO_RECEITA,
+  TIPOS, STATUS, fraseDoSaldo,
   type Cobranca, type SaldoComUnidade,
 } from '@/lib/cobrancas'
+import { reconhecerCobranca } from '@/lib/reconhecer-cobranca'
 
 type CobrancaCompleta = Cobranca & {
   credora?: { codigo: string; nome: string } | null
@@ -93,81 +94,17 @@ export default function CobrancasCard({ onMudou }: { onMudou?: () => void }) {
     if (!currentUnit?.id) return
     setProcessando(c.id)
     try {
-      let lancamentoAceiteId: string | null = null
-
-      // Recebimento de cliente alheio NÃO gera lançamento: a receita já é lida
-      // de `contratos`, na unidade dona do contrato. O que a cobrança cria é o
-      // direito a receber o dinheiro que ficou na conta da outra unidade.
-      if (c.tipo === 'despesa_rateada' || c.tipo === 'outro') {
-        const conta = c.fin_categorias?.fin_contas
-        const { data: { user } } = await supabase.auth.getUser()
-        // As duas pernas nascem conferidas por quem RECONHECEU a cobrança.
-        const marca = {
-          status: 'aprovado',
-          aprovado_por: user?.id || null,
-          aprovado_por_nome: userName || null,
-          aprovado_em: new Date().toISOString(),
-        }
-
-        // 1) a despesa, no livro de quem aceita — foi ele quem consumiu.
-        //    Sem `data_caixa`: o dinheiro não saiu da conta dele. Vai sair
-        //    quando o saldo entre as empresas for liquidado.
-        const { data: desp, error: e1 } = await supabase
-          .from('fin_lancamentos')
-          .insert({
-            unidade_id: currentUnit.id,
-            categoria_id: c.categoria_id,
-            conta_id: c.fin_categorias?.fin_conta_id || null,
-            conta_codigo: conta?.codigo || null,      // SNAPSHOT da DRE histórica
-            conta_nome: conta?.nome || null,
-            natureza: conta?.natureza || 'opex',
-            valor: c.valor,
-            data_competencia: c.data,
-            data_caixa: null,
-            descricao: c.descricao || 'Compra por outra unidade',
-            fornecedor_nome: c.credora?.nome || null,
-            // RECONHECER JÁ É A CONFERÊNCIA — é a única do módulo (24/09/2026).
-            // Nascer `pendente` pedia uma segunda conferência do mesmo gasto.
-            ...marca,
-            origem: 'cobranca',
-            criado_por_nome: userName || null,
-            rateio_meses: 1,
-          })
-          .select('id').single()
-        if (e1) throw new Error(e1.message)
-        lancamentoAceiteId = (desp as { id: string }).id
-
-        // 2) o reembolso, no livro de quem comprou — neutraliza a despesa lá.
-        //    Nasce junto de propósito: separadas no tempo, o grupo contaria o
-        //    mesmo gasto duas vezes no intervalo.
-        const { data: ctaReemb } = await supabase
-          .from('fin_contas').select('id, codigo, nome')
-          .eq('codigo', CONTA_ACERTO_RECEITA).maybeSingle()
-        const cr = ctaReemb as { id: string; codigo: string; nome: string } | null
-
-        await supabase.from('fin_lancamentos').insert({
-          unidade_id: c.unidade_credora,
-          conta_id: cr?.id || null,
-          conta_codigo: cr?.codigo || null,
-          conta_nome: cr?.nome || null,
-          natureza: 'opex',
-          valor: c.valor,
-          data_competencia: c.data,
-          data_caixa: null,
-          descricao: `Reembolso — ${c.descricao || 'compra'} (${currentUnit.codigo})`,
-          ...marca,
-          origem: 'cobranca',
-          criado_por_nome: userName || null,
-          rateio_meses: 1,
-        })
-      }
-
-      const { error } = await supabase.from('fin_cobrancas').update({
-        status: 'aceita',
-        aceita_em: new Date().toISOString(),
-        lancamento_aceite_id: lancamentoAceiteId,
-      }).eq('id', c.id)
-      if (error) throw new Error(error.message)
+      // As pernas na DRE nascem em lib/reconhecer-cobranca — a mesma função que
+      // o super admin usa ao lançar um acerto já reconhecido no Repasse.
+      await reconhecerCobranca(supabase, {
+        id: c.id, tipo: c.tipo, valor: Number(c.valor), data: c.data, descricao: c.descricao,
+        categoria_id: c.categoria_id,
+        unidade_credora: c.unidade_credora,
+        unidade_devedora: currentUnit.id,         // quem reconhece é quem deve
+        credoraNome: c.credora?.nome || null,
+        devedoraCodigo: currentUnit.codigo,
+        fin_categorias: c.fin_categorias,
+      }, { userName: userName || null })
 
       toast(`Reconhecido — ${fmtBRL(c.valor)}`, 'success')
       void carregar()

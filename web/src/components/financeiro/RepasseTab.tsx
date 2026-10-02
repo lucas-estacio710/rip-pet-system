@@ -6,7 +6,7 @@
 // valor final em contratos.custo_cremacao — que é pra isso que o campo existe.
 // Migration 104. Ver FLOW.md §4.
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -18,13 +18,14 @@ import Modal from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import EmptyState from '@/components/ui/EmptyState'
+import UnderlineTabs from '@/components/ui/UnderlineTabs'
+import AcertosRepasse from './AcertosRepasse'
 import {
   calcularAbatimento, calcularValorFinal, totalAPagar, mensagemRepasse,
   planilhaRepasse, nomeArquivoRepasse,
   fmtBRL, fmtData, mesParaData, rotuloMes,
   type DeflatorTipo, type ItemRepasse, type Permuta,
 } from '@/lib/repasse'
-import { hojeISO } from '@/lib/financeiro'
 import { saveAs } from 'file-saver'
 
 type UnidadePagante = { id: string; nome: string; codigo: string }
@@ -57,6 +58,7 @@ type RepasseSalvo = {
   empresa_id: string | null
   enviado_em: string | null
   pago_em: string | null
+  pago_movimento_id: string | null   // a transferência que quitou (mig 150)
 }
 
 const mesAtual = () => new Date().toISOString().slice(0, 7)
@@ -67,7 +69,7 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
   // então o client tipado infere `never`. Client destipado só para elas.
   const supabase = supabaseTipado as unknown as SupabaseClient
   const { toast } = useToast()
-  const { userName, currentUnit, isSuperAdmin } = useUnit()
+  const { currentUnit, isSuperAdmin } = useUnit()
 
   const [unidadeId, setUnidadeId] = useState('')
   const [mes, setMes] = useState(mesAtual())
@@ -79,10 +81,7 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
   const [buscou, setBuscou] = useState(false)
   // Permutas — o encontro de contas (mig 106). Só depois de fechado.
   const [permutas, setPermutas] = useState<Permuta[]>([])
-  const [permDesc, setPermDesc] = useState('')
-  const [permValor, setPermValor] = useState('')
-  const [permDirecao, setPermDirecao] = useState<'abate' | 'acresce'>('abate')
-  const descRef = useRef<HTMLInputElement>(null)   // volta o foco pra encadear lançamentos
+  // O formulário de acerto saiu daqui (02/10/2026): vive em AcertosRepasse, a aba 2.
   // Resumo do mês por unidade — alimenta o valor que aparece em cada aba
   const [resumo, setResumo] = useState<Map<string, { qtd: number; valor: number; fechado: boolean }>>(new Map())
 
@@ -106,6 +105,17 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
   /** Só quem COBRA vê as outras. A unidade consulta a própria conta e mais nada. */
   const podeVerTodas = isSuperAdmin || !!currentUnit?.is_matriz
   const nomeUnidade = unidadesPagantes.find(u => u.id === unidadeId)?.nome || ''
+  const codigoUnidade = unidadesPagantes.find(u => u.id === unidadeId)?.codigo || ''
+  // As três abas do repasse (02/10/2026): Cremações · Acertos · Resumo.
+  const [aba, setAba] = useState<'cremacoes' | 'acertos' | 'resumo'>('cremacoes')
+  // O que a unidade pagou DE VERDADE (pago_movimento_id, mig 150) — pro Resumo.
+  const [pagamento, setPagamento] = useState<{ valor: number; data: string } | null>(null)
+  useEffect(() => {
+    const id = existente?.pago_movimento_id
+    if (!id) { setPagamento(null); return }
+    void supabase.from('fin_movimentos').select('valor, data').eq('id', id).maybeSingle()
+      .then(({ data }) => setPagamento(data ? { valor: Number((data as { valor: number }).valor), data: (data as { data: string }).data } : null))
+  }, [existente?.pago_movimento_id, supabase])
 
   useEffect(() => {
     supabase
@@ -228,7 +238,7 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
     // Já existe fechamento vivo desse mês?
     const { data: jaTem } = await supabase
       .from('fin_repasses')
-      .select('id, status, mes_referencia, qtd_pets, total_liquido, empresa_id, enviado_em, pago_em')
+      .select('id, status, mes_referencia, qtd_pets, total_liquido, empresa_id, enviado_em, pago_em, pago_movimento_id')
       .eq('unidade_id', unidadeId)
       .eq('mes_referencia', mesParaData(mes))
       .neq('status', 'cancelado')
@@ -435,55 +445,12 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
     }
   }
 
-  /**
-   * O acerto lançado aqui vira uma COBRANÇA EMITIDA — não entra no total ainda.
-   *
-   * Antes, ele nascia direto dentro do repasse e a unidade descobria a dívida
-   * quando recebia a planilha. Agora a Matriz emite e a unidade reconhece; só
-   * então o valor passa a contar. Se ela recusar, volta para quem lançou.
-   *
-   * ⚠️ É por isso que o acerto **não aparece no total no mesmo instante**. Isso
-   * é a mudança, não uma falha: cobrança não respondida ainda não é dívida.
-   */
-  async function addPermuta() {
-    const v = Number(permValor)
-    if (!permDesc.trim() || !v || v <= 0) return toast('Informe descrição e valor', 'error')
-    if (!matrizId || !unidadeId) return toast('Escolha a unidade', 'error')
-
-    // 'acresce' = a unidade deve mais → a Matriz é a credora.
-    // 'abate'   = a unidade pagou algo da Matriz → a unidade é a credora.
-    const matrizCobra = permDirecao === 'acresce'
-    const { error } = await supabase.from('fin_cobrancas').insert({
-      unidade_credora: matrizCobra ? matrizId : unidadeId,
-      unidade_devedora: matrizCobra ? unidadeId : matrizId,
-      tipo: 'despesa_rateada',
-      valor: v,
-      data: hojeISO(),
-      descricao: permDesc.trim(),
-      status: 'emitida',
-      criado_por_nome: userName || null,
-    })
-    if (error) return toast(error.message, 'error')
-
-    setPermDesc(''); setPermValor('')
-    descRef.current?.focus()   // pronto pro próximo, sem tirar a mão do teclado
-    toast(`Acerto enviado para ${nomeUnidade} reconhecer`, 'success')
-  }
 
   // ⚠️ `gerarLancamentos` foi REMOVIDA (02/09/2026). Ela criava as duas pernas
   // contábeis a partir de um clique da MATRIZ — inclusive a perna que ia para a
   // DRE da unidade. Era a última porta pela qual uma empresa escrevia no livro
   // da outra. As pernas agora nascem quando a unidade RECONHECE a cobrança, em
   // `CobrancasCard`. Ver FLOW §9.5.
-
-
-  async function removerPermuta(id?: string) {
-    if (!id) return
-    const { error } = await supabase.from('fin_repasse_permutas').delete().eq('id', id)
-    if (error) return toast(error.message, 'error')
-    setPermutas(p => p.filter(x => x.id !== id))
-    void carregarResumo()
-  }
 
 
   async function marcar(campo: 'enviado_em' | 'pago_em') {
@@ -683,109 +650,64 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
             </div>
           </div>
 
-          {/* Acertos — o encontro de contas. Pode lançar antes de fechar. */}
-          <div className="card p-3 space-y-2">
-              <h3 className="text-xs font-semibold text-[var(--surface-600)] uppercase tracking-wide">Acertos</h3>
+          {/* AS TRÊS ABAS do repasse (02/10/2026, pedido do Lucas: "deixa mais visual"). */}
+          <UnderlineTabs
+            tabs={[
+              { key: 'cremacoes' as const, label: 'Cremações', count: totais.qtd },
+              { key: 'acertos' as const, label: 'Acertos', count: permutas.length || undefined },
+              { key: 'resumo' as const, label: 'Resumo' },
+            ]}
+            value={aba}
+            onChange={setAba}
+          />
 
-              {permutas.length > 0 && (
-                <div className="border border-[var(--surface-200)] rounded-[var(--radius-md)] divide-y divide-[var(--surface-200)]">
-                  {permutas.map(p => (
-                    <div key={p.id} className="flex items-center gap-2 px-2 py-1">
-                      <span className={`text-[10px] font-medium w-16 shrink-0 ${p.direcao === 'abate' ? 'text-red-400' : 'text-blue-400'}`}>
-                        {p.direcao === 'abate' ? 'A pagar' : 'A receber'}
-                      </span>
-                      <span className="flex-1 min-w-0 text-sm text-[var(--surface-800)] truncate">
-                        {p.descricao}
-                      </span>
-                      <span className="text-mono text-sm text-[var(--surface-700)]">{fmtBRL(p.valor)}</span>
-                      {/* ⚠️ O botão "gerar lançamento" saiu (02/09/2026). As duas
-                          pernas agora nascem no RECONHECIMENTO da cobrança, na
-                          unidade — não num clique da Matriz aqui. Era a última
-                          porta pela qual a Matriz escrevia no livro do outro. */}
-                      {p.lancamento_receita_id && p.lancamento_despesa_id && (
-                        <span
-                          className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
-                          style={{ background: 'rgba(16,185,129,0.14)', color: '#10b981' }}
-                          title="Já é despesa numa empresa e receita na outra"
-                        >
-                          lançado
-                        </span>
-                      )}
-                      {!somenteLeitura && !p.lancamento_receita_id && (
-                        <button onClick={() => void removerPermuta(p.id)} className="text-[var(--surface-400)] hover:text-red-400 text-xs px-1">
-                          remover
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
+          {aba === 'acertos' && matrizId && (
+            <AcertosRepasse
+              matrizId={matrizId}
+              unidadeId={unidadeId}
+              unidadeNome={nomeUnidade}
+              unidadeCodigo={codigoUnidade}
+              repasseId={existente?.id || null}
+              mes={mes}
+              travado={travado}
+              onMudou={() => { void buscar(); void carregarResumo() }}
+            />
+          )}
 
-              {somenteLeitura ? (
-                permutas.length === 0 && (
-                  <p className="text-xs text-[var(--surface-500)] py-2">Nenhum acerto neste mês.</p>
-                )
-              ) : (
-                <>
-                <div className="flex flex-wrap items-center gap-2">
-                  {/* 'abate' = a Matriz deve à unidade (diminui o que ela cobra)
-                      'acresce' = a unidade deve mais (aumenta a cobrança).
-                      Dois botões em vez de select: um clique em vez de abrir dropdown,
-                      e a cor já diz o que vai acontecer com o total. */}
-                  <div className="flex rounded-[var(--radius-md)] overflow-hidden border border-[var(--surface-300)] shrink-0">
-                    {([
-                      { v: 'abate' as const, label: 'A pagar', cor: '#f87171' },
-                      { v: 'acresce' as const, label: 'A receber', cor: '#60a5fa' },
-                    ]).map(op => {
-                      const on = permDirecao === op.v
-                      return (
-                        <button
-                          key={op.v}
-                          type="button"
-                          onClick={() => setPermDirecao(op.v)}
-                          className="text-xs font-medium px-2.5 py-1.5 transition-colors"
-                          style={{
-                            background: on ? op.cor + '26' : 'transparent',
-                            color: on ? op.cor : 'var(--surface-500)',
-                          }}
-                        >
-                          {op.label}
-                        </button>
-                      )
-                    })}
-                  </div>
-
-                  <input
-                    ref={descRef}
-                    type="text" value={permDesc} onChange={e => setPermDesc(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') void addPermuta() }}
-                    placeholder="Do que se trata? Ex.: Correios remessa 12/07"
-                    className="input text-sm flex-1 min-w-[180px] py-1.5"
-                  />
-
-                  <div className="flex items-center rounded-[var(--radius-md)] border overflow-hidden shrink-0"
-                       style={{ borderColor: 'var(--surface-300)', background: 'var(--surface-0)' }}>
-                    <span className="text-xs text-[var(--surface-400)] pl-2">R$</span>
-                    <input
-                      type="number" min={0} step="0.01" value={permValor}
-                      onChange={e => setPermValor(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter') void addPermuta() }}
-                      placeholder="0,00"
-                      className="w-24 bg-transparent border-0 outline-none text-sm text-mono px-1.5 py-1.5 text-[var(--surface-800)]"
-                    />
-                  </div>
-
-                  <button
-                    onClick={() => void addPermuta()}
-                    disabled={!permDesc.trim() || !Number(permValor)}
-                    className="btn-secondary text-sm"
-                  >
-                    Lançar
-                  </button>
-                </div>
-                </>
-              )}
+          {aba === 'resumo' && (
+            <div className="card p-4 space-y-3 max-w-xl">
+              <h3 className="text-xs font-semibold text-[var(--surface-600)] uppercase tracking-wide">
+                {nomeUnidade} · {rotuloMes(mesParaData(mes))}
+              </h3>
+              <div className="text-sm space-y-1">
+                <p className="flex justify-between"><span className="text-[var(--surface-500)]">{totais.qtd} cremações · tabela</span><span className="text-mono">{fmtBRL(totais.bruto)}</span></p>
+                {totais.deflator > 0 && <p className="flex justify-between"><span className="text-[var(--surface-500)]">descontos por pet</span><span className="text-mono text-amber-500">− {fmtBRL(totais.deflator)}</span></p>}
+                <p className="flex justify-between border-t border-[var(--surface-200)] pt-1"><span className="text-[var(--surface-600)]">cremações</span><span className="text-mono">{fmtBRL(totais.liquido)}</span></p>
+                {totais.acresce > 0 && <p className="flex justify-between"><span className="text-[var(--surface-500)]">acertos que acrescem</span><span className="text-mono text-blue-400">+ {fmtBRL(totais.acresce)}</span></p>}
+                {totais.abate > 0 && <p className="flex justify-between"><span className="text-[var(--surface-500)]">acertos que abatem</span><span className="text-mono text-emerald-500">− {fmtBRL(totais.abate)}</span></p>}
+                <p className="flex justify-between border-t border-[var(--surface-200)] pt-1 text-base font-semibold"><span>A pagar</span><span className="text-mono">{fmtBRL(totais.aPagar)}</span></p>
+              </div>
+              <div className="text-xs text-[var(--surface-500)] space-y-0.5 border-t border-[var(--surface-200)] pt-2">
+                <p>Situação: <span className="text-[var(--surface-700)]">{existente ? existente.status : 'ainda não salvo'}</span>
+                  {existente?.enviado_em && ` · enviado ${fmtData(existente.enviado_em)}`}</p>
+                {pagamento ? (
+                  <p>
+                    Pago em <span className="text-[var(--surface-700)]">{fmtData(pagamento.data)}</span> ·{' '}
+                    <span className="text-mono text-[var(--surface-700)]">{fmtBRL(pagamento.valor)}</span>
+                    {Math.abs(pagamento.valor - totais.aPagar) >= 0.005 && (
+                      <span className="text-amber-500"> · diferença de {fmtBRL(Math.abs(pagamento.valor - totais.aPagar))} em relação ao a pagar</span>
+                    )}
+                  </p>
+                ) : (
+                  <p>Ainda não pago — a unidade quita em Lançamentos › Lançamentos especiais.</p>
+                )}
+                <p className="text-[var(--surface-400)]">
+                  Na DRE: cada cremação conta pelo valor cobrado aqui (com o desconto); cada acerto já está
+                  na DRE das duas pontas. O pagamento só move o dinheiro.
+                </p>
+              </div>
             </div>
+          )}
 
           {/* Ajuste em lote — popup discreto. Um Aplicar só, pros dois tipos. */}
           <Modal
@@ -845,7 +767,8 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
             </div>
           </Modal>
 
-          {/* Tabela */}
+          {/* Tabela — aba Cremações */}
+          {aba === 'cremacoes' && (
           <div className="card p-3 space-y-2">
             <h3 className="text-xs font-semibold text-[var(--surface-600)] uppercase tracking-wide">
               Cremações <span className="text-[var(--surface-400)] normal-case font-normal">({totais.qtd})</span>
@@ -972,6 +895,7 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
             </table>
             </div>
           </div>
+          )}
 
           <p className="text-xs text-[var(--surface-500)]">
             Referência: <span className="text-[var(--surface-700)]">{rotuloMes(mesParaData(mes))}</span> ·
