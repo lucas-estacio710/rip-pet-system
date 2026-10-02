@@ -24,6 +24,7 @@ import ReceitasPrazoTab from './ReceitasPrazoTab'
 import ColarExtratoModal from './ColarExtratoModal'
 import UnderlineTabs from '@/components/ui/UnderlineTabs'
 import { criarIndice, sugerir, type Indice } from '@/lib/similaridade'
+import { buscarCategorias } from '@/lib/busca-categoria'
 import {
   fmtBRL, fmtData, hojeISO, limitesDoMes, colarValorBR
 } from '@/lib/financeiro'
@@ -271,27 +272,10 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
 
   const folhas = categorias.filter(c => !categorias.some(f => f.parent_id === c.id))
 
-  /** tira acento pra "pedagio" achar "pedágio" e vice-versa */
-  const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
-
   // Busca no nome, no caminho E nos SINÔNIMOS: "gasolina" → Combustível,
-  // "troca de óleo" → Manutenção, "chocolate" → Brinde.
-  const resultados = busca.trim().length >= 2
-    ? folhas
-        .map(c => {
-          const termos = (c.termos || []).map(norm)
-          const alvo = norm(caminhoDe(c.id)) + ' ' + termos.join(' ')
-          const palavras = norm(busca.trim()).split(/\s+/)
-          if (!palavras.every(t => alvo.includes(t))) return null
-          // quem bate no nome do item vem antes de quem bate só por sinônimo
-          const forte = palavras.every(t => norm(c.nome).includes(t))
-          const termoBatido = termos.find(t => palavras.some(p => t.includes(p)))
-          return { c, forte, termoBatido }
-        })
-        .filter(Boolean)
-        .sort((a, b) => Number(b!.forte) - Number(a!.forte))
-        .slice(0, 40) as { c: Categoria; forte: boolean; termoBatido?: string }[]
-    : []
+  // "troca de óleo" → Manutenção, "chocolate" → Brinde. Mora em
+  // lib/busca-categoria desde 02/10/2026: o Colar do extrato usa a MESMA busca.
+  const resultados = buscarCategorias(folhas, caminhoDe, busca)
 
   const carregar = useCallback(async () => {
     if (!currentUnit?.id) return

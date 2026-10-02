@@ -36,6 +36,7 @@ import {
   ROTULO_MOV, ENTRA_MOV, movDoRegistro, type MovMaquininha, type LinhaExtrato,
 } from '@/lib/extrato'
 import { criarIndice, sugerir, type Sugestao } from '@/lib/similaridade'
+import { buscarCategorias, type CategoriaBuscavel } from '@/lib/busca-categoria'
 
 type ContaRow = { id: string; nome: string; produto: string | null; tipo: string | null; preferencial_recebimento: boolean | null }
 type Cat = {
@@ -76,7 +77,7 @@ export default function ColarExtratoModal({
   aberto: boolean
   onClose: () => void
   categorias: Cat[]
-  folhas: { id: string }[]
+  folhas: CategoriaBuscavel[]
   caminhoDe: (id: string) => string
   mes: string
   onRegistrou: () => void
@@ -395,12 +396,10 @@ export default function ColarExtratoModal({
               )}
               {i.destino === 'despesa' && (
                 <>
-                  <input list="colar-cats" value={i.catTexto} placeholder="Categoria…"
-                         onChange={e => {
-                           const t = e.target.value
-                           const achou = folhas.find(f => caminhoDe(f.id) === t)
-                           muda(i.n, { catTexto: t, catId: achou?.id || '', doHistorico: false })
-                         }}
+                  {/* A MESMA busca do formulário (lib/busca-categoria): nome, caminho
+                      e SINÔNIMOS, sem acento — "lavagem" acha Veículos › Limpeza. */}
+                  <input value={i.catTexto} placeholder="Categoria… (ex.: lavagem, gasolina)"
+                         onChange={e => muda(i.n, { catTexto: e.target.value, catId: '', doHistorico: false })}
                          className="input text-[11px] py-0.5 px-1.5 flex-1 min-w-[170px]"
                          style={!i.catId ? { borderColor: '#f59e0b' } : undefined} />
                   <select value={i.metodo} onChange={e => muda(i.n, { metodo: e.target.value })} className="input text-[11px] py-0.5 px-1">
@@ -418,6 +417,24 @@ export default function ColarExtratoModal({
               {i.destino === 'fora' && i.motivoFora && <span className="text-[11px] text-amber-500">{i.motivoFora}</span>}
             </div>
           )}
+          {/* Resultados da busca digitada — aparecem enquanto não há categoria escolhida. */}
+          {i.destino === 'despesa' && !i.catId && i.catTexto.trim().length >= 2 && (() => {
+            const achados = buscarCategorias(folhas, caminhoDe, i.catTexto, 6)
+            return achados.length ? (
+              <div className="rounded-[var(--radius-md)] border border-[var(--surface-200)] divide-y divide-[var(--surface-200)]">
+                {achados.map(({ c, termoBatido, forte }) => (
+                  <button key={c.id} type="button"
+                          onClick={() => muda(i.n, { catId: c.id, catTexto: caminhoDe(c.id) })}
+                          className="w-full text-left px-2 py-1 text-[11px] hover:bg-[var(--surface-50)] flex items-center gap-2">
+                    <span className="flex-1 truncate text-[var(--surface-700)]">{caminhoDe(c.id)}</span>
+                    {!forte && termoBatido && <span className="text-[10px] text-[var(--surface-400)] shrink-0">“{termoBatido}”</span>}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[10px] text-amber-500">nenhuma categoria com “{i.catTexto.trim()}”</p>
+            )
+          })()}
           {/* A LISTINHA — decisões parecidas do mesmo destino; clicar aplica. */}
           {!i.jaNoSistema && i.destino !== 'fora' && !(i.doHistorico && i.sugestoes.length === 1) && (
             <div className="flex flex-wrap gap-1">
@@ -509,7 +526,6 @@ export default function ColarExtratoModal({
           </div>
         ) : (
           <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
-            <datalist id="colar-cats">{folhas.map(f => <option key={f.id} value={caminhoDe(f.id)} />)}</datalist>
             {secao('Receitas a prazo', receitas,
               maquininhas.length > 1 ? (
                 <select value={maquininhaLote} onChange={e => setMaquininhaLote(e.target.value)}
