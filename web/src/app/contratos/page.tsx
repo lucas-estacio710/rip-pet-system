@@ -41,6 +41,7 @@ import FichaRemocao, { type FichaContratoData } from '@/components/fichas/FichaR
 import { gerarFichaPDFA4Duplicada, nomeFicha } from '@/lib/ficha-generator'
 import { baixarContratoPDF } from '@/lib/contrato-pdf-download'
 import { tituloNome, primeiroNome, separarPrimeiroNome } from '@/lib/nome-tutor'
+import { consultaEmLotes } from '@/lib/consulta-em-lotes'
 import EditarContratoModal from '@/components/contratos/modals/EditarContratoModal'
 import EditarFichaModal from '@/components/contratos/modals/EditarFichaModal'
 
@@ -1046,24 +1047,32 @@ function ContratosContent() {
   }
 
   // Enriquece os contratos já carregados com embeds pesados (em paralelo, sem bloquear UI).
+  //
+  // 🔴 Em LOTES de 100 contratos, paginando cada lote (`lib/consulta-em-lotes.ts`): nas
+  // etapas agrupadas a lista vem inteira (até 900), e um `.in()` só com todos eles passava
+  // das 1000 linhas do PostgREST nos produtos — os excedentes sumiam calados e o farol
+  // dizia "sem urna"/"pelinho pendente" de quem tinha.
   async function enriquecerContratos(arr: Contrato[], minhaBuscaId: number) {
-    const ids = new Set(arr.map(c => c.id))
-    const idsList = Array.from(ids)
+    const idsList = Array.from(new Set(arr.map(c => c.id)))
     const fonteIds = Array.from(new Set(arr.map(c => (c as { fonte_conhecimento_id?: string }).fonte_conhecimento_id).filter(Boolean))) as string[]
 
-    // Dispara 3 queries em paralelo (não aguarda — cada uma faz seu próprio merge)
+    // Dispara 3 consultas em paralelo (não aguarda — cada lote faz seu próprio merge)
     // IMPORTANTE: ao mesclar com setContratos, só alteramos os contratos cujo id ESTÁ
-    // no batch atual. Outros contratos (já enriquecidos por chamadas anteriores)
+    // no LOTE que chegou. Outros contratos (de outros lotes ou de chamadas anteriores)
     // são preservados — senão a página 2 zeraria os faróis da página 1.
 
     // 1. contrato_produtos (com produto)
-    supabase
-      .from('contrato_produtos')
-      .select('id, contrato_id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)')
-      .in('contrato_id', idsList)
-      .then(({ data, error }) => {
-        if (error || !data) return
+    consultaEmLotes(
+      idsList,
+      (lote, de, ate) => supabase
+        .from('contrato_produtos')
+        .select('id, contrato_id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)')
+        .in('contrato_id', lote)
+        .order('id')
+        .range(de, ate),
+      (loteIds, data) => {
         if (minhaBuscaId !== buscaIdRef.current) return
+        const ids = new Set(loteIds)
         const byContrato = new Map<string, typeof data>()
         for (const cp of data) {
           const cid = (cp as { contrato_id: string }).contrato_id
@@ -1071,44 +1080,55 @@ function ContratosContent() {
           byContrato.get(cid)!.push(cp)
         }
         setContratos(prev => prev.map(c => {
-          if (!ids.has(c.id)) return c  // fora do batch — preserva
+          if (!ids.has(c.id)) return c  // fora do lote — preserva
           return { ...c, contrato_produtos: byContrato.get(c.id) || [] } as Contrato
         }))
-      })
+      },
+    )
 
-    // 2. contrato_gc
-    supabase
-      .from('contrato_gc')
-      .select('contrato_id, etapa, cinzas_prontas, certificado_pronto, contato_status, contato_tutor_em, data_agendamento, data_recebimento, data_cremacao, data_disponivel')
-      .in('contrato_id', idsList)
-      .then(({ data, error }) => {
-        if (error || !data) return
+    // 2. contrato_gc (1 por contrato)
+    consultaEmLotes(
+      idsList,
+      (lote, de, ate) => supabase
+        .from('contrato_gc')
+        .select('contrato_id, etapa, cinzas_prontas, certificado_pronto, contato_status, contato_tutor_em, data_agendamento, data_recebimento, data_cremacao, data_disponivel')
+        .in('contrato_id', lote)
+        .order('contrato_id')
+        .range(de, ate),
+      (loteIds, data) => {
         if (minhaBuscaId !== buscaIdRef.current) return
+        const ids = new Set(loteIds)
         const byContrato = new Map<string, unknown>()
         for (const g of data) byContrato.set((g as { contrato_id: string }).contrato_id, g)
         setContratos(prev => prev.map(c => {
           if (!ids.has(c.id)) return c
           return { ...c, contrato_gc: (byContrato.get(c.id) ?? null) as Contrato['contrato_gc'] } as Contrato
         }))
-      })
+      },
+    )
 
-    // 3. fontes_conhecimento (só se houver IDs)
+    // 3. fontes_conhecimento (poucas; o lote é dos ids de FONTE, o merge é por contrato)
     if (fonteIds.length > 0) {
-      supabase
-        .from('fontes_conhecimento')
-        .select('id, nome')
-        .in('id', fonteIds)
-        .then(({ data, error }) => {
-          if (error || !data) return
+      consultaEmLotes(
+        fonteIds,
+        (lote, de, ate) => supabase
+          .from('fontes_conhecimento')
+          .select('id, nome')
+          .in('id', lote)
+          .order('id')
+          .range(de, ate),
+        (loteFontes, data) => {
           if (minhaBuscaId !== buscaIdRef.current) return
+          const fontesDoLote = new Set(loteFontes)
           const byId = new Map<string, { id: string; nome: string }>()
           for (const f of data as { id: string; nome: string }[]) byId.set(f.id, f)
           setContratos(prev => prev.map(c => {
-            if (!ids.has(c.id)) return c
             const fid = (c as { fonte_conhecimento_id?: string }).fonte_conhecimento_id
-            return { ...c, fonte_conhecimento: fid ? (byId.get(fid) ?? null) : null } as Contrato
+            if (!fid || !fontesDoLote.has(fid)) return c
+            return { ...c, fonte_conhecimento: byId.get(fid) ?? null } as Contrato
           }))
-        })
+        },
+      )
     }
   }
 
