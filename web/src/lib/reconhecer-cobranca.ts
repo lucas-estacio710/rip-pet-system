@@ -19,6 +19,16 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { CONTA_ACERTO_RECEITA, type TipoCobranca } from '@/lib/cobrancas'
 
+/**
+ * A `origem` das duas pernas. O check de `fin_lancamentos.origem` (mig 103) só aceita
+ * manual · ocr · qrcode · recorrente · sistema — gravar 'cobranca' falhava com
+ * `fin_lancamentos_origem_check`, e foi assim desde a mig 135: o Reconhecer NUNCA
+ * gravou em produção (achado em 02/10/2026, no 1º acerto lançado pela aba Acertos).
+ * 'sistema' = nasceu do sistema, não foi digitado. É também o que o Apagar do acerto
+ * usa pra saber que a perna é dele e não a compra original de alguém (essa é 'manual').
+ */
+export const ORIGEM_PERNA_COBRANCA = 'sistema'
+
 export type CobrancaParaReconhecer = {
   id: string
   tipo: TipoCobranca
@@ -75,7 +85,7 @@ export async function reconhecerCobranca(
       descricao: c.descricao || 'Compra por outra unidade',
       fornecedor_nome: c.credoraNome || null,
       ...marca,
-      origem: 'cobranca',
+      origem: ORIGEM_PERNA_COBRANCA,
       criado_por_nome: quem.userName || null,
       rateio_meses: 1,
     }).select('id').single()
@@ -97,7 +107,7 @@ export async function reconhecerCobranca(
       data_caixa: null,
       descricao: `Reembolso — ${c.descricao || 'compra'}${c.devedoraCodigo ? ` (${c.devedoraCodigo})` : ''}`,
       ...marca,
-      origem: 'cobranca',
+      origem: ORIGEM_PERNA_COBRANCA,
       criado_por_nome: quem.userName || null,
       rateio_meses: 1,
     }).select('id').single()

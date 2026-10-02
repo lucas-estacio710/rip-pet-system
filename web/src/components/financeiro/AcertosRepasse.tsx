@@ -30,7 +30,7 @@ import { useUnit } from '@/contexts/UnitContext'
 import { fmtBRL, fmtData, colarValorBR } from '@/lib/financeiro'
 import { buscarCategorias } from '@/lib/busca-categoria'
 import { criarIndice, sugerir } from '@/lib/similaridade'
-import { reconhecerCobranca } from '@/lib/reconhecer-cobranca'
+import { reconhecerCobranca, ORIGEM_PERNA_COBRANCA } from '@/lib/reconhecer-cobranca'
 
 type Cat = {
   id: string; nome: string; parent_id: string | null; termos: string[] | null
@@ -182,14 +182,14 @@ export default function AcertosRepasse({
   /** Apagar = ajustar. Leva as duas pernas da DRE junto. */
   async function apagar(a: Acerto) {
     try {
-      // Só apaga lançamento que NASCEU da cobrança (origem 'cobranca'). Numa
+      // Só apaga lançamento que NASCEU da cobrança (ORIGEM_PERNA_COBRANCA). Numa
       // compra externa, `lancamento_origem_id` é a compra original de quem
       // pagou — essa não é deste acerto e não pode sumir.
       const ids = [a.lancamento_aceite_id, a.lancamento_origem_id].filter((x): x is string => !!x)
       const { data: ls } = ids.length
         ? await supabase.from('fin_lancamentos').select('id, origem').in('id', ids)
         : { data: [] }
-      const pernas = ((ls as { id: string; origem: string }[] | null) || []).filter(l => l.origem === 'cobranca').map(l => l.id)
+      const pernas = ((ls as { id: string; origem: string }[] | null) || []).filter(l => l.origem === ORIGEM_PERNA_COBRANCA).map(l => l.id)
       const { error } = await supabase.from('fin_cobrancas').delete().eq('id', a.id)
       if (error) throw new Error(error.message)
       if (pernas.length) {
