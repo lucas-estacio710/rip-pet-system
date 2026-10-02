@@ -46,7 +46,6 @@ export function abasRepasseExcel(p: {
   acertos: AcertoExcel[]               // a lista aberta, com categoria e data
   extras: Map<string, ExtraPet>        // contrato_id → detalhes do pet
   situacao: string
-  enviadoEm?: string | null
   pagamento?: { valor: number; data: string } | null
 }): Aba[] {
   const t = totalAPagar(p.itens, p.permutas)
@@ -67,7 +66,6 @@ export function abasRepasseExcel(p: {
     [],
     [b('Situação'), p.situacao],
   ]
-  if (p.enviadoEm) resumo.push(['Enviado em', '', d(p.enviadoEm)])
   if (p.pagamento) {
     resumo.push(['Pago em', '', d(p.pagamento.data)])
     resumo.push(['Valor pago', '', m(p.pagamento.valor)])

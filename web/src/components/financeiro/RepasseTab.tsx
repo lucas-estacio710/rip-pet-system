@@ -11,7 +11,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
-  Receipt, Loader2, Lock, ExternalLink, Shield, RefreshCw, AlertTriangle,
+  Receipt, Loader2, ExternalLink, Shield, RefreshCw, AlertTriangle,
   FileSpreadsheet, Layers, Save,
 } from 'lucide-react'
 import Modal from '@/components/ui/Modal'
@@ -83,7 +83,7 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
   const [permutas, setPermutas] = useState<Permuta[]>([])
   // O formulário de acerto saiu daqui (02/10/2026): vive em AcertosRepasse, a aba 2.
   // Resumo do mês por unidade — alimenta o valor que aparece em cada aba
-  const [resumo, setResumo] = useState<Map<string, { qtd: number; valor: number; fechado: boolean }>>(new Map())
+  const [resumo, setResumo] = useState<Map<string, { qtd: number; valor: number; pago: boolean }>>(new Map())
 
   // BYPASS DELIBERADO do UnitContext: `allUnidades` só traz as unidades em que o
   // usuário TEM PERFIL (UnitContext.tsx:176-180), e quem opera o repasse é a
@@ -177,13 +177,13 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
     if (!podeVerTodas && currentUnit?.id) qf = qf.eq('unidade_id', currentUnit.id)
     const { data: fech } = await qf
 
-    const m = new Map<string, { qtd: number; valor: number; fechado: boolean }>()
+    const m = new Map<string, { qtd: number; valor: number; pago: boolean }>()
     eleg.forEach(e => {
-      const cur = m.get(e.unidade_id) || { qtd: 0, valor: 0, fechado: false }
-      m.set(e.unidade_id, { qtd: cur.qtd + 1, valor: cur.valor + Number(e.valor_tabela || 0), fechado: false })
+      const cur = m.get(e.unidade_id) || { qtd: 0, valor: 0, pago: false }
+      m.set(e.unidade_id, { qtd: cur.qtd + 1, valor: cur.valor + Number(e.valor_tabela || 0), pago: false })
     })
-    ;((fech as { unidade_id: string; total_a_pagar: number; qtd_pets: number }[]) || []).forEach(f => {
-      m.set(f.unidade_id, { qtd: f.qtd_pets, valor: Number(f.total_a_pagar || 0), fechado: true })
+    ;((fech as { unidade_id: string; total_a_pagar: number; qtd_pets: number; status: string }[]) || []).forEach(f => {
+      m.set(f.unidade_id, { qtd: f.qtd_pets, valor: Number(f.total_a_pagar || 0), pago: f.status === 'pago' })
     })
     setResumo(m)
   }, [mes, supabase, podeVerTodas, currentUnit?.id])
@@ -303,6 +303,14 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
   // `btn_repasse_editar`). Os inputs de deflator, o Ajuste em lote e o Salvar já
   // olham para esta flag, então o modo leitura herda tudo sem duplicar condição.
   const travado = existente?.status === 'pago' || somenteLeitura
+  const situacao = !existente
+    ? { rotulo: 'Prévia', classe: 'bg-[var(--surface-100)] text-[var(--surface-500)]',
+        dica: 'Ainda não salvo — salve para a unidade poder pagar' }
+    : existente.status === 'pago'
+      ? { rotulo: `✓ Pago${existente.pago_em ? ` em ${fmtData(existente.pago_em)}` : ''}`,
+          classe: 'bg-emerald-500/15 text-emerald-500', dica: 'A unidade quitou — não muda mais' }
+      : { rotulo: 'Salvo · a unidade já pode pagar', classe: 'bg-amber-500/15 text-amber-500',
+          dica: 'A unidade paga em Lançamentos › Lançamentos especiais. Até lá, dá pra editar e salvar de novo' }
   const salvo = !!existente
 
   const alterar = (i: number, campo: keyof ItemRepasse, valor: unknown) =>
@@ -453,17 +461,6 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
   // `CobrancasCard`. Ver FLOW §9.5.
 
 
-  async function marcar(campo: 'enviado_em' | 'pago_em') {
-    if (!existente) return
-    const novoStatus = campo === 'enviado_em' ? 'enviado' : 'pago'
-    const { error } = await supabase
-      .from('fin_repasses')
-      .update({ [campo]: new Date().toISOString(), status: novoStatus })
-      .eq('id', existente.id)
-    if (error) return toast(error.message, 'error')
-    toast(campo === 'enviado_em' ? 'Marcado como enviado' : 'Marcado como pago', 'success')
-    void buscar()
-  }
 
 
   /**
@@ -512,8 +509,7 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
 
       const blob = await gerarXlsx(abasRepasseExcel({
         unidade: nomeUnidade, mesRef: mesParaData(mes), itens, permutas, acertos, extras,
-        situacao: existente ? existente.status : 'ainda não salvo',
-        enviadoEm: existente?.enviado_em, pagamento,
+        situacao: situacao.rotulo, pagamento,
       }))
       saveAs(blob, nomeArquivoRepasseExcel(nomeUnidade, mes))
       toast('Excel gerado', 'success')
@@ -574,7 +570,7 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
                 className="text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 text-mono flex items-center gap-1"
                 style={{ background: cor + '33', color: corTexto(cor) }}
               >
-                {r?.fechado && <Lock className="h-2.5 w-2.5 shrink-0" />}
+                {r?.pago && <span className="text-[10px]" title="Pago">✓</span>}
                 {r ? (
                   <span className="flex flex-col items-center leading-tight">
                     {/* "pets" só no desktop; no mobile fica só o número */}
@@ -647,42 +643,15 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
               a receber <span className="text-mono text-base font-semibold text-emerald-400">{fmtBRL(totais.aPagar)}</span>
             </span>
 
-            {existente && (
-              <span className="flex items-center gap-1.5 text-xs text-[var(--surface-500)]">
-                {/* A SITUAÇÃO do fechamento (02/10/2026 — "abertoenviado" lia como uma
-                    palavra só): salvo = Aberto · a Matriz avisou a unidade = Enviado ·
-                    a unidade quitou em Lançamentos especiais = Pago (trava). */}
-                <Lock className="h-3.5 w-3.5 text-amber-400" />
-                Situação:
-                <span className={`px-1.5 py-0.5 rounded font-medium ${
-                  existente.status === 'pago' ? 'bg-emerald-500/15 text-emerald-500'
-                    : existente.status === 'enviado' ? 'bg-blue-500/15 text-blue-400'
-                    : 'bg-amber-500/15 text-amber-500'}`}>
-                  {existente.status === 'pago' ? 'Pago' : existente.status === 'enviado' ? 'Enviado à unidade' : 'Aberto'}
-                </span>
-                {existente.enviado_em && ` · enviado ${fmtData(existente.enviado_em)}`}
-                {existente.pago_em && ` · pago ${fmtData(existente.pago_em)}`}
-                {/* ⚠️ O seletor de CNPJ saiu daqui (02/09/2026). O CNPJ não é
-                    escolhido: ele é DERIVADO da conta em que o dinheiro entra
-                    (mig 121/128). Perguntar de novo abria espaço para o repasse
-                    dizer um CNPJ e o extrato mostrar outro. */}
-                {existente.status === 'aberto' && !somenteLeitura && (
-                  <button onClick={() => void marcar('enviado_em')} className="btn-secondary text-xs py-0.5 px-2"
-                    title="Registra que a cobrança foi mandada para a unidade (só um marco; continua editável)">
-                    marcar como enviado
-                  </button>
-                )}
-                {/* O "pago" SAIU daqui (02/10/2026, mig 150): quem paga é a unidade,
-                    em Lançamentos › Lançamentos especiais › Pagamento de repasse —
-                    lá ela confere o que a Matriz cobrou e registra conta, data e o
-                    valor que saiu DE VERDADE. Aqui a Matriz só prepara e fecha. */}
-                {existente.status !== 'pago' && (
-                  <span className="text-[var(--surface-400)]" title="A unidade quita em Lançamentos › Lançamentos especiais">
-                    · vira Pago quando a unidade quitar
-                  </span>
-                )}
-              </span>
-            )}
+            {/* SITUAÇÃO — três, e só três (02/10/2026, "vamos simplificar?!?"):
+                Prévia (não salvo: a unidade ainda não consegue pagar) · Salvo (a
+                unidade já vê em Lançamentos especiais e pode pagar; a Matriz segue
+                editando) · Pago (a unidade quitou — trava). O "enviado" e o cadeado
+                saíram: a unidade vê o repasse assim que ele é salvo, e o cadeado
+                aparecia justamente quando NADA estava travado. */}
+            <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${situacao.classe}`} title={situacao.dica}>
+              {situacao.rotulo}
+            </span>
 
             <div className="ml-auto flex gap-2">
               {!travado && (
@@ -744,8 +713,7 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
                 <p className="flex justify-between border-t border-[var(--surface-200)] pt-1 text-base font-semibold"><span>A pagar</span><span className="text-mono">{fmtBRL(totais.aPagar)}</span></p>
               </div>
               <div className="text-xs text-[var(--surface-500)] space-y-0.5 border-t border-[var(--surface-200)] pt-2">
-                <p>Situação: <span className="text-[var(--surface-700)]">{existente ? existente.status : 'ainda não salvo'}</span>
-                  {existente?.enviado_em && ` · enviado ${fmtData(existente.enviado_em)}`}</p>
+                <p>Situação: <span className="text-[var(--surface-700)]">{situacao.rotulo}</span></p>
                 {pagamento ? (
                   <p>
                     Pago em <span className="text-[var(--surface-700)]">{fmtData(pagamento.data)}</span> ·{' '}
@@ -755,7 +723,7 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
                     )}
                   </p>
                 ) : (
-                  <p>Ainda não pago — a unidade quita em Lançamentos › Lançamentos especiais.</p>
+                  <p>{existente ? 'Ainda não pago — a unidade quita em Lançamentos › Lançamentos especiais.' : 'Salve o repasse para a unidade poder pagar.'}</p>
                 )}
                 <p className="text-[var(--surface-400)]">
                   Na DRE: cada cremação conta pelo valor cobrado aqui (com o desconto); cada acerto já está

@@ -21,7 +21,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { Loader2, ArrowLeftRight, CreditCard, ChevronLeft, AlertTriangle } from 'lucide-react'
+import { Loader2, ArrowLeftRight, CreditCard, ChevronLeft } from 'lucide-react'
 import Modal from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
@@ -364,7 +364,7 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
                     className="input text-sm w-full">
               {repasses.map(r => (
                 <option key={r.id} value={r.id}>
-                  {rotuloMes(r.mes_referencia)} · {r.qtd_pets} pets · a pagar {fmtBRL(r.aPagar)}{r.status === 'aberto' ? ' · em preparação' : ''}
+                  {rotuloMes(r.mes_referencia)} · {r.qtd_pets} pets · a pagar {fmtBRL(r.aPagar)}
                 </option>
               ))}
               <option value="sem">Mês sem fechamento no sistema…</option>
@@ -378,11 +378,6 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
               {repasseSel.abate > 0 && <p className="flex justify-between"><span className="text-[var(--surface-500)]">acertos que abatem</span><span className="text-mono">− {fmtBRL(repasseSel.abate)}</span></p>}
               {repasseSel.acresce > 0 && <p className="flex justify-between"><span className="text-[var(--surface-500)]">acertos que acrescem</span><span className="text-mono">+ {fmtBRL(repasseSel.acresce)}</span></p>}
               <p className="flex justify-between font-semibold pt-1 border-t border-[var(--surface-200)]"><span>A pagar</span><span className="text-mono">{fmtBRL(repasseSel.aPagar)}</span></p>
-              {repasseSel.status === 'aberto' && (
-                <p className="text-amber-500 inline-flex items-center gap-1 pt-1">
-                  <AlertTriangle className="h-3 w-3" /> A Matriz ainda não fechou este repasse — o valor pode mudar. Os detalhes estão na aba Repasse.
-                </p>
-              )}
             </div>
           ) : (
             <div>

@@ -103,7 +103,7 @@ type UnidadeDestino = { id: string; codigo: string; nome: string; is_matriz: boo
 type RepasseAberto = { id: string; unidade_id: string; mes_referencia: string; status: string }
 const MESES_CURTOS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 const rotuloRepasse = (r: RepasseAberto) =>
-  `${MESES_CURTOS[Number(r.mes_referencia.slice(5, 7)) - 1]}/${r.mes_referencia.slice(0, 4)} · ${r.status}`
+  `${MESES_CURTOS[Number(r.mes_referencia.slice(5, 7)) - 1]}/${r.mes_referencia.slice(0, 4)}`
 
 const soDigitos = (t: string) => t.replace(/\D/g, '').replace(/^0+(?=\d)/, '').slice(0, 12)
 const digitosParaNumero = (d: string) => Number(d || '0') / 100
