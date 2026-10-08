@@ -21,7 +21,7 @@ import { fmtBRL, fmtData, limitesDoMes } from '@/lib/financeiro'
 
 type Conta = { conta_id: string; nome: string; tipo: string; caixa_desde: string | null }
 type Linha = { data: string; tipo: string; descricao: string | null; valor: number; origem: string; origem_id: string }
-type Item = { data: string; descricao: string; valor: number; partes: number; saldoDia: number | null }
+type Item = { data: string; descricao: string; valor: number; partes: number; saldoDia: number | null; ids: string[]; conciliado: boolean }
 
 const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
 const rotuloMes = (m: string) => `${MESES[Number(m.slice(5, 7)) - 1]} de ${m.slice(0, 4)}`
@@ -81,11 +81,21 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
       for (const l of doMes) {
         const div = l.origem === 'lancamento' ? divisaoDe.get(l.origem_id) : undefined
         const existente = div ? porDivisao.get(div) : undefined
-        if (existente) { existente.valor = centavos(existente.valor + Number(l.valor)); existente.partes++; continue }
-        const it: Item = { data: l.data, descricao: l.descricao || l.tipo, valor: Number(l.valor), partes: 1, saldoDia: null }
+        if (existente) { existente.valor = centavos(existente.valor + Number(l.valor)); existente.partes++; existente.ids.push(l.origem_id); continue }
+        const it: Item = { data: l.data, descricao: l.descricao || l.tipo, valor: Number(l.valor), partes: 1, saldoDia: null, ids: [l.origem_id], conciliado: false }
         agrup.push(it)
         if (div) porDivisao.set(div, it)
       }
+      // ✓ conciliado (mig 153) — a conciliação é POR CONTA: a mesma transferência
+      // pode estar conferida num caixa e não no outro.
+      const idsMes = agrup.flatMap(it => it.ids)
+      const conc = new Set<string>()
+      for (let k = 0; k < idsMes.length; k += 150) {
+        const { data } = await supabase.from('fin_conciliacoes').select('origem_id')
+          .eq('conta_id', conta.conta_id).in('origem_id', idsMes.slice(k, k + 150))
+        for (const c of (data as { origem_id: string }[] | null) || []) conc.add(c.origem_id)
+      }
+      agrup.forEach(it => { it.conciliado = it.ids.some(id => conc.has(id)) })
       // Saldo no fim de cada dia, na última linha do dia.
       let saldo = antes
       agrup.forEach((it, i) => {
@@ -171,6 +181,7 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
                       {itens[i - 1]?.data === it.data ? '' : fmtData(it.data)}
                     </td>
                     <td className="py-1 pr-2 text-[var(--surface-700)]">
+                      {it.conciliado && <span className="mr-1 text-emerald-500" title="Conferido com o extrato do banco">✓</span>}
                       {it.descricao}
                       {it.partes > 1 && (
                         <span className="ml-1 px-1 rounded-full text-[10px]" style={{ background: 'rgba(99,102,241,0.14)', color: '#818cf8' }}

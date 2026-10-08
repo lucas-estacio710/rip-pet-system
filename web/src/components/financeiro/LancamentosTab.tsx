@@ -173,6 +173,8 @@ export default function LancamentosTab({ somenteLeitura = false, comando = null,
   const [nomeConta, setNomeConta] = useState<Map<string, string>>(new Map())
   // id do lançamento → é perna de acerto lançado por outra unidade (ver `carregar`)
   const [acertoDe, setAcertoDe] = useState<Map<string, { papel: 'despesa' | 'reembolso'; outra: string }>>(new Map())
+  // ✓ CONCILIADO (mig 153): o banco/fatura já confirmou este lançamento.
+  const [conciliados, setConciliados] = useState<Set<string>>(new Set())
   const [carregando, setCarregando] = useState(false)
 
   // formulário — o mesmo modal serve pra criar e pra editar. `editandoId` decide:
@@ -357,6 +359,17 @@ export default function LancamentosTab({ somenteLeitura = false, comando = null,
     }
     setAcertoDe(acerto)
 
+    // Quais o banco já confirmou (Importar extrato). Sem a mig 153 a consulta
+    // falha e simplesmente não há selo.
+    const idsLanc = lista.map(l => l.id)
+    const conc = new Set<string>()
+    for (let k = 0; k < idsLanc.length; k += 150) {
+      const { data: cs2 } = await supabase.from('fin_conciliacoes').select('origem_id')
+        .eq('origem', 'lancamento').in('origem_id', idsLanc.slice(k, k + 150))
+      for (const c of (cs2 as { origem_id: string }[] | null) || []) conc.add(c.origem_id)
+    }
+    setConciliados(conc)
+
     setCarregando(false)
   }, [supabase, currentUnit?.id, mes])
 
@@ -498,7 +511,7 @@ export default function LancamentosTab({ somenteLeitura = false, comando = null,
    * Lucas recusou isso ("banco é tudo doido"): a pessoa ESCOLHE uma fatura que
    * já existe ou CRIA uma nova dizendo o dia em que ela vence.
    */
-  const [faturas, setFaturas] = useState<{ venc: string; total: number; qtd: number }[]>([])
+  const [faturas, setFaturas] = useState<{ venc: string; total: number; qtd: number; paga: boolean }[]>([])
   const [novaFatura, setNovaFatura] = useState(false)
   useEffect(() => {
     if (!aPrazo || !contaId) { setFaturas([]); return }
@@ -508,14 +521,19 @@ export default function LancamentosTab({ somenteLeitura = false, comando = null,
         .select('data_caixa, valor')
         .eq('conta_pagamento_id', contaId).eq('metodo_pagamento', 'credito')
         .neq('status', 'rejeitado').not('data_caixa', 'is', null)
+      // FATURA PAGA FECHA (08/10/2026): compra nova não entra numa fatura que já
+      // foi quitada — ela já saiu do banco com outro total. Como na Conta Azul.
+      const { data: pg } = await supabase.from('fin_movimentos').select('fatura_vencimento')
+        .eq('tipo', 'fatura_cartao').eq('conta_destino_id', contaId).not('fatura_vencimento', 'is', null)
       if (cancelado) return
+      const pagas = new Set(((pg as { fatura_vencimento: string }[] | null) || []).map(p => p.fatura_vencimento.slice(0, 10)))
       const m = new Map<string, { total: number; qtd: number }>()
       for (const l of (ls as { data_caixa: string; valor: number }[] | null) || []) {
         const k = l.data_caixa.slice(0, 10)
         const a = m.get(k) || { total: 0, qtd: 0 }
         m.set(k, { total: a.total + Number(l.valor || 0), qtd: a.qtd + 1 })
       }
-      setFaturas([...m.entries()].map(([venc, v]) => ({ venc, ...v }))
+      setFaturas([...m.entries()].map(([venc, v]) => ({ venc, ...v, paga: pagas.has(venc) }))
         .sort((a, b) => a.venc.localeCompare(b.venc)))
     })()
     return () => { cancelado = true }
@@ -523,7 +541,8 @@ export default function LancamentosTab({ somenteLeitura = false, comando = null,
 
   // Uma compra não entra numa fatura que venceu ANTES dela. Fica de fora da
   // lista — menos a fatura do próprio lançamento em edição, que tem de aparecer.
-  const faturasPossiveis = faturas.filter(f => f.venc >= data || f.venc === dataCaixa)
+  // E fatura PAGA também sai — menos, de novo, a do lançamento em edição.
+  const faturasPossiveis = faturas.filter(f => (f.venc >= data && !f.paga) || f.venc === dataCaixa)
 
   function limpar() {
     setCatId(''); setValor(''); setData(hojeISO()); setPartes([])
@@ -908,6 +927,9 @@ export default function LancamentosTab({ somenteLeitura = false, comando = null,
                           title="Nasceu de um acerto entre unidades — não foi digitado aqui">
                       {ac.papel === 'despesa' ? `lançado por ${ac.outra}` : `reembolso de ${ac.outra}`}
                     </span>
+                  )}
+                  {conciliados.has(l.id) && (
+                    <span className="mr-1 text-emerald-500" title="Conferido com o banco/fatura (Importar extrato)">✓</span>
                   )}
                   {fmtData(l.data_competencia)}
                   {l.conta_pagamento_id && nomeConta.get(l.conta_pagamento_id) && (

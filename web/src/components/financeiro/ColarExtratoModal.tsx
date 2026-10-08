@@ -37,6 +37,7 @@ import {
 } from '@/lib/extrato'
 import { criarIndice, sugerir, type Sugestao } from '@/lib/similaridade'
 import { buscarCategorias, sugerirPorSinonimo, type CategoriaBuscavel } from '@/lib/busca-categoria'
+import { conciliar, semPar, type RegistroSistema, type Ref } from '@/lib/conciliacao'
 
 type ContaRow = { id: string; nome: string; produto: string | null; tipo: string | null; preferencial_recebimento: boolean | null }
 type Cat = {
@@ -54,8 +55,16 @@ const METODOS = [
   { v: 'transferencia', l: 'Transf.' }, { v: 'dinheiro', l: 'Dinheiro' },
 ]
 
+/** Folga da conciliação (lib/conciliacao): ±dias e, só no cartão, ±câmbio. */
+const JANELA_DIAS = 5
+const TOLERANCIA_CAMBIO = 0.05
+
 type Item = LinhaExtrato & {
   jaNoSistema: string | null     // com o que bateu ("contrato MEL"), ou null
+  exatos: RegistroSistema[]      // o(s) registro(s) do par exato — viram conciliação
+  /** Par com folga (data/câmbio) ou com mais de um candidato. `escolhido`:
+   *  índice do candidato; -1 = "é outro, lançar novo"; -2 = ainda não escolheu. */
+  parecido: { tipo: 'provavel' | 'ambiguo'; candidatos: RegistroSistema[]; escolhido: number } | null
   destino: Destino
   motivoFora: string | null
   marcado: boolean
@@ -99,6 +108,9 @@ export default function ColarExtratoModal({
   const [maquininhaLote, setMaquininhaLote] = useState('')
   const [lendo, setLendo] = useState(false)
   const [salvando, setSalvando] = useState(false)
+  // CONFERÊNCIA INVERSA: o que está no sistema (no período colado, ou na fatura)
+  // e não casou com linha nenhuma — lançamento a mais, cancelado, valor errado.
+  const [paraVerso, setParaVerso] = useState<RegistroSistema[]>([])
 
   const maquininhas = contas.filter(c => c.produto === 'maquininha')
   const correntes = contas.filter(c => c.produto !== 'maquininha' && c.tipo !== 'cartao')
@@ -169,19 +181,30 @@ export default function ColarExtratoModal({
     const ini = datas[0], fim = datas[datas.length - 1]
     const maqIds = maquininhas.map(m => m.id)
 
+    // A busca vai JANELA_DIAS além das pontas: o caxias que lançou no dia 9 a
+    // compra do dia 11 tem de ser achado colando o extrato de 11 a 15.
+    const somaDias = (iso: string, d: number) => new Date(Date.parse(iso) + d * 86400000).toISOString().slice(0, 10)
+    const iniJ = somaDias(ini, -JANELA_DIAS), fimJ = somaDias(fim, JANELA_DIAS)
+    // Vencimento da fatura: o escolhido, ou o do cabeçalho colado.
+    const vencLido = vencimento || (ehCartao ? cabecalhoFatura(texto)?.venc || '' : '')
+
     const [caixa, divs, histMov, histDesp] = await Promise.all([
       // 1) O QUE JÁ ESTÁ no Caixa desta conta nessas datas — de qualquer origem.
-      //    No CARTÃO, pela data da compra: no Caixa ele está no vencimento.
+      //    No CARTÃO, pela data da compra: no Caixa ele está no vencimento. E as
+      //    compras desta fatura, mesmo fora da janela, pra conferência inversa.
       ehCartao
-        ? supabase.from('fin_lancamentos').select('id, data_competencia, valor')
+        ? supabase.from('fin_lancamentos')
+            .select('id, data_competencia, data_caixa, valor, divisao_id, observacoes, fornecedor_nome, descricao')
             .eq('conta_pagamento_id', contaId).neq('status', 'rejeitado')
-            .gte('data_competencia', ini).lte('data_competencia', fim)
+            .or(`and(data_competencia.gte.${iniJ},data_competencia.lte.${fimJ})${vencLido ? `,data_caixa.eq.${vencLido}` : ''}`)
         : supabase.from('vw_caixa').select('data, valor, origem, origem_id, descricao')
-            .eq('conta_id', contaId).gte('data', ini).lte('data', fim),
+            .eq('conta_id', contaId).gte('data', iniJ).lte('data', fimJ),
       // 2) As divisões dessas despesas, pra somar as partes (uma linha no banco).
-      supabase.from('fin_lancamentos').select('id, divisao_id')
-        .eq('conta_pagamento_id', contaId).not('divisao_id', 'is', null)
-        .gte(ehCartao ? 'data_competencia' : 'data_caixa', ini).lte(ehCartao ? 'data_competencia' : 'data_caixa', fim),
+      ehCartao
+        ? Promise.resolve({ data: [] })
+        : supabase.from('fin_lancamentos').select('id, divisao_id')
+            .eq('conta_pagamento_id', contaId).not('divisao_id', 'is', null)
+            .gte('data_caixa', iniJ).lte('data_caixa', fimJ),
       // 3) A MEMÓRIA de receitas: registros que guardaram o texto do banco.
       maqIds.length
         ? supabase.from('fin_movimentos').select('descricao, conta_id, conta_destino_id, data')
@@ -196,64 +219,48 @@ export default function ColarExtratoModal({
         .order('created_at', { ascending: false }).limit(2000),
     ])
 
-    // ── "já no sistema": data + valor com sinal, ocorrências, divisões somadas ──
-    type CX = { data: string; valor: number; origem: string; origem_id: string; descricao: string | null }
-    const divisaoDe = new Map(((divs.data as { id: string; divisao_id: string }[] | null) || []).map(d => [d.id, d.divisao_id]))
-    type Reg = { data: string; valor: number; rotulo: string; contrato: string | null; usado: boolean }
-    const agrup = new Map<string, Reg>()
-    // Cartão: o lançamento vira o mesmo formato do Caixa, na data da compra.
+    // ── os registros do sistema, agrupados (divisão = um só) e com as refs ──
+    type CX = { data: string; valor: number; origem: Ref['origem']; origem_id: string; descricao: string | null }
+    type LC = { id: string; data_competencia: string; data_caixa: string | null; valor: number; divisao_id: string | null; observacoes: string | null; fornecedor_nome: string | null; descricao: string | null }
+    const divisaoDe = new Map<string, string>()
+    if (ehCartao) for (const l of (caixa.data as LC[] | null) || []) { if (l.divisao_id) divisaoDe.set(l.id, l.divisao_id) }
+    else for (const d of (divs.data as { id: string; divisao_id: string }[] | null) || []) divisaoDe.set(d.id, d.divisao_id)
+    const vencDe = new Map<string, string | null>()   // cartão: id → vencimento
     const linhasCaixa: CX[] = ehCartao
-      ? ((caixa.data as { id: string; data_competencia: string; valor: number }[] | null) || []).map(l => ({
-          data: l.data_competencia.slice(0, 10), valor: -Number(l.valor), origem: 'lancamento', origem_id: l.id, descricao: null,
-        }))
+      ? ((caixa.data as LC[] | null) || []).map(l => {
+          vencDe.set(l.id, l.data_caixa ? l.data_caixa.slice(0, 10) : null)
+          return {
+            data: l.data_competencia.slice(0, 10), valor: -Number(l.valor), origem: 'lancamento' as const, origem_id: l.id,
+            descricao: l.observacoes || l.fornecedor_nome || l.descricao || 'compra no cartão',
+          }
+        })
       : ((caixa.data as CX[] | null) || [])
+    const agrup = new Map<string, RegistroSistema>()
     linhasCaixa.forEach((r, idx) => {
-      const grupo = r.origem === 'lancamento' && divisaoDe.get(r.origem_id)
-      const id = grupo ? `div-${grupo}` : `${r.origem}-${idx}`
+      const grupo = r.origem === 'lancamento' ? divisaoDe.get(r.origem_id) : undefined
+      const chave = grupo ? `div-${grupo}` : `${r.origem}-${r.origem_id}-${idx}`
       const contrato = r.origem === 'pagamento' ? (r.descricao || '').trim() : null
-      const p = agrup.get(id) || {
-        data: r.data, valor: 0, contrato, usado: false,
-        rotulo: contrato ? `contrato ${contrato.split(' ').slice(1).join(' ')}`.trim()
-          : r.origem === 'lancamento' ? 'despesa' : 'registro do caixa',
+      const reg = agrup.get(chave) || {
+        chave, data: r.data, valor: 0, contrato, refs: [],
+        rotulo: contrato ? `contrato ${contrato.split(' ').slice(1).join(' ')}`.trim() : (r.descricao || 'registro do caixa'),
+        ajustavel: r.origem === 'lancamento' && !grupo ? r.origem_id : null,
       }
-      p.valor += Number(r.valor)
-      agrup.set(id, p)
+      reg.valor = Math.round((reg.valor + Number(r.valor)) * 100) / 100
+      reg.refs.push({ origem: r.origem, origem_id: r.origem_id })
+      agrup.set(chave, reg)
     })
     const registros = [...agrup.values()]
 
-    /** Qual registro do sistema é o par desta linha do banco (ou null). Duas
-     *  passadas: (1) um registro com a mesma data e valor; (2) a SOMA dos
-     *  pagamentos ainda livres de UM contrato no mesmo dia — o tutor manda um
-     *  Pix só e no contrato ele vira dois pagamentos (plano + acessório): o Pix
-     *  de R$ 1.360 do 04/06 é o 70 + 1.290 do contrato da MEL. */
-    function parIndividual(data: string, valor: number): string | null {
-      const um = registros.find(r => !r.usado && r.data === data && Math.abs(r.valor - valor) < 0.005)
-      if (um) { um.usado = true; return um.rotulo }
-      return null
-    }
-    function parPorContrato(data: string, valor: number): string | null {
-      const porContrato = new Map<string, Reg[]>()
-      for (const r of registros) {
-        if (r.usado || !r.contrato || r.data !== data) continue
-        porContrato.set(r.contrato, [...(porContrato.get(r.contrato) || []), r])
-      }
-      for (const partes of porContrato.values()) {
-        if (partes.length > 1 && Math.abs(partes.reduce((a, r) => a + r.valor, 0) - valor) < 0.005) {
-          partes.forEach(r => { r.usado = true })
-          return `${partes[0].rotulo} (${partes.length} pagamentos)`
-        }
-      }
-      return null
-    }
-    // As duas passadas sobre TODAS as linhas, nesta ordem: a soma por contrato só
-    // entra depois que cada linha tentou o par individual — senão uma soma poderia
-    // levar um pagamento que era o par exato de outra linha.
-    const pares = new Map<number, string>()
-    for (const l of linhas) { const p = parIndividual(l.data, l.valor); if (p) pares.set(l.n, p) }
-    for (const l of linhas) {
-      if (pares.has(l.n)) continue
-      const p = parPorContrato(l.data, l.valor); if (p) pares.set(l.n, p)
-    }
+    // Os quatro níveis (exato · contrato · provável · ambíguo) — lib/conciliacao.
+    const pares = conciliar(linhas, registros, {
+      janelaDias: JANELA_DIAS, toleranciaCambio: ehCartao ? TOLERANCIA_CAMBIO : 0, porContrato: !ehCartao,
+    })
+    const exatoDe = (n: number) => { const p = pares.get(n); return p && (p.tipo === 'exato' || p.tipo === 'contrato') ? p : null }
+
+    // Conferência inversa: na fatura (cartão) ou no período colado (conta).
+    setParaVerso(registros.filter(r => ehCartao
+      ? !!vencLido && r.refs.some(x => vencDe.get(x.origem_id) === vencLido)
+      : r.data >= ini && r.data <= fim))
 
     // ── a memória dos dois lados num índice só ──
     type HM = { descricao: string; conta_id: string; conta_destino_id: string; data: string }
@@ -277,8 +284,8 @@ export default function ColarExtratoModal({
     // Nenhum dos dois vira registro — o dinheiro não saiu.
     const estornadas = new Set<number>()
     for (const e of linhas) {
-      if (e.valor <= 0 || pares.has(e.n) || !/estorno/i.test(e.descricao)) continue
-      const saida = linhas.find(s => s.valor < 0 && !pares.has(s.n) && !estornadas.has(s.n)
+      if (e.valor <= 0 || exatoDe(e.n) || !/estorno/i.test(e.descricao)) continue
+      const saida = linhas.find(s => s.valor < 0 && !exatoDe(s.n) && !estornadas.has(s.n)
         && s.data === e.data && Math.abs(s.valor + e.valor) < 0.005)
       if (saida) { estornadas.add(e.n); estornadas.add(saida.n) }
     }
@@ -286,13 +293,17 @@ export default function ColarExtratoModal({
     setItens(linhas.map(l => {
       const base = {
         ...l, jaNoSistema: null as string | null, motivoFora: null as string | null, marcado: true,
+        exatos: [] as RegistroSistema[], parecido: null as Item['parecido'],
         opId: '', mov: '' as MovMaquininha | '', catId: '', catTexto: '',
         metodo: ehCartao ? 'credito' : (metodoDe(l.descricao) || 'pix'), fornecedor: fornecedorDe(l.descricao),
         doHistorico: false, porSinonimo: false, sugestoes: [] as Sugestao<Decisao>[],
       }
       // 1) já está no sistema?
-      const par = pares.get(l.n)
-      if (par) return { ...base, destino: 'fora' as Destino, jaNoSistema: par, marcado: false }
+      const par = exatoDe(l.n)
+      if (par) {
+        const rot = par.tipo === 'contrato' ? `${par.candidatos[0].rotulo} (${par.candidatos.length} pagamentos)` : par.candidatos[0].rotulo
+        return { ...base, destino: 'fora' as Destino, jaNoSistema: rot, exatos: par.candidatos, marcado: false }
+      }
       if (estornadas.has(l.n)) {
         return { ...base, destino: 'fora' as Destino, marcado: false,
                  motivoFora: 'estornado no mesmo dia — a saída e o estorno se anulam' }
@@ -341,6 +352,10 @@ export default function ColarExtratoModal({
         const s = sugerirPorSinonimo(folhas, l.descricao)
         if (s) { item.catId = s.id; item.catTexto = caminhoDe(s.id); item.porSinonimo = true }
       }
+      const folga = pares.get(l.n)
+      if (folga && (folga.tipo === 'provavel' || folga.tipo === 'ambiguo')) {
+        item.parecido = { tipo: folga.tipo, candidatos: folga.candidatos, escolhido: folga.tipo === 'provavel' ? 0 : -2 }
+      }
       return item
     }))
     // Fatura: o cabeçalho traz vencimento e total — preenche a fatura (se ainda
@@ -353,13 +368,23 @@ export default function ColarExtratoModal({
 
   const muda = (n: number, patch: Partial<Item>) => setItens(xs => xs.map(x => (x.n === n ? { ...x, ...patch } : x)))
 
-  const receitas = itens.filter(i => !i.jaNoSistema && i.destino === 'receita')
-  const despesas = itens.filter(i => !i.jaNoSistema && i.destino === 'despesa')
-  const fora = itens.filter(i => i.jaNoSistema || i.destino === 'fora')
+  const emParecido = (i: Item) => !!i.parecido && i.parecido.escolhido !== -1
+  const parecidos = itens.filter(emParecido)
+  const receitas = itens.filter(i => !emParecido(i) && !i.jaNoSistema && i.destino === 'receita')
+  const despesas = itens.filter(i => !emParecido(i) && !i.jaNoSistema && i.destino === 'despesa')
+  const fora = itens.filter(i => !emParecido(i) && (i.jaNoSistema || i.destino === 'fora'))
+  const confirmados = parecidos.filter(i => i.parecido!.escolhido >= 0)
+  const exatosParaConciliar = itens.filter(i => i.exatos.length)
+  // Escolha de um candidato não pode servir a duas linhas.
+  const escolhidosChaves = confirmados.map(i => i.parecido!.candidatos[i.parecido!.escolhido].chave)
+  const naoVieram = semPar(paraVerso, new Map(), [
+    ...escolhidosChaves, ...itens.flatMap(i => i.exatos.map(r => r.chave)),
+  ])
   const recProntas = receitas.filter(i => i.marcado && (i.opId || maquininhaLote) && i.mov)
   const despProntas = despesas.filter(i => i.marcado && i.catId)
   const pendentes = receitas.filter(i => i.marcado && !(i.opId || maquininhaLote) || (i.marcado && !i.mov)).length
     + despesas.filter(i => i.marcado && !i.catId).length
+    + parecidos.filter(i => i.parecido!.escolhido === -2).length
   const totais = {
     rec: recProntas.reduce((a, i) => a + i.valor, 0),
     desp: despProntas.reduce((a, i) => a + Math.abs(i.valor), 0),
@@ -367,13 +392,39 @@ export default function ColarExtratoModal({
 
   async function registrar() {
     if (!currentUnit?.id || !contaId) return
-    if (!recProntas.length && !despProntas.length) return toast('Nada pronto pra registrar', 'error')
+    if (!recProntas.length && !despProntas.length && !confirmados.length && !exatosParaConciliar.length) {
+      return toast('Nada pronto pra registrar', 'error')
+    }
     if (ehCartao && despProntas.length && !vencimento) return toast('Escolha a fatura (o vencimento) dessas compras', 'error')
     setSalvando(true)
     let entrouRec = 0
     try {
       const { data: { user } } = await supabase.auth.getUser()
       const agora = new Date().toISOString()
+      // A CONCILIAÇÃO de cada linha (mig 153): linha do banco ↔ registro.
+      type Conc = { conta_id: string; origem: Ref['origem']; origem_id: string; data_banco: string; valor_banco: number; texto_banco: string; como: string; criado_por_nome: string | null }
+      const concs: Conc[] = []
+      const conc = (i: Item, refs: Ref[], como: string) => refs.forEach(r => concs.push({
+        conta_id: contaId, origem: r.origem, origem_id: r.origem_id, data_banco: i.data,
+        valor_banco: i.valor, texto_banco: i.descricao, como, criado_por_nome: userName || null,
+      }))
+      for (const i of exatosParaConciliar) conc(i, i.exatos.flatMap(r => r.refs), 'exato')
+
+      // CONFIRMADOS ("parece já lançado"): o BANCO manda. Lançamento único recebe
+      // o valor e a data do banco — no cartão a data da compra, na conta a data do
+      // caixa. Pagamento de contrato e movimento só conciliam (o valor já é igual).
+      for (const i of confirmados) {
+        const reg = i.parecido!.candidatos[i.parecido!.escolhido]
+        if (reg.ajustavel && (Math.abs(reg.valor - i.valor) >= 0.005 || reg.data !== i.data)) {
+          const { error } = await supabase.from('fin_lancamentos')
+            .update(ehCartao
+              ? { valor: Math.abs(i.valor), data_competencia: i.data }
+              : { valor: Math.abs(i.valor), data_caixa: i.data })
+            .eq('id', reg.ajustavel)
+          if (error) throw new Error(`Ajustar "${reg.rotulo}": ${error.message}`)
+        }
+        conc(i, reg.refs, i.parecido!.tipo === 'provavel' ? 'provavel' : 'escolhido')
+      }
       if (recProntas.length) {
         const rows = recProntas.map(i => {
           const mov = i.mov as MovMaquininha
@@ -388,9 +439,10 @@ export default function ColarExtratoModal({
             criado_por_nome: userName || null,
           }
         })
-        const { error } = await supabase.from('fin_movimentos').insert(rows)
+        const { data: novosMov, error } = await supabase.from('fin_movimentos').insert(rows).select('id')
         if (error) throw new Error(`Receitas a prazo: ${error.message}`)
         entrouRec = rows.length
+        ;((novosMov as { id: string }[] | null) || []).forEach((m, k) => conc(recProntas[k], [{ origem: 'movimento', origem_id: m.id }], 'novo'))
       }
       if (despProntas.length) {
         const rows = despProntas.map(i => {
@@ -410,10 +462,18 @@ export default function ColarExtratoModal({
             aprovado_por: user?.id || null, aprovado_por_nome: userName || null, aprovado_em: agora,
           }
         })
-        const { error } = await supabase.from('fin_lancamentos').insert(rows)
+        const { data: novosLanc, error } = await supabase.from('fin_lancamentos').insert(rows).select('id')
         if (error) throw new Error(`Despesas: ${error.message}${entrouRec ? ` (as ${entrouRec} receitas a prazo JÁ entraram)` : ''}`)
+        ;((novosLanc as { id: string }[] | null) || []).forEach((l, k) => conc(despProntas[k], [{ origem: 'lancamento', origem_id: l.id }], 'novo'))
       }
-      toast(`${recProntas.length} receitas a prazo · ${despProntas.length} despesas registradas`, 'success')
+      // Por último, e sem derrubar o que já entrou: se a mig 153 ainda não rodou,
+      // os lançamentos ficam e só o selo de conciliado falta.
+      if (concs.length) {
+        const { error } = await supabase.from('fin_conciliacoes')
+          .upsert(concs, { onConflict: 'conta_id,origem,origem_id', ignoreDuplicates: true })
+        if (error) toast(`Registrado, mas a conciliação não foi gravada: ${error.message}`, 'error')
+      }
+      toast(`${recProntas.length} receitas a prazo · ${despProntas.length} despesas · ${concs.length} conciliados`, 'success')
       onRegistrou()
       onClose()
     } catch (e) {
@@ -556,6 +616,43 @@ export default function ColarExtratoModal({
     )
   }
 
+  /** "PARECE JÁ LANÇADO" — a linha do banco e os candidatos do sistema. */
+  function linhaParecida(i: Item) {
+    const p = i.parecido!
+    const escolher = (k: number) => muda(i.n, { parecido: { ...p, escolhido: k } })
+    return (
+      <div key={i.n} className="py-2 space-y-1">
+        <div className="flex items-start gap-2">
+          <p className="flex-1 min-w-0 text-xs text-[var(--surface-700)] truncate" title={i.original}>{fmtData(i.data)} · {i.descricao}</p>
+          <span className={`text-xs text-mono shrink-0 ${i.valor > 0 ? 'text-emerald-500' : 'text-red-400'}`}>
+            {i.valor > 0 ? '' : '−'}{fmtBRL(Math.abs(i.valor))}
+          </span>
+        </div>
+        <div className="pl-3 space-y-0.5">
+          {p.candidatos.map((c, k) => {
+            const outra = itens.some(x => x.n !== i.n && x.parecido && x.parecido.escolhido >= 0 && x.parecido.candidatos[x.parecido.escolhido].chave === c.chave)
+            const difValor = Math.abs(c.valor - i.valor) >= 0.005
+            return (
+              <label key={c.chave} className={`flex items-center gap-1.5 text-[11px] ${outra ? 'opacity-40' : 'cursor-pointer'}`}>
+                <input type="radio" name={`par-${i.n}`} checked={p.escolhido === k} disabled={outra} onChange={() => escolher(k)} className="accent-emerald-500" />
+                <span className="text-[var(--surface-700)]">é <strong className="font-medium">{c.rotulo}</strong></span>
+                <span className="text-[var(--surface-500)]">· lançado {fmtData(c.data)} · {fmtBRL(Math.abs(c.valor))}</span>
+                {c.ajustavel && (difValor || c.data !== i.data) && (
+                  <span className="text-sky-500" title="Ao confirmar, o lançamento recebe o valor e a data do banco">→ fica como o banco</span>
+                )}
+                {outra && <span className="text-[var(--surface-400)]">(já escolhido em outra linha)</span>}
+              </label>
+            )
+          })}
+          <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+            <input type="radio" name={`par-${i.n}`} checked={p.escolhido === -1} onChange={() => escolher(-1)} className="accent-emerald-500" />
+            <span className="text-[var(--surface-500)]">é outro — lançar como novo</span>
+          </label>
+        </div>
+      </div>
+    )
+  }
+
   const secao = (titulo: string, lista: Item[], extra?: ReactNode) =>
     lista.length ? (
       <div>
@@ -581,8 +678,13 @@ export default function ColarExtratoModal({
           </span>
           <div className="flex gap-2">
             <button onClick={() => setItens([])} className="btn-secondary text-sm">Voltar</button>
-            <button onClick={() => void registrar()} disabled={salvando || (!recProntas.length && !despProntas.length)} className="btn-primary text-sm">
-              {salvando ? <><Loader2 className="h-4 w-4 animate-spin" /> Registrando…</> : `Registrar ${recProntas.length + despProntas.length}`}
+            <button onClick={() => void registrar()}
+                    disabled={salvando || (!recProntas.length && !despProntas.length && !confirmados.length && !exatosParaConciliar.length)}
+                    className="btn-primary text-sm">
+              {salvando ? <><Loader2 className="h-4 w-4 animate-spin" /> Registrando…</>
+                : recProntas.length + despProntas.length
+                  ? `Registrar ${recProntas.length + despProntas.length}${confirmados.length + exatosParaConciliar.length ? ` e conciliar ${confirmados.length + exatosParaConciliar.length}` : ''}`
+                  : `Conciliar ${confirmados.length + exatosParaConciliar.length}`}
             </button>
           </div>
         </div>
@@ -647,6 +749,18 @@ export default function ColarExtratoModal({
           </div>
         ) : (
           <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+            {parecidos.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-amber-500 mb-1">
+                  Parece já lançado — confira ({parecidos.length})
+                </p>
+                <p className="text-[11px] text-[var(--surface-500)] mb-1">
+                  Valor igual com data até {JANELA_DIAS} dias diferente{ehCartao ? `, ou câmbio até ${TOLERANCIA_CAMBIO * 100}%` : ''}.
+                  Confirmado, não lança de novo — e o lançamento fica com o valor e a data do banco.
+                </p>
+                <div className="divide-y divide-[var(--surface-200)]">{parecidos.map(i => linhaParecida(i))}</div>
+              </div>
+            )}
             {secao('Receitas a prazo', receitas,
               maquininhas.length > 1 ? (
                 <select value={maquininhaLote} onChange={e => setMaquininhaLote(e.target.value)}
@@ -672,6 +786,28 @@ export default function ColarExtratoModal({
               )
             })()}
             {secao('Já no sistema ou fora', fora)}
+            {naoVieram.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-[var(--surface-600)] mb-1">
+                  No sistema e não veio no texto ({naoVieram.length})
+                </p>
+                <p className="text-[11px] text-[var(--surface-500)] mb-1">
+                  {ehCartao ? 'Estão nesta fatura no sistema' : 'Estão nesta conta no período colado'} e nenhuma linha bateu:
+                  lançamento a mais, cancelado, com valor errado — ou o texto colado está incompleto.
+                </p>
+                <div className="divide-y divide-[var(--surface-200)]">
+                  {naoVieram.map(r => (
+                    <div key={r.chave} className="flex items-center gap-2 py-1 text-xs">
+                      <span className="text-[var(--surface-500)] w-16 shrink-0">{fmtData(r.data)}</span>
+                      <span className="flex-1 truncate text-[var(--surface-700)]">{r.rotulo}</span>
+                      <span className={`text-mono shrink-0 ${r.valor > 0 ? 'text-emerald-500' : 'text-red-400'}`}>
+                        {r.valor > 0 ? '' : '−'}{fmtBRL(Math.abs(r.valor))}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {itens.some(i => i.destino === 'receita' && i.mov === 'antecipacao' && i.marcado) && (
               <p className="text-[11px] text-amber-500">
                 Antecipação: registre o valor LÍQUIDO que caiu. O desconto da antecipação é despesa —
