@@ -33,6 +33,7 @@ import {
   Landmark, Wallet, Smartphone, Plus, Check,
 } from 'lucide-react'
 import Modal from '@/components/ui/Modal'
+import ExtratoContaModal from './ExtratoContaModal'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import { fmtBRL, fmtData, hojeISO, limitesDoMes } from '@/lib/financeiro'
@@ -118,6 +119,8 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
 
   // Conferência do saldo contra o extrato do banco — a "boca do saldo".
   const [confConta, setConfConta] = useState<Saldo | null>(null)
+  // EXTRATO DA CONTA (08/10/2026) — o link do card abre o extrato; o conferir mora lá dentro.
+  const [extratoDe, setExtratoDe] = useState<Saldo | null>(null)
   const [confSaldo, setConfSaldo] = useState('')     // o que o extrato mostra
   const [confData, setConfData] = useState(hojeISO())
   const [confMotivo, setConfMotivo] = useState('')
@@ -561,7 +564,7 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
                   de tudo que já entrou, sem nenhuma saída, e quase certamente
                   não é o que está no banco. Dizer isso é mais honesto que
                   exibir o número liso e deixar a pessoa acreditar nele. */}
-              {!somenteLeitura && !s.legado && (
+              {!s.legado && (s.caixa_desde || !somenteLeitura) && (
                 <div className="flex items-center gap-2 mt-1">
                   {!s.caixa_desde && (
                     <span
@@ -572,11 +575,13 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
                       não conferido
                     </span>
                   )}
+                  {/* Conta já aberta: o link é o EXTRATO (o conferir fica dentro dele).
+                      Conta nunca aberta: "abrir caixa" — falta o 1º saldo. */}
                   <span
-                    onClick={e => { e.stopPropagation(); abrirConferencia(s) }}
+                    onClick={e => { e.stopPropagation(); if (s.caixa_desde) setExtratoDe(s); else abrirConferencia(s) }}
                     className="text-[10px] text-[var(--brand-500)] underline cursor-pointer"
                   >
-                    {s.caixa_desde ? 'conferir' : 'abrir caixa'}
+                    {s.caixa_desde ? 'extrato' : 'abrir caixa'}
                   </span>
                 </div>
               )}
@@ -646,6 +651,13 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
         casos o dinheiro ainda não se moveu de verdade. Transferência, aporte e empréstimo movem dinheiro e não
         aparecem na DRE, porque não mudam o resultado.
       </p>
+
+      <ExtratoContaModal
+        conta={extratoDe}
+        mesInicial={mes}
+        onClose={() => setExtratoDe(null)}
+        onConferir={somenteLeitura || !extratoDe ? undefined : () => { const c = extratoDe; setExtratoDe(null); abrirConferencia(c) }}
+      />
 
       <Modal
         isOpen={aberto}
