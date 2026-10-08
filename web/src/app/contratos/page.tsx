@@ -49,6 +49,7 @@ import TopoCardPet from '@/components/contratos/pipeline/TopoCardPet'
 import TrilhoCardPet from '@/components/contratos/pipeline/TrilhoCardPet'
 import { enderecoParaNavegar, linksNavegacao } from '@/lib/card-pet'
 import FarolPopup from '@/components/contratos/farois/FarolPopup'
+import FotoTela from '@/components/contratos/farois/FotoTela'
 import { usePopupHistory } from '@/hooks/usePopupHistory'
 import { concluirTarefasPendentesDe, reabrirTarefasOperacionais, podeMarcarFeitoSemFoto } from '@/lib/atribuir-tarefa'
 import { carregarExigeFoto, type ExigeFotoPorTipo } from '@/lib/foto-tarefa'
@@ -257,7 +258,7 @@ const STATUS_FLOW = [
  *   O `status` no banco continua `pinda`; muda só o rótulo.
  */
 /** Faróis que já têm tela própria no 2º nível do popup de pendências (cresce de 2.5 a 2.12). */
-const TELAS_FAROL = new Set<string>(['certificado', 'indicacao'])
+const TELAS_FAROL = new Set<string>(['certificado', 'indicacao', 'foto'])
 
 function etapasDoPipeline(fluxoLocal: boolean, cardNovo: boolean) {
   return STATUS_FLOW
@@ -2669,27 +2670,32 @@ Gratidão eterna!
     setFotoModal(true)
   }
 
+  // Grava `foto_recebida` de um produto e atualiza a lista local. Usada pelo modal antigo e pela
+  // tela 📷 do popup de pendências (fase 2.7) — um caminho só de escrita.
+  async function gravarFotoRecebida(contratoId: string, cpId: string, recebida: boolean): Promise<boolean> {
+    const { error } = await supabase
+      .from('contrato_produtos')
+      .update({ foto_recebida: recebida } as never)
+      .eq('id', cpId)
+    if (error) {
+      alert('Erro ao salvar a foto: ' + error.message)
+      return false
+    }
+    setContratos(prev => prev.map(c => {
+      if (c.id === contratoId && c.contrato_produtos) {
+        return { ...c, contrato_produtos: c.contrato_produtos.map(cp => cp.id === cpId ? { ...cp, foto_recebida: recebida } : cp) }
+      }
+      return c
+    }))
+    return true
+  }
+
   async function toggleFotoRecebidaPipeline(cpId: string, fotoRecebidaAtual: boolean) {
     if (!fotoContrato) return
 
-    const { error } = await supabase
-      .from('contrato_produtos')
-      .update({ foto_recebida: !fotoRecebidaAtual } as never)
-      .eq('id', cpId)
+    const ok = await gravarFotoRecebida(fotoContrato.id, cpId, !fotoRecebidaAtual)
 
-    if (!error) {
-      // Atualizar o contrato no estado local
-      setContratos(prev => prev.map(c => {
-        if (c.id === fotoContrato.id && c.contrato_produtos) {
-          return {
-            ...c,
-            contrato_produtos: c.contrato_produtos.map(cp =>
-              cp.id === cpId ? { ...cp, foto_recebida: !fotoRecebidaAtual } : cp
-            )
-          }
-        }
-        return c
-      }))
+    if (ok) {
 
       // Atualizar também o fotoContrato
       setFotoContrato(prev => {
@@ -7858,7 +7864,21 @@ ${petNome}`
               abrirAntigo[id]?.(c)
             }}
             onVoltar={popupHist.voltar}
-            tela={popupHist.nivel >= 2 && farolTela === 'indicacao' && farolTelaContrato ? {
+            tela={popupHist.nivel >= 2 && farolTela === 'foto' ? {
+              emoji: '📷',
+              titulo: 'Fotos dos produtos',
+              // Objeto VIVO da lista (não a foto do contrato): cada toque grava na hora e o
+              // cartão tem que refletir — aqui não há formulário pra ser apagado.
+              conteudo: (
+                <FotoTela
+                  produtos={(c.contrato_produtos || [])
+                    .filter(cp => cp.produto?.precisa_foto === true)
+                    .map(cp => ({ id: cp.id, nome: cp.produto?.nome || 'Produto', imagemUrl: cp.produto?.imagem_url ?? null, recebida: !!cp.foto_recebida }))}
+                  onMarcar={(cpId, recebida) => gravarFotoRecebida(c.id, cpId, recebida)}
+                  onOk={popupHist.voltar}
+                />
+              ),
+            } : popupHist.nivel >= 2 && farolTela === 'indicacao' && farolTelaContrato ? {
               emoji: '🩺',
               titulo: 'Indicação',
               conteudo: (
