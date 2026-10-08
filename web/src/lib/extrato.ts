@@ -129,7 +129,7 @@ export function fornecedorDe(descricao: string): string {
 export function naoEDespesa(descricao: string): string | null {
   const t = normTexto(descricao)
   if (/FATURA\s+(DO\s+)?CART(AO|OES)|PAGAMENTO\s+(DE\s+)?FATURA/.test(t)) {
-    return 'pagamento de fatura de cartão — as despesas já estão no cartão; registre no Caixa como Movimento › fatura'
+    return 'pagamento de fatura de cartão — as despesas já estão no cartão; registre em + Lançar › Quitação'
   }
   if (/\bAPLICACAO\b|\bRESGATE\b/.test(t) && !/\bIOF\b/.test(t)) {
     return 'aplicação/resgate — dinheiro mudando de lugar, não é despesa'
@@ -140,7 +140,7 @@ export function naoEDespesa(descricao: string): string | null {
   // já entra sozinho pelo acolhimento (mig 114). `fin_empresas` não tem razão
   // social pra casar, então vai pela marca no texto; a pessoa pode reclassificar.
   if (/\bRIP\s*PET\b|\bPRINA\b/.test(t)) {
-    return 'pagamento a empresa do grupo — se for repasse, marque "pago" na aba Repasse; se for acerto, em Acertos'
+    return 'pagamento a empresa do grupo — se for repasse, registre em + Lançar › Quitação; se for acerto, na aba Acertos do Repasse'
   }
   return null
 }
@@ -251,7 +251,9 @@ export function cabecalhoFatura(texto: string): { venc: string; total: number } 
 
 /** "(Parcela 03 de 03)", "PARC 02/10", "Parcela 2/3" → [atual, total]. */
 export function parcelaDe(descricao: string): [number, number] | null {
+  // Também "ALLIANZ SEGU*1 de 10": a parcela sem a palavra, logo depois do "*".
   const m = descricao.match(/PARC(?:ELA)?\.?\s*(\d{1,2})\s*(?:DE|\/)\s*(\d{1,2})/i)
+    || descricao.match(/\*\s*(\d{1,2})\s+DE\s+(\d{1,2})(?!\d)/i)
   if (!m) return null
   const a = Number(m[1]), t = Number(m[2])
   return a >= 1 && t >= a ? [a, t] : null
@@ -303,6 +305,11 @@ export function lerExtrato(
 ): LinhaExtrato[] {
   const linhas = texto.split(/\r?\n/)
   const out: LinhaExtrato[] = []
+  // Quantos números o FIM da linha pode ter. Extrato de conta: valor + saldo.
+  // Fatura de cartão NÃO tem saldo — só o último número é o valor. Com 2, a
+  // linha "ALLIANZ SEGU*1 de 10 - R$ 363,14" (parcela sem a palavra "Parcela")
+  // virava valor 10 e "saldo" 363,14: R$ 353,14 sumiram da fatura de jul/2026.
+  const maxNums = opts.cartao ? 1 : 2
   // Linha com DATA e sem valor: o PDF jogou o valor pra linha de baixo
   // ("06/06 PIX ENVIADO FORNECEDOR XYZ" / "LTDA REF NOTA 123   300,00-").
   // Fica esperando a próxima, que traz o resto do histórico e o número.
@@ -318,7 +325,7 @@ export function lerExtrato(
       pendente = null
       const nums: number[] = []
       const resto = [...cs]
-      while (resto.length && numeroBR(resto[resto.length - 1]) !== null && nums.length < 2) {
+      while (resto.length && numeroBR(resto[resto.length - 1]) !== null && nums.length < maxNums) {
         nums.unshift(numeroBR(resto.pop()!)!)
       }
       if (nums.length) {
@@ -361,7 +368,7 @@ export function lerExtrato(
     const resto = cs.slice(1)
     // números do FIM pra trás: o último é saldo se houver dois
     const nums: number[] = []
-    while (resto.length && numeroBR(resto[resto.length - 1]) !== null && nums.length < 2) {
+    while (resto.length && numeroBR(resto[resto.length - 1]) !== null && nums.length < maxNums) {
       nums.unshift(numeroBR(resto.pop()!)!)
     }
     if (!nums.length) {
