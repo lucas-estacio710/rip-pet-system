@@ -77,6 +77,9 @@ export default function AcertosRepasse({
   // despesa inexistente pra Matriz. Vira `recebimento_terceiro`: só abate/acresce
   // no repasse, sem perna na DRE (reconhecerCobranca não cria lançamento pra ele).
   const [natureza, setNatureza] = useState<'despesa' | 'recebimento'>('despesa')
+  // EDITAR (08/10/2026 — "não consigo editar os lançamentos dos acertos"): o
+  // acerto clicado carrega no formulário; salvar regrava o acerto E as pernas.
+  const [editando, setEditando] = useState<Acerto | null>(null)
   const [descricao, setDescricao] = useState('')
   const [catBusca, setCatBusca] = useState('')
   const [catId, setCatId] = useState('')
@@ -173,17 +176,95 @@ export default function AcertosRepasse({
   // lançada como "cobrar agora". O que vai pelo repasse já nasce contando; o que é
   // `emitida` aqui espera a unidade reconhecer em Acertos entre unidades.
 
+  /** As pernas na DRE que NASCERAM deste acerto (ORIGEM_PERNA_COBRANCA). Numa
+   *  compra externa, `lancamento_origem_id` é a compra original de quem pagou —
+   *  essa não é do acerto e nunca entra aqui. `compraExterna` avisa esse caso. */
+  async function pernasDe(a: Acerto): Promise<{ pernas: string[]; compraExterna: boolean }> {
+    const ids = [a.lancamento_aceite_id, a.lancamento_origem_id].filter((x): x is string => !!x)
+    const { data: ls } = ids.length
+      ? await supabase.from('fin_lancamentos').select('id, origem').in('id', ids)
+      : { data: [] }
+    const lista = (ls as { id: string; origem: string }[] | null) || []
+    return {
+      pernas: lista.filter(l => l.origem === ORIGEM_PERNA_COBRANCA).map(l => l.id),
+      compraExterna: lista.some(l => l.id === a.lancamento_origem_id && l.origem !== ORIGEM_PERNA_COBRANCA),
+    }
+  }
+
+  async function abrirEdicao(a: Acerto) {
+    if (travado) return
+    const { compraExterna } = await pernasDe(a)
+    if (compraExterna) {
+      return toast('Este acerto nasceu de uma compra em Despesas ("Comprei para outras unidades") — ajuste pela compra', 'error')
+    }
+    setEditando(a)
+    setMatrizCobra(a.unidade_credora === matrizId)
+    setNatureza(a.tipo === 'recebimento_terceiro' ? 'recebimento' : 'despesa')
+    setDescricao(a.descricao || '')
+    setValor(String(Math.round(Number(a.valor) * 100)))
+    setData(a.data.slice(0, 10))
+    setCatId(a.categoria_id || ''); setCatBusca('')
+  }
+  function cancelarEdicao() {
+    setEditando(null); setDescricao(''); setCatBusca(''); setCatId(''); setValor('')
+  }
+
+  /** Salvar a edição: regrava o acerto e REFAZ as pernas (apaga as antigas e
+   *  reconhece de novo) — mudar sentido, natureza, valor, data ou categoria mexe
+   *  nas duas DREs. Situação e repasse do acerto ficam como estavam. */
+  async function salvarEdicao(a: Acerto) {
+    const v = emNumero(valor)
+    if (!descricao.trim()) return toast('Descreva o acerto', 'error')
+    if (natureza === 'despesa' && !catId) return toast('Escolha a categoria — é ela que diz onde a despesa cai na DRE', 'error')
+    if (!v) return toast('Informe o valor', 'error')
+    setSalvando(true)
+    try {
+      const credora = matrizCobra ? matrizId : unidadeId
+      const devedora = matrizCobra ? unidadeId : matrizId
+      const tipo = natureza === 'despesa' ? 'despesa_rateada' : 'recebimento_terceiro'
+      const { pernas } = await pernasDe(a)
+      const { error } = await supabase.from('fin_cobrancas').update({
+        unidade_credora: credora, unidade_devedora: devedora, tipo,
+        categoria_id: natureza === 'despesa' ? catId : null,
+        valor: v, data, descricao: descricao.trim(),
+        lancamento_aceite_id: null, lancamento_origem_id: null,
+      }).eq('id', a.id)
+      if (error) throw new Error(error.message)
+      if (pernas.length) {
+        const { error: e2 } = await supabase.from('fin_lancamentos').delete().in('id', pernas)
+        if (e2) throw new Error(`Acerto salvo, mas as pernas antigas não saíram: ${e2.message}`)
+      }
+      // Ainda esperando a unidade: só os campos, sem pernas.
+      if (a.status !== 'emitida') {
+        const cat = natureza === 'despesa' ? porId.get(catId) : undefined
+        await reconhecerCobranca(supabase, {
+          id: a.id, tipo, valor: v, data, descricao: descricao.trim(),
+          categoria_id: natureza === 'despesa' ? catId : null,
+          unidade_credora: credora, unidade_devedora: devedora,
+          credoraNome: matrizCobra ? matrizNome : unidadeNome,
+          devedoraCodigo: matrizCobra ? unidadeCodigo : 'Matriz',
+          fin_categorias: cat ? { fin_conta_id: cat.fin_conta_id, fin_contas: cat.fin_contas } : null,
+        }, { userName: userName || null }, { guardarReembolsoEmOrigem: true })
+        // O reconhecer marca `aceita`; o acerto já preso a um repasse volta a `liquidada`.
+        if (a.status !== 'aceita') {
+          const { error: e3 } = await supabase.from('fin_cobrancas').update({ status: a.status }).eq('id', a.id)
+          if (e3) throw new Error(e3.message)
+        }
+      }
+      toast(`Acerto atualizado — ${matrizCobra ? 'acresce' : 'abate'} ${fmtBRL(v)}`, 'success')
+      cancelarEdicao()
+      void carregar(); onMudou()
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Falha ao salvar o acerto', 'error')
+    } finally {
+      setSalvando(false)
+    }
+  }
+
   /** Apagar = ajustar. Leva as duas pernas da DRE junto. */
   async function apagar(a: Acerto) {
     try {
-      // Só apaga lançamento que NASCEU da cobrança (ORIGEM_PERNA_COBRANCA). Numa
-      // compra externa, `lancamento_origem_id` é a compra original de quem
-      // pagou — essa não é deste acerto e não pode sumir.
-      const ids = [a.lancamento_aceite_id, a.lancamento_origem_id].filter((x): x is string => !!x)
-      const { data: ls } = ids.length
-        ? await supabase.from('fin_lancamentos').select('id, origem').in('id', ids)
-        : { data: [] }
-      const pernas = ((ls as { id: string; origem: string }[] | null) || []).filter(l => l.origem === ORIGEM_PERNA_COBRANCA).map(l => l.id)
+      const { pernas } = await pernasDe(a)
       const { error } = await supabase.from('fin_cobrancas').delete().eq('id', a.id)
       if (error) throw new Error(error.message)
       if (pernas.length) {
@@ -292,9 +373,15 @@ export default function AcertosRepasse({
 
           </>)}
 
-          <div className="flex justify-end">
-            <button onClick={() => void lancar()} disabled={salvando} className="btn-primary text-sm">
-              {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Lançar acerto
+          <div className="flex items-center justify-end gap-2">
+            {editando && (
+              <>
+                <span className="text-[11px] text-amber-500 mr-auto">Editando “{editando.descricao || 'Acerto'}” — as pernas na DRE são refeitas ao salvar</span>
+                <button onClick={cancelarEdicao} disabled={salvando} className="btn-secondary text-sm">Cancelar</button>
+              </>
+            )}
+            <button onClick={() => void (editando ? salvarEdicao(editando) : lancar())} disabled={salvando} className="btn-primary text-sm">
+              {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} {editando ? 'Salvar alterações' : 'Lançar acerto'}
             </button>
           </div>
         </div>
@@ -316,7 +403,10 @@ export default function AcertosRepasse({
             {acertos.map(a => {
               const matrizCobrou = a.unidade_credora === matrizId
               return (
-                <div key={a.id} className="flex items-center gap-2 py-2">
+                <div key={a.id} onClick={() => void abrirEdicao(a)}
+                     className={`flex items-center gap-2 py-2 -mx-1 px-1 rounded-[var(--radius-sm)] ${travado ? '' : 'cursor-pointer hover:bg-[var(--surface-50)]'}`}
+                     style={editando?.id === a.id ? { background: 'rgba(245,158,11,0.10)' } : undefined}
+                     title={travado ? undefined : 'Editar acerto'}>
                   <span className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
                         style={{ background: matrizCobrou ? 'rgba(59,130,246,0.14)' : 'rgba(16,185,129,0.14)', color: matrizCobrou ? '#3b82f6' : '#10b981' }}>
                     {matrizCobrou ? 'acresce' : 'abate'}
@@ -338,7 +428,7 @@ export default function AcertosRepasse({
                     </span>
                   )}
                   {!travado && (
-                    <button onClick={() => void apagar(a)} title="Apagar (leva as duas pernas da DRE)"
+                    <button onClick={e => { e.stopPropagation(); void apagar(a) }} title="Apagar (leva as duas pernas da DRE)"
                             className="text-[var(--surface-400)] hover:text-red-400 shrink-0">
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
