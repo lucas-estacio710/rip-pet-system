@@ -50,6 +50,7 @@ import TrilhoCardPet from '@/components/contratos/pipeline/TrilhoCardPet'
 import { enderecoParaNavegar, linksNavegacao } from '@/lib/card-pet'
 import FarolPopup from '@/components/contratos/farois/FarolPopup'
 import FotoTela from '@/components/contratos/farois/FotoTela'
+import PelinhoTela from '@/components/contratos/farois/PelinhoTela'
 import { usePopupHistory } from '@/hooks/usePopupHistory'
 import { concluirTarefasPendentesDe, reabrirTarefasOperacionais, podeMarcarFeitoSemFoto } from '@/lib/atribuir-tarefa'
 import { carregarExigeFoto, type ExigeFotoPorTipo } from '@/lib/foto-tarefa'
@@ -258,7 +259,7 @@ const STATUS_FLOW = [
  *   O `status` no banco continua `pinda`; muda só o rótulo.
  */
 /** Faróis que já têm tela própria no 2º nível do popup de pendências (cresce de 2.5 a 2.12). */
-const TELAS_FAROL = new Set<string>(['certificado', 'indicacao', 'foto'])
+const TELAS_FAROL = new Set<string>(['certificado', 'indicacao', 'foto', 'pelinho'])
 
 function etapasDoPipeline(fluxoLocal: boolean, cardNovo: boolean) {
   return STATUS_FLOW
@@ -7864,7 +7865,26 @@ ${petNome}`
               abrirAntigo[id]?.(c)
             }}
             onVoltar={popupHist.voltar}
-            tela={popupHist.nivel >= 2 && farolTela === 'foto' ? {
+            tela={popupHist.nivel >= 2 && farolTela === 'pelinho' ? {
+              emoji: '🫙',
+              titulo: 'Pelinho',
+              // Objeto VIVO: cada ação grava na hora e a tela relê as linhas (recarregarPelinhoLocal).
+              conteudo: (
+                <PelinhoTela
+                  contratoId={c.id}
+                  unidadeId={c.unidade_id}
+                  petNome={c.pet_nome}
+                  linhas={(c.contrato_produtos || [])
+                    .filter(cp => cp.produto?.rescaldo_tipo === 'pelinho')
+                    .map(cp => ({ id: cp.id, feito: !!cp.rescaldo_feito }))}
+                  temOperacional={!!allUnidades.find(u => u.id === c.unidade_id)?.modulos_ativos?.includes('cb_operacional')}
+                  podeConcluirSemFoto={isSuperAdmin || currentRole === 'gerente'}
+                  exigeFoto={exigeFotoPorTipo.pelinho === true}
+                  atorNome={userName || 'Alguém'}
+                  onMudou={() => recarregarPelinhoLocal(c.id)}
+                />
+              ),
+            } : popupHist.nivel >= 2 && farolTela === 'foto' ? {
               emoji: '📷',
               titulo: 'Fotos dos produtos',
               // Objeto VIVO da lista (não a foto do contrato): cada toque grava na hora e o
