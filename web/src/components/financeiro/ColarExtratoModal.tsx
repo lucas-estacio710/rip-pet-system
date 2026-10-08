@@ -473,9 +473,16 @@ export default function ColarExtratoModal({
                          onChange={e => muda(i.n, { catTexto: e.target.value, catId: '', doHistorico: false, porSinonimo: false })}
                          className="input text-[11px] py-0.5 px-1.5 flex-1 min-w-[170px]"
                          style={!i.catId ? { borderColor: '#f59e0b' } : undefined} />
-                  <select value={i.metodo} onChange={e => muda(i.n, { metodo: e.target.value })} className="input text-[11px] py-0.5 px-1">
-                    {METODOS.map(m => <option key={m.v} value={m.v}>{m.l}</option>)}
-                  </select>
+                  {/* Fatura de cartão: o método É crédito — não se escolhe. (A lista não
+                      tem "crédito", e o <select> mostrava "Pix" com o estado em crédito;
+                      mexer nele gravaria a compra do cartão como Pix.) */}
+                  {ehCartao ? (
+                    <span className="text-[11px] text-[var(--surface-500)] px-1">crédito</span>
+                  ) : (
+                    <select value={i.metodo} onChange={e => muda(i.n, { metodo: e.target.value })} className="input text-[11px] py-0.5 px-1">
+                      {METODOS.map(m => <option key={m.v} value={m.v}>{m.l}</option>)}
+                    </select>
+                  )}
                   <input value={i.fornecedor} placeholder="fornecedor" onChange={e => muda(i.n, { fornecedor: e.target.value })}
                          className="input text-[11px] py-0.5 px-1.5 w-32" />
                 </>
