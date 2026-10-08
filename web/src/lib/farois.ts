@@ -33,6 +33,8 @@ function textoNaoTem(id: string): string {
 }
 
 function textoPendente(tag: ComputedTag): string {
+  // 📬 Registrar entrega (2.9): o texto vem pronto — "A entregar" ou "Com Juliana" (D10).
+  if (tag.id === 'entrega') return tag.tooltip || 'A entregar'
   if (tag.state === 'alert') return 'Em aberto'
   if (tag.state === 'in_progress') {
     const n = tag.count ?? null

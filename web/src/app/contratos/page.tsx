@@ -51,6 +51,9 @@ import { enderecoParaNavegar, linksNavegacao } from '@/lib/card-pet'
 import FarolPopup from '@/components/contratos/farois/FarolPopup'
 import FotoTela from '@/components/contratos/farois/FotoTela'
 import PelinhoTela from '@/components/contratos/farois/PelinhoTela'
+import EntregaTela from '@/components/contratos/farois/EntregaTela'
+import { carregarTarefaEntrega } from '@/lib/tarefa-entrega'
+import { useToast } from '@/components/ui/Toast'
 import { usePopupHistory } from '@/hooks/usePopupHistory'
 import { concluirTarefasPendentesDe, reabrirTarefasOperacionais, podeMarcarFeitoSemFoto } from '@/lib/atribuir-tarefa'
 import { carregarExigeFoto, type ExigeFotoPorTipo } from '@/lib/foto-tarefa'
@@ -259,7 +262,7 @@ const STATUS_FLOW = [
  *   O `status` no banco continua `pinda`; muda só o rótulo.
  */
 /** Faróis que já têm tela própria no 2º nível do popup de pendências (cresce de 2.5 a 2.12). */
-const TELAS_FAROL = new Set<string>(['certificado', 'indicacao', 'foto', 'pelinho'])
+const TELAS_FAROL = new Set<string>(['certificado', 'indicacao', 'foto', 'pelinho', 'entrega'])
 
 function etapasDoPipeline(fluxoLocal: boolean, cardNovo: boolean) {
   return STATUS_FLOW
@@ -528,6 +531,39 @@ function ContratosContent() {
   // novo quando o enriquecimento (produtos/GC) chega, e o modal embutido recarrega no `contrato`
   // novo — apagaria o que a pessoa estava digitando. Mesmo racional do `certificadoContrato`.
   const [farolTelaContrato, setFarolTelaContrato] = useState<Contrato | null>(null)
+  // 📬 Registrar entrega (2.9): quem está com a tarefa de entrega do contrato do popup — o farol
+  // mostra "Com Juliana" (azul) ou "A entregar" (âmbar). Recarrega com `farolEntregaVer`.
+  const [farolEntregaCom, setFarolEntregaCom] = useState<string | null>(null)
+  const [farolEntregaVer, setFarolEntregaVer] = useState(0)
+  const { toast } = useToast()
+  useEffect(() => {
+    setFarolEntregaCom(null)
+    const c = farolContratoId ? contratos.find(x => x.id === farolContratoId) : null
+    if (!c || (c.status !== 'retorno' && c.status !== 'pendente')) return
+    let vivo = true
+    carregarTarefaEntrega(supabase, c.id).then(async t => {
+      if (!vivo || !t) return
+      const { data } = await supabase.rpc('resolver_nomes_perfis' as never, { p_user_ids: [t.atribuido_a] } as never) as { data: { nome: string | null }[] | null }
+      if (vivo) setFarolEntregaCom(data?.[0]?.nome || 'alguém')
+    }).catch(() => {})
+    return () => { vivo = false }
+  }, [farolContratoId, farolEntregaVer]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Contrato finalizado pela entrega (EntregaModal antigo ou farol 📬 novo): tira o card da etapa
+  // e anda os contadores. Uma função só pros dois caminhos.
+  function aplicarEntregaFinalizada(contratoId: string, statusAnterior: string, dataEntrega: string) {
+    if (statusFiltro && statusFiltro !== 'finalizado') {
+      setContratos(prev => prev.filter(c => c.id !== contratoId))
+      setTotal(prev => Math.max(0, prev - 1))
+    } else {
+      setContratos(prev => prev.map(c => c.id === contratoId ? { ...c, status: 'finalizado', data_entrega: dataEntrega } : c))
+    }
+    setStatusCounts(prev => ({
+      ...prev,
+      [statusAnterior]: Math.max(0, (prev[statusAnterior] || 0) - 1),
+      finalizado: (prev.finalizado || 0) + 1,
+    }))
+  }
   const popupHist = usePopupHistory()
   useEffect(() => {
     if (popupHist.nivel === 0 && farolContratoId) setFarolContratoId(null)
@@ -5945,7 +5981,10 @@ ${petNome}`
                         ? computeAllTags({ ...contrato, indicacaoFonteId }).filter(t => t.id !== 'protocolo')
                         : null
                       const feitos = tagsCard ? tagsCard.filter(t => t.state === 'completed' || t.state === 'rejected').length : 0
-                      const pendentes = tagsCard ? tagsCard.filter(t => t.state === 'pending' || t.state === 'in_progress' || t.state === 'alert').length : 0
+                      const pendentes = tagsCard
+                        ? tagsCard.filter(t => t.state === 'pending' || t.state === 'in_progress' || t.state === 'alert').length
+                          + ((contrato.status === 'retorno' || contrato.status === 'pendente') ? 1 : 0) // 📬 Registrar entrega
+                        : 0
                       const naEntrega = contrato.status === 'retorno' || contrato.status === 'pendente'
                       const endNav = naEntrega
                         ? enderecoParaNavegar(contrato.tutor, { endereco: contrato.tutor_endereco, bairro: contrato.tutor_bairro, cidade: contrato.tutor_cidade })
@@ -6003,8 +6042,9 @@ ${petNome}`
                           </button>,
                         )
                       }
-                      // 📬 fica nas Ações até o 2.9 (lá vira o farol "Registrar entrega" na Entrega).
-                      if (podeFase && naEntrega) {
+                      // 📬 virou o farol "Registrar entrega" (2.9). Fica nas Ações só onde não há faróis
+                      // (P-05: btn_farois desligado — faróis são funcionalidade paga).
+                      if (podeFase && naEntrega && !tagsCard) {
                         acoes.push(
                           <button key="entregue" onClick={e => { e.preventDefault(); e.stopPropagation(); abrirEntregaModal(contrato) }} className="pl-acao bg-emerald-600" title="Marcar entregue">
                             <span className="text-sm">📬</span>
@@ -7855,7 +7895,16 @@ ${petNome}`
             aberto={popupHist.nivel > 0}
             onFechar={popupHist.fechar}
             animar={farolAnimar}
-            tags={computeAllTags({ ...c, indicacaoFonteId }).filter(t => t.id !== 'protocolo')}
+            tags={[
+              ...computeAllTags({ ...c, indicacaoFonteId }).filter(t => t.id !== 'protocolo'),
+              // 📬 Registrar entrega (2.9): último da ordem, só na Entrega/Pendente. Fora do
+              // computeAllTags de propósito (senão iria pro detalhe, /tutores e PI).
+              ...((c.status === 'retorno' || c.status === 'pendente') ? [{
+                id: 'entrega', emoji: '📬', label: 'Registrar entrega',
+                state: (farolEntregaCom ? 'in_progress' : 'pending') as ComputedTag['state'],
+                tooltip: farolEntregaCom ? `Com ${farolEntregaCom}` : 'A entregar',
+              }] : []),
+            ]}
             onFarol={id => {
               setFarolAnimar(false)
               // Farol com tela própria: 2º nível na mesma janela.
@@ -7865,7 +7914,27 @@ ${petNome}`
               abrirAntigo[id]?.(c)
             }}
             onVoltar={popupHist.voltar}
-            tela={popupHist.nivel >= 2 && farolTela === 'pelinho' ? {
+            tela={popupHist.nivel >= 2 && farolTela === 'entrega' ? {
+              emoji: '📬',
+              titulo: 'Registrar entrega',
+              conteudo: (
+                <EntregaTela
+                  contratoId={c.id}
+                  unidadeId={c.unidade_id}
+                  petNome={c.pet_nome}
+                  enderecoCadastro={enderecoParaNavegar(c.tutor, { endereco: c.tutor_endereco, bairro: c.tutor_bairro, cidade: c.tutor_cidade })}
+                  temOperacional={!!allUnidades.find(u => u.id === c.unidade_id)?.modulos_ativos?.includes('cb_operacional')}
+                  atorNome={userName || 'Alguém'}
+                  onMudou={() => setFarolEntregaVer(v => v + 1)}
+                  onFinalizado={(dataEntrega) => {
+                    const pet = c.pet_nome
+                    popupHist.fechar()
+                    aplicarEntregaFinalizada(c.id, c.status, dataEntrega)
+                    toast(`${pet} entregue · contrato finalizado`, 'success', { action: { label: 'Ver', onClick: () => toggleStatus('finalizado') } })
+                  }}
+                />
+              ),
+            } : popupHist.nivel >= 2 && farolTela === 'pelinho' ? {
               emoji: '🫙',
               titulo: 'Pelinho',
               // Objeto VIVO: cada ação grava na hora e a tela relê as linhas (recarregarPelinhoLocal).
@@ -8104,20 +8173,7 @@ ${petNome}`
           onClose={() => setEntregaModal(false)}
           contrato={entregaContrato}
           onSuccess={(updated) => {
-            const statusAnterior = entregaContrato.status
-            if (statusFiltro && statusFiltro !== 'finalizado') {
-              setContratos(prev => prev.filter(c => c.id !== updated.id))
-              setTotal(prev => Math.max(0, prev - 1))
-            } else {
-              setContratos(prev => prev.map(c =>
-                c.id === updated.id ? { ...c, status: updated.status, data_entrega: updated.data_entrega } : c
-              ))
-            }
-            setStatusCounts(prev => ({
-              ...prev,
-              [statusAnterior]: Math.max(0, (prev[statusAnterior] || 0) - 1),
-              finalizado: (prev.finalizado || 0) + 1,
-            }))
+            aplicarEntregaFinalizada(updated.id, entregaContrato.status, updated.data_entrega)
           }}
         />
       )}

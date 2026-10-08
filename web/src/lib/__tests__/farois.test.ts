@@ -31,3 +31,8 @@ test('textos dos estados (item 6 e 33)', () => {
   assert.equal(farolParaLista(tag('urna', 'pending'))!.texto, 'A definir')
   assert.equal(farolParaLista(tag('urna', 'ghost')), null)
 })
+
+test('farol de entrega usa o texto pronto (D10)', () => {
+  assert.equal(farolParaLista(tag('entrega', 'pending', { tooltip: 'A entregar' }))!.texto, 'A entregar')
+  assert.equal(farolParaLista(tag('entrega', 'in_progress', { tooltip: 'Com Juliana' }))!.texto, 'Com Juliana')
+})
