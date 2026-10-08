@@ -31,9 +31,11 @@ const bottomItems: BottomItem[] = [
 
 export function MobileBottomNav() {
   const pathname = usePathname()
-  const { hasModule, currentUnit, isSuperAdmin } = useUnit()
-  // Unidade no fluxo novo de encaminhamento? Decide qual das duas telas entra na barra.
-  const encPipeline = hasModule('obj_enc_pipeline')
+  const { hasModule, currentUnit, isSuperAdmin, flsStatus } = useUnit()
+  // Unidade no fluxo novo de encaminhamento? Decide qual das duas telas entra na barra —
+  // só com o FLS carregado (mesma regra do Sidebar): carregando = nenhuma; erro = a antiga.
+  const encDecidido = flsStatus !== 'carregando'
+  const encPipeline = flsStatus === 'pronto' && hasModule('obj_enc_pipeline')
   const supabase = createClient()
   const [fichasCount, setFichasCount] = useState<number | null>(null)
   const [overlayAberto, setOverlayAberto] = useState(false)
@@ -58,6 +60,7 @@ export function MobileBottomNav() {
     // PERDERIA o atalho sem ganhar nada em troca; agora ele ganha o atalho da tela nova,
     // que é justamente o que ele precisa pra testar. A trava de escrita da tela antiga
     // continua no `useUnidadeNoPipeline` — lá a pergunta é outra (ver o hook).
+    if ((item.href === '/encaminhamentos' || item.href === '/gruposencaminhamentos') && !encDecidido) return false
     if (item.href === '/encaminhamentos' && encPipeline) return false
     if (item.href === '/gruposencaminhamentos' && !encPipeline) return false
     return true

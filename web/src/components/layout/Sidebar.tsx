@@ -77,14 +77,18 @@ export function Sidebar({ mode, onNavigate, dense }: Props) {
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const supabase = createClient()
   const showText = mode !== 'mini'
-  const { hasModule, isSuperAdmin, userName, currentUnit, currentRole } = useUnit()
+  const { hasModule, isSuperAdmin, userName, currentUnit, currentRole, flsStatus } = useUnit()
 
   // Operacional só vê Tarefas — gate duro no código (não FLS, que é permissiva por padrão e
   // deixaria todo o resto do menu aparecer). Mesmo racional do redirect em LayoutWrapper.tsx.
   const isOperacional = currentRole === 'operacional'
 
   // Unidade no fluxo novo de encaminhamento? Decide qual das duas telas entra no menu.
-  const encPipeline = hasModule('obj_enc_pipeline')
+  // Só decide com o FLS carregado (`flsStatus`): antes disso `hasModule` responde true pra
+  // tudo e o menu de quem não migrou mostrava a tela nova e trocava pela antiga (piscar).
+  // Carregando = nenhuma das duas; erro = a antiga.
+  const encDecidido = flsStatus !== 'carregando'
+  const encPipeline = flsStatus === 'pronto' && hasModule('obj_enc_pipeline')
 
   // Filtrar itens por módulo ativo e permissão
   const visibleItems = navItems.filter(item => {
@@ -97,6 +101,7 @@ export function Sidebar({ mode, onNavigate, dense }: Props) {
     // pra quem usa, o menu não muda de nome, muda de destino. `hasModule` é FLS, então o
     // super_admin cai sempre na nova (é como o Lucas testa antes de liberar a unidade); a
     // antiga segue acessível pela URL e operável onde a unidade não migrou.
+    if ((item.href === '/encaminhamentos' || item.href === '/gruposencaminhamentos') && !encDecidido) return false
     if (item.href === '/encaminhamentos' && encPipeline) return false
     if (item.href === '/gruposencaminhamentos' && !encPipeline) return false
     return true

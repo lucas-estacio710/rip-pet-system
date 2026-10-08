@@ -398,9 +398,12 @@ async function resolverColaboradores(
 // ============================================
 export default function GruposEncaminhamentosPage() {
   const supabase = createClient()
-  const { currentUnit, userName, userEmail } = useUnit()
+  const { currentUnit, userName, userEmail, flsStatus } = useUnit()
   const { isVisible } = useFieldPermission()
-  const fluxoNovo = isVisible('tela_pipeline', 'obj_enc_pipeline')
+  // Só decide com o FLS carregado: antes disso `isVisible` responde true pra tudo e a tela
+  // nova aparecia por um instante na unidade que não migrou, antes de virar o aviso. Erro na
+  // carga do FLS = aviso (fluxo antigo).
+  const fluxoNovo = flsStatus === 'pronto' && isVisible('tela_pipeline', 'obj_enc_pipeline')
   /**
    * Quem pode marcar "Contato Realizado": **só a Matriz**, e só com a chave ligada.
    *
@@ -711,6 +714,9 @@ export default function GruposEncaminhamentosPage() {
   // ---- Gate ----
   // Não redireciona: `flsPermissions` nasce vazio (= permissivo) e um redirect piscaria a
   // tela antes de saber a resposta. Um aviso com o caminho certo não tem essa corrida.
+  if (flsStatus === 'carregando') {
+    return <p className="text-sm text-[var(--surface-400)] text-center mt-16">Carregando…</p>
+  }
   if (!fluxoNovo) {
     return (
       <div className="max-w-md mx-auto mt-16 rounded-xl border border-[var(--surface-200)] bg-[var(--surface-50)] p-6 text-center">

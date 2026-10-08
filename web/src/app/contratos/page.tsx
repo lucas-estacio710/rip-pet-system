@@ -42,6 +42,7 @@ import { gerarFichaPDFA4Duplicada, nomeFicha } from '@/lib/ficha-generator'
 import { baixarContratoPDF } from '@/lib/contrato-pdf-download'
 import { tituloNome, primeiroNome, separarPrimeiroNome } from '@/lib/nome-tutor'
 import { consultaEmLotes } from '@/lib/consulta-em-lotes'
+import { useCardNovo } from '@/hooks/useCardNovo'
 import { concluirTarefasPendentesDe, reabrirTarefasOperacionais, podeMarcarFeitoSemFoto } from '@/lib/atribuir-tarefa'
 import { carregarExigeFoto, type ExigeFotoPorTipo } from '@/lib/foto-tarefa'
 import EditarContratoModal from '@/components/contratos/modals/EditarContratoModal'
@@ -376,7 +377,11 @@ function ContratosContent() {
   // inclusive nas que ainda não foram treinadas. É proposital (é como ele testa),
   // mas significa que ele e o gerente da mesma unidade veem telas diferentes.
   // ⚠️ PI (cb_cremacao_local) não entra: lá não existe encaminhamento (§4.5).
-  const encPipeline = isVisible(T, 'obj_enc_pipeline') && !fluxoLocal
+  // 🔴 Vem do `useCardNovo` (fase 1.1 do docs/PLAYBOOK_REDESENHO_PIPELINE.md): o FLS chega
+  // DEPOIS da tela e, até chegar, o Map vazio responde `edit` pra tudo — a unidade não migrada
+  // piscava o fluxo novo e a 1ª carga ia com `encPipeline=true`. Agora: `flsPronto` falso =
+  // esqueleto e NENHUMA carga; erro na carga do FLS = fluxo antigo.
+  const { encPipeline, pronto: flsPronto } = useCardNovo()
 
   // As 3 etapas que agrupam por viagem no fluxo novo. `finalizado` fica de fora de
   // propósito — ver `cargaTotalDaEtapa` em carregarContratos().
@@ -972,8 +977,10 @@ function ContratosContent() {
     setPagina(0)
   }, [currentUnit?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Busca em tempo real com debounce
+  // Busca em tempo real com debounce. Espera o FLS (`flsPronto`): a carga depende de
+  // `encPipeline` (etapa inteira × paginada) e não pode sair antes de saber a resposta.
   useEffect(() => {
+    if (!flsPronto) return
     if (buscaDebounced.trim()) {
       buscarContratos(buscaDebounced)
     } else {
@@ -981,9 +988,10 @@ function ContratosContent() {
       setStatusCounts(statusCountsOriginal)
       carregarContratos()
     }
-  }, [buscaDebounced, campoBusca])
+  }, [buscaDebounced, campoBusca, flsPronto]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (!flsPronto) return
     if (!buscaDebounced.trim()) {
       // Pagina incrementou (scroll pediu mais) → append.
       // Caso contrário (filtros mudaram, primeira carga, reset) → substitui.
@@ -991,7 +999,7 @@ function ContratosContent() {
       paginaRef.current = pagina
       carregarContratos(append ? { append: true } : {})
     }
-  }, [pagina, statusFiltro, ordenacao, ordemAsc, currentUnit?.id])
+  }, [pagina, statusFiltro, ordenacao, ordemAsc, currentUnit?.id, flsPronto]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // IntersectionObserver: dispara carregamento da próxima página quando chega no fim da lista
   useEffect(() => {
@@ -4600,7 +4608,7 @@ ${petNome}`
             até isso ser resolvido. Avise o suporte.
           </div>
         )}
-        {loading ? (
+        {(loading || !flsPronto) ? (
           <div className="space-y-2">
             {Array.from({ length: 6 }).map((_, i) => (
               <Skeleton key={i} className="h-[68px] w-full" />
