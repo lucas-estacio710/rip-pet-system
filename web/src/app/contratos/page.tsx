@@ -53,6 +53,7 @@ import FotoTela from '@/components/contratos/farois/FotoTela'
 import PelinhoTela from '@/components/contratos/farois/PelinhoTela'
 import PersonalizadosTela from '@/components/contratos/farois/PersonalizadosTela'
 import EntregaTela from '@/components/contratos/farois/EntregaTela'
+import PagamentoTela from '@/components/contratos/farois/PagamentoTela'
 import { carregarTarefaEntrega } from '@/lib/tarefa-entrega'
 import { useToast } from '@/components/ui/Toast'
 import { usePopupHistory } from '@/hooks/usePopupHistory'
@@ -265,7 +266,7 @@ const STATUS_FLOW = [
  *   O `status` no banco continua `pinda`; muda só o rótulo.
  */
 /** Faróis que já têm tela própria no 2º nível do popup de pendências (cresce de 2.5 a 2.12). */
-const TELAS_FAROL = new Set<string>(['certificado', 'indicacao', 'foto', 'pelinho', 'entrega', 'rescaldo'])
+const TELAS_FAROL = new Set<string>(['certificado', 'indicacao', 'foto', 'pelinho', 'entrega', 'rescaldo', 'pagamento'])
 
 function etapasDoPipeline(fluxoLocal: boolean, cardNovo: boolean) {
   return STATUS_FLOW
@@ -7932,7 +7933,30 @@ ${petNome}`
               abrirAntigo[id]?.(c)
             }}
             onVoltar={popupHist.voltar}
-            tela={popupHist.nivel >= 2 && farolTela === 'rescaldo' ? {
+            tela={popupHist.nivel >= 2 && farolTela === 'pagamento' && farolTelaContrato ? {
+              emoji: '💵',
+              titulo: 'Pagamento',
+              // Snapshot: o formulário nasce com o saldo de quando a tela abriu.
+              conteudo: (
+                <PagamentoTela
+                  contrato={farolTelaContrato}
+                  unidadeLogadaId={currentUnit?.id ?? null}
+                  nomeUnidadeDoContrato={allUnidades.find(u => u.id === farolTelaContrato.unidade_id)?.nome ?? null}
+                  temFinanceiro={hasModule('tela_financeiro')}
+                  // P-09: chave SÓ do pipeline; o "Plano fechado" do detalhe segue sem FLS.
+                  podePlanoFechado={isVisible(T, 'btn_plano_fechado_pipeline')}
+                  atorNome={userName || 'Alguém'}
+                  onCancelar={popupHist.voltar}
+                  onRegistrado={r => {
+                    const id = farolTelaContrato.id
+                    setContratos(prev => prev.map(x => x.id === id
+                      ? { ...x, ...r.contrato, pagamentos: [...(x.pagamentos || []), ...r.pagamentos] }
+                      : x))
+                    popupHist.voltar()
+                  }}
+                />
+              ),
+            } : popupHist.nivel >= 2 && farolTela === 'rescaldo' ? {
               emoji: '💎',
               titulo: 'Personalizados',
               // Objeto VIVO: cada ação grava na hora e a tela relê (recarregarProdutosDoContrato).

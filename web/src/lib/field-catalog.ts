@@ -130,6 +130,7 @@ export const OBJETOS: ChildItemDef[] = [
 // ============================================
 export const CAMPOS_BOTOES: ChildItemDef[] = [
   // --- PIPELINE ---
+  { key: 'btn_plano_fechado_pipeline', tela: 'tela_pipeline', label: 'Plano fechado no Pagamento do pipeline', desc: 'Checkbox "📦 Plano fechado" no 💵 Pagamento do popup de pendências (pipeline novo): total recebido + plano puro digitado; a sobra vira acessórios e o que faltar vira desconto automático. Chave SÓ do pipeline — o Plano fechado do detalhe do contrato não usa FLS. Nasce oculto nas 7 unidades ≠ Santos (mig 155).', modo: 'toggle' },
   { key: 'btn_ordenar_cep', tela: 'tela_pipeline', label: 'Ordenar por CEP (proximidade)', desc: 'Toggle 📏 CEP na barra de ordenação: ordena por |CEP do contrato − CEP da unidade| (mais perto primeiro). Exige unidades.cep preenchido (mig 102). Piloto Santos — hidden nas demais unidades via seed da mig 102.', modo: 'toggle' },
   { key: 'btn_bypass', tela: 'tela_pipeline', label: 'Bypass (B)', desc: 'Finalizar contrato pulando encaminhamento e GC. Temporário.', modo: 'toggle' },
 
