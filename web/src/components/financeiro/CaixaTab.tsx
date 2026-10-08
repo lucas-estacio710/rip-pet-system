@@ -62,7 +62,9 @@ const mesAtual = () => new Date().toISOString().slice(0, 7)
 /** Os movimentos que o usuário pode lançar, e como cada um se comporta. */
 const TIPOS = [
   { v: 'transferencia', label: 'Transferência', destino: true,  ajuda: 'Entre contas de vocês — inclui sacar do banco pro caixa.' },
-  { v: 'fatura_cartao', label: 'Pagar fatura',  destino: true,  ajuda: 'A conta corrente quita o acumulado de um cartão.' },
+  // 'Pagar fatura' SAIU daqui (08/10/2026): pagar fatura é só em Lançamentos ›
+  // Lançamentos especiais, que pergunta QUAL fatura (`fatura_vencimento`). Pelo
+  // Caixa o dinheiro andava, mas a fatura seguia "em aberto" lá — e podia ser paga 2×.
   { v: 'aporte',        label: 'Aporte',        destino: false, ajuda: 'Sócio pôs dinheiro. Não é receita, não vai pra DRE.' },
   { v: 'emprestimo',    label: 'Empréstimo',    destino: false, ajuda: 'Entrada do principal. Os juros são despesa e vão lançados à parte.' },
   { v: 'ajuste',        label: 'Ajuste',        destino: false, ajuda: 'Acerto de saldo contra o extrato.' },
@@ -249,16 +251,6 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
   // Destino de fatura e de liquidação: só o que é dinheiro de verdade.
   const contasCorrente = operaveis.filter(s => !ehCartao(s) && !ehMaquininha(s))
   const cartoes = operaveis.filter(ehCartao)
-
-  function abrirPagarFatura(cartao: Saldo) {
-    setTipo('fatura_cartao')
-    setDestino(cartao.conta_id)
-    setOrigem(contasCorrente[0]?.conta_id || '')
-    setValor(String(Math.abs(cartao.saldo).toFixed(2)))
-    setData(hojeISO())
-    setDescricao(`Fatura ${cartao.nome}`)
-    setAberto(true)
-  }
 
   /** Espelho do "pagar fatura": o adquirente manda o dinheiro pra conta. */
   /**
@@ -510,12 +502,9 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
                   <span className="text-[10px] text-[var(--surface-400)]">
                     {Number(s.saldo) < 0 ? 'fatura em aberto' : 'sem fatura'}
                   </span>
-                  {!somenteLeitura && Number(s.saldo) < 0 && (
-                    <span
-                      onClick={e => { e.stopPropagation(); abrirPagarFatura(s) }}
-                      className="text-[10px] text-[var(--brand-500)] underline cursor-pointer"
-                    >
-                      pagar
+                  {Number(s.saldo) < 0 && (
+                    <span className="text-[10px] text-[var(--surface-400)]" title="Lançamentos › Lançamentos especiais › Pagamento de fatura">
+                      · paga em Lançamentos especiais
                     </span>
                   )}
                 </div>
