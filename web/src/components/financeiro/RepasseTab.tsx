@@ -727,7 +727,7 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
                     )}
                   </p>
                 ) : (
-                  <p>{existente ? 'Ainda não pago — a unidade quita em Lançamentos › Lançamentos especiais.' : 'Salve o repasse para a unidade poder pagar.'}</p>
+                  <p>{existente ? 'Ainda não pago — a unidade quita em + Lançar › Quitação.' : 'Salve o repasse para a unidade poder pagar.'}</p>
                 )}
                 <p className="text-[var(--surface-400)]">
                   Na DRE: cada cremação conta pelo valor cobrado aqui (com o desconto); cada acerto já está

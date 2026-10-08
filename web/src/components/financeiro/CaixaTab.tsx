@@ -30,10 +30,11 @@ import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   Loader2, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, CreditCard,
-  Landmark, Wallet, Smartphone, Plus, Check,
+  Landmark, Wallet, Smartphone, Check,
 } from 'lucide-react'
 import Modal from '@/components/ui/Modal'
 import ExtratoContaModal from './ExtratoContaModal'
+import type { AcaoLancar } from '@/lib/lancar'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import { fmtBRL, fmtData, hojeISO, limitesDoMes } from '@/lib/financeiro'
@@ -83,7 +84,12 @@ function IconeConta({ tipo, produto }: { tipo: string; produto?: string | null }
 const ehMaquininha = (x: { produto?: string | null }) => x.produto === 'maquininha'
 const ehCartao = (x: { tipo: string }) => x.tipo === 'cartao'
 
-export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: boolean }) {
+export default function CaixaTab({ somenteLeitura = false, comando = null, onComandoFeito }: {
+  somenteLeitura?: boolean
+  /** "+ Lançar › Movimentação entre contas" (lib/lancar.ts). */
+  comando?: AcaoLancar | null
+  onComandoFeito?: () => void
+}) {
   const supabaseTipado = createClient()
   const supabase = supabaseTipado as unknown as SupabaseClient
   const { toast } = useToast()
@@ -116,6 +122,11 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
   const [data, setData] = useState(hojeISO())
   const [descricao, setDescricao] = useState('')
   const [salvando, setSalvando] = useState(false)
+  useEffect(() => {
+    if (comando !== 'movimentacao' || somenteLeitura) return
+    setAberto(true)
+    onComandoFeito?.()
+  }, [comando]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Conferência do saldo contra o extrato do banco — a "boca do saldo".
   const [confConta, setConfConta] = useState<Saldo | null>(null)
@@ -448,11 +459,7 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
             <span className="text-[var(--surface-400)]">({deFora.length} de outras)</span>
           </label>
         )}
-        {!somenteLeitura && (
-          <button onClick={() => setAberto(true)} className="btn-primary text-sm ml-auto">
-            <Plus className="h-4 w-4" /> Movimento
-          </button>
-        )}
+        {/* "+ Movimento" foi pro + Lançar › Movimentação entre contas (08/10/2026). */}
       </div>
 
       {/* Saldo por conta — clicar filtra o extrato */}
@@ -506,8 +513,8 @@ export default function CaixaTab({ somenteLeitura = false }: { somenteLeitura?: 
                     {Number(s.saldo) < 0 ? 'fatura em aberto' : 'sem fatura'}
                   </span>
                   {Number(s.saldo) < 0 && (
-                    <span className="text-[10px] text-[var(--surface-400)]" title="Lançamentos › Lançamentos especiais › Pagamento de fatura">
-                      · paga em Lançamentos especiais
+                    <span className="text-[10px] text-[var(--surface-400)]" title="+ Lançar › Quitação › Pagamento de fatura">
+                      · paga em + Lançar › Quitação
                     </span>
                   )}
                 </div>

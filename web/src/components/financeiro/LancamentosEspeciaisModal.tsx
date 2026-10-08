@@ -309,7 +309,7 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
     <Modal
       isOpen={aberto}
       onClose={onClose}
-      title={tela === 'menu' ? 'Lançamentos especiais' : tela === 'repasse' ? 'Pagamento de repasse' : 'Pagamento de fatura de cartão'}
+      title={tela === 'menu' ? 'Quitação' : tela === 'repasse' ? 'Pagamento de repasse' : 'Pagamento de fatura de cartão'}
       footer={tela === 'menu' ? undefined : (
         <div className="flex justify-between gap-2 w-full">
           <button onClick={() => setTela('menu')} className="btn-secondary text-sm inline-flex items-center gap-1">

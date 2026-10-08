@@ -16,7 +16,7 @@
 // (deflator, acertos, fechar, marcar pago) é a Matriz.
 
 import { useMemo, useState } from 'react'
-import { Wallet, Receipt, ArrowLeftRight, BarChart3, Landmark, Banknote, Shield, type LucideIcon } from 'lucide-react'
+import { Wallet, Receipt, ArrowLeftRight, BarChart3, Landmark, Banknote, Shield, Plus, ClipboardPaste, type LucideIcon } from 'lucide-react'
 import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
 import EmptyState from '@/components/ui/EmptyState'
@@ -25,6 +25,7 @@ import RepasseTab from '@/components/financeiro/RepasseTab'
 import DRETab from '@/components/financeiro/DRETab'
 import ContasTab from '@/components/financeiro/ContasTab'
 import CaixaTab from '@/components/financeiro/CaixaTab'
+import { ITENS_LANCAR, type AcaoLancar } from '@/lib/lancar'
 
 const TELA = 'tela_financeiro'
 
@@ -49,6 +50,28 @@ export default function FinanceiroPage() {
   const visibleTabs = useMemo(() => TABS.filter(t => isVisible(TELA, t.obj)), [isVisible])
   const [active, setActive] = useState<string | null>(null)
   const activeTab = visibleTabs.find(t => t.key === active) ?? visibleTabs[0] ?? null
+
+  // + LANÇAR (lib/lancar.ts). Cada item só aparece pra quem pode lançar aquilo —
+  // as mesmas chaves que travavam os botões dentro das abas.
+  const [menuLancar, setMenuLancar] = useState(false)
+  const [comando, setComando] = useState<AcaoLancar | null>(null)
+  const temAba = (k: string) => visibleTabs.some(t => t.key === k)
+  const lancaDespesa = temAba('lancamentos') && canEdit(TELA, 'btn_lancamento_editar') && canEdit(TELA, TELA)
+  const pode: Record<AcaoLancar, boolean> = {
+    importar: lancaDespesa,
+    despesa: lancaDespesa,
+    recebiveis: lancaDespesa && isVisible(TELA, 'obj_fin_receitas_prazo'),
+    quitacao: lancaDespesa,
+    movimentacao: temAba('caixa') && canEdit(TELA, 'btn_caixa_editar'),
+  }
+  const itensLancar = ITENS_LANCAR.filter(i => pode[i.acao])
+  function lancar(acao: AcaoLancar) {
+    setMenuLancar(false)
+    setActive(acao === 'movimentacao' ? 'caixa' : 'lancamentos')
+    setComando(acao)
+  }
+  const comandoPara = (aba: string) =>
+    comando && (aba === 'caixa' ? comando === 'movimentacao' : comando !== 'movimentacao') ? comando : null
 
   if (!podeVer) {
     return (
@@ -89,6 +112,32 @@ export default function FinanceiroPage() {
             })}
           </div>
         )}
+
+        {itensLancar.length > 0 && (
+          <div className="relative ml-auto">
+            <button onClick={() => setMenuLancar(v => !v)} className="btn-primary text-sm">
+              <Plus className="h-4 w-4" /> Lançar
+            </button>
+            {menuLancar && (
+              <>
+                {/* fundo transparente: clicar fora fecha */}
+                <div className="fixed inset-0 z-40" onClick={() => setMenuLancar(false)} />
+                <div className="absolute right-0 mt-1 z-50 w-72 max-w-[calc(100vw-2rem)] card p-1 shadow-xl">
+                  {itensLancar.map(i => (
+                    <button key={i.acao} onClick={() => lancar(i.acao)}
+                      className={`w-full text-left px-3 py-2 rounded-[var(--radius-md)] hover:bg-[var(--surface-50)] ${i.acao === 'importar' ? 'border-b border-[var(--surface-200)] mb-1' : ''}`}>
+                      <span className="flex items-center gap-1.5 text-sm font-medium text-[var(--surface-800)]">
+                        {i.acao === 'importar' && <ClipboardPaste className="h-3.5 w-3.5 text-emerald-500" />}
+                        {i.titulo}
+                      </span>
+                      <span className="block text-[11px] text-[var(--surface-500)]">{i.detalhe}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {activeTab?.key === 'lancamentos' ? (
@@ -101,11 +150,13 @@ export default function FinanceiroPage() {
         // permissão da TELA. A segunda é o que dá efeito hoje — "a tela está em
         // leitura" tem de significar que nada nela se edita, senão `read` vira
         // uma etiqueta sem consequência.
-        <LancamentosTab somenteLeitura={!canEdit(TELA, 'btn_lancamento_editar') || !canEdit(TELA, TELA)} />
+        <LancamentosTab somenteLeitura={!canEdit(TELA, 'btn_lancamento_editar') || !canEdit(TELA, TELA)}
+          comando={comandoPara('lancamentos')} onComandoFeito={() => setComando(null)} />
       ) : activeTab?.key === 'repasse' ? (
         <RepasseTab somenteLeitura={repasseSomenteLeitura} />
       ) : activeTab?.key === 'caixa' ? (
-        <CaixaTab somenteLeitura={!canEdit(TELA, 'btn_caixa_editar')} />
+        <CaixaTab somenteLeitura={!canEdit(TELA, 'btn_caixa_editar')}
+          comando={comandoPara('caixa')} onComandoFeito={() => setComando(null)} />
       ) : activeTab?.key === 'dre' ? (
         <DRETab />
       ) : activeTab?.key === 'contas' ? (

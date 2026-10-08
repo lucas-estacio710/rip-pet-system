@@ -24,7 +24,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { Plus, Loader2, Check, Smartphone, ArrowDownRight, ArrowUpRight, Copy, Trash2 } from 'lucide-react'
+import { Loader2, Check, Smartphone, ArrowDownRight, ArrowUpRight, Copy, Trash2 } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import Modal from '@/components/ui/Modal'
@@ -100,9 +100,12 @@ const MOVIMENTOS = [
 
 type MovimentoV = typeof MOVIMENTOS[number]['v']
 
-export default function ReceitasPrazoTab({ somenteLeitura = false, mes }: {
+export default function ReceitasPrazoTab({ somenteLeitura = false, mes, comando = false, onComandoFeito }: {
   somenteLeitura?: boolean
   mes: string
+  /** "+ Lançar › Recebíveis de cartão": abre o registro quando as operadoras chegarem. */
+  comando?: boolean
+  onComandoFeito?: () => void
 }) {
   const supabaseTipado = createClient()
   const supabase = supabaseTipado as unknown as SupabaseClient
@@ -233,6 +236,13 @@ export default function ReceitasPrazoTab({ somenteLeitura = false, mes }: {
     })()
     return () => { cancelado = true }
   }, [supabase, operadoras])
+
+  // + LANÇAR: espera as operadoras — sem elas o formulário abriria sem operadora.
+  useEffect(() => {
+    if (!comando || somenteLeitura || !operadoras.length) return
+    abrir()
+    onComandoFeito?.()
+  }, [comando, operadoras.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function abrir(contaId?: string) {
     const alvo = contaId || operadoras[0]?.conta_id || ''
@@ -374,12 +384,7 @@ export default function ReceitasPrazoTab({ somenteLeitura = false, mes }: {
           )}
         </span>
         {carregando && <Loader2 className="h-4 w-4 animate-spin text-[var(--surface-400)]" />}
-        {!somenteLeitura && (
-          // O colar do extrato mora em Lançamentos, um botão só pras duas faixas.
-          <button onClick={() => abrir()} className="btn-primary text-sm ml-auto">
-            <Plus className="h-4 w-4" /> Registrar do extrato
-          </button>
-        )}
+        {/* O registro abre pelo + Lançar › Recebíveis de cartão (08/10/2026). */}
       </div>
 
       {/* O POOL DE OPERADORAS. Clicar filtra a lista. */}

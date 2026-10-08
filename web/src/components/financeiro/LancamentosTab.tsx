@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import * as Icons from 'lucide-react'
-import { Plus, Loader2, X, Check, Trash2, Copy, Divide, ClipboardPaste, Sparkles } from 'lucide-react'
+import { Loader2, X, Check, Trash2, Copy, Divide } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
@@ -27,6 +27,7 @@ import UnderlineTabs from '@/components/ui/UnderlineTabs'
 import { criarIndice, sugerir, type Indice } from '@/lib/similaridade'
 import { buscarCategorias } from '@/lib/busca-categoria'
 import { reconhecerCobranca } from '@/lib/reconhecer-cobranca'
+import type { AcaoLancar } from '@/lib/lancar'
 import {
   fmtBRL, fmtData, hojeISO, limitesDoMes, colarValorBR
 } from '@/lib/financeiro'
@@ -122,7 +123,12 @@ function IconeCat({ nome, className }: { nome?: string | null; className?: strin
  *   cria, edita nem exclui. Era a única aba do financeiro que ignorava isso —
  *   Repasse, Caixa e Contas já recebiam a prop, e Lançamentos não (13/09/2026).
  */
-export default function LancamentosTab({ somenteLeitura = false }: { somenteLeitura?: boolean }) {
+export default function LancamentosTab({ somenteLeitura = false, comando = null, onComandoFeito }: {
+  somenteLeitura?: boolean
+  /** Do "+ Lançar" da página (lib/lancar.ts): abre o formulário certo. */
+  comando?: AcaoLancar | null
+  onComandoFeito?: () => void
+}) {
   const supabaseTipado = createClient()
   // Tabelas fin_* ainda não estão em types/database.ts
   const supabase = supabaseTipado as unknown as SupabaseClient
@@ -144,6 +150,18 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
    * Prazo nunca a usa — é "registrar do extrato".
    */
   const [faixa, setFaixa] = useState<'despesas' | 'receitas'>('despesas')
+  // + LANÇAR: os formulários de despesa moram na faixa Despesas, então ela abre
+  // antes. Recebíveis troca a faixa e passa o comando adiante (ReceitasPrazoTab
+  // é quem avisa que cumpriu, depois de carregar as operadoras).
+  useEffect(() => {
+    if (!comando || somenteLeitura) return
+    if (comando === 'recebiveis') { setFaixa('receitas'); return }
+    setFaixa('despesas')
+    if (comando === 'importar') setColarAberto(true)
+    else if (comando === 'despesa') setAberto(true)
+    else if (comando === 'quitacao') { setEspeciaisInicial(null); setEspeciaisAberto(true) }
+    onComandoFeito?.()
+  }, [comando]) // eslint-disable-line react-hooks/exhaustive-deps
   // A faixa de receitas tem chave FLS própria (`obj_fin_receitas_prazo`): é uma
   // aba que a unidade pode não querer, e sem chave o item seria incontrolável —
   // regra obrigatória do CLAUDE.md, que esta aba descumpriu por algumas horas
@@ -794,11 +812,7 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
             />
           )}
         </div>
-        {!somenteLeitura && (
-          <button onClick={() => setColarAberto(true)} className="btn-secondary text-sm shrink-0 mb-1">
-            <ClipboardPaste className="h-4 w-4" /> Colar do extrato
-          </button>
-        )}
+        {/* "Colar do extrato" virou "Importar extrato" no + Lançar do topo (08/10/2026). */}
       </div>
 
       {veReceitas && faixa === 'receitas' ? (
@@ -807,7 +821,8 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
             type="month" value={mes} onChange={e => setMes(e.target.value)}
             className="input text-sm w-36 py-1"
           />
-          <ReceitasPrazoTab key={versaoColar} somenteLeitura={somenteLeitura} mes={mes} />
+          <ReceitasPrazoTab key={versaoColar} somenteLeitura={somenteLeitura} mes={mes}
+            comando={comando === 'recebiveis'} onComandoFeito={onComandoFeito} />
         </div>
       ) : (<>
 
@@ -822,18 +837,7 @@ export default function LancamentosTab({ somenteLeitura = false }: { somenteLeit
           {' · '}{lancamentos.length} {lancamentos.length === 1 ? 'lançamento' : 'lançamentos'}
         </span>
         {carregando && <Loader2 className="h-4 w-4 animate-spin text-[var(--surface-400)]" />}
-        {!somenteLeitura && (
-          <div className="flex gap-2 ml-auto">
-            {/* QUITAR obrigações — repasse e fatura de cartão (mig 150). Não é
-                despesa: só registra o dinheiro saindo (LancamentosEspeciaisModal). */}
-            <button onClick={() => { setEspeciaisInicial(null); setEspeciaisAberto(true) }} className="btn-secondary text-sm">
-              <Sparkles className="h-4 w-4" /> Lançamentos especiais
-            </button>
-            <button onClick={() => setAberto(true)} className="btn-primary text-sm">
-              <Plus className="h-4 w-4" /> Novo lançamento
-            </button>
-          </div>
-        )}
+        {/* "Novo lançamento" e "Lançamentos especiais" foram pro + Lançar (Despesa / Quitação). */}
       </div>
 
       {/* O bloco "Custos automáticos" (cremações do mês pelo acolhimento) SAIU
