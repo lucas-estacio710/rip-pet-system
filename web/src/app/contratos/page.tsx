@@ -242,6 +242,19 @@ const STATUS_FLOW = [
   { key: 'finalizado', label: 'Finalizado', short: 'FIN', color: 'gray', icon: '✅' },
 ]
 
+/**
+ * Etapas da barra do pipeline (fase 1.2 do docs/PLAYBOOK_REDESENHO_PIPELINE.md).
+ * - `fluxoLocal` (cb_cremacao_local, PI): sem Ativo — o contrato nasce em pinda.
+ * - `cardNovo` (chave obj_enc_pipeline): a etapa `pinda` vira **Matriz / MTZ** em TODA unidade
+ *   migrada, PI incluída — PI fica no endereço da Matriz (P-28, revê a decisão de 30/09).
+ *   O `status` no banco continua `pinda`; muda só o rótulo.
+ */
+function etapasDoPipeline(fluxoLocal: boolean, cardNovo: boolean) {
+  return STATUS_FLOW
+    .filter(s => !(fluxoLocal && s.key === 'ativo'))
+    .map(s => (cardNovo && s.key === 'pinda' ? { ...s, label: 'Matriz', short: 'MTZ' } : s))
+}
+
 // Cor da unidade — usada no badge do número da viagem no card de encaminhamento (§9.1 do
 // plano). Mesma paleta de /encaminhamentos, /gc, /agenda e RepasseTab; a constante é
 // repetida em cada tela desde sempre, e centralizá-la é refactor de outra frente.
@@ -381,7 +394,7 @@ function ContratosContent() {
   // DEPOIS da tela e, até chegar, o Map vazio responde `edit` pra tudo — a unidade não migrada
   // piscava o fluxo novo e a 1ª carga ia com `encPipeline=true`. Agora: `flsPronto` falso =
   // esqueleto e NENHUMA carga; erro na carga do FLS = fluxo antigo.
-  const { encPipeline, pronto: flsPronto } = useCardNovo()
+  const { cardNovo, encPipeline, pronto: flsPronto } = useCardNovo()
 
   // As 3 etapas que agrupam por viagem no fluxo novo. `finalizado` fica de fora de
   // propósito — ver `cargaTotalDaEtapa` em carregarContratos().
@@ -4361,7 +4374,7 @@ ${petNome}`
       {/* Pipeline — compact single-line */}
       <div className="overflow-x-auto scrollbar-hide">
         <div className="flex gap-1">
-          {STATUS_FLOW.filter(s => !(fluxoLocal && s.key === 'ativo')).map((status) => {
+          {etapasDoPipeline(fluxoLocal, cardNovo).map((status) => {
             const isActive = statusFiltro === status.key
             const count = statusCounts[status.key] || 0
             const colors = STATUS_COLORS[status.key]
