@@ -10,13 +10,15 @@
  * - Lista: CONCLUÍDAS em cima (✓ desenhado a lápis só na 1ª abertura; "Sem pelinho"/"Não tem"
  *   em chip cinza), PENDENTES embaixo com o estado escrito. Ordem fixa (item 26) — vem pronta do
  *   computeAllTags.
- * - Tocar numa linha chama `onFarol(id)`. Até cada tela nova chegar (2.5–2.12), quem chama
- *   fecha o popup e abre o modal de hoje: nada fica inacessível no meio do caminho.
+ * - Tocar numa linha chama `onFarol(id)`. Farol que já tem tela própria abre o 2º NÍVEL na
+ *   mesma janela (`tela`): cabeçalho padrão "‹ Pendências · lacre · PET · ✕" + emoji e nome da
+ *   pendência, depois o corpo (regra do item 25 — nunca popup sobre popup). Os que ainda não
+ *   têm (até o 2.12), quem chama fecha o popup e abre o modal de hoje.
  *
  * O botão voltar do celular é do `usePopupHistory`, no /contratos — aqui só se desenha.
  */
 import type { ReactNode } from 'react'
-import { AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronLeft } from 'lucide-react'
 import PopupCentral from '@/components/ui/PopupCentral'
 import type { ComputedTag } from '@/lib/contrato-tags'
 import { separarFarois, type FarolLista } from '@/lib/farois'
@@ -29,6 +31,10 @@ type Props = {
   /** Desenha o ✓ a lápis? Só na 1ª abertura (voltar não repete). */
   animar: boolean
   onFarol: (id: string) => void
+  /** 2º nível aberto (a tela de um farol), ou null na lista. */
+  tela?: { emoji: string; titulo: string; conteudo: ReactNode } | null
+  /** "‹ Pendências": volta pra lista (é o mesmo que o botão voltar do celular). */
+  onVoltar?: () => void
   pet: {
     lacre: string | null
     nome: string | null
@@ -62,7 +68,7 @@ function Linha({ f, onFarol, direita }: { f: FarolLista; onFarol: (id: string) =
   )
 }
 
-export default function FarolPopup({ aberto, onFechar, tags, animar, onFarol, pet }: Props) {
+export default function FarolPopup({ aberto, onFechar, tags, animar, onFarol, tela, onVoltar, pet }: Props) {
   const { concluidas, pendentes } = separarFarois(tags)
   const peso = pesoDoCard(pet.peso)
   const esp = especieDoCard(pet.especie, pet.peso)
@@ -94,6 +100,37 @@ export default function FarolPopup({ aberto, onFechar, tags, animar, onFarol, pe
       </div>
     </div>
   )
+
+  if (tela) {
+    const tituloTela = (
+      <div className="min-w-0 space-y-1.5">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <button
+            type="button"
+            onClick={onVoltar}
+            className="flex items-center gap-0.5 text-[13px] font-bold flex-shrink-0 -ml-1 pr-1"
+            style={{ color: '#7c3aed' }}
+          >
+            <ChevronLeft className="h-4 w-4" />Pendências
+          </button>
+          <div className="pl-tri" style={{ '--pl-tipo': corTipo } as React.CSSProperties}>
+            {pet.lacre && <span className="pl-tri-l">{pet.lacre}</span>}
+            <span className="pl-tri-n" style={{ color: pet.genero === 'macho' ? '#1d4ed8' : '#db2777' }}>
+              <span className="truncate">{nomeDoCard(pet.nome)}</span>
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 text-[15px] font-bold" style={{ color: 'var(--surface-800)' }}>
+          <span className="text-[18px] leading-none">{tela.emoji}</span>{tela.titulo}
+        </div>
+      </div>
+    )
+    return (
+      <PopupCentral aberto={aberto} onFechar={onFechar} titulo={tituloTela}>
+        <div className="pt-1">{tela.conteudo}</div>
+      </PopupCentral>
+    )
+  }
 
   return (
     <PopupCentral aberto={aberto} onFechar={onFechar} titulo={titulo}>

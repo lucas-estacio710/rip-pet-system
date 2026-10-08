@@ -50,9 +50,15 @@ type Props = {
       pet_genero: string | null
     }
   }) => void
+  /**
+   * Dentro do popup de pendências do pipeline redesenhado (fase 2.5): sem a moldura nem o
+   * cabeçalho próprios — o popup já tem o cabeçalho padrão "‹ Pendências · lacre · PET".
+   * O código do contrato dá lugar à orientação (item 28). Mesma lógica, mesmo salvar.
+   */
+  embutido?: boolean
 }
 
-export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess }: Props) {
+export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess, embutido = false }: Props) {
   const [certificadoNomes, setCertificadoNomes] = useState<string[]>(['', '', '', '', '', '', ''])
   const [salvando, setSalvando] = useState(false)
   const [slotsVisiveis, setSlotsVisiveis] = useState(1)
@@ -223,30 +229,16 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
 
   if (!isOpen) return null
 
-  return (
-    <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="bg-slate-800 rounded-xl shadow-xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-slate-200">
-            📜 Certificado de Cremação
-          </h3>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-200"
-          >
-            ✕
-          </button>
-        </div>
-
-        {/* Código do contrato */}
-        <p className="text-[10px] text-slate-500 mb-3 font-mono">{contrato.codigo}</p>
+  const corpo = (
+    <>
+        {embutido ? (
+          <p className="text-[12px] mb-3" style={{ color: 'var(--surface-500)' }}>
+            Veja nomes, espécie, gênero e ajuste a raça conforme padrão (sugestão)
+          </p>
+        ) : (
+          /* Código do contrato */
+          <p className="text-[10px] text-slate-500 mb-3 font-mono">{contrato.codigo}</p>
+        )}
 
         {/* Data de agendamento da cremação (read-only — Matriz vê a data que irá pro certificado) */}
         {dataAgendamento && (
@@ -413,6 +405,33 @@ export default function CertificadoModal({ isOpen, onClose, contrato, onSuccess 
             {salvando ? 'Salvando...' : '✅ Confirmar'}
           </button>
         </div>
+    </>
+  )
+
+  if (embutido) return corpo
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-slate-800 rounded-xl shadow-xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-slate-200">
+            📜 Certificado de Cremação
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-200"
+          >
+            ✕
+          </button>
+        </div>
+        {corpo}
       </div>
     </div>
   )

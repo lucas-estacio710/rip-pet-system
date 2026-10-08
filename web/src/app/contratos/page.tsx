@@ -256,6 +256,9 @@ const STATUS_FLOW = [
  *   migrada, PI incluída — PI fica no endereço da Matriz (P-28, revê a decisão de 30/09).
  *   O `status` no banco continua `pinda`; muda só o rótulo.
  */
+/** Faróis que já têm tela própria no 2º nível do popup de pendências (cresce de 2.5 a 2.12). */
+const TELAS_FAROL = new Set<string>(['certificado'])
+
 function etapasDoPipeline(fluxoLocal: boolean, cardNovo: boolean) {
   return STATUS_FLOW
     .filter(s => !(fluxoLocal && s.key === 'ativo'))
@@ -516,6 +519,13 @@ function ContratosContent() {
   // `router.replace` abaixo) — um replace apagaria a entrada do popup no histórico.
   const [farolContratoId, setFarolContratoId] = useState<string | null>(null)
   const [farolAnimar, setFarolAnimar] = useState(true)
+  // Farol aberto no 2º nível do popup (fase 2.5+). Só vale com `popupHist.nivel >= 2` — o voltar
+  // do celular baixa o nível e a tela some sozinha, sem precisar limpar este estado.
+  const [farolTela, setFarolTela] = useState<string | null>(null)
+  // Foto do contrato tirada ao abrir a tela do farol. O contrato da lista é trocado por um objeto
+  // novo quando o enriquecimento (produtos/GC) chega, e o modal embutido recarrega no `contrato`
+  // novo — apagaria o que a pessoa estava digitando. Mesmo racional do `certificadoContrato`.
+  const [farolTelaContrato, setFarolTelaContrato] = useState<Contrato | null>(null)
   const popupHist = usePopupHistory()
   useEffect(() => {
     if (popupHist.nivel === 0 && farolContratoId) setFarolContratoId(null)
@@ -7818,7 +7828,8 @@ ${petNome}`
         </div>
       )}
 
-      {/* Popup de pendências do card novo (fase 2.4). Até cada tela nova chegar (2.5–2.12),
+      {/* Popup de pendências do card novo (fase 2.4). Faróis com tela própria (TELAS_FAROL) abrem
+          no 2º nível; os demais, até cada tela nova chegar (2.6–2.12),
           tocar num farol fecha o popup e abre o modal de hoje. */}
       {farolContratoId && (() => {
         const c = contratos.find(x => x.id === farolContratoId)
@@ -7840,9 +7851,31 @@ ${petNome}`
             tags={computeAllTags({ ...c, indicacaoFonteId }).filter(t => t.id !== 'protocolo')}
             onFarol={id => {
               setFarolAnimar(false)
+              // Farol com tela própria: 2º nível na mesma janela.
+              if (TELAS_FAROL.has(id)) { setFarolTela(id); setFarolTelaContrato(c); popupHist.entrar(); return }
+              // Os demais (até o 2.12): fecha o popup e abre o modal de hoje.
               popupHist.fechar()
               abrirAntigo[id]?.(c)
             }}
+            onVoltar={popupHist.voltar}
+            tela={popupHist.nivel >= 2 && farolTela === 'certificado' && farolTelaContrato ? {
+              emoji: '📜',
+              titulo: 'Confirmar Certificado',
+              conteudo: (
+                <CertificadoModal
+                  embutido
+                  isOpen
+                  contrato={farolTelaContrato}
+                  onClose={popupHist.voltar}
+                  onSuccess={(updated) => {
+                    // mesmo merge do modal antigo: o contrato_gc do modal tem outro shape
+                    const { contrato_gc: _ignorado, ...rest } = updated
+                    void _ignorado
+                    setContratos(prev => prev.map(x => x.id === updated.id ? { ...x, ...rest } : x))
+                  }}
+                />
+              ),
+            } : null}
             pet={{
               lacre: c.numero_lacre,
               nome: c.pet_nome,
