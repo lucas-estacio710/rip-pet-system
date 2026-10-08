@@ -27,6 +27,8 @@ import AtivacaoPVModal from '@/components/contratos/modals/AtivacaoPVModal'
 import FotoProva from '@/components/tarefas/FotoProva'
 import type { FotoComprimida } from '@/lib/comprimir-imagem'
 import { concluirTarefasOperacionais, reabrirTarefasOperacionais, registrarObservacaoContrato, formatarIdade } from '@/lib/atribuir-tarefa'
+import { lerObsEntrega, formatarPrevisao } from '@/lib/obs-entrega'
+import { enderecoParaNavegar, linksNavegacao } from '@/lib/card-pet'
 import { carregarExigeFoto, enviarFotoTarefa, listarFotosDasTarefas, urlAssinadaFoto, type ExigeFotoPorTipo } from '@/lib/foto-tarefa'
 
 // `entrega_pendente` NÃO é um tipo real de `tarefas_operacionais.tipo` (a constraint do banco
@@ -111,6 +113,29 @@ type FichaRemocao = {
   op_dados: Record<string, unknown> | null
 }
 
+// Pedido de quem atribuiu, no formato do pipeline redesenhado (lib/obs-entrega, fase 2.9b):
+// `[Prev: 05/10/2026 · Tarde] [End: Rua X, 1] texto`. Observação antiga sem colchete cai inteira
+// em `texto`, então nada muda pra ela. Ciência ("Li e vou seguir") só com pedido de verdade —
+// texto ou endereço alterado; a previsão sozinha não exige (P-18).
+function pedidoDaTarefa(obs: string | null | undefined) {
+  const o = lerObsEntrega(obs)
+  return { ...o, previsao: formatarPrevisao(o), exigeCiencia: !!(o.texto || o.endereco) }
+}
+
+function pedidoLegivel(obs: string | null | undefined): string {
+  const p = pedidoDaTarefa(obs)
+  return [p.texto, p.previsao ? `previsão ${p.previsao.replace('📅 ', '')}` : null, p.endereco ? `endereço: ${p.endereco}` : null].filter(Boolean).join(' · ')
+}
+
+// Endereço da entrega: o alterado no pedido ([End:]) vence o do cadastro; o do cadastro vence o
+// snapshot do contrato.
+function enderecoDaEntrega(c: ContratoResumo | null | undefined, obs: string | null | undefined): { endereco: string | null; alterado: boolean } {
+  const o = lerObsEntrega(obs)
+  if (o.endereco) return { endereco: o.endereco, alterado: true }
+  if (!c) return { endereco: null, alterado: false }
+  return { endereco: enderecoParaNavegar(c.tutor, { endereco: c.tutor_endereco, bairro: c.tutor_bairro, cidade: c.tutor_cidade }), alterado: false }
+}
+
 type ContratoResumo = {
   id: string
   codigo: string
@@ -123,6 +148,9 @@ type ContratoResumo = {
   tutor_endereco: string | null
   tutor_bairro: string | null
   tutor_cidade: string | null
+  // Endereço do CADASTRO do tutor (quem se muda atualiza o cadastro) — o snapshot acima fica de
+  // fallback. Mesma regra do pipeline (item 36 do redesenho), pra os dois lados mostrarem o mesmo.
+  tutor?: { endereco: string | null; numero: string | null; complemento: string | null; bairro: string | null; cidade: string | null; cep: string | null } | null
   status: string
   numero_lacre: string | null
   unidade_id: string
@@ -555,7 +583,7 @@ function PetMinhasCard({ petGroup, onAbrirTarefa }: {
               <span className="text-xs font-semibold flex-1 truncate" style={{ color: info.cor }}>
                 {info.label}{t.quantidade > 1 ? ` ×${t.quantidade}` : ''}
               </span>
-              {t.observacao_atribuicao && <span className="text-sm shrink-0" title="Tem pedido específico">📝</span>}
+              {pedidoDaTarefa(t.observacao_atribuicao).exigeCiencia && <span className="text-sm shrink-0" title="Tem pedido específico">📝</span>}
             </button>
           )
         })}
@@ -833,7 +861,7 @@ export default function TarefasPage() {
     if (contratoIds.length > 0) {
       const { data: contratos } = await supabase
         .from('contratos')
-        .select('id, codigo, pet_nome, pet_especie, pet_raca, pet_cor, tutor_nome, tutor_telefone, tutor_endereco, tutor_bairro, tutor_cidade, status, numero_lacre, unidade_id, valor_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor)')
+        .select('id, codigo, pet_nome, pet_especie, pet_raca, pet_cor, tutor_nome, tutor_telefone, tutor_endereco, tutor_bairro, tutor_cidade, tutor:tutores(endereco, numero, complemento, bairro, cidade, cep), status, numero_lacre, unidade_id, valor_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor)')
         .in('id', contratoIds)
       const map: Record<string, ContratoResumo> = {}
       for (const c of (contratos || []) as ContratoResumo[]) map[c.id] = c
@@ -842,7 +870,7 @@ export default function TarefasPage() {
     if (produtoIds.length > 0) {
       const { data: produtos } = await supabase
         .from('contrato_produtos')
-        .select('id, contrato_id, rescaldo_feito, produto:produtos(nome, rescaldo_tipo), contrato:contratos(id, codigo, pet_nome, pet_especie, pet_raca, pet_cor, tutor_nome, tutor_telefone, tutor_endereco, tutor_bairro, tutor_cidade, unidade_id, status, numero_lacre)')
+        .select('id, contrato_id, rescaldo_feito, produto:produtos(nome, rescaldo_tipo), contrato:contratos(id, codigo, pet_nome, pet_especie, pet_raca, pet_cor, tutor_nome, tutor_telefone, tutor_endereco, tutor_bairro, tutor_cidade, tutor:tutores(endereco, numero, complemento, bairro, cidade, cep), unidade_id, status, numero_lacre)')
         .in('id', produtoIds)
       const map: Record<string, ContratoProdutoResumo> = {}
       for (const p of (produtos || []) as unknown as ContratoProdutoResumo[]) map[p.id] = p
@@ -970,7 +998,7 @@ export default function TarefasPage() {
       if (contratoId) {
         const partes = [`${rotulo} concluído por ${userName || 'Operacional'}${emNomeDe}${nomeExecutor ? ` (colaborador na posição: ${nomeExecutor})` : ''}.`]
         if (tarefa.tipo === 'entrega' && modoDataEntrega === 'outra') partes.push(`Data de entrega registrada retroativa: ${new Date(dataEntregaManual + 'T00:00:00').toLocaleDateString('pt-BR')}.`)
-        if (tarefa.observacao_atribuicao) partes.push(`Pedido específico confirmado: "${tarefa.observacao_atribuicao}".`)
+        if (tarefa.observacao_atribuicao) partes.push(`Pedido específico confirmado: "${pedidoLegivel(tarefa.observacao_atribuicao)}".`)
         if (anotacaoSimples.trim()) partes.push(`Nota: ${anotacaoSimples.trim()}`)
         // Automático NUNCA nasce importante (23/09/2026: 172 das 449 observações em destaque
         // eram log automático) — `registrarObservacaoContrato` já grava `importante: false`.
@@ -1170,7 +1198,7 @@ export default function TarefasPage() {
       {
         const partes = [`Remoção concluída por ${userName || 'Operacional'}${emNomeDe}${nomeExecutor ? ` (colaborador na posição: ${nomeExecutor})` : ''} — lacre ${lacreRemocao.trim()}.`]
         if (modoDataRemocao === 'outra') partes.push(`Data/hora do acolhimento registrada retroativa: ${new Date(dataHoraFinal!).toLocaleString('pt-BR')}.`)
-        if (tarefa.observacao_atribuicao) partes.push(`Pedido específico confirmado: "${tarefa.observacao_atribuicao}".`)
+        if (tarefa.observacao_atribuicao) partes.push(`Pedido específico confirmado: "${pedidoLegivel(tarefa.observacao_atribuicao)}".`)
         if (anotacaoRemocao.trim()) partes.push(`Nota: ${anotacaoRemocao.trim()}`)
         await registrarObservacaoContrato(supabase, { contratoId, unidadeId: tarefa.unidade_id, descricao: partes.join(' '), criadoPor: userName || 'Operacional' })
       }
@@ -1561,7 +1589,7 @@ export default function TarefasPage() {
     const { data: pendentesEntrega } = await supabase.from('tarefas_operacionais').select('contrato_id').eq('unidade_id', currentUnit.id).eq('tipo', 'entrega').eq('status', 'pendente')
     const idsEntregaOcupados = (pendentesEntrega || []).map((r: { contrato_id: string | null }) => r.contrato_id).filter(Boolean)
 
-    let qEntrega = supabase.from('contratos').select('id, codigo, pet_nome, tutor_nome, tutor_telefone, tutor_endereco, tutor_bairro, tutor_cidade, status, numero_lacre, unidade_id, data_acolhimento')
+    let qEntrega = supabase.from('contratos').select('id, codigo, pet_nome, tutor_nome, tutor_telefone, tutor_endereco, tutor_bairro, tutor_cidade, tutor:tutores(endereco, numero, complemento, bairro, cidade, cep), status, numero_lacre, unidade_id, data_acolhimento')
       .eq('unidade_id', currentUnit.id).in('status', ['retorno', 'pendente'])
       .order('data_acolhimento', { ascending: false, nullsFirst: false }) // pet mais novo primeiro
     if (idsEntregaOcupados.length > 0) qEntrega = qEntrega.not('id', 'in', `(${idsEntregaOcupados.join(',')})`)
@@ -1743,7 +1771,7 @@ export default function TarefasPage() {
   // emAndamento/concluidasRecentes), só reorganizados pra render em etapa → tipo.
   const poolEntregaMapeado: PoolItemData[] = poolEntrega.map(c => ({
     key: c.id, itemIds: [c.id], quantidade: 1, petNome: c.pet_nome, tutorNome: c.tutor_nome, status: c.status, lacre: c.numero_lacre,
-    enderecoResumo: [c.tutor_endereco, c.tutor_bairro, c.tutor_cidade].filter(Boolean).join(' - ') || undefined,
+    enderecoResumo: enderecoParaNavegar(c.tutor, { endereco: c.tutor_endereco, bairro: c.tutor_bairro, cidade: c.tutor_cidade }) || undefined,
     dataAcolhimento: c.data_acolhimento,
   }))
   const poolItensPorTipo: Record<TarefaTipo, PoolItemData[]> = {
@@ -1872,7 +1900,7 @@ export default function TarefasPage() {
                       petNome={petNome}
                       tutorNome={tutorNome}
                       quantidade={t.quantidade}
-                      acao={t.observacao_atribuicao ? <span className="text-base shrink-0" title="Tem pedido específico">📝</span> : undefined}
+                      acao={pedidoDaTarefa(t.observacao_atribuicao).exigeCiencia ? <span className="text-base shrink-0" title="Tem pedido específico">📝</span> : undefined}
                       onClick={() => abrirTarefaMinhas(t)}
                     />
                   )
@@ -1888,7 +1916,8 @@ export default function TarefasPage() {
                   const contrato = t.contrato_id ? contratosPorId[t.contrato_id] : null
                   const petNome = contrato?.pet_nome || t.petNome
                   const tutorNome = contrato?.tutor_nome || t.tutorNome
-                  const enderecoCompleto = contrato ? [contrato.tutor_endereco, contrato.tutor_bairro, contrato.tutor_cidade].filter(Boolean).join(' - ') : ''
+                  const { endereco: enderecoCompleto, alterado: endAlterado } = enderecoDaEntrega(contrato, t.observacao_atribuicao)
+                  const pedido = pedidoDaTarefa(t.observacao_atribuicao)
                   const saldo = contrato ? calcularSaldoPendente(contrato).saldoTotal : 0
                   return (
                     <TarefaCard
@@ -1899,10 +1928,15 @@ export default function TarefasPage() {
                       petNome={petNome}
                       tutorNome={tutorNome}
                       quantidade={t.quantidade}
-                      linhaExtra={enderecoCompleto ? <p className="text-xs text-[var(--surface-500)] line-clamp-2 mt-0.5">📍 {enderecoCompleto}</p> : undefined}
-                      acao={(t.observacao_atribuicao || saldo > 0) ? (
+                      linhaExtra={(enderecoCompleto || pedido.previsao) ? (
+                        <>
+                          {pedido.previsao && <p className="text-xs font-semibold text-violet-500 mt-0.5">{pedido.previsao}</p>}
+                          {enderecoCompleto && <p className="text-xs text-[var(--surface-500)] line-clamp-2 mt-0.5">📍 {enderecoCompleto}{endAlterado && <span className="ml-1 font-semibold text-amber-500">(alterado)</span>}</p>}
+                        </>
+                      ) : undefined}
+                      acao={(pedido.exigeCiencia || saldo > 0) ? (
                         <div className="flex flex-col items-end gap-1 shrink-0">
-                          {t.observacao_atribuicao && <span className="text-base" title="Tem pedido específico">📝</span>}
+                          {pedido.exigeCiencia && <span className="text-base" title="Tem pedido específico">📝</span>}
                           {saldo > 0 && <span className="text-sm font-bold text-emerald-500" title={`Saldo em aberto: R$ ${saldo.toFixed(2)}`}>$</span>}
                         </div>
                       ) : undefined}
@@ -1916,7 +1950,8 @@ export default function TarefasPage() {
                   const contrato = t.contrato_id ? contratosPorId[t.contrato_id] : null
                   const petNome = contrato?.pet_nome || t.petNome
                   const tutorNome = contrato?.tutor_nome || t.tutorNome
-                  const enderecoCompleto = contrato ? [contrato.tutor_endereco, contrato.tutor_bairro, contrato.tutor_cidade].filter(Boolean).join(' - ') : ''
+                  const { endereco: enderecoCompleto, alterado: endAlterado } = enderecoDaEntrega(contrato, t.observacao_atribuicao)
+                  const pedido = pedidoDaTarefa(t.observacao_atribuicao)
                   const saldo = contrato ? calcularSaldoPendente(contrato).saldoTotal : 0
                   return (
                     <TarefaCard
@@ -1927,10 +1962,15 @@ export default function TarefasPage() {
                       petNome={petNome}
                       tutorNome={tutorNome}
                       quantidade={t.quantidade}
-                      linhaExtra={enderecoCompleto ? <p className="text-xs text-[var(--surface-500)] line-clamp-2 mt-0.5">📍 {enderecoCompleto}</p> : undefined}
-                      acao={(t.observacao_atribuicao || saldo > 0) ? (
+                      linhaExtra={(enderecoCompleto || pedido.previsao) ? (
+                        <>
+                          {pedido.previsao && <p className="text-xs font-semibold text-violet-500 mt-0.5">{pedido.previsao}</p>}
+                          {enderecoCompleto && <p className="text-xs text-[var(--surface-500)] line-clamp-2 mt-0.5">📍 {enderecoCompleto}{endAlterado && <span className="ml-1 font-semibold text-amber-500">(alterado)</span>}</p>}
+                        </>
+                      ) : undefined}
+                      acao={(pedido.exigeCiencia || saldo > 0) ? (
                         <div className="flex flex-col items-end gap-1 shrink-0">
-                          {t.observacao_atribuicao && <span className="text-base" title="Tem pedido específico">📝</span>}
+                          {pedido.exigeCiencia && <span className="text-base" title="Tem pedido específico">📝</span>}
                           {saldo > 0 && <span className="text-sm font-bold text-emerald-500" title={`Saldo em aberto: R$ ${saldo.toFixed(2)}`}>$</span>}
                         </div>
                       ) : undefined}
@@ -1947,7 +1987,7 @@ export default function TarefasPage() {
                     statusBadge={t.statusContrato}
                     petNome={t.petNome}
                     tutorNome={t.tutorNome}
-                    acao={t.observacao_atribuicao ? <span className="text-base shrink-0" title="Tem pedido específico">📝</span> : undefined}
+                    acao={pedidoDaTarefa(t.observacao_atribuicao).exigeCiencia ? <span className="text-base shrink-0" title="Tem pedido específico">📝</span> : undefined}
                     onClick={() => abrirTarefaMinhas(t)}
                   />
                 ))}
@@ -2376,18 +2416,23 @@ export default function TarefasPage() {
               </button>
             </div>
 
-            {tarefaAberta.observacao_atribuicao && (
+            {tarefaAberta.observacao_atribuicao && (() => {
+              const pedido = pedidoDaTarefa(tarefaAberta.observacao_atribuicao)
+              return (
               <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/40">
                 <p className="text-xs font-bold uppercase tracking-wide text-amber-500 mb-0.5">⚠️ Pedido específico de quem atribuiu</p>
-                <p className="text-sm text-[var(--surface-700)] mb-2">{tarefaAberta.observacao_atribuicao}</p>
-                {tarefaAberta.tipo !== 'remocao' && (
+                {pedido.previsao && <p className="text-sm font-semibold text-violet-500 mb-1">{pedido.previsao}</p>}
+                {pedido.endereco && <p className="text-sm text-[var(--surface-700)] mb-1">📍 <strong>Entregar em:</strong> {pedido.endereco}</p>}
+                {pedido.texto && <p className="text-sm text-[var(--surface-700)] mb-2">{pedido.texto}</p>}
+                {tarefaAberta.tipo !== 'remocao' && pedido.exigeCiencia && (
                   <label className="flex items-center gap-2 text-sm text-[var(--surface-700)] cursor-pointer">
                     <input type="checkbox" checked={leuObservacao} onChange={e => setLeuObservacao(e.target.checked)} className="w-4 h-4" />
                     Li e vou seguir esse pedido
                   </label>
                 )}
               </div>
-            )}
+              )
+            })()}
 
             {tarefaAberta.tipo === 'remocao' && tarefaAberta.ficha_id && fichasPorId[tarefaAberta.ficha_id] && (() => {
               const ficha = fichasPorId[tarefaAberta.ficha_id!]
@@ -2555,9 +2600,10 @@ export default function TarefasPage() {
                   const status = c?.status
                   const lacre = c?.numero_lacre
                   const petDetalhe = [c?.pet_especie, c?.pet_raca, c?.pet_cor].filter(Boolean).join(' · ')
-                  const enderecoCompleto = [c?.tutor_endereco, c?.tutor_bairro, c?.tutor_cidade].filter(Boolean).join(' - ')
-                  const wazeUrl = enderecoCompleto ? `https://waze.com/ul?q=${encodeURIComponent(enderecoCompleto)}&navigate=yes` : null
-                  const gmapsUrl = enderecoCompleto ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(enderecoCompleto)}` : null
+                  const { endereco: enderecoCompleto, alterado: endAlterado } = enderecoDaEntrega(c as ContratoResumo | null | undefined, tarefaAberta.observacao_atribuicao)
+                  const nav = enderecoCompleto ? linksNavegacao(enderecoCompleto) : null
+                  const wazeUrl = nav ? nav.waze : null
+                  const gmapsUrl = nav ? nav.maps : null
                   const saldo = tarefaAberta.tipo === 'entrega' && contratoEntrega ? calcularSaldoPendente(contratoEntrega).saldoTotal : 0
                   return (
                     <div className="space-y-2">
@@ -2570,7 +2616,7 @@ export default function TarefasPage() {
                         {petDetalhe && <p className="text-xs text-[var(--surface-500)] pl-[calc(2.5rem+0.375rem)]">{petDetalhe}</p>}
                         <p className="text-sm"><strong className="text-[var(--surface-700)]">Tutor:</strong> {tutorNome}</p>
                         {tarefaAberta.tipo === 'entrega' && enderecoCompleto && (
-                          <p className="text-sm"><strong className="text-[var(--surface-700)]">Endereço:</strong> {enderecoCompleto}</p>
+                          <p className="text-sm"><strong className="text-[var(--surface-700)]">Endereço:</strong> {enderecoCompleto}{endAlterado && <span className="ml-1 text-xs font-semibold text-amber-500">(alterado por quem atribuiu)</span>}</p>
                         )}
                       </div>
                       {saldo > 0 && (
@@ -2640,7 +2686,7 @@ export default function TarefasPage() {
                   )}
                   <button
                     onClick={() => concluirTarefaSimples(tarefaAberta)}
-                    disabled={concluindoSimples || (!!tarefaAberta.observacao_atribuicao && !leuObservacao) || (tarefaAberta.tipo === 'entrega' && !modoDataEntrega) || (tarefaAberta.tipo === 'entrega' && modoDataEntrega === 'outra' && !dataEntregaManual) || (isPosicao && !executadoPorFuncionarioId) || (tipoExigeFoto(tarefaAberta.tipo) && !fotoProva && !podeDispensarFoto)}
+                    disabled={concluindoSimples || (pedidoDaTarefa(tarefaAberta.observacao_atribuicao).exigeCiencia && !leuObservacao) || (tarefaAberta.tipo === 'entrega' && !modoDataEntrega) || (tarefaAberta.tipo === 'entrega' && modoDataEntrega === 'outra' && !dataEntregaManual) || (isPosicao && !executadoPorFuncionarioId) || (tipoExigeFoto(tarefaAberta.tipo) && !fotoProva && !podeDispensarFoto)}
                     className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-emerald-600 text-white font-semibold disabled:opacity-50"
                   >
                     {concluindoSimples ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
@@ -2693,7 +2739,7 @@ export default function TarefasPage() {
               {tarefaRecibo.observacao_atribuicao && (
                 <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/40">
                   <p className="text-xs font-bold uppercase tracking-wide text-amber-500 mb-0.5">📝 Pedido específico de quem atribuiu</p>
-                  <p className="text-sm text-[var(--surface-700)]">{tarefaRecibo.observacao_atribuicao}</p>
+                  <p className="text-sm text-[var(--surface-700)]">{pedidoLegivel(tarefaRecibo.observacao_atribuicao)}</p>
                 </div>
               )}
 
