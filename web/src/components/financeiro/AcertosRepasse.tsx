@@ -162,6 +162,16 @@ export default function AcertosRepasse({
         devedoraCodigo: matrizCobra ? unidadeCodigo : 'Matriz',
         fin_categorias: cat ? { fin_conta_id: cat.fin_conta_id, fin_contas: cat.fin_contas } : null,
       }, { userName: userName || null }, { guardarReembolsoEmOrigem: true })
+      // PRESO AO REPASSE DA TELA (08/10/2026). Solto (`repasse_id` nulo), o acerto
+      // só entrava no total quando alguém salvasse um repasse — o PRIMEIRO de
+      // qualquer mês daquela unidade —, e a Quitação, que soma pelos acertos
+      // presos, mostrava o a pagar sem ele (Correios de maio/ST: 14.334 em vez de
+      // 14.375,29). Com o repasse já salvo, prende como o Salvar prende.
+      if (repasseId) {
+        const { error: e3 } = await supabase.from('fin_cobrancas')
+          .update({ repasse_id: repasseId, status: 'liquidada' }).eq('id', (nova as { id: string }).id)
+        if (e3) throw new Error(`Acerto lançado, mas não ficou preso ao repasse: ${e3.message}`)
+      }
       toast(`Acerto lançado — ${matrizCobra ? 'acresce' : 'abate'} ${fmtBRL(v)}`, 'success')
       setDescricao(''); setCatBusca(''); setCatId(''); setValor('')
       void carregar(); onMudou()
