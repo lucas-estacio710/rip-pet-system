@@ -31,3 +31,14 @@ test('nomeDoCard tira espaço do fim e espaço duplo', () => {
   assert.equal(nomeDoCard('BOLINHA  DA SILVA '), 'BOLINHA DA SILVA')
   assert.equal(nomeDoCard(null), '')
 })
+
+test('enderecoParaNavegar: cadastro primeiro, snapshot de fallback, null sem rua', async () => {
+  const { enderecoParaNavegar, linksNavegacao } = await import('../card-pet.ts')
+  assert.equal(
+    enderecoParaNavegar({ endereco: 'Rua Bahia', numero: '40', complemento: 'casa', bairro: 'Gonzaga', cidade: 'Santos', cep: '11060-000' }, {}),
+    'Rua Bahia, 40 - casa - Gonzaga - Santos - 11060-000',
+  )
+  assert.equal(enderecoParaNavegar({ endereco: '  ' }, { endereco: 'Av. X', bairro: 'Centro', cidade: 'SP' }), 'Av. X - Centro - SP')
+  assert.equal(enderecoParaNavegar(null, {}), null)
+  assert.ok(linksNavegacao('Rua A, 1').waze.includes('navigate=yes'))
+})

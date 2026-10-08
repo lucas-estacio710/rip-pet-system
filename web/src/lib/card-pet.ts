@@ -43,3 +43,37 @@ export function especieDoCard(especie: string | null | undefined, peso: number |
 export function nomeDoCard(nome: string | null | undefined): string {
   return (nome || '').replace(/\s+/g, ' ').trim()
 }
+
+/**
+ * Endereço pra Waze/Maps na Entrega (item 37): o do CADASTRO do tutor (quem se muda atualiza o
+ * cadastro), com o snapshot do contrato de fallback. Rua, nº, compl., bairro, cidade e CEP.
+ * `null` sem rua — os botões nem aparecem.
+ */
+export function enderecoParaNavegar(
+  cadastro: { endereco?: string | null; numero?: string | null; complemento?: string | null; bairro?: string | null; cidade?: string | null; cep?: string | null } | null | undefined,
+  snapshot: { endereco?: string | null; bairro?: string | null; cidade?: string | null },
+): string | null {
+  const limpo = (v: string | null | undefined) => (v || '').replace(/\s+/g, ' ').trim()
+  const rua = limpo(cadastro?.endereco) || limpo(snapshot.endereco)
+  if (!rua) return null
+  const usaCadastro = !!limpo(cadastro?.endereco)
+  const partes = usaCadastro
+    ? [
+        [rua, limpo(cadastro?.numero)].filter(Boolean).join(', '),
+        limpo(cadastro?.complemento),
+        limpo(cadastro?.bairro),
+        limpo(cadastro?.cidade),
+        limpo(cadastro?.cep),
+      ]
+    : [rua, limpo(snapshot.bairro), limpo(snapshot.cidade)]
+  return partes.filter(Boolean).join(' - ')
+}
+
+/** URLs de navegação — as mesmas do /tarefas. */
+export function linksNavegacao(endereco: string): { waze: string; maps: string } {
+  const q = encodeURIComponent(endereco)
+  return {
+    waze: `https://waze.com/ul?q=${q}&navigate=yes`,
+    maps: `https://www.google.com/maps/dir/?api=1&destination=${q}`,
+  }
+}

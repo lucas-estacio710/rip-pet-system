@@ -2,7 +2,7 @@
 
 import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { AlertTriangle, ArrowDown, ArrowUp, Calendar, CalendarClock, Check, CheckCheck, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Copy, CornerDownRight, DollarSign, Flame, FolderOpen, Hand, Loader2, MapPin, MoreVertical, Move, Package, PawPrint, Pencil, Plus, Printer, Scale, Search, SearchCheck, Star, Tag, Trash2, Truck, Unlink, User, Weight, X, XCircle } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, Calendar, CalendarClock, Check, CheckCheck, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Copy, CornerDownRight, DollarSign, Flame, FolderOpen, Hand, Loader2, MapPin, MoreVertical, Move, Navigation, Package, PawPrint, Pencil, Plus, Printer, Scale, Search, SearchCheck, Star, Tag, Trash2, Truck, Unlink, User, Weight, X, XCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { sanitizeBuscaPostgrest } from '@/lib/sanitize'
 import Link from 'next/link'
@@ -46,6 +46,8 @@ import { useCardNovo } from '@/hooks/useCardNovo'
 import CardPet from '@/components/contratos/pipeline/CardPet'
 import BarraPipeline from '@/components/contratos/pipeline/BarraPipeline'
 import TopoCardPet from '@/components/contratos/pipeline/TopoCardPet'
+import TrilhoCardPet from '@/components/contratos/pipeline/TrilhoCardPet'
+import { enderecoParaNavegar, linksNavegacao } from '@/lib/card-pet'
 import { concluirTarefasPendentesDe, reabrirTarefasOperacionais, podeMarcarFeitoSemFoto } from '@/lib/atribuir-tarefa'
 import { carregarExigeFoto, type ExigeFotoPorTipo } from '@/lib/foto-tarefa'
 import EditarContratoModal from '@/components/contratos/modals/EditarContratoModal'
@@ -5906,6 +5908,142 @@ ${petNome}`
                     </div>
                     )}
 
+                    {/* Trilho. Com o card novo (obj_enc_pipeline, fase 2.3): resumo ✓N ⏱M + "Ações «"
+                        (gaveta). Até o 2.4, tocar no resumo abre os faróis antigos aqui embaixo. */}
+                    {cardNovo ? (() => {
+                      const tagsCard = isVisible(T, 'btn_farois')
+                        ? computeAllTags({ ...contrato, indicacaoFonteId }).filter(t => t.id !== 'protocolo')
+                        : null
+                      const feitos = tagsCard ? tagsCard.filter(t => t.state === 'completed' || t.state === 'rejected').length : 0
+                      const pendentes = tagsCard ? tagsCard.filter(t => t.state === 'pending' || t.state === 'in_progress' || t.state === 'alert').length : 0
+                      const naEntrega = contrato.status === 'retorno' || contrato.status === 'pendente'
+                      const endNav = naEntrega
+                        ? enderecoParaNavegar(contrato.tutor, { endereco: contrato.tutor_endereco, bairro: contrato.tutor_bairro, cidade: contrato.tutor_cidade })
+                        : null
+                      const nav = endNav ? linksNavegacao(endNav) : null
+                      const podeFase = isVisible(T, 'btn_alteracao_fase')
+                      const acoes: React.ReactNode[] = []
+                      if (nav) {
+                        acoes.push(
+                          <a key="waze" href={nav.waze} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="pl-acao" style={{ background: '#33ccff' }} title={'Waze: ' + endNav}>
+                            <span className="pl-acao-rot">Waze</span><Navigation className="h-3.5 w-3.5" />
+                          </a>,
+                          <a key="maps" href={nav.maps} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="pl-acao" style={{ background: '#fff', color: '#ea4335', border: '1px solid #e2e8f0' }} title={'Google Maps: ' + endNav}>
+                            <span className="pl-acao-rot" style={{ color: '#334155' }}>Maps</span><MapPin className="h-3.5 w-3.5" />
+                          </a>,
+                        )
+                      }
+                      if (isVisible(T, 'btn_mensagens')) {
+                        acoes.push(
+                          <ActionButtons
+                            key="msg"
+                            contrato={contrato}
+                            handlers={{
+                              onPetGrato: () => abrirPetGrato(contrato),
+                              onChegamos: () => abrirChegamosModal(contrato),
+                              onChegaram: () => abrirChegaramModal(contrato),
+                              onFinalizadora: () => abrirFinalizadoraModal(contrato),
+                            }}
+                            layout="pipeline"
+                          />,
+                        )
+                      }
+                      if (podeFase && contrato.status === 'preventivo') {
+                        acoes.push(
+                          <button key="ativar" onClick={e => { e.preventDefault(); e.stopPropagation(); abrirAtivarModal(contrato) }} className="pl-acao bg-red-900" title="Ativar">
+                            <span className="text-sm">✝️</span>
+                          </button>,
+                        )
+                      }
+                      if (podeFase && contrato.status === 'retorno') {
+                        acoes.push(
+                          <button
+                            key="pen"
+                            onClick={async e => {
+                              e.preventDefault(); e.stopPropagation()
+                              if (!confirm('Marcar ' + contrato.pet_nome + ' como pendente?')) return
+                              const supabaseLocal = createClient()
+                              await supabaseLocal.from('contratos').update({ status: 'pendente' } as never).eq('id', contrato.id)
+                              carregarContratos()
+                            }}
+                            className="pl-acao bg-purple-600"
+                            title="Marcar como pendente"
+                          >
+                            <span className="pl-acao-rot">PEN</span><span className="text-[11px]">⏳</span>
+                          </button>,
+                        )
+                      }
+                      // 📬 fica nas Ações até o 2.9 (lá vira o farol "Registrar entrega" na Entrega).
+                      if (podeFase && naEntrega) {
+                        acoes.push(
+                          <button key="entregue" onClick={e => { e.preventDefault(); e.stopPropagation(); abrirEntregaModal(contrato) }} className="pl-acao bg-emerald-600" title="Marcar entregue">
+                            <span className="text-sm">📬</span>
+                          </button>,
+                        )
+                      }
+                      if (podeFase && ['ativo', 'pinda'].includes(contrato.status) && isVisible(T, 'btn_bypass')) {
+                        acoes.push(
+                          <button key="bypass" onClick={e => { e.preventDefault(); e.stopPropagation(); setBypassContrato(contrato); setBypassDataCremacao(''); setBypassDataEntrega('') }} className="pl-acao bg-red-600 text-xs font-black" title="Bypass — finalizar pulando etapas">
+                            B
+                          </button>,
+                        )
+                      }
+                      return (
+                        <>
+                          <TrilhoCardPet
+                            resumo={tagsCard ? { feitos, pendentes } : null}
+                            resumoAberto={expandedMobileId === contrato.id}
+                            onResumo={() => setExpandedMobileId(prev => prev === contrato.id ? null : contrato.id)}
+                            acoes={acoes}
+                            extras={
+                              <>
+                                {renderGCStatusCompacto(contrato)}
+                                {/* Entrega em lote: fica até o 2.18 (sai com a chave) */}
+                                {podeFase && naEntrega && (
+                                  <div
+                                    onClick={(e) => toggleSelectEntrega(contrato.id, e)}
+                                    className="p-2 -m-1 cursor-pointer rounded-md hover:bg-emerald-500/15 transition-colors flex-shrink-0"
+                                    title="Selecionar para registrar entrega em lote"
+                                  >
+                                    <div className={'w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ' + (selectedEntregas.has(contrato.id) ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-emerald-500/60')}>
+                                      {selectedEntregas.has(contrato.id) && <Check className="w-2.5 h-2.5" />}
+                                    </div>
+                                  </div>
+                                )}
+                              </>
+                            }
+                          />
+                          {tagsCard && expandedMobileId === contrato.id && (
+                            <div className="space-y-1" onClick={e => e.stopPropagation()}>
+                    <InteractiveTags
+                      contrato={{ ...contrato, indicacaoFonteId }}
+                      handlers={{
+                        pelinho: () => abrirPelinhoModal(contrato),
+                        urna: () => abrirUrnaModal(contrato),
+                        certificado: () => abrirCertificadoModal(contrato),
+                        rescaldo: () => abrirRescaldoModal(contrato),
+                        indicacao: () => abrirIndicacaoModal(contrato),
+                      }}
+                      layout="pipeline-mobile-green"
+                    />
+                              <InteractiveTags
+                                contrato={{ ...contrato, indicacaoFonteId }}
+                                handlers={{
+                                  pelinho: () => abrirPelinhoModal(contrato),
+                                  urna: () => abrirUrnaModal(contrato),
+                                  certificado: () => abrirCertificadoModal(contrato),
+                                  foto: () => abrirFotoModal(contrato),
+                                  pagamento: () => abrirMegaPagamentoModal(contrato),
+                                  rescaldo: () => abrirRescaldoModal(contrato),
+                                  indicacao: () => abrirIndicacaoModal(contrato),
+                                }}
+                                layout="pipeline-mobile-pending"
+                              />
+                            </div>
+                          )}
+                        </>
+                      )
+                    })() : (<>
                     {/* Linha 3: Tags finalizadas — boxes grandes centralizados */}
                     <InteractiveTags
                       contrato={{ ...contrato, indicacaoFonteId }}
@@ -6066,6 +6204,7 @@ ${petNome}`
                         </>)}
                       </div>
                     )}
+                    </>)}
                   </div>
 
                 </div>
