@@ -43,6 +43,7 @@ import { baixarContratoPDF } from '@/lib/contrato-pdf-download'
 import { tituloNome, primeiroNome, separarPrimeiroNome } from '@/lib/nome-tutor'
 import { consultaEmLotes } from '@/lib/consulta-em-lotes'
 import { useCardNovo } from '@/hooks/useCardNovo'
+import CardPet from '@/components/contratos/pipeline/CardPet'
 import { concluirTarefasPendentesDe, reabrirTarefasOperacionais, podeMarcarFeitoSemFoto } from '@/lib/atribuir-tarefa'
 import { carregarExigeFoto, type ExigeFotoPorTipo } from '@/lib/foto-tarefa'
 import EditarContratoModal from '@/components/contratos/modals/EditarContratoModal'
@@ -5237,7 +5238,16 @@ ${petNome}`
             // válido. Quem achou foi o Lucas, olhando a tela. Quem usa é a etapa Pinda, que põe a linha do tempo do GC
             // ali dentro em vez de numa faixa separada embaixo (pedido do Lucas em 13/09,
             // apontando o vazio na tela). Sem `meio`, o card fica exatamente como sempre foi.
-            const renderContrato = (contrato: Contrato, meio?: React.ReactNode) => {
+            //
+            // Estrangulador (fase 1.3 do docs/PLAYBOOK_REDESENHO_PIPELINE.md): com o card novo
+            // ligado (chave obj_enc_pipeline) o contrato vai pro `CardPet`, que por enquanto
+            // devolve este mesmo card antigo. Quem não migrou nunca passa pelo CardPet.
+            const renderContrato = (contrato: Contrato, meio?: React.ReactNode): React.ReactNode =>
+              cardNovo
+                ? <CardPet key={contrato.id} renderAntigo={() => renderCardAntigo(contrato, meio)} />
+                : renderCardAntigo(contrato, meio)
+
+            const renderCardAntigo = (contrato: Contrato, meio?: React.ReactNode) => {
               const dataBox = getDataBox(contrato.data_acolhimento)
               const petIcon = getPetIcon(contrato.pet_especie, contrato.pet_peso)
               const statusColors = STATUS_COLORS[contrato.status]
