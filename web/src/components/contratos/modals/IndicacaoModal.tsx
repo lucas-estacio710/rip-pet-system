@@ -51,11 +51,26 @@ type Props = {
   contrato: IndicacaoContrato
   onClose: () => void
   onSuccess: (updated: IndicacaoUpdate) => void
+  /**
+   * Dentro do popup de pendências do pipeline redesenhado (fase 2.6): sem moldura nem cabeçalho
+   * próprios, e com o quadro "📝 O tutor escreveu na ficha" no topo (item 29) — a mesma consulta
+   * do `IndicacaoCard` do detalhe. Mesma lógica, mesmo salvar.
+   */
+  embutido?: boolean
 }
 
-export default function IndicacaoModal({ contrato, onClose, onSuccess }: Props) {
+export default function IndicacaoModal({ contrato, onClose, onSuccess, embutido = false }: Props) {
   const supabase = createClient()
   const { allUnidades } = useUnit()
+
+  // O que o tutor escreveu na ficha (só no modo embutido). `undefined` = carregando;
+  // `null` = contrato sem ficha (antigo/importado) → "Não especificado".
+  const [ficha, setFicha] = useState<{ como_conheceu: string[] | null; veterinario_especificar: string | null } | null | undefined>(undefined)
+  useEffect(() => {
+    if (!embutido) return
+    supabase.from('fichas').select('como_conheceu, veterinario_especificar').eq('contrato_id', contrato.id).maybeSingle()
+      .then(({ data }) => setFicha((data as { como_conheceu: string[] | null; veterinario_especificar: string | null } | null) ?? null))
+  }, [supabase, contrato.id, embutido])
 
   const temPadronizacaoClinicas = useMemo(
     () => !!allUnidades.find(u => u.id === contrato.unidade_id)?.modulos_ativos?.includes('cb_padronizacao_clinicas'),
@@ -186,15 +201,21 @@ export default function IndicacaoModal({ contrato, onClose, onSuccess }: Props) 
     { v: 'outro', label: 'Outro' },
   ]
 
-  return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => !salvando && onClose()}>
-      <div className="rounded-2xl shadow-2xl w-full max-w-md bg-[var(--surface-0)] border border-[var(--surface-200)]" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-4 border-b border-[var(--surface-200)]">
-          <h3 className="text-sm font-semibold text-[var(--shell-text)]">Indicação{contrato.pet_nome ? ` · ${contrato.pet_nome}` : ''}</h3>
-          <button onClick={onClose} disabled={salvando} className="p-1 rounded hover:bg-[var(--surface-100)] text-[var(--surface-500)]"><X className="h-4 w-4" /></button>
-        </div>
+  const quadroFicha = embutido && ficha !== undefined && (
+    <div className="rounded-lg px-3 py-2.5 border" style={{ background: 'rgba(245,158,11,.10)', borderColor: 'rgba(245,158,11,.45)' }}>
+      <p className="text-[11px] font-bold uppercase tracking-wider mb-1" style={{ color: '#b45309' }}>📝 O tutor escreveu na ficha</p>
+      <p className="text-sm whitespace-pre-wrap break-words" style={{ color: 'var(--surface-800)' }}>
+        {ficha?.veterinario_especificar?.trim() || <span className="italic" style={{ color: 'var(--surface-400)' }}>Não especificado</span>}
+      </p>
+      {!!ficha?.como_conheceu?.length && (
+        <p className="text-[11.5px] mt-1" style={{ color: 'var(--surface-500)' }}>Como nos conheceu: {ficha.como_conheceu.join(' / ')}</p>
+      )}
+    </div>
+  )
 
-        <div className="p-4 space-y-4">
+  const campos = (
+        <div className={embutido ? 'space-y-4' : 'p-4 space-y-4'}>
+          {quadroFicha}
           {/* Clínica de indicação */}
           <div className="relative">
             <label className="block text-xs font-medium text-[var(--surface-500)] mb-1">Clínica de indicação</label>
@@ -301,13 +322,28 @@ export default function IndicacaoModal({ contrato, onClose, onSuccess }: Props) 
 
           {erro && <p className="text-xs text-red-500">{erro}</p>}
         </div>
+  )
 
-        <div className="flex items-center justify-end gap-2 p-4 border-t border-[var(--surface-200)]">
+  const botoes = (
+        <div className={`flex items-center justify-end gap-2 ${embutido ? 'pt-4' : 'p-4 border-t border-[var(--surface-200)]'}`}>
           <button onClick={onClose} disabled={salvando} className="px-4 py-2 rounded-lg text-sm text-[var(--surface-500)] hover:bg-[var(--surface-100)] disabled:opacity-50">Cancelar</button>
           <button onClick={salvar} disabled={salvando} className="px-4 py-2 rounded-lg text-sm font-semibold bg-cyan-600 text-white hover:bg-cyan-700 disabled:opacity-50 inline-flex items-center gap-2">
             {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Salvar
           </button>
         </div>
+  )
+
+  if (embutido) return <>{campos}{botoes}</>
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => !salvando && onClose()}>
+      <div className="rounded-2xl shadow-2xl w-full max-w-md bg-[var(--surface-0)] border border-[var(--surface-200)]" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-[var(--surface-200)]">
+          <h3 className="text-sm font-semibold text-[var(--shell-text)]">Indicação{contrato.pet_nome ? ` · ${contrato.pet_nome}` : ''}</h3>
+          <button onClick={onClose} disabled={salvando} className="p-1 rounded hover:bg-[var(--surface-100)] text-[var(--surface-500)]"><X className="h-4 w-4" /></button>
+        </div>
+        {campos}
+        {botoes}
       </div>
     </div>
   )

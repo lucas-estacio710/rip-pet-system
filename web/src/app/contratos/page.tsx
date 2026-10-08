@@ -257,7 +257,7 @@ const STATUS_FLOW = [
  *   O `status` no banco continua `pinda`; muda só o rótulo.
  */
 /** Faróis que já têm tela própria no 2º nível do popup de pendências (cresce de 2.5 a 2.12). */
-const TELAS_FAROL = new Set<string>(['certificado'])
+const TELAS_FAROL = new Set<string>(['certificado', 'indicacao'])
 
 function etapasDoPipeline(fluxoLocal: boolean, cardNovo: boolean) {
   return STATUS_FLOW
@@ -7858,7 +7858,22 @@ ${petNome}`
               abrirAntigo[id]?.(c)
             }}
             onVoltar={popupHist.voltar}
-            tela={popupHist.nivel >= 2 && farolTela === 'certificado' && farolTelaContrato ? {
+            tela={popupHist.nivel >= 2 && farolTela === 'indicacao' && farolTelaContrato ? {
+              emoji: '🩺',
+              titulo: 'Indicação',
+              conteudo: (
+                <IndicacaoModal
+                  embutido
+                  contrato={farolTelaContrato}
+                  onClose={popupHist.voltar}
+                  onSuccess={(updated) => {
+                    const idAtualizado = farolTelaContrato.id
+                    setContratos(prev => prev.map(x => x.id === idAtualizado ? { ...x, ...updated } : x))
+                    popupHist.voltar()
+                  }}
+                />
+              ),
+            } : popupHist.nivel >= 2 && farolTela === 'certificado' && farolTelaContrato ? {
               emoji: '📜',
               titulo: 'Confirmar Certificado',
               conteudo: (
