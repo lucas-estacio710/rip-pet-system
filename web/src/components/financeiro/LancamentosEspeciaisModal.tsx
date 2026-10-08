@@ -195,7 +195,11 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
     setTela('repasse')
     const r = repasses[0]
     setRepasseId(r ? r.id : 'sem'); setMesSem('')
-    setValor(r ? paraDigitos(r.aPagar) : ''); setData(hojeISO())
+    // DATA EM BRANCO e obrigatória (08/10/2026): "hoje" e "vencimento" eram
+    // palpites — a fatura de jul/2026 de ST foi paga em 08/07 e gravada em 10/07
+    // (o vencimento que vinha preenchido). Pelo Importar extrato a data já chega
+    // certa, a da linha do banco (`inicial`).
+    setValor(r ? paraDigitos(r.aPagar) : ''); setData('')
   }
   function abrirFatura() {
     setTela('fatura')
@@ -203,7 +207,7 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
     setCartaoId(c?.id || '')
     const f = c ? (faturasPorCartao[c.id] || [])[0] : undefined
     setFaturaVenc(f?.venc || ''); setValor(f ? paraDigitos(f.total) : '')
-    setData(f && f.venc <= hojeISO() ? f.venc : hojeISO())
+    setData('')
   }
 
   const repasseSel = repasses.find(r => r.id === repasseId)
@@ -218,6 +222,7 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
     if (!v) return toast('Informe o valor pago', 'error')
     if (repasseId === 'sem' && !mesSem) return toast('Diga de qual mês é esse repasse', 'error')
     if (!repasseId) return toast('Escolha o repasse', 'error')
+    if (!data) return toast('Informe quando o pagamento saiu do banco', 'error')
     setSalvando(true)
     try {
       const mes = repasseSel ? rotuloMes(repasseSel.mes_referencia) : rotuloMes(`${mesSem}-01`)
@@ -255,6 +260,7 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
     if (!currentUnit?.id) return
     if (!origemId || !cartaoId || !faturaVenc) return toast('Escolha a conta, o cartão e a fatura', 'error')
     if (!v) return toast('Informe o valor pago', 'error')
+    if (!data) return toast('Informe quando o pagamento saiu do banco', 'error')
     setSalvando(true)
     try {
       const cartao = cartoes.find(c => c.id === cartaoId)
@@ -401,8 +407,9 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-xs text-[var(--surface-500)] block mb-1">Pago em</label>
-              <input type="date" value={data} onChange={e => setData(e.target.value)} className="input text-sm w-full" />
+              <label className="text-xs text-[var(--surface-500)] block mb-1">Saiu do banco em</label>
+              <input type="date" value={data} onChange={e => setData(e.target.value)} className="input text-sm w-full"
+                     style={!data ? { borderColor: '#f59e0b' } : undefined} />
             </div>
             {campoValor}
           </div>
@@ -429,7 +436,6 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
                         setFaturaVenc(e.target.value)
                         const f = (faturasPorCartao[cartaoId] || []).find(x => x.venc === e.target.value)
                         setValor(f ? paraDigitos(f.total) : '')
-                        if (f) setData(f.venc <= hojeISO() ? f.venc : hojeISO())
                       }}
                       className="input text-sm w-full">
                 {!(faturasPorCartao[cartaoId] || []).length && <option value="">nenhuma em aberto</option>}
@@ -456,8 +462,9 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
           <div className="grid grid-cols-2 gap-2">
             {contaOrigem}
             <div>
-              <label className="text-xs text-[var(--surface-500)] block mb-1">Pago em</label>
-              <input type="date" value={data} onChange={e => setData(e.target.value)} className="input text-sm w-full" />
+              <label className="text-xs text-[var(--surface-500)] block mb-1">Saiu do banco em</label>
+              <input type="date" value={data} onChange={e => setData(e.target.value)} className="input text-sm w-full"
+                     style={!data ? { borderColor: '#f59e0b' } : undefined} />
             </div>
           </div>
           {campoValor}
