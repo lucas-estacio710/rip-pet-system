@@ -42,3 +42,155 @@
     animation: none;
   }
 }
+
+/* ============================================================================
+   Barra do pipeline redesenhado (fase 2.1 — itens 19, 21, 22 e D1).
+   Segue o tema (P-02): escura no escuro (igual à antiga), clara no claro.
+   ============================================================================ */
+
+.pl-barra {
+  background: #0f172a;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.25);
+  --pl-campo-bg: #1e293b;
+  --pl-campo-borda: #334155;
+  --pl-campo-texto: #e2e8f0;
+  --pl-apagado: #64748b;
+  --pl-sep: #475569;
+  --pl-linha: rgba(148, 163, 184, 0.18);
+}
+[data-theme="white"] .pl-barra {
+  background: var(--surface-0);
+  border-bottom-color: var(--surface-200);
+  box-shadow: 0 6px 12px rgba(15, 23, 42, 0.06);
+  --pl-campo-bg: var(--surface-50);
+  --pl-campo-borda: var(--surface-200);
+  --pl-campo-texto: var(--surface-800);
+  --pl-apagado: #94a3b8;
+  --pl-sep: #cbd5e1;
+  --pl-linha: var(--surface-200);
+}
+
+.pl-campo {
+  background: var(--pl-campo-bg);
+  border: 1px solid var(--pl-campo-borda);
+  color: var(--pl-campo-texto);
+}
+.pl-campo::placeholder { color: var(--pl-apagado); }
+
+/* Etapas: sublinhado deslizante (mesma linguagem das UnderlineTabs do /tarefas). */
+.pl-etapas {
+  position: relative;
+  display: flex;
+  border-bottom: 1px solid var(--pl-linha);
+  padding-bottom: 3px;
+}
+.pl-etapa {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 2px 7px;
+  white-space: nowrap;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.pl-etapa:not(:last-child)::after {
+  content: '›';
+  position: absolute;
+  right: -3px;
+  top: 50%;
+  transform: translateY(-58%);
+  font-size: 13px;
+  line-height: 1;
+  color: var(--pl-sep);
+  pointer-events: none;
+}
+.pl-etapa .pl-etapa-txt {
+  color: var(--pl-apagado);
+  transition: color 0.25s;
+}
+.pl-etapa .pl-etapa-emoji {
+  filter: grayscale(0.7);
+  opacity: 0.7;
+  transition: filter 0.25s, opacity 0.25s, transform 0.3s;
+}
+.pl-etapa.on .pl-etapa-txt { color: color-mix(in srgb, var(--pl-cor) 55%, #fff); }
+[data-theme="white"] .pl-etapa.on .pl-etapa-txt { color: color-mix(in srgb, var(--pl-cor) 78%, #000); }
+.pl-etapa.on .pl-etapa-emoji { filter: none; opacity: 1; transform: translateY(-1px); }
+
+.pl-etapas-ind {
+  position: absolute;
+  bottom: -1px;
+  height: 3px;
+  left: calc(100% / var(--n) * var(--i) + 10px);
+  width: calc(100% / var(--n) - 20px);
+  border-radius: 3px 3px 0 0;
+  background: var(--pl-cor);
+  box-shadow: 0 0 10px var(--pl-cor);
+  transition: left 0.32s cubic-bezier(0.3, 1.25, 0.5, 1), background-color 0.3s;
+}
+[data-theme="white"] .pl-etapas-ind { box-shadow: none; }
+
+/* Menu "Organizar" (celular): ancorado no botão, com setinha. */
+.pl-org {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: 286px;
+  z-index: 40;
+  background: var(--surface-0);
+  border: 1px solid var(--surface-200);
+  border-radius: 14px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.35);
+  transform-origin: calc(100% - 18px) 0;
+  animation: pl-org-in 0.16s ease-out both;
+}
+.pl-org-seta {
+  position: absolute;
+  top: -7px;
+  right: 12px;
+  width: 12px;
+  height: 12px;
+  background: var(--surface-0);
+  border-left: 1px solid var(--surface-200);
+  border-top: 1px solid var(--surface-200);
+  transform: rotate(45deg);
+}
+.pl-org-titulo {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--surface-400);
+  margin-bottom: 6px;
+}
+.pl-org-op {
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--surface-300);
+  color: var(--surface-600);
+  background: var(--surface-0);
+}
+.pl-org-op.on {
+  background: rgba(124, 58, 237, 0.14);
+  border-color: #7c3aed;
+  color: #7c3aed;
+}
+@keyframes pl-org-in {
+  from { opacity: 0; transform: scale(0.92) translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pl-etapas-ind,
+  .pl-etapa .pl-etapa-txt,
+  .pl-etapa .pl-etapa-emoji { transition: none; }
+  .pl-org { animation: none; }
+}

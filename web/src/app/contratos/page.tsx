@@ -44,6 +44,7 @@ import { tituloNome, primeiroNome, separarPrimeiroNome } from '@/lib/nome-tutor'
 import { consultaEmLotes } from '@/lib/consulta-em-lotes'
 import { useCardNovo } from '@/hooks/useCardNovo'
 import CardPet from '@/components/contratos/pipeline/CardPet'
+import BarraPipeline from '@/components/contratos/pipeline/BarraPipeline'
 import { concluirTarefasPendentesDe, reabrirTarefasOperacionais, podeMarcarFeitoSemFoto } from '@/lib/atribuir-tarefa'
 import { carregarExigeFoto, type ExigeFotoPorTipo } from '@/lib/foto-tarefa'
 import EditarContratoModal from '@/components/contratos/modals/EditarContratoModal'
@@ -4240,9 +4241,121 @@ ${petNome}`
     return <div className="min-h-[50vh]" />
   }
 
+  // Caminho da viagem aberta (breadcrumb da pasta) — o MESMO JSX nas duas barras (a antiga e a
+  // BarraPipeline do fluxo novo, fase 2.1).
+  const breadcrumbPasta = encAberto ? (() => {
+          // A viagem aberta, sem depender do card (que não existe mais aqui): do embed dos
+          // contratos em tela, e `encPlanejados` como fallback pra viagem ainda sem pet.
+          const sup = contratos.find(c => c.supinda?.numero === encAberto)?.supinda
+            ?? encPlanejados.find(s => s.numero === encAberto)
+          // Mesma trava do antigo menu `⋯`: editar ou despachar só faz sentido em viagem que
+          // ainda não partiu. Numa já despachada, "Editar" abriria o desvincular-pet sobre um
+          // lote em Pinda.
+          const planejada = !sup?.status || sup.status === 'planejada'
+          return (
+            <div className="flex items-center gap-3 mt-1.5 ml-1 flex-wrap">
+              {/* O caminho, com o MESMO quadradinho do card (pedido do Lucas): o número ganha
+                  o box na cor da unidade, então o breadcrumb tem o peso visual de um título de
+                  seção e não de uma legenda perdida. Clicar volta pra raiz. */}
+              <button
+                onClick={() => setEncAberto(null)}
+                className="flex items-center gap-1.5 group"
+                title={`Sair de ${encAberto} e voltar para a lista`}
+              >
+                <CornerDownRight className="h-4 w-4 flex-shrink-0 text-[var(--surface-400)] group-hover:text-[var(--surface-600)]" />
+                <FolderOpen className="h-4 w-4 flex-shrink-0" style={{ color: corUnidadeAtual }} />
+                <span className="text-[13px] font-black px-2 py-1 rounded flex-shrink-0" style={{ background: corUnidadeAtual, color: textoBadgeUnidadeAtual }}>{encAberto}</span>
+              </button>
+
+              {/* Responsável e data vêm ANTES dos botões, na ordem que o Lucas pediu: primeiro
+                  o que a viagem É, depois o que se faz com ela. */}
+              {sup?.responsavel && (
+                <span className="flex items-center gap-1.5 flex-shrink-0">
+                  <User className="h-4 w-4 text-[var(--surface-400)]" />
+                  <span className="text-[12px] text-[var(--surface-400)]">Responsável:</span>
+                  <span className="text-[13px] text-[var(--surface-700)]">{sup.responsavel}</span>
+                </span>
+              )}
+              {sup?.data && (
+                <span className="flex items-center gap-1.5 flex-shrink-0">
+                  <Calendar className="h-4 w-4 text-[var(--surface-400)]" />
+                  <span className="text-[12px] text-[var(--surface-400)]">Data programada:</span>
+                  <span className="text-[13px] font-semibold text-[var(--surface-700)]">{formatarDataViagem(sup.data)}</span>
+                </span>
+              )}
+
+              {planejada && sup?.id && (
+                <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
+                  <button
+                    onClick={() => abrirEdicaoEncaminhamento(sup.id!, encAberto)}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold border text-[var(--surface-600)] hover:bg-[var(--surface-100)]"
+                    style={{ borderColor: 'var(--surface-300)' }}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />Editar
+                  </button>
+                  {/* POR ÚLTIMO, e é o único jeito de pôr um botão irreversível numa barra:
+                      na ponta, onde não se clica por engano ao mirar outra coisa.
+                      ⚠️ Isto REVERTE o §9.1 ("ação irreversível nunca visível por padrão"),
+                      que o escondia no menu `⋯`. Com o card fora da pasta o menu não existe
+                      mais aqui, e deixar o despacho a dois cliques de profundidade escondia o
+                      passo principal da etapa. A proteção que vale continua de pé, e é a que
+                      sempre valeu: a confirmação com a lista rolável e as 4 travas do SP47. */}
+                  {statusFiltro === 'ativo' && (
+                    <button
+                      onClick={() => abrirEnvioParaMatriz(sup.id!, encAberto)}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-bold text-white bg-orange-600 hover:bg-orange-700"
+                    >
+                      <Truck className="h-3.5 w-3.5" />Enviar para Matriz
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+  })() : null
+
+  // "+ Enc" — cria a viagem aqui mesmo (etapa 3). Só na etapa Ativo do fluxo novo. Na barra
+  // nova fica até o 2.13, quando vira a bola flutuante (D1).
+  const botaoNovoEnc = encPipeline && statusFiltro === 'ativo' ? (
+    <button
+      onClick={abrirNovoEncaminhamento}
+      className="flex-shrink-0 flex items-center gap-1 h-9 md:h-auto px-3 md:px-2 md:py-1 rounded-lg text-sm md:text-xs font-semibold bg-orange-600 text-white hover:bg-orange-700 transition-colors"
+      title="Criar um encaminhamento novo"
+    >
+      <Truck className="h-4 w-4 md:h-3.5 md:w-3.5" />+ Enc
+    </button>
+  ) : null
+
   return (
     <div className="animate-fade-in">
-      {/* Sticky Toolbar — theme-invariant (always dark slate) */}
+      {/* Barra: com o card novo (obj_enc_pipeline) entra a BarraPipeline da fase 2.1; sem a
+          chave, a barra antiga abaixo, intocada. */}
+      {cardNovo ? (
+        <BarraPipeline
+          etapas={etapasDoPipeline(fluxoLocal, cardNovo)}
+          contagens={statusCounts}
+          etapaAtiva={statusFiltro}
+          onEtapa={toggleStatus}
+          busca={busca}
+          onBusca={setBusca}
+          campoBusca={campoBusca}
+          onCampoBusca={v => { setCampoBusca(v); setPagina(0) }}
+          ordenacao={ordenacao}
+          ordemAsc={ordemAsc}
+          onOrdenar={(o, asc) => { setOrdenacao(o); setOrdemAsc(asc); setPagina(0) }}
+          mostrarCep={isVisible(T, 'btn_ordenar_cep') && cepUnidadeNum !== null}
+          agruparEnc={agruparSupinda}
+          onAgruparEnc={v => { setAgruparSupinda(v); setPagina(0) }}
+          mostrarAgruparEnc={encPipeline && statusFiltro === 'ativo'}
+          agruparCidade={agruparCidade}
+          onAgruparCidade={setAgruparCidade}
+          agruparBairro={agruparBairro}
+          onAgruparBairro={setAgruparBairro}
+          acao={botaoNovoEnc}
+          abaixo={breadcrumbPasta}
+        />
+      ) : (
+      // Barra antiga — theme-invariant (always dark slate)
       <div className="theme-sidebar sticky top-14 md:top-0 z-20 -mx-4 px-4 md:-mx-6 md:px-6 pb-1 pt-1.5 md:pt-1 bg-slate-900 border-b border-slate-700/50 shadow-lg space-y-1">
 
       {/* Search + Sort/Group */}
@@ -4410,76 +4523,7 @@ ${petNome}`
             ⚠️ Não é botão de voltar: quem volta é a pill do status (`toggleStatus` limpa
             o `encAberto`), e clicar aqui também volta, porque é o gesto que todo mundo
             tenta primeiro num caminho de pastas. */}
-        {encAberto && (() => {
-          // A viagem aberta, sem depender do card (que não existe mais aqui): do embed dos
-          // contratos em tela, e `encPlanejados` como fallback pra viagem ainda sem pet.
-          const sup = contratos.find(c => c.supinda?.numero === encAberto)?.supinda
-            ?? encPlanejados.find(s => s.numero === encAberto)
-          // Mesma trava do antigo menu `⋯`: editar ou despachar só faz sentido em viagem que
-          // ainda não partiu. Numa já despachada, "Editar" abriria o desvincular-pet sobre um
-          // lote em Pinda.
-          const planejada = !sup?.status || sup.status === 'planejada'
-          return (
-            <div className="flex items-center gap-3 mt-1.5 ml-1 flex-wrap">
-              {/* O caminho, com o MESMO quadradinho do card (pedido do Lucas): o número ganha
-                  o box na cor da unidade, então o breadcrumb tem o peso visual de um título de
-                  seção e não de uma legenda perdida. Clicar volta pra raiz. */}
-              <button
-                onClick={() => setEncAberto(null)}
-                className="flex items-center gap-1.5 group"
-                title={`Sair de ${encAberto} e voltar para a lista`}
-              >
-                <CornerDownRight className="h-4 w-4 flex-shrink-0 text-[var(--surface-400)] group-hover:text-[var(--surface-600)]" />
-                <FolderOpen className="h-4 w-4 flex-shrink-0" style={{ color: corUnidadeAtual }} />
-                <span className="text-[13px] font-black px-2 py-1 rounded flex-shrink-0" style={{ background: corUnidadeAtual, color: textoBadgeUnidadeAtual }}>{encAberto}</span>
-              </button>
-
-              {/* Responsável e data vêm ANTES dos botões, na ordem que o Lucas pediu: primeiro
-                  o que a viagem É, depois o que se faz com ela. */}
-              {sup?.responsavel && (
-                <span className="flex items-center gap-1.5 flex-shrink-0">
-                  <User className="h-4 w-4 text-[var(--surface-400)]" />
-                  <span className="text-[12px] text-[var(--surface-400)]">Responsável:</span>
-                  <span className="text-[13px] text-[var(--surface-700)]">{sup.responsavel}</span>
-                </span>
-              )}
-              {sup?.data && (
-                <span className="flex items-center gap-1.5 flex-shrink-0">
-                  <Calendar className="h-4 w-4 text-[var(--surface-400)]" />
-                  <span className="text-[12px] text-[var(--surface-400)]">Data programada:</span>
-                  <span className="text-[13px] font-semibold text-[var(--surface-700)]">{formatarDataViagem(sup.data)}</span>
-                </span>
-              )}
-
-              {planejada && sup?.id && (
-                <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
-                  <button
-                    onClick={() => abrirEdicaoEncaminhamento(sup.id!, encAberto)}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold border text-[var(--surface-600)] hover:bg-[var(--surface-100)]"
-                    style={{ borderColor: 'var(--surface-300)' }}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />Editar
-                  </button>
-                  {/* POR ÚLTIMO, e é o único jeito de pôr um botão irreversível numa barra:
-                      na ponta, onde não se clica por engano ao mirar outra coisa.
-                      ⚠️ Isto REVERTE o §9.1 ("ação irreversível nunca visível por padrão"),
-                      que o escondia no menu `⋯`. Com o card fora da pasta o menu não existe
-                      mais aqui, e deixar o despacho a dois cliques de profundidade escondia o
-                      passo principal da etapa. A proteção que vale continua de pé, e é a que
-                      sempre valeu: a confirmação com a lista rolável e as 4 travas do SP47. */}
-                  {statusFiltro === 'ativo' && (
-                    <button
-                      onClick={() => abrirEnvioParaMatriz(sup.id!, encAberto)}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-bold text-white bg-orange-600 hover:bg-orange-700"
-                    >
-                      <Truck className="h-3.5 w-3.5" />Enviar para Matriz
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          )
-        })()}
+        {breadcrumbPasta}
 
       </div>
 
@@ -4606,7 +4650,8 @@ ${petNome}`
         </div>
       </div>
 
-      </div>{/* /Sticky Toolbar */}
+      </div>
+      )}{/* /barra antiga */}
 
       {/* Card expandido da categoria (Montagem In-line) */}
 
