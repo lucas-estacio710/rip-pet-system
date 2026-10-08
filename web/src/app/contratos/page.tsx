@@ -48,6 +48,8 @@ import BarraPipeline from '@/components/contratos/pipeline/BarraPipeline'
 import TopoCardPet from '@/components/contratos/pipeline/TopoCardPet'
 import TrilhoCardPet from '@/components/contratos/pipeline/TrilhoCardPet'
 import { enderecoParaNavegar, linksNavegacao } from '@/lib/card-pet'
+import FarolPopup from '@/components/contratos/farois/FarolPopup'
+import { usePopupHistory } from '@/hooks/usePopupHistory'
 import { concluirTarefasPendentesDe, reabrirTarefasOperacionais, podeMarcarFeitoSemFoto } from '@/lib/atribuir-tarefa'
 import { carregarExigeFoto, type ExigeFotoPorTipo } from '@/lib/foto-tarefa'
 import EditarContratoModal from '@/components/contratos/modals/EditarContratoModal'
@@ -509,6 +511,15 @@ function ContratosContent() {
 
   // Mobile: card expandido para ações
   const [expandedMobileId, setExpandedMobileId] = useState<string | null>(null)
+  // Popup de pendências do card novo (fase 2.4). O botão voltar do celular fecha o popup pelo
+  // `usePopupHistory`; enquanto ele está aberto a URL NÃO é sincronizada (ver o efeito de
+  // `router.replace` abaixo) — um replace apagaria a entrada do popup no histórico.
+  const [farolContratoId, setFarolContratoId] = useState<string | null>(null)
+  const [farolAnimar, setFarolAnimar] = useState(true)
+  const popupHist = usePopupHistory()
+  useEffect(() => {
+    if (popupHist.nivel === 0 && farolContratoId) setFarolContratoId(null)
+  }, [popupHist.nivel, farolContratoId])
 
   // Edição inline de Lacre no pipeline (apenas inserir quando vazio, não editar)
   const [lacreEditandoId, setLacreEditandoId] = useState<string | null>(null)
@@ -969,8 +980,10 @@ function ContratosContent() {
     } catch {}
   }, [selectedEntregas])
 
-  // Atualizar URL quando estado muda (sem recarregar página)
+  // Atualizar URL quando estado muda (sem recarregar página). Pausado com popup aberto
+  // (`popupHist.ocupado`): o replace apagaria a entrada do popup e o "voltar" sairia da tela.
   useEffect(() => {
+    if (popupHist.ocupado) return
     const params = new URLSearchParams()
     if (busca) params.set('busca', busca)
     if (statusFiltro) params.set('status', statusFiltro)
@@ -986,7 +999,7 @@ function ContratosContent() {
 
     // Usar replace para não criar histórico a cada mudança de filtro
     router.replace(newUrl, { scroll: false })
-  }, [statusFiltro, pagina, ordenacao, ordemAsc, agruparCidade, agruparBairro, agruparSupinda])
+  }, [statusFiltro, pagina, ordenacao, ordemAsc, agruparCidade, agruparBairro, agruparSupinda, popupHist.ocupado]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     carregarContagens()
@@ -5992,8 +6005,8 @@ ${petNome}`
                         <>
                           <TrilhoCardPet
                             resumo={tagsCard ? { feitos, pendentes } : null}
-                            resumoAberto={expandedMobileId === contrato.id}
-                            onResumo={() => setExpandedMobileId(prev => prev === contrato.id ? null : contrato.id)}
+                            resumoAberto={farolContratoId === contrato.id}
+                            onResumo={() => { setFarolContratoId(contrato.id); setFarolAnimar(true); popupHist.abrir() }}
                             acoes={acoes}
                             extras={
                               <>
@@ -6013,34 +6026,6 @@ ${petNome}`
                               </>
                             }
                           />
-                          {tagsCard && expandedMobileId === contrato.id && (
-                            <div className="space-y-1" onClick={e => e.stopPropagation()}>
-                    <InteractiveTags
-                      contrato={{ ...contrato, indicacaoFonteId }}
-                      handlers={{
-                        pelinho: () => abrirPelinhoModal(contrato),
-                        urna: () => abrirUrnaModal(contrato),
-                        certificado: () => abrirCertificadoModal(contrato),
-                        rescaldo: () => abrirRescaldoModal(contrato),
-                        indicacao: () => abrirIndicacaoModal(contrato),
-                      }}
-                      layout="pipeline-mobile-green"
-                    />
-                              <InteractiveTags
-                                contrato={{ ...contrato, indicacaoFonteId }}
-                                handlers={{
-                                  pelinho: () => abrirPelinhoModal(contrato),
-                                  urna: () => abrirUrnaModal(contrato),
-                                  certificado: () => abrirCertificadoModal(contrato),
-                                  foto: () => abrirFotoModal(contrato),
-                                  pagamento: () => abrirMegaPagamentoModal(contrato),
-                                  rescaldo: () => abrirRescaldoModal(contrato),
-                                  indicacao: () => abrirIndicacaoModal(contrato),
-                                }}
-                                layout="pipeline-mobile-pending"
-                              />
-                            </div>
-                          )}
                         </>
                       )
                     })() : (<>
@@ -7832,6 +7817,46 @@ ${petNome}`
           </div>
         </div>
       )}
+
+      {/* Popup de pendências do card novo (fase 2.4). Até cada tela nova chegar (2.5–2.12),
+          tocar num farol fecha o popup e abre o modal de hoje. */}
+      {farolContratoId && (() => {
+        const c = contratos.find(x => x.id === farolContratoId)
+        if (!c) return null
+        const abrirAntigo: Record<string, (ct: Contrato) => void> = {
+          pelinho: abrirPelinhoModal,
+          urna: abrirUrnaModal,
+          certificado: abrirCertificadoModal,
+          foto: abrirFotoModal,
+          pagamento: abrirMegaPagamentoModal,
+          rescaldo: abrirRescaldoModal,
+          indicacao: abrirIndicacaoModal,
+        }
+        return (
+          <FarolPopup
+            aberto={popupHist.nivel > 0}
+            onFechar={popupHist.fechar}
+            animar={farolAnimar}
+            tags={computeAllTags({ ...c, indicacaoFonteId }).filter(t => t.id !== 'protocolo')}
+            onFarol={id => {
+              setFarolAnimar(false)
+              popupHist.fechar()
+              abrirAntigo[id]?.(c)
+            }}
+            pet={{
+              lacre: c.numero_lacre,
+              nome: c.pet_nome,
+              genero: c.pet_genero,
+              individual: c.tipo_cremacao === 'individual',
+              especie: c.pet_especie,
+              peso: c.pet_peso,
+              raca: c.pet_raca,
+              cor: c.pet_cor,
+              seguradora: (c as { seguradora?: string | null }).seguradora ?? null,
+            }}
+          />
+        )
+      })()}
 
       {/* Modal Certificado - Nomes para o certificado */}
       {certificadoContrato && (

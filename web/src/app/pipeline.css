@@ -323,3 +323,86 @@
 @media (prefers-reduced-motion: reduce) {
   .pl-gaveta { animation: none; }
 }
+
+/* ============================================================================
+   Popup de pendências (fase 2.4 — itens 6, 23, 25, 26 e 33).
+   ============================================================================ */
+
+/* Faixas centralizadas: "✓ CONCLUÍDAS" verde, "⚠ PENDENTES" âmbar, fundo tingido. */
+.pl-faixa {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--pl-c) 85%, var(--surface-900));
+  background: color-mix(in srgb, var(--pl-c) 14%, transparent);
+}
+
+/* Linha da lista (~39px: padding vertical 6px, emoji 17px). */
+.pl-linha {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  text-align: left;
+  color: var(--surface-800);
+  transition: background-color 0.15s;
+}
+.pl-linha:hover { background: var(--surface-100); }
+.pl-linha-emoji { font-size: 17px; line-height: 1; width: 22px; text-align: center; flex: none; }
+
+/* "Feito" = ✓ numa bolinha verde, desenhado a lápis UMA vez ao abrir (item 33). */
+.pl-ok {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(145deg, #34d399, #059669);
+  box-shadow: 0 2px 6px color-mix(in srgb, #10b981 45%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.pl-ok svg { width: 16px; height: 16px; overflow: visible; }
+.pl-ok path {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 3.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+}
+.pl-ok.anim { animation: pl-ok-in 0.28s ease-out both; animation-delay: var(--d); }
+.pl-ok.anim path {
+  stroke-dashoffset: 1;
+  animation: pl-lapis 0.62s cubic-bezier(0.65, 0, 0.35, 1) both;
+  animation-delay: calc(var(--d) + 0.22s);
+}
+@keyframes pl-ok-in { 0% { transform: scale(0.3); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+@keyframes pl-lapis { 0% { stroke-dashoffset: 1; } 28% { stroke-dashoffset: 0.68; } 40% { stroke-dashoffset: 0.68; } 100% { stroke-dashoffset: 0; } }
+
+/* Concluída "por não ter": chip CINZA, sem ✓ (D9 — vermelho é só alerta). */
+.pl-chip-nao {
+  flex: none;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #64748b;
+  background: rgba(241, 245, 249, 0.8);
+  border: 1px solid #94a3b8;
+}
+.pl-estado-pend { flex: none; font-size: 12px; font-weight: 700; color: #d97706; }
+[data-theme="white"] .pl-estado-pend { color: #b45309; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pl-ok.anim, .pl-ok.anim path { animation: none; stroke-dashoffset: 0; }
+}
