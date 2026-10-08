@@ -37,7 +37,7 @@ type Cat = {
   fin_conta_id: string | null; fin_contas?: { codigo: string; nome: string; natureza: string } | null
 }
 type Acerto = {
-  id: string; descricao: string | null; valor: number; data: string; status: string
+  id: string; tipo: string; descricao: string | null; valor: number; data: string; status: string
   unidade_credora: string; unidade_devedora: string; categoria_id: string | null
   lancamento_aceite_id: string | null; lancamento_origem_id: string | null; repasse_id: string | null
 }
@@ -71,6 +71,12 @@ export default function AcertosRepasse({
 
   // formulário
   const [matrizCobra, setMatrizCobra] = useState(true)   // true = acresce · false = abate
+  // NATUREZA (08/10/2026): nem todo acerto é despesa. "Tutor da unidade pagou na
+  // Matriz" é dinheiro da unidade que a Matriz segurou — a receita já está no
+  // contrato. Lançar como despesa daria receita em DOBRO pra unidade e uma
+  // despesa inexistente pra Matriz. Vira `recebimento_terceiro`: só abate/acresce
+  // no repasse, sem perna na DRE (reconhecerCobranca não cria lançamento pra ele).
+  const [natureza, setNatureza] = useState<'despesa' | 'recebimento'>('despesa')
   const [descricao, setDescricao] = useState('')
   const [catBusca, setCatBusca] = useState('')
   const [catId, setCatId] = useState('')
@@ -95,8 +101,8 @@ export default function AcertosRepasse({
                 `and(unidade_credora.eq.${unidadeId},unidade_devedora.eq.${matrizId})`
     const [{ data: cs }, { data: ct }, { data: hs }, { data: mz }] = await Promise.all([
       supabase.from('fin_cobrancas')
-        .select('id, descricao, valor, data, status, unidade_credora, unidade_devedora, categoria_id, lancamento_aceite_id, lancamento_origem_id, repasse_id')
-        .or(par).in('tipo', ['despesa_rateada', 'outro']).in('status', ['emitida', 'aceita', 'liquidada'])
+        .select('id, tipo, descricao, valor, data, status, unidade_credora, unidade_devedora, categoria_id, lancamento_aceite_id, lancamento_origem_id, repasse_id')
+        .or(par).in('tipo', ['despesa_rateada', 'outro', 'recebimento_terceiro']).in('status', ['emitida', 'aceita', 'liquidada'])
         .order('data'),
       supabase.from('fin_categorias')
         .select('id, nome, parent_id, termos, fin_conta_id, fin_contas(codigo, nome, natureza)')
@@ -128,7 +134,7 @@ export default function AcertosRepasse({
   async function lancar() {
     const v = emNumero(valor)
     if (!descricao.trim()) return toast('Descreva o acerto', 'error')
-    if (!catId) return toast('Escolha a categoria — é ela que diz onde a despesa cai na DRE', 'error')
+    if (natureza === 'despesa' && !catId) return toast('Escolha a categoria — é ela que diz onde a despesa cai na DRE', 'error')
     if (!v) return toast('Informe o valor', 'error')
     setSalvando(true)
     try {
@@ -136,16 +142,18 @@ export default function AcertosRepasse({
       const devedora = matrizCobra ? unidadeId : matrizId
       const { data: nova, error } = await supabase.from('fin_cobrancas').insert({
         unidade_credora: credora, unidade_devedora: devedora,
-        tipo: 'despesa_rateada', categoria_id: catId,
+        tipo: natureza === 'despesa' ? 'despesa_rateada' : 'recebimento_terceiro',
+        categoria_id: natureza === 'despesa' ? catId : null,
         valor: v, data, descricao: descricao.trim(),
         status: 'emitida', criado_por_nome: userName || null,
       }).select('id').single()
       if (error) throw new Error(error.message)
-      const cat = porId.get(catId)
-      // Já reconhecido: as duas pernas na DRE nascem agora.
+      const cat = natureza === 'despesa' ? porId.get(catId) : undefined
+      // Já reconhecido: na despesa, as duas pernas na DRE nascem agora; no
+      // recebimento de cliente, só o aceite (nenhuma perna — fora da DRE).
       await reconhecerCobranca(supabase, {
-        id: (nova as { id: string }).id, tipo: 'despesa_rateada', valor: v, data,
-        descricao: descricao.trim(), categoria_id: catId,
+        id: (nova as { id: string }).id, tipo: natureza === 'despesa' ? 'despesa_rateada' : 'recebimento_terceiro', valor: v, data,
+        descricao: descricao.trim(), categoria_id: natureza === 'despesa' ? catId : null,
         unidade_credora: credora, unidade_devedora: devedora,
         credoraNome: matrizCobra ? matrizNome : unidadeNome,
         devedoraCodigo: matrizCobra ? unidadeCodigo : 'Matriz',
@@ -217,7 +225,10 @@ export default function AcertosRepasse({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px_140px] gap-2">
-            <input value={descricao} onChange={e => setDescricao(e.target.value)} placeholder="O que é (ex.: Sistema de abril, tráfego pago)"
+            <input value={descricao} onChange={e => setDescricao(e.target.value)}
+                   placeholder={natureza === 'despesa'
+                     ? (matrizCobra ? 'O que é (ex.: urnas compradas pela Matriz, sistema do mês)' : 'O que é (ex.: compra da Matriz paga pela unidade)')
+                     : (matrizCobra ? 'O que é (ex.: cliente da Matriz pagou na unidade)' : 'O que é (ex.: tutor da unidade pagou na Matriz — pet REX)')}
                    className="input text-sm" />
             <input inputMode="numeric" value={valor ? emTexto(valor) : ''} placeholder="0,00"
                    onChange={e => setValor(soDigitos(e.target.value))}
@@ -226,12 +237,34 @@ export default function AcertosRepasse({
             <input type="date" value={data} onChange={e => setData(e.target.value)} className="input text-sm" title="Mês da DRE em que o acerto cai" />
           </div>
 
+          {/* NATUREZA — despesa (DRE) × dinheiro de cliente (fora da DRE). */}
+          <div className="flex flex-wrap gap-1.5">
+            {([
+              ['despesa', 'Despesa', 'compra feita por uma pela outra — entra na DRE'],
+              ['recebimento', 'Dinheiro de cliente', 'tutor pagou na unidade errada — fora da DRE'],
+            ] as const).map(([v, t, s]) => (
+              <button key={v} type="button" onClick={() => setNatureza(v)}
+                      className="text-left rounded-[var(--radius-md)] border px-2.5 py-1.5"
+                      style={{ borderColor: natureza === v ? 'var(--brand-500)' : 'var(--surface-200)' }}>
+                <span className="block text-xs font-medium text-[var(--surface-700)]">{t}</span>
+                <span className="block text-[10px] text-[var(--surface-400)]">{s}</span>
+              </button>
+            ))}
+          </div>
+          {natureza === 'recebimento' && (
+            <p className="text-[11px] text-[var(--surface-500)]">
+              Só acerta o dinheiro no repasse. A receita já é da unidade dona do contrato — confira se o
+              pagamento está lançado no contrato.
+            </p>
+          )}
+
+          {natureza === 'despesa' && (<>
           {/* CATEGORIA — onde a despesa cai na DRE de quem deve. Busca de sempre
               + o que acertos parecidos usaram antes. */}
           <div className="space-y-1">
             <input value={catId ? caminhoDe(catId) : catBusca}
                    onChange={e => { setCatBusca(e.target.value); setCatId('') }}
-                   placeholder="Categoria… (ex.: sistema, tráfego, sacos)"
+                   placeholder="Categoria… (ex.: urnas, recordações, sistema, sacos)"
                    className="input text-sm w-full" style={!catId ? { borderColor: '#f59e0b' } : undefined} />
             {sugestoes.length > 0 && (
               <div className="flex flex-wrap gap-1">
@@ -256,6 +289,8 @@ export default function AcertosRepasse({
               </div>
             )}
           </div>
+
+          </>)}
 
           <div className="flex justify-end">
             <button onClick={() => void lancar()} disabled={salvando} className="btn-primary text-sm">
@@ -289,7 +324,9 @@ export default function AcertosRepasse({
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-[var(--surface-800)] truncate">{a.descricao || 'Acerto'}</p>
                     <p className="text-[11px] text-[var(--surface-400)] truncate">
-                      {fmtData(a.data)} · {a.categoria_id ? caminhoDe(a.categoria_id) : <span className="text-amber-500">sem categoria — a despesa cai sem classificação na DRE</span>}
+                      {fmtData(a.data)} · {a.tipo === 'recebimento_terceiro'
+                        ? <span className="text-[var(--surface-500)]">dinheiro de cliente · fora da DRE</span>
+                        : a.categoria_id ? caminhoDe(a.categoria_id) : <span className="text-amber-500">sem categoria — a despesa cai sem classificação na DRE</span>}
                     </p>
                   </div>
                   <span className="text-mono text-sm shrink-0" style={{ color: matrizCobrou ? '#3b82f6' : '#10b981' }}>

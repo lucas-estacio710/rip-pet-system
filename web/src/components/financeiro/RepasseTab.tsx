@@ -494,18 +494,19 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
       let acertos: AcertoExcel[] = []
       if (matrizId) {
         const { data, error } = await supabase.from('fin_cobrancas')
-          .select('descricao, valor, data, status, unidade_credora, repasse_id, criado_por_nome, fin_categorias(nome)')
+          .select('tipo, descricao, valor, data, status, unidade_credora, repasse_id, criado_por_nome, fin_categorias(nome)')
           .or(`and(unidade_credora.eq.${matrizId},unidade_devedora.eq.${unidadeId}),` +
               `and(unidade_credora.eq.${unidadeId},unidade_devedora.eq.${matrizId})`)
-          .in('tipo', ['despesa_rateada', 'outro']).in('status', ['emitida', 'aceita', 'liquidada'])
+          .in('tipo', ['despesa_rateada', 'outro', 'recebimento_terceiro']).in('status', ['emitida', 'aceita', 'liquidada'])
           .order('data')
         if (error) throw new Error(error.message)
-        type A = { descricao: string | null; valor: number; data: string | null; status: string; unidade_credora: string; repasse_id: string | null; criado_por_nome: string | null; fin_categorias: { nome: string } | null }
+        type A = { tipo: string; descricao: string | null; valor: number; data: string | null; status: string; unidade_credora: string; repasse_id: string | null; criado_por_nome: string | null; fin_categorias: { nome: string } | null }
         const situacao: Record<string, string> = { emitida: 'não conta ainda', aceita: 'conta', liquidada: 'quitado' }
         acertos = ((data as unknown as A[]) || [])
           .filter(a => a.repasse_id === null || a.repasse_id === (existente?.id || null))
           .map(a => ({
-            data: a.data, descricao: a.descricao || 'Acerto', categoria: a.fin_categorias?.nome || null,
+            data: a.data, descricao: a.descricao || 'Acerto',
+            categoria: a.fin_categorias?.nome || (a.tipo === 'recebimento_terceiro' ? 'Dinheiro de cliente (fora da DRE)' : null),
             direcao: a.unidade_credora === matrizId ? 'acresce' : 'abate',
             valor: Number(a.valor), status: situacao[a.status] || a.status, lancadoPor: a.criado_por_nome,
           }))
