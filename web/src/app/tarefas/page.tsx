@@ -122,6 +122,11 @@ function pedidoDaTarefa(obs: string | null | undefined) {
   return { ...o, previsao: formatarPrevisao(o), exigeCiencia: !!(o.texto || o.endereco) }
 }
 
+/** Há pedido que exige ciência? Texto/endereço de quem atribuiu, OU nota do produto (mig 154). */
+function temPedido(t: { observacao_atribuicao: string | null; notasProduto?: string[] }): boolean {
+  return pedidoDaTarefa(t.observacao_atribuicao).exigeCiencia || !!t.notasProduto?.length
+}
+
 function pedidoLegivel(obs: string | null | undefined): string {
   const p = pedidoDaTarefa(obs)
   return [p.texto, p.previsao ? `previsão ${p.previsao.replace('📅 ', '')}` : null, p.endereco ? `endereço: ${p.endereco}` : null].filter(Boolean).join(' · ')
@@ -184,6 +189,8 @@ type ContratoProdutoResumo = {
   rescaldo_feito: boolean
   produto: { nome: string; rescaldo_tipo: string | null } | null
   contrato: ContratoResumo | null
+  // Pedido sobre ESTE produto (mig 154) — escrito no 📝 OBS do pipeline, vale desde antes de atribuir.
+  observacao?: string | null
 }
 
 // Mesmas siglas + cores do pipeline mobile (STATUS_FLOW/STATUS_COLORS de /contratos) — selo de
@@ -347,7 +354,7 @@ const PLACEHOLDER_PEDIDO: Record<TarefaTipo, string> = {
 
 // Item do pool já agrupado por (tipo, contrato) — itemIds carrega os `contrato_produto_id`
 // (ou o `contrato.id` pra entrega) do grupo inteiro; quantidade > 1 vira o badge "×N" no card.
-type PoolItemData = { key: string; itemIds: string[]; quantidade: number; petNome: string; tutorNome: string; status: string; lacre: string | null; enderecoResumo?: string; dataAcolhimento?: string | null }
+type PoolItemData = { key: string; itemIds: string[]; quantidade: number; petNome: string; tutorNome: string; status: string; lacre: string | null; enderecoResumo?: string; dataAcolhimento?: string | null; notas?: string[] }
 
 // Os 4 tipos de rescaldo do mesmo pet viram 1 card só no pool ("Personalizados") — pedido do
 // Lucas (01/09/2026): "agrupa por pet se tiver mais de uma atividade". Entrega fica de fora
@@ -367,6 +374,9 @@ type PetPoolGroup = {
 // Tarefa com pet/tutor/contrato resolvidos (compartilhado entre "Minhas Tarefas", "Em
 // andamento" e "Concluídas recentemente" — ver resolverPetTutor).
 type TarefaEnriquecida = TarefaRow & {
+  // Notas dos PRODUTOS desta tarefa (contrato_produtos.observacao, mig 154). No grupo ×N juntam-se
+  // as de todos os itens — cada uma com o nome do produto quando há mais de um.
+  notasProduto?: string[]
   petNome: string
   tutorNome: string
   contratoIdResolvido: string | null
@@ -398,6 +408,7 @@ function agruparTarefas(tarefas: TarefaEnriquecida[]): TarefaGrupo[] {
       grupos[chave] = { ...t, ids: [t.id], contratoProdutoIds: t.contrato_produto_id ? [t.contrato_produto_id] : [], quantidade: 1 }
     } else {
       existente.ids.push(t.id)
+      if (t.notasProduto?.length) existente.notasProduto = [...(existente.notasProduto || []), ...t.notasProduto]
       if (t.contrato_produto_id) existente.contratoProdutoIds.push(t.contrato_produto_id)
       existente.quantidade++
       if (new Date(t.atribuido_em) < new Date(existente.atribuido_em)) existente.atribuido_em = t.atribuido_em
@@ -450,7 +461,12 @@ function PoolItem({ tipo, item, onAbrirAtribuir, onMarcarFeito, marcandoFeitoId 
       petNome={item.petNome}
       tutorNome={item.tutorNome}
       quantidade={item.quantidade}
-      linhaExtra={item.enderecoResumo ? <p className="text-xs text-[var(--surface-500)] line-clamp-2 mt-0.5">📍 {item.enderecoResumo}</p> : undefined}
+      linhaExtra={(item.enderecoResumo || !!item.notas?.length) ? (
+        <>
+          {item.enderecoResumo && <p className="text-xs text-[var(--surface-500)] line-clamp-2 mt-0.5">📍 {item.enderecoResumo}</p>}
+          {item.notas?.map((n, i) => <p key={i} className="text-xs font-medium text-amber-600 line-clamp-2 mt-0.5">📝 {n}</p>)}
+        </>
+      ) : undefined}
       onClick={() => onAbrirAtribuir(item)}
       acao={
         <div className="flex flex-col items-stretch gap-2 shrink-0">
@@ -583,7 +599,7 @@ function PetMinhasCard({ petGroup, onAbrirTarefa }: {
               <span className="text-xs font-semibold flex-1 truncate" style={{ color: info.cor }}>
                 {info.label}{t.quantidade > 1 ? ` ×${t.quantidade}` : ''}
               </span>
-              {pedidoDaTarefa(t.observacao_atribuicao).exigeCiencia && <span className="text-sm shrink-0" title="Tem pedido específico">📝</span>}
+              {temPedido(t) && <span className="text-sm shrink-0" title="Tem pedido específico">📝</span>}
             </button>
           )
         })}
@@ -798,13 +814,13 @@ export default function TarefasPage() {
 
     const [{ data: contratos }, { data: produtos }, { data: fichas }] = await Promise.all([
       contratoIds.length > 0 ? supabase.from('contratos').select('id, pet_nome, tutor_nome, status, numero_lacre, data_acolhimento').in('id', contratoIds) : Promise.resolve({ data: [] }),
-      produtoIds.length > 0 ? supabase.from('contrato_produtos').select('id, contrato_id, contrato:contratos(pet_nome, tutor_nome, status, numero_lacre, data_acolhimento)').in('id', produtoIds) : Promise.resolve({ data: [] }),
+      produtoIds.length > 0 ? supabase.from('contrato_produtos').select('id, contrato_id, observacao, produto:produtos(nome), contrato:contratos(pet_nome, tutor_nome, status, numero_lacre, data_acolhimento)').in('id', produtoIds) : Promise.resolve({ data: [] }),
       fichaIds.length > 0 ? supabase.from('fichas').select('id, nome_pet, nome_completo').in('id', fichaIds) : Promise.resolve({ data: [] }),
     ])
     const contratoMap: Record<string, { pet_nome: string; tutor_nome: string; status: string; numero_lacre: string | null; data_acolhimento: string | null }> = {}
     for (const c of (contratos || []) as { id: string; pet_nome: string; tutor_nome: string; status: string; numero_lacre: string | null; data_acolhimento: string | null }[]) contratoMap[c.id] = c
-    const produtoMap: Record<string, { contrato_id: string; contrato: { pet_nome: string; tutor_nome: string; status: string; numero_lacre: string | null; data_acolhimento: string | null } | null }> = {}
-    for (const p of (produtos || []) as unknown as { id: string; contrato_id: string; contrato: { pet_nome: string; tutor_nome: string; status: string; numero_lacre: string | null; data_acolhimento: string | null } | null }[]) produtoMap[p.id] = p
+    const produtoMap: Record<string, { contrato_id: string; observacao: string | null; produto: { nome: string } | null; contrato: { pet_nome: string; tutor_nome: string; status: string; numero_lacre: string | null; data_acolhimento: string | null } | null }> = {}
+    for (const p of (produtos || []) as unknown as { id: string; contrato_id: string; observacao: string | null; produto: { nome: string } | null; contrato: { pet_nome: string; tutor_nome: string; status: string; numero_lacre: string | null; data_acolhimento: string | null } | null }[]) produtoMap[p.id] = p
     const fichaMap: Record<string, { nome_pet: string; nome_completo: string }> = {}
     for (const f of (fichas || []) as { id: string; nome_pet: string; nome_completo: string }[]) fichaMap[f.id] = f
 
@@ -820,6 +836,7 @@ export default function TarefasPage() {
         statusContrato: c?.status || p?.contrato?.status,
         lacreContrato: c?.numero_lacre || p?.contrato?.numero_lacre,
         dataAcolhimento: c?.data_acolhimento || p?.contrato?.data_acolhimento,
+        notasProduto: p?.observacao?.trim() ? [`${p.produto?.nome ? p.produto.nome + ': ' : ''}${p.observacao.trim()}`] : undefined,
       }
     })
   }, [supabase])
@@ -999,6 +1016,7 @@ export default function TarefasPage() {
         const partes = [`${rotulo} concluído por ${userName || 'Operacional'}${emNomeDe}${nomeExecutor ? ` (colaborador na posição: ${nomeExecutor})` : ''}.`]
         if (tarefa.tipo === 'entrega' && modoDataEntrega === 'outra') partes.push(`Data de entrega registrada retroativa: ${new Date(dataEntregaManual + 'T00:00:00').toLocaleDateString('pt-BR')}.`)
         if (tarefa.observacao_atribuicao) partes.push(`Pedido específico confirmado: "${pedidoLegivel(tarefa.observacao_atribuicao)}".`)
+        if (tarefa.notasProduto?.length) partes.push(`Nota do item confirmada: "${tarefa.notasProduto.join(' · ')}".`)
         if (anotacaoSimples.trim()) partes.push(`Nota: ${anotacaoSimples.trim()}`)
         // Automático NUNCA nasce importante (23/09/2026: 172 das 449 observações em destaque
         // eram log automático) — `registrarObservacaoContrato` já grava `importante: false`.
@@ -1600,7 +1618,7 @@ export default function TarefasPage() {
     const idsRescaldoOcupados = (pendentesRescaldo || []).map((r: { contrato_produto_id: string | null }) => r.contrato_produto_id).filter(Boolean)
 
     let qRescaldo = supabase.from('contrato_produtos')
-      .select('id, contrato_id, rescaldo_feito, produto:produtos!inner(nome, rescaldo_tipo), contrato:contratos!inner(id, codigo, pet_nome, tutor_nome, unidade_id, status, numero_lacre, data_acolhimento)')
+      .select('id, contrato_id, rescaldo_feito, observacao, produto:produtos!inner(nome, rescaldo_tipo), contrato:contratos!inner(id, codigo, pet_nome, tutor_nome, unidade_id, status, numero_lacre, data_acolhimento)')
       .eq('rescaldo_feito', false)
       .in('produto.rescaldo_tipo', ['molde_patinha', 'carimbo', 'pelo_extra', 'pelinho'])
       .eq('contrato.unidade_id', currentUnit.id)
@@ -1758,10 +1776,12 @@ export default function TarefasPage() {
           petNome: p.contrato?.pet_nome || '—', tutorNome: p.contrato?.tutor_nome || '',
           status: p.contrato?.status || '', lacre: p.contrato?.numero_lacre || null,
           dataAcolhimento: p.contrato?.data_acolhimento,
+          notas: p.observacao?.trim() ? [`${p.produto?.nome ? p.produto.nome + ': ' : ''}${p.observacao.trim()}`] : [],
         }
       } else {
         existente.itemIds.push(p.id)
         existente.quantidade++
+        if (p.observacao?.trim()) existente.notas = [...(existente.notas || []), `${p.produto?.nome ? p.produto.nome + ': ' : ''}${p.observacao.trim()}`]
       }
     }
     return ordenarPorAcolhimento(Object.values(grupos))
@@ -1900,7 +1920,7 @@ export default function TarefasPage() {
                       petNome={petNome}
                       tutorNome={tutorNome}
                       quantidade={t.quantidade}
-                      acao={pedidoDaTarefa(t.observacao_atribuicao).exigeCiencia ? <span className="text-base shrink-0" title="Tem pedido específico">📝</span> : undefined}
+                      acao={temPedido(t) ? <span className="text-base shrink-0" title="Tem pedido específico">📝</span> : undefined}
                       onClick={() => abrirTarefaMinhas(t)}
                     />
                   )
@@ -1987,7 +2007,7 @@ export default function TarefasPage() {
                     statusBadge={t.statusContrato}
                     petNome={t.petNome}
                     tutorNome={t.tutorNome}
-                    acao={pedidoDaTarefa(t.observacao_atribuicao).exigeCiencia ? <span className="text-base shrink-0" title="Tem pedido específico">📝</span> : undefined}
+                    acao={temPedido(t) ? <span className="text-base shrink-0" title="Tem pedido específico">📝</span> : undefined}
                     onClick={() => abrirTarefaMinhas(t)}
                   />
                 ))}
@@ -2416,7 +2436,7 @@ export default function TarefasPage() {
               </button>
             </div>
 
-            {tarefaAberta.observacao_atribuicao && (() => {
+            {(!!tarefaAberta.observacao_atribuicao || !!tarefaAberta.notasProduto?.length) && (() => {
               const pedido = pedidoDaTarefa(tarefaAberta.observacao_atribuicao)
               return (
               <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/40">
@@ -2424,7 +2444,8 @@ export default function TarefasPage() {
                 {pedido.previsao && <p className="text-sm font-semibold text-violet-500 mb-1">{pedido.previsao}</p>}
                 {pedido.endereco && <p className="text-sm text-[var(--surface-700)] mb-1">📍 <strong>Entregar em:</strong> {pedido.endereco}</p>}
                 {pedido.texto && <p className="text-sm text-[var(--surface-700)] mb-2">{pedido.texto}</p>}
-                {tarefaAberta.tipo !== 'remocao' && pedido.exigeCiencia && (
+                {tarefaAberta.notasProduto?.map((n, i) => <p key={i} className="text-sm text-[var(--surface-700)] mb-1">📝 {n}</p>)}
+                {tarefaAberta.tipo !== 'remocao' && temPedido(tarefaAberta) && (
                   <label className="flex items-center gap-2 text-sm text-[var(--surface-700)] cursor-pointer">
                     <input type="checkbox" checked={leuObservacao} onChange={e => setLeuObservacao(e.target.checked)} className="w-4 h-4" />
                     Li e vou seguir esse pedido
@@ -2686,7 +2707,7 @@ export default function TarefasPage() {
                   )}
                   <button
                     onClick={() => concluirTarefaSimples(tarefaAberta)}
-                    disabled={concluindoSimples || (pedidoDaTarefa(tarefaAberta.observacao_atribuicao).exigeCiencia && !leuObservacao) || (tarefaAberta.tipo === 'entrega' && !modoDataEntrega) || (tarefaAberta.tipo === 'entrega' && modoDataEntrega === 'outra' && !dataEntregaManual) || (isPosicao && !executadoPorFuncionarioId) || (tipoExigeFoto(tarefaAberta.tipo) && !fotoProva && !podeDispensarFoto)}
+                    disabled={concluindoSimples || (temPedido(tarefaAberta) && !leuObservacao) || (tarefaAberta.tipo === 'entrega' && !modoDataEntrega) || (tarefaAberta.tipo === 'entrega' && modoDataEntrega === 'outra' && !dataEntregaManual) || (isPosicao && !executadoPorFuncionarioId) || (tipoExigeFoto(tarefaAberta.tipo) && !fotoProva && !podeDispensarFoto)}
                     className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-emerald-600 text-white font-semibold disabled:opacity-50"
                   >
                     {concluindoSimples ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
@@ -2740,6 +2761,13 @@ export default function TarefasPage() {
                 <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/40">
                   <p className="text-xs font-bold uppercase tracking-wide text-amber-500 mb-0.5">📝 Pedido específico de quem atribuiu</p>
                   <p className="text-sm text-[var(--surface-700)]">{pedidoLegivel(tarefaRecibo.observacao_atribuicao)}</p>
+                </div>
+              )}
+
+              {!!tarefaRecibo.notasProduto?.length && (
+                <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/40">
+                  <p className="text-xs font-bold uppercase tracking-wide text-amber-500 mb-0.5">📝 Nota do item</p>
+                  {tarefaRecibo.notasProduto.map((n, i) => <p key={i} className="text-sm text-[var(--surface-700)]">{n}</p>)}
                 </div>
               )}
 
