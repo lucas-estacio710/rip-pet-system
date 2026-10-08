@@ -163,3 +163,28 @@ export async function concluirProduto(
     criadoPor: ctx.ator.nome,
   })
 }
+
+/**
+ * OBS do produto (mig 154, P-12): o pedido sobre AQUELE item ("molde da patinha de trás").
+ * Grava em `contrato_produtos.observacao` — vale desde o acolhimento e sobrevive a desatribuir.
+ * Chamar só no OK (todo UPDATE aqui dispara o recálculo de valores do contrato, mig 074).
+ * Registra no histórico quem pediu o quê — antes nada registrava.
+ */
+export async function salvarObsProduto(
+  sb: Supabase,
+  p: { cpId: string; obs: string | null; nomeProduto: string; petNome: string; ator: Ator },
+): Promise<void> {
+  const obs = p.obs && p.obs.trim() ? p.obs.trim() : null
+  const { error } = await sb.from('contrato_produtos').update({ observacao: obs } as never).eq('id', p.cpId)
+  if (error) throw new Error('Não consegui salvar a observação: ' + error.message)
+  await sb.from('historico_alteracoes').insert({
+    entidade: 'contrato_produto',
+    entidade_id: p.cpId,
+    entidade_nome: `${p.nomeProduto} — ${p.petNome}`,
+    campo: 'observacao',
+    campo_label: 'Observação do item',
+    valor_novo: obs,
+    tipo: 'alteracao',
+    alterado_por: p.ator.userId,
+  } as never)
+}

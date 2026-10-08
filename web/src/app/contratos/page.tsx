@@ -51,6 +51,7 @@ import { enderecoParaNavegar, linksNavegacao } from '@/lib/card-pet'
 import FarolPopup from '@/components/contratos/farois/FarolPopup'
 import FotoTela from '@/components/contratos/farois/FotoTela'
 import PelinhoTela from '@/components/contratos/farois/PelinhoTela'
+import PersonalizadosTela from '@/components/contratos/farois/PersonalizadosTela'
 import EntregaTela from '@/components/contratos/farois/EntregaTela'
 import { carregarTarefaEntrega } from '@/lib/tarefa-entrega'
 import { useToast } from '@/components/ui/Toast'
@@ -198,6 +199,8 @@ type ContratoProduto = {
   foto_recebida: boolean
   separado: boolean
   rescaldo_feito: boolean
+  // Pedido sobre ESTE produto (mig 154, P-12) — o 📝 OBS do popup de pendências.
+  observacao?: string | null
   produto: {
     codigo: string
     nome: string
@@ -262,7 +265,7 @@ const STATUS_FLOW = [
  *   O `status` no banco continua `pinda`; muda só o rótulo.
  */
 /** Faróis que já têm tela própria no 2º nível do popup de pendências (cresce de 2.5 a 2.12). */
-const TELAS_FAROL = new Set<string>(['certificado', 'indicacao', 'foto', 'pelinho', 'entrega'])
+const TELAS_FAROL = new Set<string>(['certificado', 'indicacao', 'foto', 'pelinho', 'entrega', 'rescaldo'])
 
 function etapasDoPipeline(fluxoLocal: boolean, cardNovo: boolean) {
   return STATUS_FLOW
@@ -1162,7 +1165,7 @@ function ContratosContent() {
       idsList,
       (lote, de, ate) => supabase
         .from('contrato_produtos')
-        .select('id, contrato_id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)')
+        .select('id, contrato_id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, observacao, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)')
         .in('contrato_id', lote)
         .order('id')
         .range(de, ate),
@@ -3078,7 +3081,7 @@ Gratidão eterna!
   async function recarregarPelinhoLocal(contratoId: string) {
     const { data } = await supabase
       .from('contrato_produtos')
-      .select('id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos!inner(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)')
+      .select('id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, observacao, produto:produtos!inner(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)')
       .eq('contrato_id', contratoId)
       .eq('produto.rescaldo_tipo', 'pelinho')
     const linhasPelinho = (data || []) as unknown as ContratoProduto[]
@@ -4184,31 +4187,54 @@ ${petNome}`
     setIndicacaoModal(true)
   }
 
-  async function adicionarProdutoRescaldo(produto: typeof produtosRescaldo[0]) {
-    if (!rescaldoContrato) return
-    setSalvandoRescaldo(true)
-
+  // Adiciona um personalizado (ou o 0002) a um contrato: insere, baixa estoque da unidade DO
+  // CONTRATO e atualiza a lista. Caminho único — modal antigo (RescaldoModal) e tela nova do
+  // popup de pendências (fase 2.10). Devolve a linha criada, ou null em erro.
+  async function inserirRescaldoNo(contrato: Contrato, produto: typeof produtosRescaldo[0]): Promise<ContratoProduto | null> {
     const { data, error } = await supabase
       .from('contrato_produtos')
       .insert({
-        contrato_id: rescaldoContrato.id,
+        contrato_id: contrato.id,
         produto_id: produto.id,
         quantidade: 1,
         valor: produto.preco || 0,
         rescaldo_feito: false,
       } as never)
-      .select('id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)')
+      .select('id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, observacao, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)')
       .single()
+    if (error || !data) return null
+    const novoProduto = data as ContratoProduto
+    await ajustarEstoquePorCodigo(produto.codigo, -1, contrato.unidade_id)
+    setContratos(prev => prev.map(c => c.id === contrato.id ? { ...c, contrato_produtos: [...(c.contrato_produtos || []), novoProduto] } : c))
+    return novoProduto
+  }
 
-    if (!error && data) {
-      const novoProduto = data as ContratoProduto
-      // Debitar estoque
-      await ajustarEstoquePorCodigo(produto.codigo, -1, rescaldoContrato.unidade_id)
-      // Atualizar estado local
-      setContratos(prev => prev.map(c => {
-        if (c.id !== rescaldoContrato.id) return c
-        return { ...c, contrato_produtos: [...(c.contrato_produtos || []), novoProduto] }
-      }))
+  // Tira um personalizado do contrato: apaga e devolve ao estoque da unidade DO CONTRATO.
+  async function apagarRescaldoDe(contrato: Contrato, cpId: string, produtoId: string): Promise<boolean> {
+    const { error } = await supabase.from('contrato_produtos').delete().eq('id', cpId)
+    if (error) return false
+    await ajustarEstoque(produtoId, 1, undefined, contrato.unidade_id)
+    setContratos(prev => prev.map(c => c.id === contrato.id ? { ...c, contrato_produtos: (c.contrato_produtos || []).filter(cp => cp.id !== cpId) } : c))
+    return true
+  }
+
+  // Relê todos os produtos de um contrato (depois de concluir/atribuir pela tela nova).
+  async function recarregarProdutosDoContrato(contratoId: string) {
+    const { data } = await supabase
+      .from('contrato_produtos')
+      .select('id, contrato_id, produto_id, quantidade, foto_recebida, separado, rescaldo_feito, observacao, produto:produtos(codigo, nome, tipo, precisa_foto, imagem_url, rescaldo_tipo)')
+      .eq('contrato_id', contratoId)
+    if (!data) return
+    setContratos(prev => prev.map(c => c.id === contratoId ? { ...c, contrato_produtos: data as unknown as ContratoProduto[] } : c))
+  }
+
+  async function adicionarProdutoRescaldo(produto: typeof produtosRescaldo[0]) {
+    if (!rescaldoContrato) return
+    setSalvandoRescaldo(true)
+
+    const novoProduto = await inserirRescaldoNo(rescaldoContrato, produto)
+
+    if (novoProduto) {
       setRescaldoContrato(prev => {
         if (!prev) return prev
         return { ...prev, contrato_produtos: [...(prev.contrato_produtos || []), novoProduto] }
@@ -4281,21 +4307,13 @@ ${petNome}`
   async function removerProdutoRescaldo(cpId: string, produtoId: string) {
     if (!rescaldoContrato) return
 
-    const { error } = await supabase
-      .from('contrato_produtos')
-      .delete()
-      .eq('id', cpId)
+    // Creditar estoque DA UNIDADE DO CONTRATO (dentro de apagarRescaldoDe)
+    const ok = await apagarRescaldoDe(rescaldoContrato, cpId, produtoId)
 
-    if (!error) {
-      // Creditar estoque DA UNIDADE DO CONTRATO
-      await ajustarEstoque(produtoId, 1, undefined, rescaldoContrato.unidade_id)
+    if (ok) {
       const filtrar = (prods?: ContratoProduto[]) =>
         prods?.filter(cp => cp.id !== cpId)
 
-      setContratos(prev => prev.map(c => {
-        if (c.id !== rescaldoContrato.id) return c
-        return { ...c, contrato_produtos: filtrar(c.contrato_produtos) }
-      }))
       setRescaldoContrato(prev => {
         if (!prev) return prev
         return { ...prev, contrato_produtos: filtrar(prev.contrato_produtos) }
@@ -7914,7 +7932,42 @@ ${petNome}`
               abrirAntigo[id]?.(c)
             }}
             onVoltar={popupHist.voltar}
-            tela={popupHist.nivel >= 2 && farolTela === 'entrega' ? {
+            tela={popupHist.nivel >= 2 && farolTela === 'rescaldo' ? {
+              emoji: '💎',
+              titulo: 'Personalizados',
+              // Objeto VIVO: cada ação grava na hora e a tela relê (recarregarProdutosDoContrato).
+              conteudo: (() => {
+                const prods = c.contrato_produtos || []
+                const nenhum = prods.find(cp => cp.produto?.codigo === '0002')
+                return (
+                  <PersonalizadosTela
+                    contratoId={c.id}
+                    unidadeId={c.unidade_id}
+                    petNome={c.pet_nome}
+                    itens={prods
+                      .filter(cp => cp.produto?.rescaldo_tipo && cp.produto.rescaldo_tipo !== 'pelinho')
+                      .map(cp => ({
+                        id: cp.id, produtoId: cp.produto_id, nome: cp.produto?.nome || 'Produto',
+                        imagemUrl: cp.produto?.imagem_url ?? null, rescaldoTipo: cp.produto?.rescaldo_tipo || 'outro',
+                        feito: !!cp.rescaldo_feito, observacao: cp.observacao ?? null,
+                      }))}
+                    nenhum={nenhum ? { id: nenhum.id, produtoId: nenhum.produto_id } : null}
+                    catalogo={produtosRescaldo}
+                    temOperacional={!!allUnidades.find(u => u.id === c.unidade_id)?.modulos_ativos?.includes('cb_operacional')}
+                    podeConcluirSemFoto={isSuperAdmin || currentRole === 'gerente'}
+                    exigeFotoPorTipo={exigeFotoPorTipo}
+                    atorNome={userName || 'Alguém'}
+                    onAdicionar={async prod => !!(await inserirRescaldoNo(c, prod))}
+                    onRemover={(cpId, produtoId) => apagarRescaldoDe(c, cpId, produtoId)}
+                    onAdicionarNenhum={async () => {
+                      const { data: prod } = await supabase.from('produtos').select('id, codigo, nome, tipo, rescaldo_tipo, preco, imagem_url').eq('codigo', '0002').single()
+                      if (!prod || !(await inserirRescaldoNo(c, prod as typeof produtosRescaldo[0]))) throw new Error('Não consegui marcar "Nenhum personalizado".')
+                    }}
+                    onMudou={() => recarregarProdutosDoContrato(c.id)}
+                  />
+                )
+              })(),
+            } : popupHist.nivel >= 2 && farolTela === 'entrega' ? {
               emoji: '📬',
               titulo: 'Registrar entrega',
               conteudo: (
@@ -7945,7 +7998,7 @@ ${petNome}`
                   petNome={c.pet_nome}
                   linhas={(c.contrato_produtos || [])
                     .filter(cp => cp.produto?.rescaldo_tipo === 'pelinho')
-                    .map(cp => ({ id: cp.id, feito: !!cp.rescaldo_feito }))}
+                    .map(cp => ({ id: cp.id, feito: !!cp.rescaldo_feito, observacao: cp.observacao ?? null }))}
                   temOperacional={!!allUnidades.find(u => u.id === c.unidade_id)?.modulos_ativos?.includes('cb_operacional')}
                   podeConcluirSemFoto={isSuperAdmin || currentRole === 'gerente'}
                   exigeFoto={exigeFotoPorTipo.pelinho === true}
