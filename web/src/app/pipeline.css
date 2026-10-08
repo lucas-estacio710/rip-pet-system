@@ -194,3 +194,59 @@
   .pl-etapa .pl-etapa-emoji { transition: none; }
   .pl-org { animation: none; }
 }
+
+/* ============================================================================
+   Topo do card de pet (fase 2.2 — itens 3, 4, 5, 30 e 31).
+   ============================================================================ */
+
+/* Chip cinza liso (item 30) — substitui o degradê prateado #cbd5e1→#f1f5f9→#cbd5e1. O card
+   tem fundo próprio (degradê IND/COL), então o chip é o mesmo nos 2 temas. */
+:root { --chip-neutro: #e2e8f0; }
+
+.pl-chip {
+  background: var(--chip-neutro);
+  color: #475569;
+  border-radius: 4px;
+}
+
+/* Lacre · Nome do pet · IND/COL numa peça só (item 31): sem espaço entre os três, cantos só
+   nas pontas, 12px de degradê em cada emenda. O nome trunca; lacre e IND/COL nunca. */
+.pl-tri {
+  display: flex;
+  align-items: stretch;
+  height: 24px;
+  min-width: 0;
+  max-width: 100%;
+  border-radius: 5px;
+  overflow: hidden;
+}
+.pl-tri-l {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 13px 0 6px;
+  color: #fff;
+  font-weight: 800;
+  font-size: 14px;
+  background: linear-gradient(90deg, #1d4ed8 0, #1d4ed8 calc(100% - 12px), var(--chip-neutro) 100%);
+}
+.pl-tri-n {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 13px 0 5px;
+  font-weight: 800;
+  font-size: 14px;
+  background: linear-gradient(90deg, var(--chip-neutro) 0, var(--chip-neutro) calc(100% - 12px), var(--pl-tipo) 100%);
+}
+.pl-tri-t {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 7px 0 3px;
+  color: #fff;
+  font-weight: 800;
+  font-size: 9.5px;
+  letter-spacing: 0.03em;
+  background: var(--pl-tipo);
+}

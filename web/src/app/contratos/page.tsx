@@ -45,6 +45,7 @@ import { consultaEmLotes } from '@/lib/consulta-em-lotes'
 import { useCardNovo } from '@/hooks/useCardNovo'
 import CardPet from '@/components/contratos/pipeline/CardPet'
 import BarraPipeline from '@/components/contratos/pipeline/BarraPipeline'
+import TopoCardPet from '@/components/contratos/pipeline/TopoCardPet'
 import { concluirTarefasPendentesDe, reabrirTarefasOperacionais, podeMarcarFeitoSemFoto } from '@/lib/atribuir-tarefa'
 import { carregarExigeFoto, type ExigeFotoPorTipo } from '@/lib/foto-tarefa'
 import EditarContratoModal from '@/components/contratos/modals/EditarContratoModal'
@@ -5761,7 +5762,25 @@ ${petNome}`
 
                   {/* === MOBILE LAYOUT === */}
                   <div className="md:hidden space-y-1">
-                    {/* Bloco topo: [Checkbox?] [Data] [Lacre/Tutor] ... [PetNome/Raça] [PetEmoji] */}
+                    {/* Bloco topo. Com o card novo (obj_enc_pipeline, fase 2.2) entra o TopoCardPet:
+                        data · lacre·nome·IND · peso / tutor com WhatsApp · raça|cor — sem DOC,
+                        fonte e local (item 2). Sem a chave, o topo antigo abaixo, intocado. */}
+                    {cardNovo ? (
+                      <TopoCardPet
+                        dataAcolhimento={contrato.data_acolhimento}
+                        lacre={lacreEditandoId !== contrato.id ? contrato.numero_lacre : null}
+                        lacreSolto={(!contrato.numero_lacre || lacreEditandoId === contrato.id) ? renderLacreCell(contrato, 'mobile') : null}
+                        petNome={contrato.pet_nome}
+                        petGenero={contrato.pet_genero}
+                        individual={contrato.tipo_cremacao === 'individual'}
+                        especie={contrato.pet_especie}
+                        peso={contrato.pet_peso}
+                        tutorNome={contrato.tutor?.nome || contrato.tutor_nome}
+                        telefone={contrato.tutor?.telefone || contrato.tutor_telefone}
+                        raca={contrato.pet_raca}
+                        cor={contrato.pet_cor}
+                      />
+                    ) : (
                     <div className="flex items-stretch gap-1.5">
                       {/* Coluna de ações: [DocMenu] sempre (exceto preventivo) + [Checkbox] em retorno/pendente */}
                       {contrato.status !== 'preventivo' && (
@@ -5885,6 +5904,7 @@ ${petNome}`
                         <span className="text-[8px] font-bold leading-none flex items-center gap-0.5">{getPetPorte(contrato.pet_peso) && <span className="font-black">{getPetPorte(contrato.pet_peso)}</span>}{contrato.pet_peso ? <><Weight className="h-2.5 w-2.5" />{Math.round(contrato.pet_peso)}</> : '-'}</span>
                       </div>
                     </div>
+                    )}
 
                     {/* Linha 3: Tags finalizadas — boxes grandes centralizados */}
                     <InteractiveTags
@@ -5933,8 +5953,9 @@ ${petNome}`
                       })()}
                       {/* Status GC compacto (estilo /gc mobile) — só em pinda, à esquerda do WhatsApp */}
                       {renderGCStatusCompacto(contrato)}
-                      {/* WhatsApp sempre visível (não precisa expandir) */}
-                      {(contrato.tutor?.telefone || contrato.tutor_telefone) && (
+                      {/* WhatsApp sempre visível (não precisa expandir). No card novo ele mora dentro
+                          da caixa do tutor (TopoCardPet), então aqui some. */}
+                      {!cardNovo && (contrato.tutor?.telefone || contrato.tutor_telefone) && (
                         <a
                           href={`https://wa.me/${(contrato.tutor?.telefone || contrato.tutor_telefone || '').replace(/\D/g, '')}`}
                           target="_blank"
