@@ -189,6 +189,9 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
     ? GRUPOS.map(g => ({ ...g, valor: Math.abs(Number(resumo[g.campo] || 0)) })).filter(g => g.valor >= 0.005).sort((a, b) => b.valor - a.valor)
     : []
   const somaGrupos = grupos.reduce((a, g) => a + g.valor, 0)
+  // O TEMPO DO VERBO (09/10/2026, pedido do Lucas): o mês corrente ainda está
+  // acontecendo — "Como foi"/"Sobrou" dão a ideia de mês fechado.
+  const emCurso = mes >= hojeISO().slice(0, 7)
 
   const titulo = 'text-[11px] font-semibold tracking-[.14em] uppercase text-[var(--surface-500)]'
   const link = 'text-[13px] text-[var(--brand-500)] hover:underline text-left'
@@ -200,22 +203,22 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
       {/* 1 · COMO FOI O MÊS */}
       {verResultado && (
         <section className="space-y-3">
-          <p className={titulo}>1 · Como foi o mês</p>
+          <p className={titulo}>1 · {emCurso ? 'Como está o mês' : 'Como foi o mês'}</p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="card p-5 flex flex-col gap-1">
-              <span className="text-sm text-[var(--surface-600)]">Entrou</span>
+              <span className="text-sm text-[var(--surface-600)]">{emCurso ? 'Entrou até agora' : 'Entrou'}</span>
               <span className="text-mono text-2xl tabular-nums text-[var(--surface-900)]">{fmtBRL(entrou)}</span>
               <span className="text-[13px] text-[var(--surface-500)]">cremações, urnas e acessórios vendidos</span>
-              <button onClick={() => onIr('dre')} className={`${link} mt-1.5`}>Ver de onde veio →</button>
+              <button onClick={() => onIr('dre')} className={`${link} mt-1.5`}>{emCurso ? 'Ver de onde vem →' : 'Ver de onde veio →'}</button>
             </div>
             <div className="card p-5 flex flex-col gap-1">
-              <span className="text-sm text-[var(--surface-600)]">Custou</span>
+              <span className="text-sm text-[var(--surface-600)]">{emCurso ? 'Custou até agora' : 'Custou'}</span>
               <span className="text-mono text-2xl tabular-nums text-[var(--surface-900)]">{fmtBRL(custou)}</span>
               <span className="text-[13px] text-[var(--surface-500)]">cremações, impostos e as {qtdDespesas} despesas</span>
               {verLancamentos && <button onClick={() => onIr('lancamentos')} className={`${link} mt-1.5`}>Ver as {qtdDespesas} despesas →</button>}
             </div>
             <div className="card p-5 flex flex-col gap-1" style={{ boxShadow: `inset 0 0 0 1px ${sobrou >= 0 ? 'rgba(16,185,129,.45)' : 'rgba(245,158,11,.5)'}` }}>
-              <span className="text-sm text-[var(--surface-600)]">{sobrou >= 0 ? 'Sobrou' : 'Faltou'}</span>
+              <span className="text-sm text-[var(--surface-600)]">{emCurso ? (sobrou >= 0 ? 'Está sobrando' : 'Está faltando') : (sobrou >= 0 ? 'Sobrou' : 'Faltou')}</span>
               <span className={`text-mono text-2xl tabular-nums ${sobrou >= 0 ? 'text-emerald-500' : 'text-amber-500'}`}>{fmtBRL(Math.abs(sobrou))}</span>
               <span className="text-[13px] text-[var(--surface-500)]">
                 {entrou > 0 ? `${Math.round((sobrou / entrou) * 100)}% do que entrou` : 'sem receita no mês'}
@@ -229,7 +232,7 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
       {/* 2 · PARA ONDE FOI */}
       {verResultado && grupos.length > 0 && (
         <section className="space-y-3">
-          <p className={titulo}>2 · Para onde foi</p>
+          <p className={titulo}>2 · {emCurso ? 'Para onde está indo' : 'Para onde foi'}</p>
           <div className="card p-5 space-y-4">
             <div className="flex h-3.5 rounded-full overflow-hidden gap-0.5">
               {grupos.map(g => <span key={g.campo} style={{ flex: g.valor, background: g.cor }} title={`${g.nome}: ${fmtBRL(g.valor)}`} />)}
