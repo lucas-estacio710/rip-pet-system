@@ -5537,8 +5537,11 @@ ${petNome}`
               if (contrato.aguardando_acolhimento && cardNovo) {
                 // Fase 2.15 (item 18 / D7): deixa de ser travado — pendências e Ações, com
                 // "Pet Acolhido" primeiro. Sem lacre, Bypass nem viagem.
+                // Item 2 dos ajustes finos: `remocao_*` sai do LOCAL escolhido (Tratativa e, desde
+                // 09/10, também o Ativar Preventivo). Sem endereço, o nome do lugar.
                 const l1 = (contrato.remocao_endereco || '').trim()
-                  || (contrato.local_coleta === 'Clínica' && contrato.clinica_coleta ? contrato.clinica_coleta : '')
+                  || ((contrato.local_coleta === 'Clínica' || contrato.local_coleta === 'Outro') && contrato.clinica_coleta ? contrato.clinica_coleta : '')
+                  || (contrato.local_coleta === 'Unidade' ? `Unidade ${allUnidades.find(u => u.id === contrato.unidade_id)?.nome || ''}`.trim() : '')
                 const l2 = [contrato.remocao_bairro, contrato.remocao_cidade].map(x => (x || '').trim()).filter(Boolean).join(' · ')
                 return (
                   <div key={contrato.id} data-contrato-id={contrato.id}>
@@ -5557,6 +5560,20 @@ ${petNome}`
                       resumoAberto={farolContratoId === contrato.id}
                       onResumo={() => { setFarolContratoId(contrato.id); setFarolAnimar(true); popupHist.abrir() }}
                       onPetAcolhido={() => abrirFinalizarAtivacaoPV(contrato)}
+                      // CHE / PG (item 5): o acolhimento já está em `ativo` (ou `pinda` em PI) desde a
+                      // atribuição, então o ActionButtons escolhe as mensagens certas pelo status.
+                      mensagens={isVisible(T, 'btn_mensagens') ? (
+                        <ActionButtons
+                          contrato={contrato}
+                          handlers={{
+                            onPetGrato: () => abrirPetGrato(contrato),
+                            onChegamos: () => abrirChegamosModal(contrato),
+                            onChegaram: () => abrirChegaramModal(contrato),
+                            onFinalizadora: () => abrirFinalizadoraModal(contrato),
+                          }}
+                          layout="pipeline"
+                        />
+                      ) : undefined}
                       onAbrir={() => router.push(`/contratos/${contrato.id}`)}
                       destaque={termosDestaque}
                       rotuloAcolhido={`Pet Acolhido — finalizar ${contrato.tipo_plano === 'preventivo' ? 'Ativação de Preventivo' : 'Acolhimento'}`}

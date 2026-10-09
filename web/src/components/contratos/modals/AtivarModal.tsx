@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { enderecoDeRemocao, type LocalColeta } from '@/lib/endereco-remocao'
 import { useUnit } from '@/contexts/UnitContext'
 import AcolhimentoForm, { AcolhimentoData, ACOLHIMENTO_INICIAL } from '@/components/fichas/AcolhimentoForm'
 
@@ -248,6 +249,32 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
       // clinica_coleta grava o nome da clínica (se clínica) ou o endereço livre (se "Outro")
       const clinicaColeta = isClinica ? clinicaColetaNome : (isOutro ? (a.enderecoOutro.trim() || null) : null)
 
+      // Endereço de remoção pelo LOCAL escolhido agora (item 2 dos ajustes finos, 09/10/2026).
+      // Antes este modal não gravava `remocao_*`: o PV nascia com a casa do tutor e, ativado numa
+      // clínica, o card "Em Acolhimento" continuava mostrando a casa. Mesma função da Tratativa.
+      let partesClinica: { endereco: string | null; bairro: string | null; cidade: string | null; cep: string | null } | null = null
+      if (isClinica && resolvedEstabId) {
+        const { data } = await supabase.from('estabelecimentos').select('endereco, bairro, cidade, cep').eq('id', resolvedEstabId).maybeSingle()
+        partesClinica = data as typeof partesClinica
+      }
+      let casa: { endereco?: string | null; numero?: string | null; bairro?: string | null; cidade?: string | null; cep?: string | null } | null = null
+      if (!a.semLocal && a.localColeta === 'residencia') {
+        // Cadastro do tutor primeiro (quem se muda atualiza o cadastro); snapshot do contrato de fallback.
+        const { data } = await supabase.from('contratos')
+          .select('tutor_endereco, tutor_bairro, tutor_cidade, tutor_cep, tutor:tutores(endereco, numero, bairro, cidade, cep)')
+          .eq('id', contrato.id).maybeSingle()
+        const c = data as { tutor_endereco: string | null; tutor_bairro: string | null; tutor_cidade: string | null; tutor_cep: string | null; tutor: { endereco: string | null; numero: string | null; bairro: string | null; cidade: string | null; cep: string | null } | null } | null
+        casa = c?.tutor?.endereco
+          ? c.tutor
+          : { endereco: c?.tutor_endereco, bairro: c?.tutor_bairro, cidade: c?.tutor_cidade, cep: c?.tutor_cep }
+      }
+      const remocao = enderecoDeRemocao(a.semLocal ? '' : (a.localColeta as LocalColeta), {
+        residencia: casa,
+        clinica: { ...(partesClinica || {}), nome: clinicaColetaNome },
+        outro: a.enderecoOutro,
+        unidade: { endereco: currentUnit?.endereco ?? null, cidade: currentUnit?.cidade ?? null },
+      })
+
       // Contato para cremação: se marcou "Não, é outro" e informou telefone2 → vira principal
       const hasTel2 = a.usarTelefone2ComoPrincipal && !!a.telefone2.trim()
       const tel1NomeVal = a.telefone1Nome.trim() || null
@@ -276,6 +303,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
             status: novoStatus,
             local_coleta: localColetaValor,
             clinica_coleta: clinicaColeta,
+            ...remocao,
             estabelecimento_id: isClinica ? (resolvedEstabId || null) : null,
             funcionario_id: a.funcionarioId || null,
             responsavel_user_id: a.responsavelUserId || null,
@@ -351,6 +379,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
           data_acolhimento: dataHoraIso,
           local_coleta: localColetaValor,
           clinica_coleta: clinicaColeta,
+          ...remocao,
           estabelecimento_id: isClinica ? (resolvedEstabId || null) : null,
           numero_lacre: a.semLacre ? null : (a.lacre.trim() || null),
           // Sem o `semResponsavel ?` na frente — mesmo ajuste do TratativaModal (achado em

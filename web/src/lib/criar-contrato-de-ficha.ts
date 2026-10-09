@@ -11,6 +11,7 @@
 // no pipeline.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { enderecoDeRemocao, type LocalColeta } from '@/lib/endereco-remocao'
 
 export class ContratoValidationError extends Error {}
 
@@ -306,25 +307,14 @@ export async function criarContratoDeFicha(
       return d
     })(),
     local_coleta: localColetaValor,
-    remocao_endereco:
-      localColeta === 'residencia' ? (ficha.endereco ? `${ficha.endereco}, ${ficha.numero}` : null)
-      : localColeta === 'clinica' ? (estabEndereco?.endereco || clinicaColetaNome || null)
-      : localColeta === 'outro' ? (enderecoOutro || null)
-      : localColeta === 'unidade' ? (unidade.endereco || null)
-      : null,
-    remocao_bairro:
-      localColeta === 'residencia' ? ficha.bairro
-      : localColeta === 'clinica' ? (estabEndereco?.bairro || null)
-      : null,
-    remocao_cidade:
-      localColeta === 'residencia' ? ficha.cidade
-      : localColeta === 'clinica' ? (estabEndereco?.cidade || null)
-      : localColeta === 'unidade' ? (unidade.cidade || null)
-      : null,
-    remocao_cep:
-      localColeta === 'residencia' ? ficha.cep
-      : localColeta === 'clinica' ? (estabEndereco?.cep || null)
-      : null,
+    // Endereço de remoção pelo LOCAL escolhido — mesma função do Ativar Preventivo (item 2 dos
+    // ajustes finos, 09/10/2026: só a Tratativa gravava isso).
+    ...enderecoDeRemocao(localColeta as LocalColeta, {
+      residencia: { endereco: ficha.endereco, numero: ficha.numero, bairro: ficha.bairro, cidade: ficha.cidade, cep: ficha.cep },
+      clinica: { ...(estabEndereco || {}), nome: clinicaColetaNome },
+      outro: enderecoOutro,
+      unidade: { endereco: unidade.endereco, cidade: unidade.cidade },
+    }),
     numero_lacre: aguardarAcolhimento ? null : (lacre.trim() || null),
     seguradora: temSeguradora && seguradoraNome.trim() ? seguradoraNome.trim() : null,
     observacoes: ficha.observacoes || null,

@@ -15,7 +15,7 @@
  * DESKTOP (D7): no lugar da data, bloco roxo claro tracejado com ampulheta girando devagar e
  *   "acolhendo"; nome/tutor; 📍 endereço no meio; resumo ✓⏱; "Pet Acolhido" botão vidro.
  */
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { ChevronDown, ClipboardCheck, Hourglass, MapPin } from 'lucide-react'
 import TopoCardPet from './TopoCardPet'
 import TrilhoCardPet from './TrilhoCardPet'
@@ -40,6 +40,8 @@ type Props = {
   onPetAcolhido: () => void
   onAbrir: () => void
   rotuloAcolhido: string
+  /** Mensagens (CHE / PG — item 5 dos ajustes finos): vêm DEPOIS do "Pet Acolhido". */
+  mensagens?: ReactNode
   /** Termos da busca por texto pra marcar no nome do pet e do tutor (parte 5 da busca nova). */
   destaque?: string[]
 }
@@ -99,7 +101,10 @@ export default function CardAcolhimento(p: Props) {
         </button>
         {aberto && (
           <TrilhoCardPet resumo={p.resumo} resumoAberto={p.resumoAberto} onResumo={p.onResumo}
-            acoes={[<span key="acolhido" onClick={e => e.stopPropagation()}>{botaoAcolhido}</span>]} />
+            acoes={[
+              <span key="acolhido" onClick={e => e.stopPropagation()}>{botaoAcolhido}</span>,
+              ...(p.mensagens ? [<span key="msg" className="flex items-center gap-1" onClick={e => e.stopPropagation()}>{p.mensagens}</span>] : []),
+            ]} />
         )}
       </div>
 
@@ -125,6 +130,7 @@ export default function CardAcolhimento(p: Props) {
           <ResumoPendencias feitos={p.resumo.feitos} pendentes={p.resumo.pendentes} onClick={p.onResumo} />
         )}
         {botaoAcolhido}
+        {p.mensagens && <div className="flex-none flex items-center gap-1.5" onClick={e => e.stopPropagation()}>{p.mensagens}</div>}
       </div>
     </div>
   )
