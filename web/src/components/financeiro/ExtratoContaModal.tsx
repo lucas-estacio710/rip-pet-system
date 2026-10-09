@@ -25,7 +25,7 @@ import Modal from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
 import { fmtBRL, fmtData, limitesDoMes } from '@/lib/financeiro'
 
-type Mov = { id: string; tipo: string; data: string; valor: string; descricao: string; repasse: boolean }
+type Mov = { id: string; tipo: string; data: string; valor: string; descricao: string; repasse: { id: string; enviado: boolean } | null }
 
 type Conta = { conta_id: string; nome: string; tipo: string; caixa_desde: string | null }
 type Linha = { data: string; tipo: string; descricao: string | null; valor: number; origem: string; origem_id: string }
@@ -127,13 +127,13 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
   async function abrirMov(id: string) {
     const [{ data }, { data: rep }] = await Promise.all([
       supabase.from('fin_movimentos').select('id, tipo, data, valor, descricao').eq('id', id).maybeSingle(),
-      supabase.from('fin_repasses').select('id').eq('pago_movimento_id', id).limit(1),
+      supabase.from('fin_repasses').select('id, enviado_em').eq('pago_movimento_id', id).limit(1),
     ])
     const m = data as { id: string; tipo: string; data: string; valor: number; descricao: string | null } | null
     if (!m) return toast('Movimento não encontrado', 'error')
     setExcluindo(false)
     setMov({ id: m.id, tipo: m.tipo, data: m.data.slice(0, 10), valor: String(m.valor), descricao: m.descricao || '',
-             repasse: !!(rep as unknown[] | null)?.length })
+             repasse: (() => { const r = (rep as { id: string; enviado_em: string | null }[] | null)?.[0]; return r ? { id: r.id, enviado: !!r.enviado_em } : null })() })
   }
 
   async function salvarMov() {
@@ -155,6 +155,15 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
     if (!mov) return
     if (!excluindo) return setExcluindo(true)
     setSalvando(true)
+    // Movimento que QUITOU um repasse: a FK da mig 150 só anula pago_movimento_id
+    // — o status ficaria 'pago' sem pagamento e o repasse sumiria da lista de
+    // pagar. Ele volta ao estado de antes de pago, ANTES do delete.
+    if (mov.repasse) {
+      const { error: e1 } = await supabase.from('fin_repasses')
+        .update({ status: mov.repasse.enviado ? 'enviado' : 'aberto', pago_em: null, pago_por: null, pago_movimento_id: null })
+        .eq('id', mov.repasse.id)
+      if (e1) { setSalvando(false); return toast(`Repasse: ${e1.message}`, 'error') }
+    }
     // A conciliação não tem FK (mig 153): sai junto, senão o ✓ fica apontando pro nada.
     await supabase.from('fin_conciliacoes').delete().eq('origem', 'movimento').eq('origem_id', mov.id)
     const { error } = await supabase.from('fin_movimentos').delete().eq('id', mov.id)
