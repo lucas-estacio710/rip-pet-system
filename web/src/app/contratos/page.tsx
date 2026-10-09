@@ -57,6 +57,7 @@ import PagamentoTela from '@/components/contratos/farois/PagamentoTela'
 import UrnaTela from '@/components/contratos/farois/UrnaTela'
 import EncaminhamentoTela from '@/components/contratos/farois/EncaminhamentoTela'
 import CardViagem from '@/components/contratos/pipeline/CardViagem'
+import EsteiraGC from '@/components/contratos/pipeline/EsteiraGC'
 import AdicionarPetsViagem from '@/components/contratos/pipeline/AdicionarPetsViagem'
 import { carregarTarefaEntrega } from '@/lib/tarefa-entrega'
 import { useToast } from '@/components/ui/Toast'
@@ -6027,6 +6028,12 @@ ${petNome}`
                         <span className="text-[8px] font-bold leading-none flex items-center gap-0.5">{getPetPorte(contrato.pet_peso) && <span className="font-black">{getPetPorte(contrato.pet_peso)}</span>}{contrato.pet_peso ? <><Weight className="h-2.5 w-2.5" />{Math.round(contrato.pet_peso)}</> : '-'}</span>
                       </div>
                     </div>
+                    )}
+
+                    {/* Esteira do GC no CELULAR (fase 2.14a, item 14) — só na Matriz/Pinda do fluxo
+                        novo. Finalizado vira uma linha só (é o caso dos pets do Nicho). */}
+                    {cardNovo && encPipeline && contrato.status === 'pinda' && contrato.contrato_gc && (
+                      <EsteiraGC gc={contrato.contrato_gc} dataIda={contrato.data_leva_pinda || null} />
                     )}
 
                     {/* Trilho. Com o card novo (obj_enc_pipeline, fase 2.3): resumo ✓N ⏱M + "Ações «"
