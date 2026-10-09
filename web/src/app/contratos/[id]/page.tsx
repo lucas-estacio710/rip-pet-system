@@ -1614,18 +1614,26 @@ export default function ContratoDetalhe() {
     // Bandeira do cartão (se for cartão)
     const bandeira = (megaPagamentoForm.metodo === 'cartao' && megaPagamentoForm.bandeira) ? megaPagamentoForm.bandeira : null
 
+    // 🐛 Demanda 2026/109 (08/10/2026): o pagamento é o que ENTROU. Antes gravava o valor
+    // CHEIO e ainda somava o desconto no contrato — o desconto contava duas vezes e o saldo
+    // nascia negativo ("pagamento excede saldo" com o cliente tendo pago o combinado).
+    // Mesma regra de `lib/pagamento.ts` (FLOW §desconto unificado). Na EDIÇÃO o desconto não
+    // vai pro contrato (ver `!megaPagamentoEditando` abaixo), então ali vale o digitado.
+    const recebidoPlano = megaPagamentoEditando ? valorPlano : liquidoPlano
+    const recebidoAcessorio = megaPagamentoEditando ? valorAcessorio : liquidoAcessorio
+
     // Pagamento de Plano (desconto agora vive no contrato — não no pagamento)
-    if (valorPlano > 0) {
+    if (recebidoPlano > 0) {
       pagamentosParaCriar.push({
         contrato_id: params.id,
         tipo: 'plano',
         metodo: metodoBanco,
         conta_id: contaId,
-        valor: valorPlano,
+        valor: recebidoPlano,
         desconto: 0,
         taxa: parseFloat(taxaPlano.toFixed(2)),
-        valor_liquido_sem_taxa: valorPlano,
-        valor_liquido: valorPlano - taxaPlano,
+        valor_liquido_sem_taxa: recebidoPlano,
+        valor_liquido: recebidoPlano - taxaPlano,
         parcelas: parcelas,
         id_transacao: idTransacao,
         bandeira: bandeira,
@@ -1636,17 +1644,17 @@ export default function ContratoDetalhe() {
     }
 
     // Pagamento de Acessório
-    if (valorAcessorio > 0) {
+    if (recebidoAcessorio > 0) {
       pagamentosParaCriar.push({
         contrato_id: params.id,
         tipo: 'catalogo',
         metodo: metodoBanco,
         conta_id: contaId,
-        valor: valorAcessorio,
+        valor: recebidoAcessorio,
         desconto: 0,
         taxa: parseFloat(taxaAcessorio.toFixed(2)),
-        valor_liquido_sem_taxa: valorAcessorio,
-        valor_liquido: valorAcessorio - taxaAcessorio,
+        valor_liquido_sem_taxa: recebidoAcessorio,
+        valor_liquido: recebidoAcessorio - taxaAcessorio,
         parcelas: parcelas,
         id_transacao: idTransacao,
         bandeira: bandeira,
