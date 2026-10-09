@@ -145,8 +145,16 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
     setSalvando(true)
     const { error } = await supabase.from('fin_movimentos')
       .update({ data: mov.data, valor: v, descricao: mov.descricao.trim() || null }).eq('id', mov.id)
+    if (error) { setSalvando(false); return toast(error.message, 'error') }
+    // Quitação de repasse: o "Pago em" do Repasse é a data DO PAGAMENTO —
+    // corrigir o movimento e deixar o repasse com a data velha mostrava "Pago em
+    // 20/10" de um pagamento feito em 20/08 (09/10/2026).
+    if (mov.repasse) {
+      const { error: e2 } = await supabase.from('fin_repasses')
+        .update({ pago_em: `${mov.data}T12:00:00-03:00` }).eq('id', mov.repasse.id)
+      if (e2) toast(`Movimento corrigido, mas o repasse não: ${e2.message}`, 'error')
+    }
     setSalvando(false)
-    if (error) return toast(error.message, 'error')
     toast('Movimento corrigido', 'success')
     setMov(null); setVersao(x => x + 1); onMudou?.()
   }
