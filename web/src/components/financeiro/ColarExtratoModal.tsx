@@ -26,7 +26,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { Loader2, ClipboardPaste, History, CheckCircle2 } from 'lucide-react'
+import { Loader2, ClipboardPaste } from 'lucide-react'
 import Modal from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
@@ -111,6 +111,11 @@ export default function ColarExtratoModal({
   // CONFERÊNCIA INVERSA: o que está no sistema (no período colado, ou na fatura)
   // e não casou com linha nenhuma — lançamento a mais, cancelado, valor errado.
   const [paraVerso, setParaVerso] = useState<RegistroSistema[]>([])
+  // O PLACAR (V2): saldo do banco no último dia lido × saldo do sistema até ele.
+  const [placar, setPlacar] = useState<{ data: string; banco: number | null; sistema: number } | null>(null)
+  // Linhas com o detalhe aberto (fornecedor, forma, maquininha) e a seção "Encontramos".
+  const [abertos, setAbertos] = useState<Set<number>>(new Set())
+  const [encontradasAberto, setEncontradasAberto] = useState(false)
 
   const maquininhas = contas.filter(c => c.produto === 'maquininha')
   const correntes = contas.filter(c => c.produto !== 'maquininha' && c.tipo !== 'cartao')
@@ -363,6 +368,25 @@ export default function ColarExtratoModal({
     const cab = ehCartao ? cabecalhoFatura(texto) : null
     setCabecalho(cab)
     if (cab && !vencimento) { setVencimento(cab.venc); setNovaFatura(!faturas.some(f => f.venc === cab.venc)) }
+
+    // O PLACAR (conta corrente). Banco: o saldo da ÚLTIMA linha do último dia
+    // (no extrato do Inter, a ordem do texto é a do dia). Sistema: tudo o que o
+    // Caixa tem nesta conta até esse dia — paginado, a conta passa de 1000 linhas.
+    setAbertos(new Set()); setEncontradasAberto(false)
+    if (ehCartao) setPlacar(null)
+    else {
+      const ultimo = [...linhas].reverse().find(l => l.data === fim && l.saldo !== null)
+      let soma = 0
+      for (let off = 0; ; off += 1000) {
+        const { data: pg } = await supabase.from('vw_caixa').select('valor')
+          .eq('conta_id', contaId).lte('data', fim)
+          .order('data').order('origem_id').range(off, off + 999)
+        const arr = (pg as { valor: number }[] | null) || []
+        soma += arr.reduce((a, x) => a + Number(x.valor), 0)
+        if (arr.length < 1000) break
+      }
+      setPlacar({ data: fim, banco: ultimo ? ultimo.saldo : null, sistema: Math.round(soma * 100) / 100 })
+    }
     setLendo(false)
   }
 
@@ -385,10 +409,6 @@ export default function ColarExtratoModal({
   const pendentes = receitas.filter(i => i.marcado && !(i.opId || maquininhaLote) || (i.marcado && !i.mov)).length
     + despesas.filter(i => i.marcado && !i.catId).length
     + parecidos.filter(i => i.parecido!.escolhido === -2).length
-  const totais = {
-    rec: recProntas.reduce((a, i) => a + i.valor, 0),
-    desp: despProntas.reduce((a, i) => a + Math.abs(i.valor), 0),
-  }
 
   async function registrar() {
     if (!currentUnit?.id || !contaId) return
@@ -484,339 +504,480 @@ export default function ColarExtratoModal({
     }
   }
 
-  // ── linha da prévia ──
-  // ⚠️ FUNÇÃO QUE DESENHA, não componente: um componente declarado aqui dentro
+  // ══════════════════════════════════════════════════════════════════════════
+  // O DESENHO (V2, 08/10/2026 — artifact 9uEYKTjnPY3gdhNkRA6Hho, aprovado pelo
+  // Lucas): placar no topo (banco × sistema × depois de registrar), e as linhas
+  // em seções que contam o que vai acontecer — Encontramos · Quase lá ·
+  // Recebimentos · Despesas · Fora · Não veio. Roxo só no botão principal;
+  // verde = conferido; âmbar = atenção. Valores à direita, em fonte de número.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // ⚠️ FUNÇÕES QUE DESENHAM, não componentes: um componente declarado aqui dentro
   // ganha identidade nova a cada render, e o React desmontaria a linha a cada
   // tecla — o campo de categoria perderia o foco no meio da digitação.
-  function linha(i: Item) {
-    const apagada = !!i.jaNoSistema || i.destino === 'fora' || !i.marcado
+
+  const valorCor = (v: number) => (v > 0 ? 'text-emerald-500' : 'text-[var(--surface-700)]')
+  const valorTxt = (v: number) => `${v > 0 ? '+' : '−'}${fmtBRL(Math.abs(v)).replace('R$', '').trim()}`
+  const dataCurta = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`
+  const grade = 'grid grid-cols-[22px_48px_minmax(0,1fr)_96px] sm:grid-cols-[22px_52px_minmax(0,1.1fr)_minmax(0,1fr)_110px] gap-x-3 gap-y-1 items-center'
+
+  /** Linha "já no sistema": diz o que ela é, sem pedir nada. */
+  function linhaEncontrada(i: Item) {
     return (
-      <div key={i.n} className="flex items-start gap-2 py-2" style={{ opacity: apagada ? 0.6 : 1 }}>
-        {!i.jaNoSistema && i.destino !== 'fora'
-          ? <input type="checkbox" className="mt-1" checked={i.marcado} onChange={e => muda(i.n, { marcado: e.target.checked })} />
-          : <span className="w-[13px]" />}
-        <div className="flex-1 min-w-0 space-y-1">
-          <p className="text-xs text-[var(--surface-700)] truncate" title={i.original}>{fmtData(i.data)} · {i.descricao}</p>
-          {i.jaNoSistema ? (
-            <p className="text-[11px] text-emerald-500 inline-flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> já no sistema · {i.jaNoSistema}</p>
-          ) : (
-            <div className="flex flex-wrap items-center gap-1.5">
-              <select value={i.destino}
-                      onChange={e => muda(i.n, { destino: e.target.value as Destino, marcado: e.target.value !== 'fora',
-                        mov: e.target.value === 'receita' && !i.mov ? (movimentoDe(i.descricao, i.valor) || '') : i.mov })}
-                      className="input text-[11px] py-0.5 px-1">
-                {permiteReceitas && i.valor > 0 && <option value="receita">receita a prazo</option>}
-                {i.valor < 0 && <option value="despesa">despesa</option>}
-                {permiteReceitas && i.valor < 0 && <option value="receita">maquininha (chargeback/taxa)</option>}
-                <option value="fora">ignorar</option>
-              </select>
-              {i.destino === 'receita' && (
-                <>
-                  <select value={i.mov} onChange={e => muda(i.n, { mov: e.target.value as MovMaquininha })}
-                          className="input text-[11px] py-0.5 px-1" style={!i.mov ? { borderColor: '#f59e0b' } : undefined}>
-                    <option value="">o que é?</option>
-                    {(Object.keys(ROTULO_MOV) as MovMaquininha[]).filter(m => ENTRA_MOV[m] === (i.valor > 0))
-                      .map(m => <option key={m} value={m}>{ROTULO_MOV[m]}</option>)}
-                  </select>
-                  {i.opId && i.opId !== maquininhaLote && maquininhas.length > 1 && (
-                    <select value={i.opId} onChange={e => muda(i.n, { opId: e.target.value })} className="input text-[11px] py-0.5 px-1">
-                      {maquininhas.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}
-                    </select>
-                  )}
-                </>
-              )}
-              {i.destino === 'despesa' && (
-                <>
-                  {/* A MESMA busca do formulário (lib/busca-categoria): nome, caminho
-                      e SINÔNIMOS, sem acento — "lavagem" acha Veículos › Limpeza. */}
-                  <input value={i.catTexto} placeholder="Categoria… (ex.: lavagem, gasolina)"
-                         onChange={e => muda(i.n, { catTexto: e.target.value, catId: '', doHistorico: false, porSinonimo: false })}
-                         className="input text-[11px] py-0.5 px-1.5 flex-1 min-w-[170px]"
-                         style={!i.catId ? { borderColor: '#f59e0b' } : undefined} />
-                  {/* Fatura de cartão: o método É crédito — não se escolhe. (A lista não
-                      tem "crédito", e o <select> mostrava "Pix" com o estado em crédito;
-                      mexer nele gravaria a compra do cartão como Pix.) */}
-                  {ehCartao ? (
-                    <span className="text-[11px] text-[var(--surface-500)] px-1">crédito</span>
-                  ) : (
-                    <select value={i.metodo} onChange={e => muda(i.n, { metodo: e.target.value })} className="input text-[11px] py-0.5 px-1">
-                      {METODOS.map(m => <option key={m.v} value={m.v}>{m.l}</option>)}
-                    </select>
-                  )}
-                  <input value={i.fornecedor} placeholder="fornecedor" onChange={e => muda(i.n, { fornecedor: e.target.value })}
-                         className="input text-[11px] py-0.5 px-1.5 w-32" />
-                </>
-              )}
-              {i.doHistorico && (
-                <span className="text-[11px] text-sky-500 inline-flex items-center gap-0.5" title="Muito parecido com registros anteriores">
-                  <History className="h-3 w-3" /> como das outras vezes
-                </span>
-              )}
-              {i.porSinonimo && i.destino === 'despesa' && (
-                <span className="text-[11px] text-amber-500" title="Sugerida pelos sinônimos da categoria — não há histórico ainda. Se estiver errada, troque: da próxima vez vem pelo histórico">
-                  pelo nome — confira
-                </span>
-              )}
-              {i.destino === 'fora' && i.motivoFora && <span className="text-[11px] text-amber-500">{i.motivoFora}</span>}
-              {/* QUITAÇÃO: atalho pro pagamento certo, preenchido com a linha do banco.
-                  Depois de pagar, colar de novo mostra a linha como "já no sistema". */}
-              {i.destino === 'fora' && onQuitar && i.valor < 0 && quitacaoDe(i.descricao) && (
-                <button type="button"
-                        onClick={() => onQuitar({ tipo: quitacaoDe(i.descricao)!, valor: Math.abs(i.valor), data: i.data, contaId })}
-                        className="text-[11px] px-2 py-0.5 rounded-full border border-[var(--brand-500)] text-[var(--brand-500)] hover:bg-[var(--brand-50)]">
-                  {quitacaoDe(i.descricao) === 'repasse' ? 'Pagar repasse →' : 'Pagar fatura →'}
-                </button>
-              )}
-            </div>
-          )}
-          {/* Resultados da busca digitada — aparecem enquanto não há categoria escolhida. */}
-          {i.destino === 'despesa' && !i.catId && i.catTexto.trim().length >= 2 && (() => {
-            const achados = buscarCategorias(folhas, caminhoDe, i.catTexto, 6)
-            return achados.length ? (
-              <div className="rounded-[var(--radius-md)] border border-[var(--surface-200)] divide-y divide-[var(--surface-200)]">
-                {achados.map(({ c, termoBatido, forte }) => (
-                  <button key={c.id} type="button"
-                          onClick={() => muda(i.n, { catId: c.id, catTexto: caminhoDe(c.id), porSinonimo: false })}
-                          className="w-full text-left px-2 py-1 text-[11px] hover:bg-[var(--surface-50)] flex items-center gap-2">
-                    <span className="flex-1 truncate text-[var(--surface-700)]">{caminhoDe(c.id)}</span>
-                    {!forte && termoBatido && <span className="text-[10px] text-[var(--surface-400)] shrink-0">“{termoBatido}”</span>}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p className="text-[10px] text-amber-500">nenhuma categoria com “{i.catTexto.trim()}”</p>
-            )
-          })()}
-          {/* A LISTINHA — decisões parecidas do mesmo destino; clicar aplica. */}
-          {!i.jaNoSistema && i.destino !== 'fora' && !(i.doHistorico && i.sugestoes.length === 1) && (
-            <div className="flex flex-wrap gap-1">
-              {i.sugestoes.filter(s => s.decisao.tipo === i.destino).map(s => {
-                const d = s.decisao
-                const rotulo = d.tipo === 'despesa'
-                  ? caminhoDe(d.catId)
-                  : `${maquininhas.find(m => m.id === d.opId)?.nome || '?'} · ${d.mov ? ROTULO_MOV[d.mov] : '?'}`
-                return (
-                  <button key={s.chave} type="button"
-                          onClick={() => muda(i.n, d.tipo === 'despesa'
-                            ? { catId: d.catId, catTexto: caminhoDe(d.catId), porSinonimo: false }
-                            : { opId: d.opId, mov: d.mov || '' })}
-                          className="text-[10px] px-1.5 py-0.5 rounded-full border border-[var(--surface-300)] text-[var(--surface-500)] hover:border-sky-500 hover:text-sky-500"
-                          title={`Parecido com ${s.vezes} registro(s); o mais recente em ${fmtData(s.ultima)}`}>
-                    {rotulo} — {s.vezes}×
-                  </button>
-                )
-              })}
-            </div>
-          )}
-        </div>
-        <span className={`text-xs text-mono shrink-0 ${i.valor > 0 ? 'text-emerald-500' : 'text-red-400'}`}>
-          {i.valor > 0 ? '' : '−'}{fmtBRL(Math.abs(i.valor))}
-        </span>
+      <div key={i.n} className={`${grade} py-2.5 border-b border-[var(--surface-100)] last:border-0`}>
+        <span className="text-emerald-500 text-xs" aria-hidden="true">✓</span>
+        <span className="text-xs text-[var(--surface-400)]">{dataCurta(i.data)}</span>
+        <span className="text-sm text-[var(--surface-600)] truncate" title={i.original}>{i.descricao}</span>
+        <span className="hidden sm:block text-xs text-[var(--surface-400)] truncate">é {i.jaNoSistema}</span>
+        <span className={`text-right text-mono text-sm tabular-nums ${valorCor(i.valor)}`}>{valorTxt(i.valor)}</span>
       </div>
     )
   }
 
-  /** "PARECE JÁ LANÇADO" — a linha do banco e os candidatos do sistema. */
+  /** Linha nova (recebimento ou despesa): o essencial numa linha; o resto,
+   *  tímido, embaixo — e abre dentro da própria linha. */
+  function linhaNova(i: Item) {
+    const aberta = abertos.has(i.n)
+    const alternar = () => setAbertos(s => { const n = new Set(s); if (n.has(i.n)) n.delete(i.n); else n.add(i.n); return n })
+    return (
+      <div key={i.n} className="py-2.5 border-b border-[var(--surface-100)] last:border-0" style={{ opacity: i.marcado ? 1 : 0.5 }}>
+        <div className={grade}>
+          <input type="checkbox" checked={i.marcado} onChange={e => muda(i.n, { marcado: e.target.checked })}
+                 aria-label="Registrar esta linha" className="h-4 w-4 accent-[var(--brand-500)]" />
+          <span className="text-xs text-[var(--surface-400)]">{dataCurta(i.data)}</span>
+          <span className="text-sm text-[var(--surface-600)] truncate" title={i.original}>
+            {i.descricao}
+            {i.fornecedor && i.destino === 'despesa' && <span className="text-[var(--surface-400)]"> · {i.fornecedor}</span>}
+          </span>
+          {/* A DECISÃO — categoria (despesa) ou o que a maquininha fez (recebimento) */}
+          <span className="col-span-4 col-start-3 sm:col-span-1 sm:col-start-auto row-start-2 sm:row-start-auto min-w-0">
+            {i.destino === 'despesa' && (i.catId ? (
+              <span className="flex items-baseline gap-1.5 min-w-0">
+                <span className="text-sm font-semibold text-emerald-500 truncate">{caminhoDe(i.catId).split(' › ').pop()}</span>
+                <span className="text-[11px] text-[var(--surface-400)] truncate">
+                  {i.doHistorico ? 'como das outras vezes' : i.porSinonimo ? 'pelo nome — confira' : caminhoDe(i.catId).split(' › ').slice(0, -1).join(' › ')}
+                </span>
+                <button type="button" onClick={() => muda(i.n, { catId: '', catTexto: '', doHistorico: false, porSinonimo: false })}
+                        className="text-[11px] text-[var(--brand-500)] hover:underline shrink-0">trocar</button>
+              </span>
+            ) : (
+              <input value={i.catTexto} autoComplete="off"
+                     onChange={e => muda(i.n, { catTexto: e.target.value, catId: '', doHistorico: false, porSinonimo: false })}
+                     aria-label="Categoria da despesa" placeholder="do que foi? (gasolina, aluguel…)"
+                     className="input text-sm py-1 w-full" style={{ borderColor: '#f59e0b' }} />
+            ))}
+            {i.destino === 'receita' && (
+              <span className="text-sm text-[var(--surface-600)]">
+                {(maquininhas.find(m => m.id === (i.opId || maquininhaLote))?.nome) || <span className="text-amber-500">qual maquininha?</span>}
+                {' · '}
+                {i.mov ? <span className={i.mov === 'antecipacao' ? 'text-amber-500' : ''}>{ROTULO_MOV[i.mov].toLowerCase()}</span>
+                       : <span className="text-amber-500">o que é?</span>}
+                {!aberta && <button type="button" onClick={alternar} className="ml-1.5 text-[11px] text-[var(--brand-500)] hover:underline">trocar</button>}
+              </span>
+            )}
+          </span>
+          <span className={`text-right text-mono text-sm tabular-nums ${valorCor(i.valor)}`}>{valorTxt(i.valor)}</span>
+        </div>
+
+        {/* busca de categoria enquanto não há uma escolhida */}
+        {i.destino === 'despesa' && !i.catId && (() => {
+          const achados = i.catTexto.trim().length >= 2 ? buscarCategorias(folhas, caminhoDe, i.catTexto, 6) : []
+          const sugeridas = i.sugestoes.filter(s => s.decisao.tipo === 'despesa')
+          if (!achados.length && !sugeridas.length && i.catTexto.trim().length < 2) return null
+          return (
+            <div className="mt-2 ml-[34px] sm:ml-[86px] flex flex-col gap-1.5">
+              {sugeridas.length > 0 && !i.catTexto && (
+                <div className="flex flex-wrap gap-1.5">
+                  {sugeridas.map(s => s.decisao.tipo === 'despesa' && (
+                    <button key={s.chave} type="button"
+                            onClick={() => muda(i.n, { catId: (s.decisao as { catId: string }).catId, catTexto: '', porSinonimo: false })}
+                            className="text-xs px-2.5 py-1 rounded-full border border-[var(--surface-200)] text-[var(--surface-600)] hover:border-emerald-500 hover:text-emerald-500"
+                            title={`Usada ${s.vezes}× em linhas parecidas`}>
+                      {caminhoDe((s.decisao as { catId: string }).catId).split(' › ').pop()}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {achados.length > 0 && (
+                <div className="rounded-[var(--radius-md)] border border-[var(--surface-200)] divide-y divide-[var(--surface-100)] max-w-[520px]">
+                  {achados.map(({ c, termoBatido, forte }) => (
+                    <button key={c.id} type="button"
+                            onClick={() => muda(i.n, { catId: c.id, catTexto: '', porSinonimo: false })}
+                            className="w-full text-left px-3 py-1.5 text-sm hover:bg-[var(--surface-50)] flex items-center gap-2">
+                      <span className="flex-1 truncate text-[var(--surface-700)]">{caminhoDe(c.id)}</span>
+                      {!forte && termoBatido && <span className="text-[11px] text-[var(--surface-400)] shrink-0">“{termoBatido}”</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {i.catTexto.trim().length >= 2 && !achados.length && (
+                <span className="text-xs text-amber-500">nenhuma categoria com “{i.catTexto.trim()}”</span>
+              )}
+            </div>
+          )
+        })()}
+
+        {/* OS LINKS TÍMIDOS — e o que eles abrem, dentro da própria linha */}
+        <div className="mt-1.5 ml-[34px] sm:ml-[86px] flex flex-wrap gap-x-4 gap-y-1">
+          <button type="button" onClick={alternar} className="text-[11px] text-[var(--surface-400)] hover:text-[var(--surface-700)]">
+            {aberta ? 'fechar' : i.destino === 'despesa' ? 'fornecedor · forma de pagamento' : 'maquininha · movimento'}
+          </button>
+          <select value={i.destino} aria-label="O que é esta linha"
+                  onChange={e => muda(i.n, { destino: e.target.value as Destino, marcado: e.target.value !== 'fora',
+                    mov: e.target.value === 'receita' && !i.mov ? (movimentoDe(i.descricao, i.valor) || '') : i.mov })}
+                  className="text-[11px] bg-transparent border-0 p-0 text-[var(--surface-400)] hover:text-[var(--surface-700)] cursor-pointer">
+            {i.valor < 0 && <option value="despesa">é uma despesa</option>}
+            {permiteReceitas && <option value="receita">é da maquininha</option>}
+            <option value="fora">ignorar esta linha</option>
+          </select>
+        </div>
+        {aberta && (
+          <div className="mt-2 ml-[34px] sm:ml-[86px] pl-4 border-l-2 border-[var(--brand-500)] flex flex-wrap items-end gap-3">
+            {i.destino === 'despesa' ? (<>
+              <label className="flex flex-col gap-1 text-xs text-[var(--surface-500)]">
+                Para quem
+                <input value={i.fornecedor} onChange={e => muda(i.n, { fornecedor: e.target.value })}
+                       className="input text-sm py-1 w-56" />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-[var(--surface-500)]">
+                Forma de pagamento
+                {ehCartao ? <span className="text-sm text-[var(--surface-600)] py-1">cartão de crédito</span> : (
+                  <select value={i.metodo} onChange={e => muda(i.n, { metodo: e.target.value })} className="input text-sm py-1">
+                    {METODOS.map(m => <option key={m.v} value={m.v}>{m.l}</option>)}
+                  </select>
+                )}
+              </label>
+            </>) : (<>
+              {maquininhas.length > 1 && (
+                <label className="flex flex-col gap-1 text-xs text-[var(--surface-500)]">
+                  Maquininha
+                  <select value={i.opId || maquininhaLote} onChange={e => muda(i.n, { opId: e.target.value })} className="input text-sm py-1">
+                    <option value="">escolher…</option>
+                    {maquininhas.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}
+                  </select>
+                </label>
+              )}
+              <label className="flex flex-col gap-1 text-xs text-[var(--surface-500)]">
+                O que a maquininha fez
+                <select value={i.mov} onChange={e => muda(i.n, { mov: e.target.value as MovMaquininha })} className="input text-sm py-1">
+                  <option value="">escolher…</option>
+                  {(Object.keys(ROTULO_MOV) as MovMaquininha[]).filter(m => ENTRA_MOV[m] === (i.valor > 0))
+                    .map(m => <option key={m} value={m}>{ROTULO_MOV[m]}</option>)}
+                </select>
+              </label>
+              {i.mov === 'antecipacao' && (
+                <span className="text-xs text-amber-500 pb-1.5">Registre o valor que caiu. O custo da antecipação é despesa (Financeiro › Encargos).</span>
+              )}
+            </>)}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  /** Linha ignorada ou que é pagamento (fatura, repasse) — com o atalho certo. */
+  function linhaFora(i: Item) {
+    const quit = i.valor < 0 ? quitacaoDe(i.descricao) : null
+    return (
+      <div key={i.n} className={`${grade} py-2.5 border-b border-[var(--surface-100)] last:border-0`}>
+        <span className="text-[var(--surface-400)] text-xs" aria-hidden="true">—</span>
+        <span className="text-xs text-[var(--surface-400)]">{dataCurta(i.data)}</span>
+        <span className="text-sm text-[var(--surface-500)] truncate" title={i.original}>{i.descricao}</span>
+        <span className="col-span-4 col-start-3 sm:col-span-1 sm:col-start-auto row-start-2 sm:row-start-auto flex flex-wrap items-center gap-2 min-w-0">
+          <span className="text-xs text-[var(--surface-400)]">{i.motivoFora || 'ignorada'}</span>
+          {quit && onQuitar && (
+            <button type="button" onClick={() => onQuitar({ tipo: quit, valor: Math.abs(i.valor), data: i.data, contaId })}
+                    className="text-xs font-medium px-2.5 py-1 rounded-[var(--radius-md)] border border-[var(--brand-500)] text-[var(--brand-500)] hover:bg-[var(--brand-500)] hover:text-white">
+              {quit === 'repasse' ? 'Pagar repasse' : 'Pagar fatura'}
+            </button>
+          )}
+          {!quit && (
+            <button type="button" onClick={() => muda(i.n, { destino: i.valor < 0 ? 'despesa' : (permiteReceitas ? 'receita' : 'fora'), marcado: true, motivoFora: null })}
+                    className="text-[11px] text-[var(--brand-500)] hover:underline">não ignorar</button>
+          )}
+        </span>
+        <span className="text-right text-mono text-sm tabular-nums text-[var(--surface-400)]">{valorTxt(i.valor)}</span>
+      </div>
+    )
+  }
+
+  /** "QUASE LÁ" — a linha do banco e os candidatos do sistema. */
   function linhaParecida(i: Item) {
     const p = i.parecido!
     const escolher = (k: number) => muda(i.n, { parecido: { ...p, escolhido: k } })
     return (
-      <div key={i.n} className="py-2 space-y-1">
-        <div className="flex items-start gap-2">
-          <p className="flex-1 min-w-0 text-xs text-[var(--surface-700)] truncate" title={i.original}>{fmtData(i.data)} · {i.descricao}</p>
-          <span className={`text-xs text-mono shrink-0 ${i.valor > 0 ? 'text-emerald-500' : 'text-red-400'}`}>
-            {i.valor > 0 ? '' : '−'}{fmtBRL(Math.abs(i.valor))}
-          </span>
+      <div key={i.n} className="py-2.5 border-b border-[var(--surface-100)] last:border-0">
+        <div className={grade}>
+          <span className="text-amber-500 text-xs" aria-hidden="true">≈</span>
+          <span className="text-xs text-[var(--surface-400)]">{dataCurta(i.data)}</span>
+          <span className="text-sm text-[var(--surface-600)] truncate" title={i.original}>{i.descricao}</span>
+          <span className="hidden sm:block" />
+          <span className={`text-right text-mono text-sm tabular-nums ${valorCor(i.valor)}`}>{valorTxt(i.valor)}</span>
         </div>
-        <div className="pl-3 space-y-0.5">
+        <div className="mt-1.5 ml-[34px] sm:ml-[86px] flex flex-col gap-1">
           {p.candidatos.map((c, k) => {
             const outra = itens.some(x => x.n !== i.n && x.parecido && x.parecido.escolhido >= 0 && x.parecido.candidatos[x.parecido.escolhido].chave === c.chave)
-            const difValor = Math.abs(c.valor - i.valor) >= 0.005
+            const muda_ = c.ajustavel && (Math.abs(c.valor - i.valor) >= 0.005 || c.data !== i.data)
             return (
-              <label key={c.chave} className={`flex items-center gap-1.5 text-[11px] ${outra ? 'opacity-40' : 'cursor-pointer'}`}>
-                <input type="radio" name={`par-${i.n}`} checked={p.escolhido === k} disabled={outra} onChange={() => escolher(k)} className="accent-emerald-500" />
-                <span className="text-[var(--surface-700)]">é <strong className="font-medium">{c.rotulo}</strong></span>
-                <span className="text-[var(--surface-500)]">· lançado {fmtData(c.data)} · {fmtBRL(Math.abs(c.valor))}</span>
-                {c.ajustavel && (difValor || c.data !== i.data) && (
-                  <span className="text-sky-500" title="Ao confirmar, o lançamento recebe o valor e a data do banco">→ fica como o banco</span>
-                )}
-                {outra && <span className="text-[var(--surface-400)]">(já escolhido em outra linha)</span>}
+              <label key={c.chave} className={`flex flex-wrap items-center gap-x-2 text-sm ${outra ? 'opacity-40' : 'cursor-pointer'}`}>
+                <input type="radio" name={`par-${i.n}`} checked={p.escolhido === k} disabled={outra} onChange={() => escolher(k)} className="accent-[var(--brand-500)]" />
+                <span className="text-[var(--surface-700)]">é <strong className="font-semibold">{c.rotulo}</strong></span>
+                <span className="text-xs text-[var(--surface-400)]">lançado {fmtData(c.data)} · {fmtBRL(Math.abs(c.valor))}</span>
+                {muda_ && <span className="text-xs text-emerald-500">→ fica igual ao banco</span>}
+                {outra && <span className="text-xs text-[var(--surface-400)]">(já escolhido em outra linha)</span>}
               </label>
             )
           })}
-          <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
-            <input type="radio" name={`par-${i.n}`} checked={p.escolhido === -1} onChange={() => escolher(-1)} className="accent-emerald-500" />
-            <span className="text-[var(--surface-500)]">é outro — lançar como novo</span>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="radio" name={`par-${i.n}`} checked={p.escolhido === -1} onChange={() => escolher(-1)} className="accent-[var(--brand-500)]" />
+            <span className="text-[var(--surface-500)]">é outra coisa — lançar como novo</span>
           </label>
         </div>
       </div>
     )
   }
 
-  const secao = (titulo: string, lista: Item[], extra?: ReactNode) =>
-    lista.length ? (
-      <div>
-        <div className="flex items-center gap-2 mb-1">
-          <p className="text-xs font-semibold text-[var(--surface-600)]">{titulo} ({lista.length})</p>
-          {extra}
-        </div>
-        <div className="divide-y divide-[var(--surface-200)]">{lista.map(i => linha(i))}</div>
-      </div>
-    ) : null
+  /** Cabeça de seção: título, frase e (opcional) o total. */
+  const cabecaSecao = (titulo: ReactNode, frase: string, total?: number, extra?: ReactNode) => (
+    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <span className="text-base font-semibold text-[var(--surface-800)]">{titulo}</span>
+      <span className="text-sm text-[var(--surface-500)]">{frase}</span>
+      {extra}
+      {total !== undefined && (
+        <span className={`ml-auto text-mono text-sm tabular-nums ${valorCor(total)}`}>{valorTxt(total)}</span>
+      )}
+    </div>
+  )
+  const caixaLinhas = (filhos: ReactNode) => (
+    <div className="rounded-[14px] bg-[var(--surface-50)] px-4 sm:px-5">{filhos}</div>
+  )
+
+  // ── o placar: banco × sistema × depois de registrar (conta corrente) ──
+  const depois = placar
+    ? Math.round((placar.sistema
+        + [...recProntas, ...despProntas].reduce((a, i) => a + i.valor, 0)
+        + confirmados.reduce((a, i) => {
+            const r = i.parecido!.candidatos[i.parecido!.escolhido]
+            return a + (r.ajustavel ? i.valor - r.valor : 0)
+          }, 0)) * 100) / 100
+    : null
+  const fecha = placar && placar.banco !== null && depois !== null && Math.abs(depois - placar.banco) < 0.005
+  const somaRec = recProntas.reduce((a, i) => a + i.valor, 0)
+  const somaDesp = despProntas.reduce((a, i) => a + i.valor, 0)
+  const contaNome = contas.find(c => c.id === contaId)?.nome || ''
+  const periodo = itens.length
+    ? (() => {
+        const ds = itens.map(i => i.data).sort()
+        return ds[0] === ds[ds.length - 1] ? fmtData(ds[0]) : `${fmtData(ds[0])} a ${fmtData(ds[ds.length - 1])}`
+      })()
+    : ''
+  const encontradas = itens.filter(i => !!i.jaNoSistema && !emParecido(i))
+  const ignoradas = fora.filter(i => !i.jaNoSistema)
+  const frasePronto = [
+    recProntas.length ? `${recProntas.length} ${recProntas.length === 1 ? 'recebimento' : 'recebimentos'}` : '',
+    despProntas.length ? `${despProntas.length} ${despProntas.length === 1 ? 'despesa' : 'despesas'}` : '',
+  ].filter(Boolean).join(' e ')
+  const conferir = exatosParaConciliar.length + confirmados.length + recProntas.length + despProntas.length
 
   return (
     <Modal
       isOpen={aberto}
       onClose={onClose}
-      title="Colar do extrato"
+      size="wide"
+      title={itens.length ? `${contaNome} — ${periodo}` : 'Importar extrato'}
       footer={itens.length ? (
-        <div className="flex items-center justify-between gap-2 w-full">
-          <span className="text-xs text-[var(--surface-500)]">
-            {recProntas.length} receitas <span className="text-mono">{fmtBRL(totais.rec)}</span>
-            {' · '}{despProntas.length} despesas <span className="text-mono">{fmtBRL(totais.desp)}</span>
-            {pendentes > 0 && <span className="text-amber-500"> · {pendentes} esperando escolha</span>}
+        <div className="flex flex-wrap items-center gap-3 w-full">
+          <span className="text-sm text-[var(--surface-500)] flex-1 min-w-[220px]">
+            {conferir === 0 ? 'Nada para registrar.' : <>
+              {frasePronto ? <>Vai registrar <strong className="text-[var(--surface-800)]">{frasePronto}</strong> e </> : 'Vai '}
+              marcar {conferir} {conferir === 1 ? 'linha' : 'linhas'} como conferida{conferir === 1 ? '' : 's'}.
+            </>}
+            {pendentes > 0 && <span className="text-amber-500"> Falta decidir {pendentes}.</span>}
           </span>
-          <div className="flex gap-2">
-            <button onClick={() => setItens([])} className="btn-secondary text-sm">Voltar</button>
-            <button onClick={() => void registrar()}
-                    disabled={salvando || (!recProntas.length && !despProntas.length && !confirmados.length && !exatosParaConciliar.length)}
-                    className="btn-primary text-sm">
-              {salvando ? <><Loader2 className="h-4 w-4 animate-spin" /> Registrando…</>
-                : recProntas.length + despProntas.length
-                  ? `Registrar ${recProntas.length + despProntas.length}${confirmados.length + exatosParaConciliar.length ? ` e conciliar ${confirmados.length + exatosParaConciliar.length}` : ''}`
-                  : `Conciliar ${confirmados.length + exatosParaConciliar.length}`}
-            </button>
-          </div>
+          <button onClick={() => { setItens([]); setPlacar(null) }} className="btn-secondary text-sm">Colar outro texto</button>
+          <button onClick={() => void registrar()} disabled={salvando || conferir === 0} className="btn-primary text-sm">
+            {salvando ? <><Loader2 className="h-4 w-4 animate-spin" /> Registrando…</> : 'Registrar e conferir'}
+          </button>
         </div>
       ) : (
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="btn-secondary text-sm">Cancelar</button>
           <button onClick={() => void ler()} disabled={!texto.trim() || lendo || !contaId} className="btn-primary text-sm">
-            {lendo ? <><Loader2 className="h-4 w-4 animate-spin" /> Lendo…</> : <><ClipboardPaste className="h-4 w-4" /> Ler</>}
+            {lendo ? <><Loader2 className="h-4 w-4 animate-spin" /> Lendo…</> : <><ClipboardPaste className="h-4 w-4" /> Ler o extrato</>}
           </button>
         </div>
       )}
     >
-      <div className="space-y-3">
-        <div>
-          <label className="text-xs text-[var(--surface-500)] block mb-1">Extrato da conta</label>
-          <select value={contaId} onChange={e => { setContaId(e.target.value); setItens([]) }} className="input text-sm w-full">
-            <option value="">Escolher…</option>
-            {correntes.map(c => <option key={c.id} value={c.id}>{c.preferencial_recebimento ? '⭐ ' : ''}{c.nome}</option>)}
-            {cartoes.length > 0 && (
-              <optgroup label="Fatura de cartão">
-                {cartoes.map(c => <option key={c.id} value={c.id}>💳 {c.nome}</option>)}
-              </optgroup>
-            )}
-          </select>
-        </div>
-
-        {ehCartao && (
-          <div>
-            <label className="text-xs text-[var(--surface-500)] block mb-1">Fatura (vencimento) — é quando essas compras saem do caixa</label>
-            <div className="flex flex-wrap items-center gap-2">
-              {!novaFatura ? (
-                <select value={vencimento} onChange={e => setVencimento(e.target.value)} className="input text-sm flex-1"
-                        style={!vencimento ? { borderColor: '#f59e0b' } : undefined}>
-                  <option value="">Escolher a fatura…</option>
-                  {faturas.map(f => (
-                    <option key={f.venc} value={f.venc}>vence {fmtData(f.venc)} · {f.qtd} compras · {fmtBRL(f.total)}</option>
-                  ))}
-                </select>
-              ) : (
-                <input type="date" value={vencimento} onChange={e => setVencimento(e.target.value)} className="input text-sm flex-1"
-                       style={!vencimento ? { borderColor: '#f59e0b' } : undefined} />
+      {!itens.length ? (
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-2">
+            <label htmlFor="imp-conta" className="text-base font-semibold text-[var(--surface-800)]">De qual conta é o extrato?</label>
+            <select id="imp-conta" value={contaId} onChange={e => { setContaId(e.target.value); setItens([]) }} className="input text-sm w-full sm:w-96">
+              <option value="">Escolher…</option>
+              {correntes.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+              {cartoes.length > 0 && (
+                <optgroup label="Fatura de cartão">
+                  {cartoes.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                </optgroup>
               )}
-              <button type="button" onClick={() => { setNovaFatura(v => !v); setVencimento('') }}
-                      className="text-xs text-emerald-500 hover:underline shrink-0">
-                {novaFatura ? (faturas.length ? 'escolher existente' : '') : '+ nova fatura'}
-              </button>
-            </div>
+            </select>
           </div>
-        )}
 
-        {!itens.length ? (
-          <div className="space-y-2">
-            <p className="text-xs text-[var(--surface-500)]">
-              Cole o extrato do jeito que veio do banco — um dia, uma semana, tudo misturado. Cada linha é
-              conferida contra o que já está no sistema; o que for novo vira receita a prazo ou despesa.
-            </p>
-            <textarea
-              value={texto} onChange={e => setTexto(e.target.value)} rows={10} autoFocus
-              placeholder={'05/06/2026;"Credito domicilio cartao: ""CARTAO DE CREDITO - INTER PAG""";102,76;22.096,94\n05/06/2026;"Pix enviado: ""Cp :10573521-Rafael Moreira Giffoni""";-3.450,00;21.994,18'}
-              className="input text-xs text-mono w-full"
-            />
-          </div>
-        ) : (
-          <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
-            {parecidos.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold text-amber-500 mb-1">
-                  Parece já lançado — confira ({parecidos.length})
-                </p>
-                <p className="text-[11px] text-[var(--surface-500)] mb-1">
-                  Valor igual com data até {JANELA_DIAS} dias diferente{ehCartao ? `, ou câmbio até ${TOLERANCIA_CAMBIO * 100}%` : ''}.
-                  Confirmado, não lança de novo — e o lançamento fica com o valor e a data do banco.
-                </p>
-                <div className="divide-y divide-[var(--surface-200)]">{parecidos.map(i => linhaParecida(i))}</div>
+          {ehCartao && (
+            <div className="flex flex-col gap-2">
+              <span className="text-base font-semibold text-[var(--surface-800)]">Qual fatura?</span>
+              <div className="flex flex-wrap items-center gap-2">
+                {!novaFatura ? (
+                  <select value={vencimento} onChange={e => setVencimento(e.target.value)} aria-label="Fatura"
+                          className="input text-sm w-full sm:w-96" style={!vencimento ? { borderColor: '#f59e0b' } : undefined}>
+                    <option value="">Escolher a fatura…</option>
+                    {faturas.map(f => (
+                      <option key={f.venc} value={f.venc}>vence {fmtData(f.venc)} · {f.qtd} compras · {fmtBRL(f.total)}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input type="date" value={vencimento} onChange={e => setVencimento(e.target.value)} aria-label="Vencimento da fatura nova"
+                         className="input text-sm w-56" style={!vencimento ? { borderColor: '#f59e0b' } : undefined} />
+                )}
+                <button type="button" onClick={() => { setNovaFatura(v => !v); setVencimento('') }}
+                        className="text-sm text-[var(--brand-500)] hover:underline">
+                  {novaFatura ? (faturas.length ? 'escolher uma existente' : '') : '+ nova fatura'}
+                </button>
               </div>
-            )}
-            {secao('Receitas a prazo', receitas,
-              maquininhas.length > 1 ? (
-                <select value={maquininhaLote} onChange={e => setMaquininhaLote(e.target.value)}
-                        className="input text-[11px] py-0.5 px-1" style={!maquininhaLote ? { borderColor: '#f59e0b' } : undefined}>
-                  <option value="">qual maquininha?</option>
-                  {maquininhas.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}
-                </select>
-              ) : maquininhas.length === 1 ? (
-                <span className="text-[11px] text-[var(--surface-400)]">{maquininhas[0].nome}</span>
-              ) : (
-                <span className="text-[11px] text-amber-500">nenhuma maquininha cadastrada (aba Contas)</span>
-              ))}
-            {secao('Despesas', despesas)}
-            {ehCartao && cabecalho && (() => {
-              // Conferência: compras lidas (as já no sistema contam) contra o total da fatura.
-              const soma = itens.filter(i => !foraDoCartao(i.descricao)).reduce((a, i) => a + Math.abs(i.valor), 0)
-              const bate = Math.abs(soma - cabecalho.total) < 0.005
-              return (
-                <p className={`text-[11px] ${bate ? 'text-emerald-500' : 'text-amber-500'}`}>
-                  {bate ? '✓ ' : '⚠ '}Compras lidas somam {fmtBRL(soma)} · fatura de {fmtData(cabecalho.venc)}: {fmtBRL(cabecalho.total)}
-                  {!bate && ` — faltam ${fmtBRL(cabecalho.total - soma)}; confira se o texto colado está inteiro`}
-                </p>
-              )
-            })()}
-            {secao('Já no sistema ou fora', fora)}
-            {naoVieram.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold text-[var(--surface-600)] mb-1">
-                  No sistema e não veio no texto ({naoVieram.length})
-                </p>
-                <p className="text-[11px] text-[var(--surface-500)] mb-1">
-                  {ehCartao ? 'Estão nesta fatura no sistema' : 'Estão nesta conta no período colado'} e nenhuma linha bateu:
-                  lançamento a mais, cancelado, com valor errado — ou o texto colado está incompleto.
-                </p>
-                <div className="divide-y divide-[var(--surface-200)]">
-                  {naoVieram.map(r => (
-                    <div key={r.chave} className="flex items-center gap-2 py-1 text-xs">
-                      <span className="text-[var(--surface-500)] w-16 shrink-0">{fmtData(r.data)}</span>
-                      <span className="flex-1 truncate text-[var(--surface-700)]">{r.rotulo}</span>
-                      <span className={`text-mono shrink-0 ${r.valor > 0 ? 'text-emerald-500' : 'text-red-400'}`}>
-                        {r.valor > 0 ? '' : '−'}{fmtBRL(Math.abs(r.valor))}
-                      </span>
-                    </div>
-                  ))}
+              <span className="text-sm text-[var(--surface-500)]">É quando essas compras saem do caixa. Se colar a fatura com o cabeçalho, ela é escolhida sozinha.</span>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-2">
+            <label htmlFor="imp-texto" className="text-base font-semibold text-[var(--surface-800)]">Cole o extrato</label>
+            <textarea id="imp-texto" value={texto} onChange={e => setTexto(e.target.value)} rows={10} autoFocus
+                      className="input text-xs text-mono w-full" />
+            <span className="text-sm text-[var(--surface-500)]">
+              Do jeito que veio do banco — um dia, uma semana, tudo misturado. Cada linha é conferida com o que já
+              está no sistema; só o que for novo vira lançamento.
+            </span>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-7">
+          {/* O PLACAR */}
+          {placar && !ehCartao && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pb-6 border-b border-[var(--surface-100)]">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm text-[var(--surface-500)]">No banco em {fmtData(placar.data)}</span>
+                <span className="text-mono text-xl tabular-nums text-[var(--surface-800)]">
+                  {placar.banco !== null ? fmtBRL(placar.banco) : '—'}
+                </span>
+                {placar.banco === null && <span className="text-xs text-[var(--surface-400)]">o texto colado não trouxe o saldo</span>}
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm text-[var(--surface-500)]">No sistema hoje</span>
+                <span className="text-mono text-xl tabular-nums text-[var(--surface-800)]">{fmtBRL(placar.sistema)}</span>
+                {placar.banco !== null && Math.abs(placar.banco - placar.sistema) >= 0.005 && (
+                  <span className="text-xs text-amber-500">faltam {fmtBRL(Math.abs(placar.banco - placar.sistema))}</span>
+                )}
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm text-[var(--surface-500)]">Depois de registrar</span>
+                <span className={`text-mono text-xl tabular-nums ${fecha ? 'text-emerald-500' : 'text-[var(--surface-800)]'}`}>{fmtBRL(depois ?? 0)}</span>
+                {placar.banco !== null && (fecha
+                  ? <span className="text-xs text-emerald-500">✓ bate com o banco</span>
+                  : <span className="text-xs text-amber-500">ainda faltam {fmtBRL(Math.abs((placar.banco ?? 0) - (depois ?? 0)))} — veja as linhas ignoradas ou em aberto</span>)}
+              </div>
+            </div>
+          )}
+          {ehCartao && cabecalho && (() => {
+            const soma = itens.filter(i => !foraDoCartao(i.descricao)).reduce((a, i) => a + Math.abs(i.valor), 0)
+            const bate = Math.abs(soma - cabecalho.total) < 0.005
+            return (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pb-6 border-b border-[var(--surface-100)]">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-sm text-[var(--surface-500)]">Fatura de {fmtData(cabecalho.venc)}</span>
+                  <span className="text-mono text-xl tabular-nums text-[var(--surface-800)]">{fmtBRL(cabecalho.total)}</span>
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-sm text-[var(--surface-500)]">Compras lidas</span>
+                  <span className={`text-mono text-xl tabular-nums ${bate ? 'text-emerald-500' : 'text-[var(--surface-800)]'}`}>{fmtBRL(soma)}</span>
+                  <span className={`text-xs ${bate ? 'text-emerald-500' : 'text-amber-500'}`}>
+                    {bate ? '✓ bate com a fatura' : `faltam ${fmtBRL(cabecalho.total - soma)} — o texto colado está inteiro?`}
+                  </span>
                 </div>
               </div>
-            )}
-            {itens.some(i => i.destino === 'receita' && i.mov === 'antecipacao' && i.marcado) && (
-              <p className="text-[11px] text-amber-500">
-                Antecipação: registre o valor LÍQUIDO que caiu. O desconto da antecipação é despesa —
-                Financeiro › Encargos.
-              </p>
-            )}
-          </div>
-        )}
-      </div>
+            )
+          })()}
+
+          {parecidos.length > 0 && (
+            <section className="flex flex-col gap-2.5">
+              {cabecaSecao(<span className="text-amber-500">Quase lá</span>,
+                `parece um lançamento seu com data${ehCartao ? ' ou câmbio' : ''} um pouco diferente — confirme`)}
+              {caixaLinhas(parecidos.map(i => linhaParecida(i)))}
+            </section>
+          )}
+
+          {encontradas.length > 0 && (
+            <section className="flex flex-col gap-2.5">
+              {cabecaSecao(<span className="text-emerald-500">✓ Encontramos</span>,
+                `${encontradas.length} ${encontradas.length === 1 ? 'linha já está' : 'linhas já estão'} no sistema — nada a fazer`, undefined,
+                <button type="button" onClick={() => setEncontradasAberto(v => !v)} className="ml-auto text-sm text-[var(--brand-500)] hover:underline">
+                  {encontradasAberto ? 'esconder' : 'ver quais'}
+                </button>)}
+              {encontradasAberto && caixaLinhas(encontradas.map(i => linhaEncontrada(i)))}
+            </section>
+          )}
+
+          {receitas.length > 0 && (
+            <section className="flex flex-col gap-2.5">
+              {cabecaSecao('Recebimentos de cartão', `${receitas.length} ${receitas.length === 1 ? 'linha nova' : 'linhas novas'} · a maquininha depositou`, somaRec,
+                maquininhas.length > 1 ? (
+                  <span className="flex items-center gap-2 text-sm text-[var(--surface-500)]">
+                    todas da
+                    <select value={maquininhaLote} onChange={e => setMaquininhaLote(e.target.value)} aria-label="Maquininha de todas"
+                            className="input text-sm py-1" style={!maquininhaLote ? { borderColor: '#f59e0b' } : undefined}>
+                      <option value="">qual maquininha?</option>
+                      {maquininhas.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}
+                    </select>
+                  </span>
+                ) : maquininhas.length === 0 ? (
+                  <span className="text-sm text-amber-500">nenhuma maquininha cadastrada — aba Contas</span>
+                ) : undefined)}
+              {caixaLinhas(receitas.map(i => linhaNova(i)))}
+            </section>
+          )}
+
+          {despesas.length > 0 && (
+            <section className="flex flex-col gap-2.5">
+              {cabecaSecao('Despesas', `${despesas.length} ${despesas.length === 1 ? 'linha nova' : 'linhas novas'}`, somaDesp)}
+              {caixaLinhas(despesas.map(i => linhaNova(i)))}
+            </section>
+          )}
+
+          {ignoradas.length > 0 && (
+            <section className="flex flex-col gap-2.5">
+              {cabecaSecao('Fora', 'não vira lançamento aqui — pagamentos têm o lugar deles')}
+              {caixaLinhas(ignoradas.map(i => linhaFora(i)))}
+            </section>
+          )}
+
+          {naoVieram.length > 0 && (
+            <section className="flex flex-col gap-2.5 rounded-[14px] border border-dashed border-[var(--surface-300)] p-4">
+              {cabecaSecao('No sistema e não veio no texto',
+                ehCartao ? 'estão nesta fatura e nenhuma linha bateu' : 'estão nesta conta nesses dias e nenhuma linha bateu')}
+              <span className="text-sm text-[var(--surface-500)]">Lançamento a mais, cancelado, com valor errado — ou o texto colado está incompleto.</span>
+              <div className="flex flex-col">
+                {naoVieram.map(r => (
+                  <div key={r.chave} className={`${grade} py-1.5`}>
+                    <span />
+                    <span className="text-xs text-[var(--surface-400)]">{dataCurta(r.data)}</span>
+                    <span className="text-sm text-[var(--surface-600)] truncate">{r.rotulo}</span>
+                    <span className="hidden sm:block" />
+                    <span className={`text-right text-mono text-sm tabular-nums ${valorCor(r.valor)}`}>{valorTxt(r.valor)}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+      )}
     </Modal>
   )
 }

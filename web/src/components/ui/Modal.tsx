@@ -11,7 +11,7 @@ type Props = {
   children: React.ReactNode
   footer?: React.ReactNode
   /** Max width on desktop: 'sm' (400px) | 'md' (500px) | 'lg' (640px) | 'xl' (800px) | 'full' */
-  size?: 'sm' | 'md' | 'lg' | 'xl' | 'full'
+  size?: 'sm' | 'md' | 'lg' | 'xl' | 'wide' | 'full'
 }
 
 // Larguras só valem no desktop (md+). No mobile o painel é bottom-sheet w-full.
@@ -20,6 +20,7 @@ const SIZE_MAP = {
   md: 'md:max-w-[500px]',
   lg: 'md:max-w-[640px]',
   xl: 'md:max-w-[800px]',
+  wide: 'md:max-w-[1120px]',   // Importar extrato (V2, 08/10/2026)
   full: 'md:max-w-[95vw]',
 }
 
