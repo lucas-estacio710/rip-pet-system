@@ -36,21 +36,9 @@ const COR_ETAPA: Record<string, string> = {
   finalizado: '#94a3b8',
 }
 
-const CAMPOS: { v: CampoBusca; rot: string }[] = [
-  { v: 'todos', rot: 'Tudo' },
-  { v: 'pet', rot: 'Pet' },
-  { v: 'tutor', rot: 'Tutor' },
-  { v: 'codigo', rot: 'Código' },
-  { v: 'lacre', rot: 'Lacre' },
-]
-
-const PLACEHOLDER: Record<CampoBusca, string> = {
-  todos: 'Buscar pet, tutor, código...',
-  pet: 'Buscar pet...',
-  tutor: 'Buscar tutor...',
-  codigo: 'Buscar código...',
-  lacre: 'Buscar lacre...',
-}
+// O "Buscar em" saiu (09/10/2026): a busca nova adivinha pelo formato o que se procura —
+// lacre, telefone/CPF, código ou texto (lib/busca-contratos.ts, docs/BUSCA_PIPELINE.md).
+const PLACEHOLDER_BUSCA = 'Pet, tutor, lacre, telefone…'
 
 type Props = {
   etapas: EtapaBarra[]
@@ -60,8 +48,6 @@ type Props = {
 
   busca: string
   onBusca: (v: string) => void
-  campoBusca: CampoBusca
-  onCampoBusca: (v: CampoBusca) => void
 
   ordenacao: Ordenacao
   ordemAsc: boolean
@@ -117,15 +103,13 @@ export default function BarraPipeline(p: Props) {
     ordem !== 'novos' ||
     (p.mostrarAgruparEnc && !p.agruparEnc) ||
     p.agruparCidade ||
-    p.agruparBairro ||
-    p.campoBusca !== 'todos'
+    p.agruparBairro
 
   const voltarAoPadrao = () => {
     p.onOrdenar('data', false)
     if (p.mostrarAgruparEnc) p.onAgruparEnc(true)
     p.onAgruparCidade(false)
     p.onAgruparBairro(false)
-    p.onCampoBusca('todos')
   }
 
   const escolherOrdem = (o: typeof ordem) => {
@@ -165,7 +149,7 @@ export default function BarraPipeline(p: Props) {
             type="text"
             value={p.busca}
             onChange={e => p.onBusca(e.target.value)}
-            placeholder={PLACEHOLDER[p.campoBusca]}
+            placeholder={PLACEHOLDER_BUSCA}
             className="pl-campo w-full h-9 md:h-8 pl-8 pr-8 rounded-lg text-sm outline-none focus:border-purple-500"
           />
           {p.busca && (
@@ -181,15 +165,7 @@ export default function BarraPipeline(p: Props) {
           )}
         </div>
 
-        {/* Desktop: "Buscar em" + botões soltos */}
-        <select
-          value={p.campoBusca}
-          onChange={e => p.onCampoBusca(e.target.value as CampoBusca)}
-          className="pl-campo hidden md:block h-8 px-2 rounded-lg text-xs outline-none cursor-pointer"
-          aria-label="Buscar em"
-        >
-          {CAMPOS.map(c => <option key={c.v} value={c.v}>{c.v === 'todos' ? 'Todos' : c.rot}</option>)}
-        </select>
+        {/* Desktop: botões soltos */}
         <div className="hidden md:flex items-center gap-1.5 ml-auto">
           {botaoDesk(
             p.ordenacao === 'data',
@@ -250,12 +226,6 @@ export default function BarraPipeline(p: Props) {
                     {p.mostrarAgruparEnc && op(p.agruparEnc, '🚐 Encaminhamento', () => p.onAgruparEnc(!p.agruparEnc))}
                     {op(p.agruparCidade, '📍 Cidade', () => { p.onAgruparCidade(!p.agruparCidade); if (p.agruparCidade) p.onAgruparBairro(false) })}
                     {p.agruparCidade && op(p.agruparBairro, '🏘️ Bairro', () => p.onAgruparBairro(!p.agruparBairro))}
-                  </div>
-                </div>
-                <div>
-                  <div className="pl-org-titulo">Buscar em</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {CAMPOS.map(c => <span key={c.v}>{op(p.campoBusca === c.v, c.rot, () => p.onCampoBusca(c.v))}</span>)}
                   </div>
                 </div>
               </div>

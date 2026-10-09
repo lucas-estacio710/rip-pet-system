@@ -58,6 +58,7 @@ import UrnaTela from '@/components/contratos/farois/UrnaTela'
 import EncaminhamentoTela from '@/components/contratos/farois/EncaminhamentoTela'
 import CardViagem from '@/components/contratos/pipeline/CardViagem'
 import EsteiraGC from '@/components/contratos/pipeline/EsteiraGC'
+import { classificarBusca, filtroDaBusca, ordenarPorRelevancia, etapaComResultado } from '@/lib/busca-contratos'
 import CardAcolhimento from '@/components/contratos/pipeline/CardAcolhimento'
 import CardPetDesk from '@/components/contratos/pipeline/CardPetDesk'
 import GraficosViagem from '@/components/contratos/pipeline/GraficosViagem'
@@ -409,6 +410,9 @@ function ContratosContent() {
   const [busca, setBusca] = useState(searchParams.get('busca') || '')
   const buscaDebounced = useDebounce(busca, 300)
   const [campoBusca, setCampoBusca] = useState<'todos' | 'pet' | 'tutor' | 'codigo' | 'lacre'>('todos')
+  // Busca nova (fluxo novo, 09/10/2026): o que dizer embaixo da barra — "N encontrados em
+  // Finalizado" quando pulou de etapa, ou "mostrando 200 de N" quando passou do teto.
+  const [avisoBusca, setAvisoBusca] = useState<string | null>(null)
   const [statusFiltro, setStatusFiltro] = useState<string>(searchParams.get('status') || 'ativo')
   // cb_cremacao_local: contratos nascem em 'pinda' (sem passar por 'ativo'). Pill 'Ativo' some.
   // Importante: NÃO usar hasModule() — ele retorna true pra super_admin sempre. Aqui é
@@ -1463,6 +1467,48 @@ function ContratosContent() {
 
     // Mesmo padrão da listagem: SELECT leve + enriquecimento paralelo
     const SELECT_BUSCA = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone, endereco, numero, complemento, bairro, cidade, cep), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, tutor_endereco, local_coleta, clinica_coleta, remocao_endereco, remocao_bairro, remocao_cidade, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, aguardando_acolhimento, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_nome_6, certificado_nome_7, certificado_confirmado, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, data_leva_pinda, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
+    // ── BUSCA NOVA (fluxo novo, chave obj_enc_pipeline — docs/BUSCA_PIPELINE.md, mig 157) ──
+    // Adivinha o tipo pelo formato (lacre exato, telefone/CPF, código, texto palavra a palavra),
+    // procura na coluna normalizada `busca` (sem acento, pet + tutor do contrato E do cadastro),
+    // ordena por relevância, e se a etapa aberta não tem nada pula pra primeira que tem.
+    if (cardNovo) {
+      const b = classificarBusca(termoBusca)
+      if (!b) { setLoading(false); return }
+      const f = filtroDaBusca(b)
+      let q = supabase.from('contratos').select(SELECT_BUSCA, { count: 'exact' }).eq('unidade_id', currentUnit.id)
+      for (const [col, v] of f.eq) q = q.eq(col, v)
+      for (const [col, pad] of f.ilike) q = q.ilike(col, pad)   // encadeado = AND entre palavras
+      if (agruparPorSupinda) q = q.order('data', { foreignTable: 'supinda', ascending, nullsFirst: true })
+      q = q.order(campoOrdem, { ascending, nullsFirst: false })
+      const { data, error, count } = await q.range(0, 199)
+      if (minhaBuscaId !== buscaIdRef.current) return
+      if (error) {
+        console.error('Erro na busca:', error)
+        setAvisoBusca('Não consegui buscar agora — tente de novo.')
+      } else {
+        const resultados = ordenarPorRelevancia((data || []) as Contrato[], b)
+        setContratos(resultados)
+        setTotal(count || 0)
+        atualizarURL({ busca: termoBusca })
+        const contagens: Record<string, number> = {}
+        for (const c of resultados) contagens[c.status] = (contagens[c.status] || 0) + 1
+        setStatusCounts(contagens)
+        const etapas = etapasDoPipeline(fluxoLocal, cardNovo)
+        const pular = etapaComResultado(contagens, statusFiltro, etapas.map(e => e.key))
+        if (pular) setStatusFiltro(pular)
+        const avisos: string[] = []
+        if (pular) {
+          const n = contagens[pular]
+          avisos.push(`${n} encontrado${n !== 1 ? 's' : ''} em ${etapas.find(e => e.key === pular)?.label || pular}`)
+        }
+        if ((count || 0) > resultados.length) avisos.push(`mostrando ${resultados.length} de ${count} — refine a busca`)
+        setAvisoBusca(avisos.length ? avisos.join(' · ') : null)
+        if (resultados.length > 0) enriquecerContratos(resultados, minhaBuscaId)
+      }
+      setLoading(false)
+      return
+    }
+
     // Sanitiza: escapa wildcards SQL (% _) e caracteres reservados PostgREST (, ( ) : * \)
     // + limita 80 chars. Protege contra termo malicioso quebrar o filtro `or`.
     const t = sanitizeBuscaPostgrest(termoBusca)
@@ -4630,8 +4676,6 @@ ${petNome}`
           onEtapa={toggleStatus}
           busca={busca}
           onBusca={setBusca}
-          campoBusca={campoBusca}
-          onCampoBusca={v => { setCampoBusca(v); setPagina(0) }}
           ordenacao={ordenacao}
           ordemAsc={ordemAsc}
           onOrdenar={(o, asc) => { setOrdenacao(o); setOrdemAsc(asc); setPagina(0) }}
@@ -4644,7 +4688,12 @@ ${petNome}`
           agruparBairro={agruparBairro}
           onAgruparBairro={setAgruparBairro}
           acao={botaoNovoEnc}
-          abaixo={breadcrumbPasta}
+          abaixo={<>
+            {breadcrumbPasta}
+            {busca.trim() && avisoBusca && (
+              <p className="mt-1.5 ml-1 text-[12px] font-semibold" style={{ color: '#d97706' }}>{avisoBusca}</p>
+            )}
+          </>}
         />
       ) : (
       // Barra antiga — theme-invariant (always dark slate)
