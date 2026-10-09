@@ -4695,7 +4695,9 @@ ${petNome}`
           mostrarCep={isVisible(T, 'btn_ordenar_cep') && cepUnidadeNum !== null}
           agruparEnc={agruparSupinda}
           onAgruparEnc={v => { setAgruparSupinda(v); setPagina(0) }}
-          mostrarAgruparEnc={encPipeline && statusFiltro === 'ativo'}
+          // Item 4 dos ajustes finos: Finalizado também agrupa por viagem no fluxo novo, então tem o
+          // botão também. UMA opção só pras duas etapas (decisão do Lucas, 09/10).
+          mostrarAgruparEnc={encPipeline && (statusFiltro === 'ativo' || statusFiltro === 'finalizado')}
           agruparCidade={agruparCidade}
           onAgruparCidade={setAgruparCidade}
           agruparBairro={agruparBairro}
