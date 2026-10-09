@@ -388,10 +388,7 @@ export default function ColarExtratoModal({
       // 1) já está no sistema?
       const par = exatoDe(l.n)
       if (par) {
-        // Um contrato com N pagamentos, ou VÁRIOS contratos num Pix só (2b).
-        const rots = [...new Set(par.candidatos.map(c => c.rotulo))]
-        const rot = rots.length > 1 ? `um Pix para ${rots.length} contratos: ${rots.map(r => r.replace(/^contrato /, '')).join(' + ')}`
-          : par.tipo === 'contrato' ? `${rots[0]} (${par.candidatos.length} pagamentos)` : rots[0]
+        const rot = par.tipo === 'contrato' ? `${par.candidatos[0].rotulo} (${par.candidatos.length} pagamentos)` : par.candidatos[0].rotulo
         return { ...base, destino: 'fora' as Destino, jaNoSistema: rot, exatos: par.candidatos, marcado: false }
       }
       if (estornadas.has(l.n)) {

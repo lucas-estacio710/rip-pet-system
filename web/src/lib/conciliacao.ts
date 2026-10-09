@@ -17,9 +17,13 @@
 //   1. exato     — mesma data e mesmo valor (como sempre foi);
 //   2. contrato  — a soma dos pagamentos de UM contrato no mesmo dia (Pix único
 //                  que no contrato virou plano + acessório; só conta corrente);
-//      2b. e a soma de VÁRIOS contratos no mesmo dia (09/10/2026: a tutora pagou
-//          MOZART 97 + LYON 1.290 num Pix só de 1.387). Só com UMA combinação
-//          possível — duas que somam igual é coincidência, e aí a pessoa decide;
+//
+// EMPATE NO EXATO (09/10/2026): dois contratos com o MESMO valor no mesmo dia
+// (LYON 1.290 do Leonardo e o plano do MOZART 1.290 do Sandro). O primeiro Pix
+// levava o primeiro da lista — o do Leonardo levou o do MOZART, e o Pix de
+// 1.387 (MOZART 1.290 + 97) ficou sem par. Agora o NOME de quem pagou decide
+// (as 3 letras do tutor no código do contrato); sem nome que decida, a linha
+// espera a passada do contrato e só depois leva o que sobrou.
 //   3. provavel  — um único candidato dentro da folga;
 //   4. ambiguo   — mais de um candidato: a tela lista e a pessoa escolhe.
 
@@ -42,12 +46,23 @@ export type ParConciliacao = {
   candidatos: RegistroSistema[]  // exato/contrato/provavel: 1 (ou as partes do contrato); ambiguo: 2+
 }
 
-export type LinhaBancoMin = { n: number; data: string; valor: number }
+export type LinhaBancoMin = { n: number; data: string; valor: number; descricao?: string }
 
 const DIA = 86400000
 export const diasEntre = (a: string, b: string) =>
   Math.round(Math.abs(Date.parse(a.slice(0, 10)) - Date.parse(b.slice(0, 10))) / DIA)
 const igual = (a: number, b: number) => Math.abs(a - b) < 0.005
+
+/** O pagador do banco bate com o tutor do contrato? O código é
+ *  {UNID}{AAMMDD}{IND|COL}{TTT}{PPP}{XX} — TTT são as 3 letras do tutor. */
+export function nomeBate(descricaoBanco: string | undefined, contrato: string | null): boolean {
+  if (!descricaoBanco || !contrato) return false
+  const codigo = contrato.split(' ')[0] || ''
+  if (!/^[A-Z]{2}\d{6}(IND|COL)[A-Z]{3}/.test(codigo)) return false
+  const ttt = codigo.slice(11, 14)
+  const palavras = descricaoBanco.normalize('NFD').replace(/[^A-Za-z ]/g, ' ').toUpperCase().split(/ +/)
+  return palavras.some(w => w.length >= 3 && w.startsWith(ttt))
+}
 
 export function conciliar(
   linhas: LinhaBancoMin[],
@@ -60,10 +75,18 @@ export function conciliar(
   const pares = new Map<number, ParConciliacao>()
 
   // 1) exato — em TODAS as linhas antes de qualquer folga: uma folga não pode
-  //    levar o registro que era o par exato de outra linha.
+  //    levar o registro que era o par exato de outra linha. Com mais de um
+  //    candidato, o nome desempata; sem desempate, a linha ESPERA (1b).
+  const exatosDe = (l: LinhaBancoMin) =>
+    registros.filter(x => !usado.has(x.chave) && x.data === l.data && igual(x.valor, l.valor))
+  const adiadas: LinhaBancoMin[] = []
   for (const l of linhas) {
-    const r = registros.find(x => !usado.has(x.chave) && x.data === l.data && igual(x.valor, l.valor))
-    if (r) { usado.add(r.chave); pares.set(l.n, { tipo: 'exato', candidatos: [r] }) }
+    const cs = exatosDe(l)
+    if (!cs.length) continue
+    const peloNome = cs.length > 1 ? cs.filter(x => nomeBate(l.descricao, x.contrato)) : cs
+    if (peloNome.length !== 1) { adiadas.push(l); continue }
+    usado.add(peloNome[0].chave)
+    pares.set(l.n, { tipo: 'exato', candidatos: [peloNome[0]] })
   }
 
   // 2) soma dos pagamentos de um contrato no mesmo dia
@@ -85,32 +108,11 @@ export function conciliar(
     }
   }
 
-  // 2b) a soma de 2 a 4 CONTRATOS diferentes no mesmo dia — cada contrato entra
-  //     inteiro (todos os pagamentos dele naquele dia). Só entradas, e só quando
-  //     a combinação é única.
-  if (opts.porContrato !== false) {
-    for (const l of linhas) {
-      if (pares.has(l.n) || l.valor <= 0) continue
-      const porContrato = new Map<string, RegistroSistema[]>()
-      for (const r of registros) {
-        if (usado.has(r.chave) || !r.contrato || r.data !== l.data || r.valor <= 0) continue
-        porContrato.set(r.contrato, [...(porContrato.get(r.contrato) || []), r])
-      }
-      const grupos = [...porContrato.values()].map(rs => ({ rs, soma: rs.reduce((a, r) => a + r.valor, 0) }))
-      if (grupos.length < 2 || grupos.length > 25) continue
-      const achadas: number[][] = []
-      const busca = (ini: number, esc: number[], soma: number) => {
-        if (achadas.length > 1) return
-        if (esc.length >= 2 && igual(soma, l.valor)) { achadas.push([...esc]); return }
-        if (esc.length === 4 || soma > l.valor + 0.005) return
-        for (let k = ini; k < grupos.length; k++) busca(k + 1, [...esc, k], soma + grupos[k].soma)
-      }
-      busca(0, [], 0)
-      if (achadas.length !== 1) continue
-      const partes = achadas[0].flatMap(k => grupos[k].rs)
-      partes.forEach(r => usado.add(r.chave))
-      pares.set(l.n, { tipo: 'contrato', candidatos: partes })
-    }
+  // 1b) as adiadas levam o que sobrou depois do contrato (como sempre foi)
+  for (const l of adiadas) {
+    if (pares.has(l.n)) continue
+    const r = exatosDe(l)[0]
+    if (r) { usado.add(r.chave); pares.set(l.n, { tipo: 'exato', candidatos: [r] }) }
   }
 
   // 3/4) folga — candidatos de mesmo sinal, dentro da janela de dias, com valor
