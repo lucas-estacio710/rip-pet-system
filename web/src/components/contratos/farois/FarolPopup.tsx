@@ -146,7 +146,7 @@ export default function FarolPopup({ aberto, onFechar, tags, animar, onFarol, te
                 f={f}
                 onFarol={onFarol}
                 direita={f.tipo === 'feito'
-                  ? <Ok animar={animar} atraso={(feitoIdx++) * 90} />
+                  ? <>{f.texto && <span className="flex-none text-[12px] font-black px-1.5 py-0.5 rounded" style={{ background: '#ea580c', color: '#fff' }}>{f.texto}</span>}<Ok animar={animar} atraso={(feitoIdx++) * 90} /></>
                   : <span className="pl-chip-nao">{f.texto}</span>}
               />
             ))}

@@ -55,6 +55,7 @@ import PersonalizadosTela from '@/components/contratos/farois/PersonalizadosTela
 import EntregaTela from '@/components/contratos/farois/EntregaTela'
 import PagamentoTela from '@/components/contratos/farois/PagamentoTela'
 import UrnaTela from '@/components/contratos/farois/UrnaTela'
+import EncaminhamentoTela from '@/components/contratos/farois/EncaminhamentoTela'
 import { carregarTarefaEntrega } from '@/lib/tarefa-entrega'
 import { useToast } from '@/components/ui/Toast'
 import { usePopupHistory } from '@/hooks/usePopupHistory'
@@ -267,7 +268,7 @@ const STATUS_FLOW = [
  *   O `status` no banco continua `pinda`; muda só o rótulo.
  */
 /** Faróis que já têm tela própria no 2º nível do popup de pendências (cresce de 2.5 a 2.12). */
-const TELAS_FAROL = new Set<string>(['certificado', 'indicacao', 'foto', 'pelinho', 'entrega', 'rescaldo', 'pagamento', 'urna'])
+const TELAS_FAROL = new Set<string>(['certificado', 'indicacao', 'foto', 'pelinho', 'entrega', 'rescaldo', 'pagamento', 'urna', 'encaminhamento'])
 
 function etapasDoPipeline(fluxoLocal: boolean, cardNovo: boolean) {
   return STATUS_FLOW
@@ -7985,6 +7986,15 @@ ${petNome}`
             onFechar={popupHist.fechar}
             animar={farolAnimar}
             tags={[
+              // 🚐 Encaminhamento (2.13b): primeiro da ordem (item 26), só no fluxo novo de
+              // encaminhamento, no Ativo e nunca Em Acolhimento (item 18). Fora do
+              // computeAllTags de propósito — não existe no detalhe, /tutores nem PI.
+              ...(encPipeline && c.status === 'ativo' && !c.aguardando_acolhimento ? [{
+                id: 'encaminhamento', emoji: '🚐', label: 'Encaminhamento',
+                state: (c.supinda_id ? 'completed' : 'pending') as ComputedTag['state'],
+                tooltip: c.supinda_id ? '' : (c.numero_lacre?.toString().trim() ? 'Sem viagem' : 'Sem lacre'),
+                sublabel: c.supinda?.numero ? String(c.supinda.numero) : undefined,
+              }] : []),
               ...computeAllTags({ ...c, indicacaoFonteId }).filter(t => t.id !== 'protocolo'),
               // 📬 Registrar entrega (2.9): último da ordem, só na Entrega/Pendente. Fora do
               // computeAllTags de propósito (senão iria pro detalhe, /tutores e PI).
@@ -8003,7 +8013,24 @@ ${petNome}`
               abrirAntigo[id]?.(c)
             }}
             onVoltar={popupHist.voltar}
-            tela={popupHist.nivel >= 2 && farolTela === 'urna' ? {
+            tela={popupHist.nivel >= 2 && farolTela === 'encaminhamento' ? {
+              emoji: '🚐',
+              titulo: 'Encaminhamento',
+              conteudo: (
+                <EncaminhamentoTela
+                  petNome={c.pet_nome}
+                  viagemAtual={c.supinda_id ? String(c.supinda?.numero || 'uma viagem') : null}
+                  temLacre={!!c.numero_lacre?.toString().trim()}
+                  viagens={encPlanejados.map(v => {
+                    const pets = contratos.filter(x => x.supinda_id === v.id)
+                    return { id: v.id, numero: String(v.numero), data: v.data, responsavel: v.responsavel, pets: pets.length, pesoKg: pets.reduce((s2, x) => s2 + (x.pet_peso || 0), 0) }
+                  })}
+                  onIncluir={async id => { await vincularAoEncaminhamento([c.id], id); popupHist.voltar() }}
+                  onNovaViagem={() => { popupHist.fechar(); void abrirNovoEncaminhamento() }}
+                  onPorLacre={() => { popupHist.fechar(); setLacreInputValue(''); setLacreEditandoId(c.id) }}
+                />
+              ),
+            } : popupHist.nivel >= 2 && farolTela === 'urna' ? {
               emoji: '⚱️',
               titulo: 'Urna',
               conteudo: (() => {

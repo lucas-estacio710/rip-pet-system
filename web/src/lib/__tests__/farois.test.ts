@@ -36,3 +36,13 @@ test('farol de entrega usa o texto pronto (D10)', () => {
   assert.equal(farolParaLista(tag('entrega', 'pending', { tooltip: 'A entregar' }))!.texto, 'A entregar')
   assert.equal(farolParaLista(tag('entrega', 'in_progress', { tooltip: 'Com Juliana' }))!.texto, 'Com Juliana')
 })
+
+test('farol 🚐: pendente diz Sem viagem/Sem lacre; concluído mostra a viagem (2.13b)', () => {
+  const base = { id: 'encaminhamento', emoji: '🚐', label: 'Encaminhamento' }
+  assert.equal(farolParaLista({ ...base, state: 'pending', tooltip: 'Sem lacre' } as ComputedTag)?.texto, 'Sem lacre')
+  assert.equal(farolParaLista({ ...base, state: 'pending', tooltip: '' } as ComputedTag)?.texto, 'Sem viagem')
+  const feito = farolParaLista({ ...base, state: 'completed', tooltip: '', sublabel: 'ST172' } as ComputedTag)
+  assert.equal(feito?.tipo, 'feito')
+  assert.equal(feito?.texto, 'ST172')
+  assert.equal(farolParaLista({ id: 'urna', emoji: '⚱️', label: 'Urna', state: 'completed', tooltip: '', sublabel: 'X' } as ComputedTag)?.texto, null)
+})
