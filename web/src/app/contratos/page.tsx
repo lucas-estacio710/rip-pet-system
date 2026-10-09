@@ -59,6 +59,7 @@ import EncaminhamentoTela from '@/components/contratos/farois/EncaminhamentoTela
 import CardViagem from '@/components/contratos/pipeline/CardViagem'
 import EsteiraGC from '@/components/contratos/pipeline/EsteiraGC'
 import CardAcolhimento from '@/components/contratos/pipeline/CardAcolhimento'
+import CardPetDesk from '@/components/contratos/pipeline/CardPetDesk'
 import TrazerDaMatriz from '@/components/contratos/pipeline/TrazerDaMatriz'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import AdicionarPetsViagem from '@/components/contratos/pipeline/AdicionarPetsViagem'
@@ -4314,6 +4315,36 @@ ${petNome}`
    * pendências: faróis do `computeAllTags` + 🚐 (fluxo novo, Ativo, fora do acolhimento) +
    * 📬 (Entrega/Pendente). null = unidade sem `btn_farois` (P-05): sem resumo.
    */
+  function faroisDoCard(c: Contrato, entregaCom: string | null = null): ComputedTag[] {
+    return [
+      // 🚐 Encaminhamento (2.13b): primeiro da ordem (item 26), só no fluxo novo de
+      // encaminhamento, no Ativo e nunca Em Acolhimento (item 18). Fora do
+      // computeAllTags de propósito — não existe no detalhe, /tutores nem PI.
+      ...(encPipeline && c.status === 'ativo' && !c.aguardando_acolhimento ? [{
+        id: 'encaminhamento', emoji: '🚐', label: 'Encaminhamento',
+        state: (c.supinda_id ? 'completed' : 'pending') as ComputedTag['state'],
+        tooltip: c.supinda_id ? '' : (c.numero_lacre?.toString().trim() ? 'Sem viagem' : 'Sem lacre'),
+        sublabel: c.supinda?.numero ? String(c.supinda.numero) : undefined,
+      }] : []),
+      ...computeAllTags({ ...c, indicacaoFonteId }).filter(t => t.id !== 'protocolo'),
+      // 📬 Registrar entrega (2.9): último da ordem, só na Entrega/Pendente. Fora do
+      // computeAllTags de propósito (senão iria pro detalhe, /tutores e PI).
+      ...((c.status === 'retorno' || c.status === 'pendente') ? [{
+        id: 'entrega', emoji: '📬', label: 'Registrar entrega',
+        state: (entregaCom ? 'in_progress' : 'pending') as ComputedTag['state'],
+        tooltip: entregaCom ? `Com ${entregaCom}` : 'A entregar',
+      }] : []),
+    ]
+  }
+
+  /** Card largo (D2/D8): clicar num farol abre o popup já no 2º nível daquele farol. */
+  function abrirFarolDireto(c: Contrato, id: string) {
+    setFarolContratoId(c.id)
+    setFarolAnimar(false)
+    popupHist.abrir()
+    if (TELAS_FAROL.has(id)) { setFarolTela(id); setFarolTelaContrato(c); popupHist.entrar() }
+  }
+
   function resumoDoCard(c: Contrato): { feitos: number; pendentes: number } | null {
     if (!isVisible(T, 'btn_farois')) return null
     const tags = computeAllTags({ ...c, indicacaoFonteId }).filter(t => t.id !== 'protocolo')
@@ -4322,6 +4353,89 @@ ${petNome}`
     if (encPipeline && c.status === 'ativo' && !c.aguardando_acolhimento) { if (c.supinda_id) feitos++; else pendentes++ }
     if (c.status === 'retorno' || c.status === 'pendente') pendentes++
     return { feitos, pendentes }
+  }
+
+  /**
+   * Botões de Ações do card novo (celular: gaveta do trilho; desktop: fileira à direita, que
+   * vira a dock no 2.17c). Ordem: Waze/Maps (Entrega/Pendente, item 37), mensagens, ✝️ Ativar,
+   * PEN, 📬 (só sem faróis — P-05), Bypass. Extraído do trilho no 2.17b: um lugar só.
+   */
+  function acoesDoCard(contrato: Contrato, temFarois: boolean): React.ReactNode[] {
+    const naEntrega = contrato.status === 'retorno' || contrato.status === 'pendente'
+    const tagsCard = temFarois
+    const endNav = naEntrega
+      ? enderecoParaNavegar(contrato.tutor, { endereco: contrato.tutor_endereco, bairro: contrato.tutor_bairro, cidade: contrato.tutor_cidade })
+      : null
+    const nav = endNav ? linksNavegacao(endNav) : null
+    const podeFase = isVisible(T, 'btn_alteracao_fase')
+    const acoes: React.ReactNode[] = []
+    if (nav) {
+      acoes.push(
+        <a key="waze" href={nav.waze} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="pl-acao" style={{ background: '#33ccff' }} title={'Waze: ' + endNav}>
+          <span className="pl-acao-rot">Waze</span><Navigation className="h-3.5 w-3.5" />
+        </a>,
+        <a key="maps" href={nav.maps} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="pl-acao" style={{ background: '#fff', color: '#ea4335', border: '1px solid #e2e8f0' }} title={'Google Maps: ' + endNav}>
+          <span className="pl-acao-rot" style={{ color: '#334155' }}>Maps</span><MapPin className="h-3.5 w-3.5" />
+        </a>,
+      )
+    }
+    if (isVisible(T, 'btn_mensagens')) {
+      acoes.push(
+        <ActionButtons
+          key="msg"
+          contrato={contrato}
+          handlers={{
+            onPetGrato: () => abrirPetGrato(contrato),
+            onChegamos: () => abrirChegamosModal(contrato),
+            onChegaram: () => abrirChegaramModal(contrato),
+            onFinalizadora: () => abrirFinalizadoraModal(contrato),
+          }}
+          layout="pipeline"
+        />,
+      )
+    }
+    if (podeFase && contrato.status === 'preventivo') {
+      acoes.push(
+        <button key="ativar" onClick={e => { e.preventDefault(); e.stopPropagation(); abrirAtivarModal(contrato) }} className="pl-acao bg-red-900" title="Ativar">
+          <span className="text-sm">✝️</span>
+        </button>,
+      )
+    }
+    if (podeFase && contrato.status === 'retorno') {
+      acoes.push(
+        <button
+          key="pen"
+          onClick={async e => {
+            e.preventDefault(); e.stopPropagation()
+            if (!confirm('Marcar ' + contrato.pet_nome + ' como pendente?')) return
+            const supabaseLocal = createClient()
+            await supabaseLocal.from('contratos').update({ status: 'pendente' } as never).eq('id', contrato.id)
+            carregarContratos()
+          }}
+          className="pl-acao bg-purple-600"
+          title="Marcar como pendente"
+        >
+          <span className="pl-acao-rot">PEN</span><span className="text-[11px]">⏳</span>
+        </button>,
+      )
+    }
+    // 📬 virou o farol "Registrar entrega" (2.9). Fica nas Ações só onde não há faróis
+    // (P-05: btn_farois desligado — faróis são funcionalidade paga).
+    if (podeFase && naEntrega && !tagsCard) {
+      acoes.push(
+        <button key="entregue" onClick={e => { e.preventDefault(); e.stopPropagation(); abrirEntregaModal(contrato) }} className="pl-acao bg-emerald-600" title="Marcar entregue">
+          <span className="text-sm">📬</span>
+        </button>,
+      )
+    }
+    if (podeFase && ['ativo', 'pinda'].includes(contrato.status) && isVisible(T, 'btn_bypass')) {
+      acoes.push(
+        <button key="bypass" onClick={e => { e.preventDefault(); e.stopPropagation(); setBypassContrato(contrato); setBypassDataCremacao(''); setBypassDataEntrega('') }} className="pl-acao bg-red-600 text-xs font-black" title="Bypass — finalizar pulando etapas">
+          B
+        </button>,
+      )
+    }
+    return acoes
   }
 
   // Relê os totais de acessórios do contrato — o trigger da mig 074 os recalcula a cada
@@ -5655,8 +5769,50 @@ ${petNome}`
                   />
                 )}
                 <div className="p-1.5 relative z-[1]">
-                  {/* === DESKTOP LAYOUT === (card novo: só a partir de `lg`, P-17) */}
-                  <div className={`hidden ${cardNovo ? 'lg:flex' : 'md:flex'} items-center gap-2`}>
+                  {/* === DESKTOP LAYOUT === Card novo (2.17b, D2/D6): CardPetDesk, só a partir de
+                      `lg` (P-17). Sem a chave, o layout antigo abaixo, intocado. */}
+                  {cardNovo ? (
+                    <div className="hidden lg:block">
+                      <CardPetDesk
+                        dataAcolhimento={contrato.data_acolhimento}
+                        lacre={lacreEditandoId !== contrato.id && contrato.numero_lacre ? String(contrato.numero_lacre).replace(/\.0$/, '') : null}
+                        lacreSolto={(!contrato.numero_lacre || lacreEditandoId === contrato.id) ? renderLacreCell(contrato, 'desktop') : null}
+                        petNome={contrato.pet_nome}
+                        petGenero={contrato.pet_genero}
+                        individual={contrato.tipo_cremacao === 'individual'}
+                        especie={contrato.pet_especie}
+                        peso={contrato.pet_peso}
+                        tutorNome={contrato.tutor?.nome || contrato.tutor_nome}
+                        raca={contrato.pet_raca}
+                        cor={contrato.pet_cor}
+                        mostrarRaca={!(contrato.status === 'retorno' || contrato.status === 'pendente')}
+                        farois={isVisible(T, 'btn_farois') ? faroisDoCard(contrato) : null}
+                        onFarol={id => abrirFarolDireto(contrato, id)}
+                        meio={
+                          encPipeline && contrato.status === 'pinda' && contrato.contrato_gc
+                            ? <EsteiraGC gc={contrato.contrato_gc} dataIda={contrato.data_leva_pinda || null} />
+                            : (contrato.status === 'retorno' || contrato.status === 'pendente')
+                              ? renderEnderecoNoTrilho(contrato)
+                              : undefined
+                        }
+                        acoes={(() => {
+                          const tel = (contrato.tutor?.telefone || contrato.tutor_telefone || '').replace(/\D/g, '')
+                          return (
+                            <>
+                              {tel && (
+                                <a href={`https://wa.me/${tel}`} target="_blank" rel="noopener noreferrer"
+                                  className="pl-acao" style={{ background: '#25D366' }} title="Conversar no WhatsApp">
+                                  <span className="pl-acao-rot">Zap</span>
+                                </a>
+                              )}
+                              {acoesDoCard(contrato, isVisible(T, 'btn_farois'))}
+                            </>
+                          )
+                        })()}
+                      />
+                    </div>
+                  ) : (
+                  <div className="hidden md:flex items-center gap-2">
                     {/* Coluna de ações: [DocMenu] sempre (exceto preventivo) + [Checkbox] em retorno/pendente */}
                     {contrato.status !== 'preventivo' && (
                       <div className="flex-shrink-0 flex flex-col items-center gap-1">
@@ -5953,6 +6109,7 @@ ${petNome}`
                       </div>
                     </div>
                   </div>
+                  )}
 
                   {/* === MOBILE LAYOUT === (card novo: também no tablet, P-17) */}
                   <div className={`${cardNovo ? 'lg:hidden' : 'md:hidden'} space-y-1`}>
@@ -6126,78 +6283,8 @@ ${petNome}`
                       const feitos = resumoCard?.feitos ?? 0
                       const pendentes = resumoCard?.pendentes ?? 0
                       const naEntrega = contrato.status === 'retorno' || contrato.status === 'pendente'
-                      const endNav = naEntrega
-                        ? enderecoParaNavegar(contrato.tutor, { endereco: contrato.tutor_endereco, bairro: contrato.tutor_bairro, cidade: contrato.tutor_cidade })
-                        : null
-                      const nav = endNav ? linksNavegacao(endNav) : null
+                      const acoes = acoesDoCard(contrato, !!tagsCard)
                       const podeFase = isVisible(T, 'btn_alteracao_fase')
-                      const acoes: React.ReactNode[] = []
-                      if (nav) {
-                        acoes.push(
-                          <a key="waze" href={nav.waze} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="pl-acao" style={{ background: '#33ccff' }} title={'Waze: ' + endNav}>
-                            <span className="pl-acao-rot">Waze</span><Navigation className="h-3.5 w-3.5" />
-                          </a>,
-                          <a key="maps" href={nav.maps} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="pl-acao" style={{ background: '#fff', color: '#ea4335', border: '1px solid #e2e8f0' }} title={'Google Maps: ' + endNav}>
-                            <span className="pl-acao-rot" style={{ color: '#334155' }}>Maps</span><MapPin className="h-3.5 w-3.5" />
-                          </a>,
-                        )
-                      }
-                      if (isVisible(T, 'btn_mensagens')) {
-                        acoes.push(
-                          <ActionButtons
-                            key="msg"
-                            contrato={contrato}
-                            handlers={{
-                              onPetGrato: () => abrirPetGrato(contrato),
-                              onChegamos: () => abrirChegamosModal(contrato),
-                              onChegaram: () => abrirChegaramModal(contrato),
-                              onFinalizadora: () => abrirFinalizadoraModal(contrato),
-                            }}
-                            layout="pipeline"
-                          />,
-                        )
-                      }
-                      if (podeFase && contrato.status === 'preventivo') {
-                        acoes.push(
-                          <button key="ativar" onClick={e => { e.preventDefault(); e.stopPropagation(); abrirAtivarModal(contrato) }} className="pl-acao bg-red-900" title="Ativar">
-                            <span className="text-sm">✝️</span>
-                          </button>,
-                        )
-                      }
-                      if (podeFase && contrato.status === 'retorno') {
-                        acoes.push(
-                          <button
-                            key="pen"
-                            onClick={async e => {
-                              e.preventDefault(); e.stopPropagation()
-                              if (!confirm('Marcar ' + contrato.pet_nome + ' como pendente?')) return
-                              const supabaseLocal = createClient()
-                              await supabaseLocal.from('contratos').update({ status: 'pendente' } as never).eq('id', contrato.id)
-                              carregarContratos()
-                            }}
-                            className="pl-acao bg-purple-600"
-                            title="Marcar como pendente"
-                          >
-                            <span className="pl-acao-rot">PEN</span><span className="text-[11px]">⏳</span>
-                          </button>,
-                        )
-                      }
-                      // 📬 virou o farol "Registrar entrega" (2.9). Fica nas Ações só onde não há faróis
-                      // (P-05: btn_farois desligado — faróis são funcionalidade paga).
-                      if (podeFase && naEntrega && !tagsCard) {
-                        acoes.push(
-                          <button key="entregue" onClick={e => { e.preventDefault(); e.stopPropagation(); abrirEntregaModal(contrato) }} className="pl-acao bg-emerald-600" title="Marcar entregue">
-                            <span className="text-sm">📬</span>
-                          </button>,
-                        )
-                      }
-                      if (podeFase && ['ativo', 'pinda'].includes(contrato.status) && isVisible(T, 'btn_bypass')) {
-                        acoes.push(
-                          <button key="bypass" onClick={e => { e.preventDefault(); e.stopPropagation(); setBypassContrato(contrato); setBypassDataCremacao(''); setBypassDataEntrega('') }} className="pl-acao bg-red-600 text-xs font-black" title="Bypass — finalizar pulando etapas">
-                            B
-                          </button>,
-                        )
-                      }
                       return (
                         <>
                           <TrilhoCardPet
@@ -8137,25 +8224,7 @@ ${petNome}`
             aberto={popupHist.nivel > 0}
             onFechar={popupHist.fechar}
             animar={farolAnimar}
-            tags={[
-              // 🚐 Encaminhamento (2.13b): primeiro da ordem (item 26), só no fluxo novo de
-              // encaminhamento, no Ativo e nunca Em Acolhimento (item 18). Fora do
-              // computeAllTags de propósito — não existe no detalhe, /tutores nem PI.
-              ...(encPipeline && c.status === 'ativo' && !c.aguardando_acolhimento ? [{
-                id: 'encaminhamento', emoji: '🚐', label: 'Encaminhamento',
-                state: (c.supinda_id ? 'completed' : 'pending') as ComputedTag['state'],
-                tooltip: c.supinda_id ? '' : (c.numero_lacre?.toString().trim() ? 'Sem viagem' : 'Sem lacre'),
-                sublabel: c.supinda?.numero ? String(c.supinda.numero) : undefined,
-              }] : []),
-              ...computeAllTags({ ...c, indicacaoFonteId }).filter(t => t.id !== 'protocolo'),
-              // 📬 Registrar entrega (2.9): último da ordem, só na Entrega/Pendente. Fora do
-              // computeAllTags de propósito (senão iria pro detalhe, /tutores e PI).
-              ...((c.status === 'retorno' || c.status === 'pendente') ? [{
-                id: 'entrega', emoji: '📬', label: 'Registrar entrega',
-                state: (farolEntregaCom ? 'in_progress' : 'pending') as ComputedTag['state'],
-                tooltip: farolEntregaCom ? `Com ${farolEntregaCom}` : 'A entregar',
-              }] : []),
-            ]}
+            tags={faroisDoCard(c, farolEntregaCom)}
             onFarol={id => {
               setFarolAnimar(false)
               // Farol com tela própria: 2º nível na mesma janela.
