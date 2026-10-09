@@ -60,6 +60,7 @@ import CardViagem from '@/components/contratos/pipeline/CardViagem'
 import EsteiraGC from '@/components/contratos/pipeline/EsteiraGC'
 import CardAcolhimento from '@/components/contratos/pipeline/CardAcolhimento'
 import CardPetDesk from '@/components/contratos/pipeline/CardPetDesk'
+import GraficosViagem from '@/components/contratos/pipeline/GraficosViagem'
 import TrazerDaMatriz from '@/components/contratos/pipeline/TrazerDaMatriz'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import AdicionarPetsViagem from '@/components/contratos/pipeline/AdicionarPetsViagem'
@@ -478,7 +479,11 @@ function ContratosContent() {
   const [tirarPetConfirm, setTirarPetConfirm] = useState<Contrato | null>(null)
   const [encDataOriginal, setEncDataOriginal] = useState('')
   const [menuCardViagemAberto, setMenuCardViagemAberto] = useState(false)
-  const [viagemRecebeu, setViagemRecebeu] = useState<string | null>(null)   // 2.17d: "pulso" ao receber   // número da viagem com o menu "⋯" aberto
+  const [viagemRecebeu, setViagemRecebeu] = useState<string | null>(null)   // 2.17d: "pulso" ao receber
+  // 2.17e (D5/P-16): nome de TODAS as fontes de cada contrato pro gráfico "Como nos conheceu" do
+  // card da viagem. A página só resolvia a fonte principal; a tabela tem 9 linhas — carrega 1×.
+  const [nomeDaFonte, setNomeDaFonte] = useState<Record<string, string>>({})
+  // (a carga fica logo abaixo do `supabase`)   // número da viagem com o menu "⋯" aberto
   // ── Enviar para a Matriz (etapa 4) — o botão irreversível ──
   const [enviarModal, setEnviarModal] = useState<{ id: string; numero: string; data: string | null } | null>(null)
   const [enviarPets, setEnviarPets] = useState<PetDaViagem[]>([])
@@ -884,6 +889,11 @@ function ContratosContent() {
 
   const POR_PAGINA = 30
   const supabase = createClient()
+  useEffect(() => {
+    if (!encPipeline) return
+    supabase.from('fontes_conhecimento').select('id, nome')
+      .then(({ data }) => setNomeDaFonte(Object.fromEntries(((data || []) as { id: string; nome: string }[]).map(f => [f.id, f.nome]))))
+  }, [encPipeline, supabase])
 
   // P-29: o ✓ de personalizado/pelinho some pra quem não pode concluir sem foto (concierge numa
   // unidade com o Operacional). Config lida 1× — é a mesma do trigger da mig 147.
@@ -5276,6 +5286,12 @@ ${petNome}`
                             } : null}
                             onAbrir={() => entrarNoEnc(numero)}
                             onMenuAberto={setMenuCardViagemAberto}
+                            graficos={<GraficosViagem pets={grupo.contratos.map(c => ({
+                              individual: c.tipo_cremacao !== 'coletiva',
+                              especie: c.pet_especie,
+                              fontes: [...new Set([...(c.fonte_conhecimento_ids || []), ...((c as { fonte_conhecimento_id?: string | null }).fonte_conhecimento_id ? [(c as { fonte_conhecimento_id?: string | null }).fonte_conhecimento_id as string] : [])])]
+                                .map(id => nomeDaFonte[id]).filter((n): n is string => !!n),
+                            }))} />}
                           />
                         )
                 }

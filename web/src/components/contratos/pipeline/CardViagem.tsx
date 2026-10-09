@@ -36,6 +36,9 @@ type Props = {
   menu: { onAdicionar: () => void; onEditar: () => void; onEnviar: () => void } | null
   onAbrir: () => void
   onMenuAberto?: (aberto: boolean) => void
+  /** Desktop (2.17e, D5): os 3 gráficos do perfil da viagem, entre o chefão e os totais.
+   *  Só aparece a partir de `lg`; lá o gráfico de tipo substitui as pílulas IND/COL. */
+  graficos?: React.ReactNode
 }
 
 const dataCurta = (iso: string | null) => {
@@ -132,6 +135,7 @@ export default function CardViagem(p: Props) {
             {p.resumo.pendentes > 0 && <span>⏱ {p.resumo.pendentes}</span>}
           </span>
         ) : <span />}
+        {p.graficos && <div className="hidden lg:flex flex-1 min-w-0 mx-1">{p.graficos}</div>}
         <div className="flex flex-col items-end gap-px min-w-0 ml-auto text-right">
           {total > 0 && (
             <div className="flex pl-1">
@@ -163,8 +167,8 @@ export default function CardViagem(p: Props) {
         {total > 0 && (
           <span className={`pl-viagem-pill ${pagos === total ? 'ok' : 'warn'}`}><DollarSign className="h-3 w-3" />{pagos}/{total}</span>
         )}
-        {ind > 0 && <span className="pl-viagem-pill" style={{ background: '#10b981', color: '#fff' }}>{ind} IND</span>}
-        {col > 0 && <span className="pl-viagem-pill" style={{ background: '#8b5cf6', color: '#fff' }}>{col} COL</span>}
+        {ind > 0 && <span className={`pl-viagem-pill ${p.graficos ? 'lg:hidden' : ''}`} style={{ background: '#10b981', color: '#fff' }}>{ind} IND</span>}
+        {col > 0 && <span className={`pl-viagem-pill ${p.graficos ? 'lg:hidden' : ''}`} style={{ background: '#8b5cf6', color: '#fff' }}>{col} COL</span>}
         {total === 0 && <span className="text-[12px]" style={{ color: 'var(--surface-500)' }}>Viagem vazia — ⋮ → Adicionar pets</span>}
         {p.responsavel && (
           <span className="ml-auto flex items-center gap-[3px] text-[11px] font-semibold truncate max-w-[45%]" style={{ color: 'var(--surface-500)' }}>
