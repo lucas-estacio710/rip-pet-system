@@ -456,6 +456,11 @@ export default function ColarExtratoModal({
     // não escolhida) e guarda o total pra conferir a soma das compras.
     const cab = ehCartao ? cabecalhoFatura(texto) : null
     setCabecalho(cab)
+    if (cab) {
+      void supabase.from('fin_saldos_banco').upsert(
+        { conta_id: contaId, data: cab.venc, saldo: -cab.total, origem: 'fatura', criado_por_nome: userName || null },
+        { onConflict: 'conta_id,data' })
+    }
     if (cab && !vencimento) { setVencimento(cab.venc); setNovaFatura(!faturas.some(f => f.venc === cab.venc)) }
 
     // O PLACAR (conta corrente). Banco: o saldo da ÚLTIMA linha do último dia
@@ -475,6 +480,13 @@ export default function ColarExtratoModal({
         if (arr.length < 1000) break
       }
       setPlacar({ data: fim, banco: ultimo ? ultimo.saldo : null, sistema: Math.round(soma * 100) / 100 })
+      // O saldo do banco é um FATO: fica guardado pra Visão do mês comparar
+      // (mig 156). Sem a tabela, segue sem ele — o placar já funcionou.
+      if (ultimo && ultimo.saldo !== null) {
+        void supabase.from('fin_saldos_banco').upsert(
+          { conta_id: contaId, data: fim, saldo: ultimo.saldo, origem: 'extrato', criado_por_nome: userName || null },
+          { onConflict: 'conta_id,data' })
+      }
     }
     setLendo(false)
   }

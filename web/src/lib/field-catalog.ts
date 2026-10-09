@@ -116,6 +116,7 @@ export const OBJETOS: ChildItemDef[] = [
   { key: 'obj_dash_financeiro', tela: 'tela_dashboards', label: 'Financeiro', desc: 'Receita, custo cremação, ticket médio, pendentes, NFS-e' },
   { key: 'obj_dash_comercial', tela: 'tela_dashboards', label: 'Comercial / Indicadores', desc: 'Ranking clínicas, indicações, conversão de leads' },
   { key: 'obj_dash_marketing', tela: 'tela_dashboards', label: 'Marketing / Ads', desc: 'UTM, leads, conversão, RIP Shield, ROAS' },
+  { key: 'obj_fin_visao', tela: 'tela_financeiro', label: 'Visão do mês', desc: 'Primeira aba (redesenho V2, 09/10/2026): como foi o mês, para onde foi, se cada conta bate com o banco e o que falta. Cada ato respeita a aba de onde vem (DRE, Caixa, Repasse)' },
   { key: 'obj_fin_lancamentos', tela: 'tela_financeiro', label: 'Lançamentos', desc: 'Aba de lançar despesa: categoria + valor + como pagou + comprovante' },
   { key: 'obj_fin_repasse', tela: 'tela_financeiro', label: 'Repasse', desc: 'Aba da "planilha do dia 20": os pets acolhidos no mês que a Matriz cobra da unidade' },
   { key: 'obj_fin_caixa', tela: 'tela_financeiro', label: 'Caixa', desc: 'Aba do fluxo de caixa: saldo por conta, extrato e movimentos (transferência, fatura de cartão, aporte) — mig 124' },
