@@ -38,6 +38,7 @@ import {
 import { criarIndice, sugerir, type Sugestao } from '@/lib/similaridade'
 import { buscarCategorias, sugerirPorSinonimo, type CategoriaBuscavel } from '@/lib/busca-categoria'
 import { conciliar, semPar, type RegistroSistema, type Ref } from '@/lib/conciliacao'
+import { reconhecerCobranca } from '@/lib/reconhecer-cobranca'
 
 type ContaRow = { id: string; nome: string; produto: string | null; tipo: string | null; preferencial_recebimento: boolean | null }
 type Cat = {
@@ -58,6 +59,13 @@ const METODOS = [
 /** Folga da conciliação (lib/conciliacao): ±dias e, só no cartão, ±câmbio. */
 const JANELA_DIAS = 5
 const TOLERANCIA_CAMBIO = 0.05
+
+/** "Foi para outras unidades" (V2, etapa 3): cada unidade com a sua parte. Com a
+ *  Matriz numa ponta, a parte vai no repasse (já reconhecida); sem ela, vira
+ *  cobrança direta que a outra unidade confirma — a regra do lançamento avulso. */
+type ParaUnidade = { key: string; unidadeId: string; valor: string; modo: 'agora' | 'repasse'; repasseId: string }
+type UnidadeRow = { id: string; codigo: string; nome: string; is_matriz: boolean }
+type RepasseRow = { id: string; unidade_id: string; mes_referencia: string; status: string }
 
 /** Uma parte de despesa DIVIDIDA (mig 149): categoria + valor em dígitos (centavos). */
 type Parte = { key: string; catId: string; catTexto: string; valor: string }
@@ -89,6 +97,7 @@ type Item = LinhaExtrato & {
   fornecedor: string
   // A LINHA QUE CRESCE (V2, etapa 2): o que o lançamento avulso faz, dentro da linha.
   partes: Parte[]                // dividir: a principal (catId) fica com o que sobra
+  outras: ParaUnidade[]          // foi para outras unidades: o resto fica com esta
   meses: number                  // vale por vários meses (rateio_meses); 1 = não
   doHistorico: boolean
   porSinonimo: boolean           // categoria veio do sinônimo (sem histórico) — confira
@@ -129,6 +138,23 @@ export default function ColarExtratoModal({
   const [placar, setPlacar] = useState<{ data: string; banco: number | null; sistema: number } | null>(null)
   // Linhas com o detalhe aberto (fornecedor, forma, maquininha) e a seção "Encontramos".
   const [abertos, setAbertos] = useState<Set<number>>(new Set())
+  // Destinos possíveis de "foi para outras unidades" e os repasses que aceitam acerto.
+  const [unidades, setUnidades] = useState<UnidadeRow[]>([])
+  const [repassesAbertos, setRepassesAbertos] = useState<RepasseRow[]>([])
+  useEffect(() => {
+    if (!aberto || !currentUnit?.id) return
+    void supabase.from('unidades').select('id, codigo, nome, is_matriz')
+      .eq('ativa', true).neq('id', currentUnit.id).order('nome')
+      .then(({ data }) => setUnidades((data as UnidadeRow[] | null) || []))
+    void supabase.from('fin_repasses').select('id, unidade_id, mes_referencia, status')
+      .in('status', ['aberto', 'enviado']).order('mes_referencia', { ascending: false })
+      .then(({ data }) => setRepassesAbertos((data as RepasseRow[] | null) || []))
+  }, [aberto, currentUnit?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  /** O repasse é sempre Matriz ↔ unidade: só há "no repasse" se uma ponta é a Matriz. */
+  const unidadeDoRepasse = (destinoId: string): string | null => {
+    if (currentUnit?.is_matriz) return destinoId
+    return unidades.find(u => u.id === destinoId)?.is_matriz ? currentUnit?.id || null : null
+  }
   const [encontradasAberto, setEncontradasAberto] = useState(false)
 
   const maquininhas = contas.filter(c => c.produto === 'maquininha')
@@ -316,7 +342,7 @@ export default function ColarExtratoModal({
         opId: '', mov: '' as MovMaquininha | '', catId: '', catTexto: '',
         metodo: ehCartao ? 'credito' : (metodoDe(l.descricao) || 'pix'), fornecedor: fornecedorDe(l.descricao),
         doHistorico: false, porSinonimo: false, sugestoes: [] as Sugestao<Decisao>[],
-        partes: [] as Parte[], meses: 1,
+        partes: [] as Parte[], meses: 1, outras: [] as ParaUnidade[],
       }
       // 1) já está no sistema?
       const par = exatoDe(l.n)
@@ -424,9 +450,13 @@ export default function ColarExtratoModal({
   // total é o do banco, então ele não muda (mesma regra do lançamento avulso).
   const restanteDe = (i: Item) => Math.round((Math.abs(i.valor) - i.partes.reduce((a, pt) => a + digNum(pt.valor), 0)) * 100) / 100
   const partesOk = (i: Item) => i.partes.every(pt => pt.catId && digNum(pt.valor) > 0) && restanteDe(i) > 0
-  const despProntas = despesas.filter(i => i.marcado && i.catId && partesOk(i))
+  const somaOutras = (i: Item) => i.outras.reduce((a, o) => a + digNum(o.valor), 0)
+  const outrasOk = (i: Item) => i.outras.every(o => o.unidadeId && digNum(o.valor) > 0)
+    && new Set(i.outras.map(o => o.unidadeId)).size === i.outras.length
+    && somaOutras(i) <= Math.abs(i.valor) + 0.005
+  const despProntas = despesas.filter(i => i.marcado && i.catId && partesOk(i) && outrasOk(i))
   const pendentes = receitas.filter(i => i.marcado && !(i.opId || maquininhaLote) || (i.marcado && !i.mov)).length
-    + despesas.filter(i => i.marcado && (!i.catId || !partesOk(i))).length
+    + despesas.filter(i => i.marcado && (!i.catId || !partesOk(i) || !outrasOk(i))).length
     + parecidos.filter(i => i.parecido!.escolhido === -2).length
 
   async function registrar() {
@@ -489,7 +519,9 @@ export default function ColarExtratoModal({
         // insert só: ou entram todas as partes, ou nenhuma. `donos` guarda de
         // qual linha do banco veio cada lançamento, pra conciliar cada um.
         const donos: Item[] = []
+        const principal = new Map<number, number>()   // linha do banco → índice do lançamento principal
         const rows = despProntas.flatMap(i => {
+          principal.set(i.n, donos.length)
           const divisao_id = i.partes.length ? crypto.randomUUID() : null
           const pedacos = [
             { catId: i.catId, valor: i.partes.length ? restanteDe(i) : Math.abs(i.valor) },
@@ -517,7 +549,44 @@ export default function ColarExtratoModal({
         })
         const { data: novosLanc, error } = await supabase.from('fin_lancamentos').insert(rows).select('id')
         if (error) throw new Error(`Despesas: ${error.message}${entrouRec ? ` (as ${entrouRec} receitas a prazo JÁ entraram)` : ''}`)
-        ;((novosLanc as { id: string }[] | null) || []).forEach((l, k) => conc(donos[k], [{ origem: 'lancamento', origem_id: l.id }], 'novo'))
+        const ids = ((novosLanc as { id: string }[] | null) || []).map(l => l.id)
+        ids.forEach((id, k) => conc(donos[k], [{ origem: 'lancamento', origem_id: id }], 'novo'))
+
+        // FOI PARA OUTRAS UNIDADES — o lançamento fica com o valor cheio (o
+        // dinheiro saiu daqui); cada unidade vira uma cobrança, com a data do
+        // gasto. Com a Matriz numa ponta e "no repasse", já reconhecida e presa
+        // ao repasse escolhido; senão, `emitida` — a outra unidade confirma.
+        for (const i of despProntas) {
+          if (!i.outras.length) continue
+          const origemId = ids[principal.get(i.n)!]
+          const cat = categorias.find(c => c.id === i.catId)
+          const desc = i.fornecedor.trim() || i.descricao
+          for (const o of i.outras) {
+            const vd = digNum(o.valor)
+            const alvo = unidades.find(u => u.id === o.unidadeId)
+            const { data: cob, error: e2 } = await supabase.from('fin_cobrancas').insert({
+              unidade_credora: currentUnit.id, unidade_devedora: o.unidadeId,
+              tipo: 'despesa_rateada', valor: vd, data: i.data, descricao: desc,
+              categoria_id: i.catId, status: 'emitida',
+              lancamento_origem_id: origemId, criado_por_nome: userName || null,
+            }).select('id').single()
+            if (e2) throw new Error(`Cobrança para ${alvo?.nome || 'a unidade'}: ${e2.message} (as despesas JÁ entraram)`)
+            if (o.modo === 'repasse' && unidadeDoRepasse(o.unidadeId)) {
+              const cobId = (cob as { id: string }).id
+              await reconhecerCobranca(supabase, {
+                id: cobId, tipo: 'despesa_rateada', valor: vd, data: i.data, descricao: desc,
+                categoria_id: i.catId, unidade_credora: currentUnit.id, unidade_devedora: o.unidadeId,
+                credoraNome: currentUnit.nome, devedoraCodigo: alvo?.codigo || null,
+                fin_categorias: cat ? { fin_conta_id: cat.fin_conta_id, fin_contas: cat.fin_contas || null } : null,
+              }, { userName: userName || null })
+              if (o.repasseId) {
+                const { error: e3 } = await supabase.from('fin_cobrancas')
+                  .update({ repasse_id: o.repasseId, status: 'liquidada' }).eq('id', cobId)
+                if (e3) throw new Error(`Repasse de ${alvo?.nome || 'a unidade'}: ${e3.message}`)
+              }
+            }
+          }
+        }
       }
       // Por último, e sem derrubar o que já entrou: se a mig 153 ainda não rodou,
       // os lançamentos ficam e só o selo de conciliado falta.
@@ -590,6 +659,7 @@ export default function ColarExtratoModal({
                   {caminhoDe(i.catId).split(' › ').pop()}
                   {i.partes.length > 0 && <span className="font-normal text-[var(--brand-500)]"> + {i.partes.length} {i.partes.length === 1 ? 'parte' : 'partes'}</span>}
                   {i.meses > 1 && <span className="font-normal text-[var(--brand-500)]"> · {i.meses} meses</span>}
+                  {i.outras.length > 0 && <span className="font-normal text-[var(--brand-500)]"> · parte de outra unidade</span>}
                 </span>
                 <span className="text-[11px] text-[var(--surface-400)] truncate">
                   {i.doHistorico ? 'como das outras vezes' : i.porSinonimo ? 'pelo nome — confira' : caminhoDe(i.catId).split(' › ').slice(0, -1).join(' › ')}
@@ -659,7 +729,13 @@ export default function ColarExtratoModal({
           <button type="button" onClick={alternar} className="text-[11px] text-[var(--surface-400)] hover:text-[var(--surface-700)]">
             {aberta ? 'fechar' : i.destino === 'despesa' ? 'fornecedor · forma de pagamento' : 'maquininha · movimento'}
           </button>
-          {i.destino === 'despesa' && i.partes.length === 0 && (
+          {i.destino === 'despesa' && i.outras.length === 0 && i.partes.length === 0 && unidades.length > 0 && (
+            <button type="button" className="text-[11px] text-[var(--surface-400)] hover:text-[var(--surface-700)]"
+                    onClick={() => muda(i.n, { outras: [{ key: crypto.randomUUID(), unidadeId: '', valor: '', modo: 'repasse', repasseId: '' }] })}>
+              foi para outras unidades
+            </button>
+          )}
+          {i.destino === 'despesa' && i.partes.length === 0 && i.outras.length === 0 && (
             <button type="button" className="text-[11px] text-[var(--surface-400)] hover:text-[var(--surface-700)]"
                     onClick={() => muda(i.n, { partes: [{ key: crypto.randomUUID(), catId: '', catTexto: '', valor: '' }] })}>
               dividir em categorias
@@ -721,6 +797,7 @@ export default function ColarExtratoModal({
           </div>
         )}
         {i.destino === 'despesa' && i.partes.length > 0 && painelDividir(i)}
+        {i.destino === 'despesa' && i.outras.length > 0 && painelOutras(i)}
         {i.destino === 'despesa' && i.meses > 1 && (
           <div className="mt-2 ml-[34px] sm:ml-[86px] pl-4 border-l-2 border-[var(--brand-500)] flex flex-wrap items-center gap-3">
             <label className="flex items-center gap-2 text-sm text-[var(--surface-700)]">
@@ -799,6 +876,74 @@ export default function ColarExtratoModal({
             {resto <= 0 ? `as partes passam dos ${fmtBRL(total)} do banco`
               : partesOk(i) && i.catId ? `✓ soma ${fmtBRL(total)} — fecha com o banco`
               : 'falta a categoria ou o valor de alguma parte'}
+          </span>
+        </div>
+      </div>
+    )
+  }
+
+  /** FOI PARA OUTRAS UNIDADES — "quem mais vai pagar por isso?", dentro da linha. */
+  function painelOutras(i: Item) {
+    const total = Math.abs(i.valor)
+    const fica = Math.round((total - somaOutras(i)) * 100) / 100
+    const mudaO = (k: number, patch: Partial<ParaUnidade>) =>
+      muda(i.n, { outras: i.outras.map((o, j) => (j === k ? { ...o, ...patch } : o)) })
+    return (
+      <div className="mt-2 ml-[34px] sm:ml-[86px] pl-4 border-l-2 border-[var(--brand-500)] flex flex-col gap-2.5">
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-semibold text-[var(--surface-800)]">Quem mais vai pagar por isso?</span>
+          <button type="button" onClick={() => muda(i.n, { outras: [] })}
+                  className="ml-auto text-[11px] text-[var(--surface-400)] hover:text-[var(--surface-700)]">era só desta unidade</button>
+        </div>
+        {i.outras.map((o, k) => {
+          const doRepasse = o.unidadeId ? unidadeDoRepasse(o.unidadeId) : null
+          const opcoes = repassesAbertos.filter(r => r.unidade_id === doRepasse)
+          return (
+            <div key={o.key} className="flex flex-wrap items-center gap-2">
+              <select value={o.unidadeId} aria-label="Unidade"
+                      onChange={e => mudaO(k, { unidadeId: e.target.value, repasseId: '', modo: unidadeDoRepasse(e.target.value) ? o.modo : 'agora' })}
+                      className="input text-sm py-1.5 flex-1 min-w-[160px]" style={!o.unidadeId ? { borderColor: '#f59e0b' } : undefined}>
+                <option value="">Unidade…</option>
+                {unidades.map(u => (
+                  <option key={u.id} value={u.id} disabled={i.outras.some((x, j) => j !== k && x.unidadeId === u.id)}>{u.nome}</option>
+                ))}
+              </select>
+              <input inputMode="decimal" value={o.valor ? digTxt(o.valor) : ''} placeholder="0,00" aria-label="Valor desta unidade"
+                     onChange={e => mudaO(k, { valor: soDigitos(e.target.value) })}
+                     onPaste={e => { const d = colarValorBR(e.clipboardData.getData('text')); if (d !== null) { e.preventDefault(); mudaO(k, { valor: d }) } }}
+                     className="input text-sm py-1.5 w-28 text-right text-mono" />
+              {o.unidadeId && (doRepasse ? (
+                <span className="flex flex-wrap items-center gap-2 text-xs text-[var(--surface-500)]">
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input type="radio" checked={o.modo === 'repasse'} onChange={() => mudaO(k, { modo: 'repasse' })} className="accent-[var(--brand-500)]" />
+                    no repasse
+                  </label>
+                  {o.modo === 'repasse' && (
+                    <select value={o.repasseId} onChange={e => mudaO(k, { repasseId: e.target.value })} aria-label="Qual repasse" className="input text-xs py-1">
+                      <option value="">o próximo que for salvo</option>
+                      {opcoes.map(r => <option key={r.id} value={r.id}>{mesMais(r.mes_referencia, 0)}</option>)}
+                    </select>
+                  )}
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input type="radio" checked={o.modo === 'agora'} onChange={() => mudaO(k, { modo: 'agora' })} className="accent-[var(--brand-500)]" />
+                    cobrar agora
+                  </label>
+                </span>
+              ) : (
+                <span className="text-xs text-[var(--surface-500)]">cobrança direta — a unidade confirma em Acertos</span>
+              ))}
+              <button type="button" aria-label="Tirar esta unidade" onClick={() => muda(i.n, { outras: i.outras.filter((_, j) => j !== k) })}
+                      className="text-[var(--surface-400)] hover:text-red-400 text-base leading-none">×</button>
+            </div>
+          )
+        })}
+        <div className="flex flex-wrap items-center gap-3">
+          {i.outras.length < unidades.length && (
+            <button type="button" onClick={() => muda(i.n, { outras: [...i.outras, { key: crypto.randomUUID(), unidadeId: '', valor: '', modo: 'repasse', repasseId: '' }] })}
+                    className="text-sm text-[var(--brand-500)] hover:underline">+ outra unidade</button>
+          )}
+          <span className={`ml-auto text-sm ${fica < 0 ? 'text-red-500' : 'text-[var(--surface-600)]'}`}>
+            {fica < 0 ? `passa dos ${fmtBRL(total)} do banco` : <>fica com {currentUnit?.nome}: <span className="text-mono">{fmtBRL(fica)}</span></>}
           </span>
         </div>
       </div>
