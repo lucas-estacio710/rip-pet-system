@@ -2,7 +2,7 @@
 
 import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { AlertTriangle, ArrowDown, ArrowUp, Calendar, CalendarClock, Check, CheckCheck, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Copy, CornerDownRight, DollarSign, Flame, FolderOpen, Hand, Loader2, MapPin, MoreVertical, Move, Navigation, Package, PawPrint, Pencil, Plus, Printer, Scale, Search, SearchCheck, Star, Tag, Trash2, Truck, Unlink, User, Weight, X, XCircle } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, Calendar, CalendarClock, Check, CheckCheck, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Copy, CornerDownRight, DollarSign, Flame, FolderOpen, Loader2, MapPin, MoreVertical, Move, Navigation, Package, PawPrint, Pencil, Plus, Printer, Scale, Search, SearchCheck, Star, Tag, Trash2, Truck, Unlink, User, Weight, X, XCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { sanitizeBuscaPostgrest } from '@/lib/sanitize'
 import Link from 'next/link'
@@ -56,6 +56,8 @@ import EntregaTela from '@/components/contratos/farois/EntregaTela'
 import PagamentoTela from '@/components/contratos/farois/PagamentoTela'
 import UrnaTela from '@/components/contratos/farois/UrnaTela'
 import EncaminhamentoTela from '@/components/contratos/farois/EncaminhamentoTela'
+import CardViagem from '@/components/contratos/pipeline/CardViagem'
+import AdicionarPetsViagem from '@/components/contratos/pipeline/AdicionarPetsViagem'
 import { carregarTarefaEntrega } from '@/lib/tarefa-entrega'
 import { useToast } from '@/components/ui/Toast'
 import { usePopupHistory } from '@/hooks/usePopupHistory'
@@ -450,8 +452,6 @@ function ContratosContent() {
   const [encAlvo, setEncAlvo] = useState<string | null>(null)               // viagem sob o cursor
   const [petsSelecionados, setPetsSelecionados] = useState<Set<string>>(new Set()) // mobile: long-press
   const [vinculando, setVinculando] = useState(false)
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const longPressDisparou = useRef(false)
   // ── Criar / editar viagem no próprio pipeline (etapa 3) ──
   // `encEditando = null` com o form aberto significa CRIAR; com id, editar aquela viagem.
   const [encFormAberto, setEncFormAberto] = useState(false)
@@ -459,7 +459,13 @@ function ContratosContent() {
   const [encForm, setEncForm] = useState({ numero: '', data: '', responsavel: '', observacoes: '' })
   const [encFormPets, setEncFormPets] = useState<Contrato[]>([])
   const [salvandoEnc, setSalvandoEnc] = useState(false)
-  const [menuViagem, setMenuViagem] = useState<string | null>(null)   // número da viagem com o menu "⋯" aberto
+  const [menuViagem, setMenuViagem] = useState<string | null>(null)
+  // Fase 2.13c: "+ Adicionar pets" da viagem, confirmação de tirar pet (popup próprio, nunca
+  // confirm()), data original no Editar ("era 05/out") e menu ⋮ aberto (esconde a bola).
+  const [addPetsViagem, setAddPetsViagem] = useState<{ id: string; numero: string } | null>(null)
+  const [tirarPetConfirm, setTirarPetConfirm] = useState<Contrato | null>(null)
+  const [encDataOriginal, setEncDataOriginal] = useState('')
+  const [menuCardViagemAberto, setMenuCardViagemAberto] = useState(false)   // número da viagem com o menu "⋯" aberto
   // ── Enviar para a Matriz (etapa 4) — o botão irreversível ──
   const [enviarModal, setEnviarModal] = useState<{ id: string; numero: string; data: string | null } | null>(null)
   const [enviarPets, setEnviarPets] = useState<PetDaViagem[]>([])
@@ -3809,6 +3815,7 @@ ${petNome}`
     }
     const s = data as { id: string; numero: string; data: string | null; responsavel: string | null; observacoes: string | null; status: string | null }
     setEncEditando({ id: s.id, numero: s.numero })
+    setEncDataOriginal((s.data || '').slice(0, 10))
     setEncFormPets(contratos.filter(c => c.supinda?.id === s.id))
     setEncForm({
       numero: s.numero,
@@ -4185,23 +4192,6 @@ ${petNome}`
     }
   }
 
-  // Long-press de 500 ms — MESMO gesto e MESMA duração da /encaminhamentos, de
-  // propósito: quem usa as duas telas não reaprende nada (§10.2 do plano).
-  function iniciarLongPress(contratoId: string) {
-    longPressDisparou.current = false
-    longPressTimer.current = setTimeout(() => {
-      longPressDisparou.current = true
-      setPetsSelecionados(prev => {
-        const n = new Set(prev)
-        if (n.has(contratoId)) n.delete(contratoId); else n.add(contratoId)
-        return n
-      })
-    }, 500)
-  }
-  function cancelarLongPress() {
-    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null }
-  }
-
   // Remove supinda do contrato
   async function removerSupinda() {
     if (!supindaContrato) return
@@ -4278,6 +4268,21 @@ ${petNome}`
     await ajustarEstoque(produtoId, 1, undefined, contrato.unidade_id)
     setContratos(prev => prev.map(c => c.id === contrato.id ? { ...c, contrato_produtos: (c.contrato_produtos || []).filter(cp => cp.id !== cpId) } : c))
     return true
+  }
+
+  /**
+   * Resumo ✓N ⏱M do card (e, somado, do card da viagem — item 35). Mesma conta do popup de
+   * pendências: faróis do `computeAllTags` + 🚐 (fluxo novo, Ativo, fora do acolhimento) +
+   * 📬 (Entrega/Pendente). null = unidade sem `btn_farois` (P-05): sem resumo.
+   */
+  function resumoDoCard(c: Contrato): { feitos: number; pendentes: number } | null {
+    if (!isVisible(T, 'btn_farois')) return null
+    const tags = computeAllTags({ ...c, indicacaoFonteId }).filter(t => t.id !== 'protocolo')
+    let feitos = tags.filter(t => t.state === 'completed' || t.state === 'rejected').length
+    let pendentes = tags.filter(t => t.state === 'pending' || t.state === 'in_progress' || t.state === 'alert').length
+    if (encPipeline && c.status === 'ativo' && !c.aguardando_acolhimento) { if (c.supinda_id) feitos++; else pendentes++ }
+    if (c.status === 'retorno' || c.status === 'pendente') pendentes++
+    return { feitos, pendentes }
   }
 
   // Relê os totais de acessórios do contrato — o trigger da mig 074 os recalcula a cada
@@ -4412,7 +4417,32 @@ ${petNome}`
           // lote em Pinda.
           const planejada = !sup?.status || sup.status === 'planejada'
           return (
-            <div className="flex items-center gap-3 mt-1.5 ml-1 flex-wrap">
+            <>
+            {/* CELULAR (2.13c): uma linha só, laranja forte — impossível não perceber que se
+                está dentro de uma viagem. ↳ [ST172] · data · responsável · ✏ · Enviar */}
+            <div className="md:hidden pl-pasta-laranja flex items-center gap-2 mt-1.5 px-2.5 py-1.5 rounded-lg min-w-0">
+              <button onClick={() => setEncAberto(null)} className="flex items-center gap-1 flex-none" title={`Sair de ${encAberto}`}>
+                <CornerDownRight className="h-4 w-4" />
+                <span className="text-[13px] font-black px-1.5 py-0.5 rounded bg-white" style={{ color: '#ea580c' }}>{encAberto}</span>
+              </button>
+              {sup?.data && <span className="flex-none text-[12px] font-semibold">{formatarDataViagem(sup.data)}</span>}
+              <span className="flex-1 min-w-0 truncate text-[12px] opacity-90">{sup?.responsavel || ''}</span>
+              {planejada && sup?.id && (
+                <>
+                  <button onClick={() => abrirEdicaoEncaminhamento(sup.id!, encAberto)} title="Editar encaminhamento"
+                    className="flex-none w-7 h-7 grid place-items-center rounded-md border border-white/60">
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  {statusFiltro === 'ativo' && (
+                    <button onClick={() => abrirEnvioParaMatriz(sup.id!, encAberto)}
+                      className="flex-none flex items-center gap-1 px-2 h-7 rounded-md bg-white text-[12px] font-bold" style={{ color: '#ea580c' }}>
+                      <Truck className="h-3.5 w-3.5" />Enviar
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="hidden md:flex items-center gap-3 mt-1.5 ml-1 flex-wrap">
               {/* O caminho, com o MESMO quadradinho do card (pedido do Lucas): o número ganha
                   o box na cor da unidade, então o breadcrumb tem o peso visual de um título de
                   seção e não de uma legenda perdida. Clicar volta pra raiz. */}
@@ -4470,6 +4500,7 @@ ${petNome}`
                 </div>
               )}
             </div>
+            </>
           )
   })() : null
 
@@ -4478,7 +4509,7 @@ ${petNome}`
   const botaoNovoEnc = encPipeline && statusFiltro === 'ativo' ? (
     <button
       onClick={abrirNovoEncaminhamento}
-      className="flex-shrink-0 flex items-center gap-1 h-9 md:h-auto px-3 md:px-2 md:py-1 rounded-lg text-sm md:text-xs font-semibold bg-orange-600 text-white hover:bg-orange-700 transition-colors"
+      className="flex-shrink-0 hidden md:flex items-center gap-1 h-9 md:h-auto px-3 md:px-2 md:py-1 rounded-lg text-sm md:text-xs font-semibold bg-orange-600 text-white hover:bg-orange-700 transition-colors"
       title="Criar um encaminhamento novo"
     >
       <Truck className="h-4 w-4 md:h-3.5 md:w-3.5" />+ Enc
@@ -5003,83 +5034,6 @@ ${petNome}`
               )
             }
 
-            // ─── MOBILE: card resumido, 2 por linha ─────────────────────────────
-            const renderCardEncMobile = (numero: string, cs: Contrato[]) => {
-              const p = calcularPlacar(cs)
-              const sup = supindaDoGrupo(numero, cs)
-              return (
-                // Mesmo laranja da faixa desktop — a viagem tem que se distinguir do pet nos
-                // dois tamanhos. Os RÓTULOS ("Data programada:", "Peso total:") ficam só no
-                // desktop: aqui são 2 colunas, e escrever o nome de cada número empurraria o
-                // card para 3 linhas. No celular o toque abre a viagem, onde tudo se lê.
-                <div className="rounded-lg border p-2.5" style={{ background: 'rgba(249, 115, 22, 0.18)', borderColor: 'rgba(249, 115, 22, 0.55)' }}>
-                  <div className="flex items-center gap-1.5 mb-2">
-                    <span className="text-[12px] font-black px-1.5 py-0.5 rounded flex-shrink-0" style={{ background: corUnidade, color: textoBadgeUnidade }}>{numero}</span>
-                    <span className="flex items-center gap-0.5 text-[11px] text-[var(--surface-500)] truncate flex-1">
-                      <Calendar className="h-3 w-3 flex-shrink-0" />{formatarDataViagem(sup?.data)}
-                    </span>
-                    {menuEncaminhamento(numero, cs)}
-                  </div>
-                  <div className="flex items-center gap-1 text-[16px] font-bold text-[var(--surface-700)] tabular-nums">
-                    <PawPrint className="h-4 w-4" />{p.total} pet{p.total !== 1 ? 's' : ''}
-                  </div>
-                  <div className="flex items-center gap-1 text-[13px] font-semibold tabular-nums mt-0.5" style={{ color: corPlacar(p.pagos === p.total) }}>
-                    <DollarSign className="h-3.5 w-3.5" />{p.pagos}/{p.total} pagos
-                  </div>
-                  <div className="flex flex-wrap items-center gap-1 mt-2">{chipsTipo(p)}</div>
-                </div>
-              )
-            }
-
-            // Pet em card resumido (mobile, dentro do grid). Informação mínima aprovada:
-            // lacre · ícone · nome · IND/COL · peso · tutor. Toque abre o contrato, onde
-            // tags, faróis e ações continuam todos disponíveis — nada some, só sai daqui.
-            const renderPetResumidoMobile = (c: Contrato) => {
-              const icone = getPetIcon(c.pet_especie, c.pet_peso)
-              const col = c.tipo_cremacao === 'coletiva'
-              return (
-                <div
-                  key={c.id}
-                  onClick={() => {
-                    // Mesma precedência da /encaminhamentos: o long-press consome o
-                    // toque (senão selecionar o pet abriria o contrato por cima), e com
-                    // seleção ativa o toque passa a marcar/desmarcar em vez de navegar.
-                    if (longPressDisparou.current) { longPressDisparou.current = false; return }
-                    if (petsSelecionados.size > 0) {
-                      setPetsSelecionados(prev => {
-                        const n = new Set(prev)
-                        if (n.has(c.id)) n.delete(c.id); else n.add(c.id)
-                        return n
-                      })
-                      return
-                    }
-                    router.push(`/contratos/${c.id}`)
-                  }}
-                  className="rounded-lg border p-2.5 cursor-pointer active:opacity-70"
-                  style={{ background: 'var(--surface-0)', borderColor: 'var(--surface-200)' }}
-                >
-                  <div className="flex items-center gap-1.5 mb-1">
-                    {c.numero_lacre && (
-                      <span className="flex items-center gap-0.5 text-[11px] font-mono font-bold text-[var(--surface-500)]">
-                        <Tag className="h-3 w-3" />{c.numero_lacre}
-                      </span>
-                    )}
-                    {/* O ícone do pet continua sendo o emoji de espécie/porte do card de
-                        sempre (getPetIcon) — trocar por um traço Lucide perderia a
-                        distinção cão/gato/exótico que o operador já lê de relance. */}
-                    <span style={{ fontSize: 15 }}>{icone.emoji}</span>
-                  </div>
-                  <div className="text-[15px] font-bold text-[var(--surface-700)] truncate leading-tight">{c.pet_nome || 'sem nome'}</div>
-                  <div className="flex items-center gap-0.5 text-[12px] font-semibold mt-0.5" style={{ color: col ? '#a78bfa' : '#6ee7b7' }}>
-                    <Flame className="h-3 w-3" />{col ? 'COL' : 'IND'}{c.pet_peso ? ` · ${c.pet_peso}kg` : ''}
-                  </div>
-                  <div className="flex items-center gap-0.5 text-[12px] text-[var(--surface-400)] truncate mt-0.5">
-                    <User className="h-3 w-3 flex-shrink-0" /><span className="truncate">{c.tutor?.nome || c.tutor_nome || ''}</span>
-                  </div>
-                </div>
-              )
-            }
-
             function renderSupindaGroup(lista: Contrato[], renderFn: (c: Contrato, meio?: React.ReactNode) => React.ReactNode) {
               // ─── PINDA no fluxo novo: cards soltos + linha do tempo (§3.2) ─────
               // Vem ANTES do early-return de `!deveAgruparSupinda` de propósito: Pinda
@@ -5314,14 +5268,6 @@ ${petNome}`
                   onDragEnd: () => { setPetArrastando(null); setEncAlvo(null) },
                   className: `rounded-lg transition-opacity cursor-grab active:cursor-grabbing ${petArrastando === c.id ? 'opacity-40' : ''}`,
                 })
-                const propsPetSelecionavel = (c: Contrato) => ({
-                  onPointerDown: () => iniciarLongPress(c.id),
-                  onPointerUp: cancelarLongPress,
-                  onPointerLeave: cancelarLongPress,
-                  onPointerCancel: cancelarLongPress,
-                  className: `rounded-lg transition-all ${petsSelecionados.has(c.id) ? 'ring-2' : ''}`,
-                  style: petsSelecionados.has(c.id) ? { ['--tw-ring-color' as string]: corUnidade } : undefined,
-                })
                 return (
                   <>
                     {/* DESKTOP — leitura vertical de sempre: faixa da viagem e card de pet
@@ -5362,39 +5308,58 @@ ${petNome}`
                       })}
                     </div>
 
-                    {/* MOBILE — grid de 2 colunas, tudo resumido. Ao abrir, a viagem toma
-                        as duas colunas e os pets dela viram um sub-grid de 2. */}
-                    <div className="md:hidden grid grid-cols-2 gap-2 items-start">
-                      {grupos.filter(g => encAberto === null || g.numero === encAberto).map((grupo, i) => {
-                        if (grupo.numero === null) {
-                          return grupo.contratos.map(c => (
-                            <div key={c.id} {...propsPetSelecionavel(c)}>{renderPetResumidoMobile(c)}</div>
-                          ))
+                    {/* MOBILE (fase 2.13c, itens 13, 17 e 35): UMA coluna. Pet solto com o card
+                        de sempre; viagem com o card "pans" (toque = pasta, ⋮ = Adicionar /
+                        Editar / Enviar); dentro da pasta, os pets com o MESMO card do Ativo,
+                        um por linha, e "+ Adicionar pets". Sai o segurar-e-tocar. */}
+                    <div className="md:hidden space-y-2">
+                      {grupos.filter(g => encAberto === null || g.numero === encAberto).map(grupo => {
+                        if (grupo.numero === null) return grupo.contratos.map(c => <Fragment key={c.id}>{renderFn(c)}</Fragment>)
+                        const numero = grupo.numero
+                        const sup = supindaDoGrupo(numero, grupo.contratos)
+                        const supId = sup?.id || null
+                        const planejada = !!supId && (!sup?.status || sup.status === 'planejada')
+                        if (encAberto === numero) {
+                          return (
+                            <Fragment key={numero}>
+                              {grupo.contratos.map(c => <Fragment key={c.id}>{renderFn(c)}</Fragment>)}
+                              {planejada && statusFiltro === 'ativo' && (
+                                <button onClick={() => setAddPetsViagem({ id: supId!, numero })}
+                                  className="w-full py-2.5 rounded-xl border-2 border-dashed text-[13px] font-semibold" style={{ borderColor: '#f97316', color: '#ea580c' }}>
+                                  + Adicionar pets
+                                </button>
+                              )}
+                            </Fragment>
+                          )
                         }
-                        const aberto = encAberto === grupo.numero
+                        const somaResumo = isVisible(T, 'btn_farois')
+                          ? grupo.contratos.reduce((acc, c) => { const r = resumoDoCard(c); return r ? { feitos: acc.feitos + r.feitos, pendentes: acc.pendentes + r.pendentes } : acc }, { feitos: 0, pendentes: 0 })
+                          : null
                         return (
-                          <Fragment key={grupo.numero}>
-                            {/* No celular o gesto é outro: segurar e tocar no destino, o
-                                mesmo long-press de 500 ms que a /encaminhamentos já usa. */}
-                            {encAberto === null && mostrarDica && i === idxPrimeiraViagem && (
-                              <div className="col-span-2">{dicaGesto(Hand, 'Para encaminhar um pet, segure o card dele e toque na viagem')}</div>
-                            )}
-                            <div className={aberto ? 'col-span-2 space-y-2' : ''}>
-                              {!aberto && (
-                                <div {...propsViagem(grupo.numero, grupo.contratos)}>
-                                  {renderCardEncMobile(grupo.numero, grupo.contratos)}
-                                </div>
-                              )}
-                              {aberto && (
-                                <div className="grid grid-cols-2 gap-2 items-start">
-                                  {grupo.contratos.map(c => renderPetResumidoMobile(c))}
-                                </div>
-                              )}
-                            </div>
-                          </Fragment>
+                          <CardViagem
+                            key={numero}
+                            numero={numero}
+                            data={sup?.data ?? null}
+                            responsavel={sup?.responsavel ?? null}
+                            pets={grupo.contratos.map(c => {
+                              const pend = getPagamentoPendente(c)
+                              return { id: c.id, emoji: getPetIcon(c.pet_especie, c.pet_peso).emoji, individual: c.tipo_cremacao !== 'coletiva', pesoKg: c.pet_peso ?? null, pago: !pend.planoPendente && !pend.acessoriosPendente }
+                            })}
+                            resumo={somaResumo}
+                            corUnidade={corUnidade}
+                            textoUnidade={textoBadgeUnidade}
+                            menu={planejada && statusFiltro === 'ativo' ? {
+                              onAdicionar: () => setAddPetsViagem({ id: supId!, numero }),
+                              onEditar: () => abrirEdicaoEncaminhamento(supId!, numero),
+                              onEnviar: () => abrirEnvioParaMatriz(supId!, numero),
+                            } : null}
+                            onAbrir={() => entrarNoEnc(numero)}
+                            onMenuAberto={setMenuCardViagemAberto}
+                          />
                         )
                       })}
                     </div>
+
                   </>
                 )
               }
@@ -6067,14 +6032,10 @@ ${petNome}`
                     {/* Trilho. Com o card novo (obj_enc_pipeline, fase 2.3): resumo ✓N ⏱M + "Ações «"
                         (gaveta). Até o 2.4, tocar no resumo abre os faróis antigos aqui embaixo. */}
                     {cardNovo ? (() => {
-                      const tagsCard = isVisible(T, 'btn_farois')
-                        ? computeAllTags({ ...contrato, indicacaoFonteId }).filter(t => t.id !== 'protocolo')
-                        : null
-                      const feitos = tagsCard ? tagsCard.filter(t => t.state === 'completed' || t.state === 'rejected').length : 0
-                      const pendentes = tagsCard
-                        ? tagsCard.filter(t => t.state === 'pending' || t.state === 'in_progress' || t.state === 'alert').length
-                          + ((contrato.status === 'retorno' || contrato.status === 'pendente') ? 1 : 0) // 📬 Registrar entrega
-                        : 0
+                      const resumoCard = resumoDoCard(contrato)
+                      const tagsCard = resumoCard
+                      const feitos = resumoCard?.feitos ?? 0
+                      const pendentes = resumoCard?.pendentes ?? 0
                       const naEntrega = contrato.status === 'retorno' || contrato.status === 'pendente'
                       const endNav = naEntrega
                         ? enderecoParaNavegar(contrato.tutor, { endereco: contrato.tutor_endereco, bairro: contrato.tutor_bairro, cidade: contrato.tutor_cidade })
@@ -6640,7 +6601,31 @@ ${petNome}`
           </div>
 
           <div>
-            <label className="block text-[12px] font-semibold text-[var(--surface-500)] mb-1.5">Data da viagem</label>
+            <label className="block text-[12px] font-semibold text-[var(--surface-500)] mb-1.5">
+              Data da viagem
+              {encEditando && encDataOriginal && encForm.data !== encDataOriginal && (
+                <span className="ml-1 font-bold" style={{ color: '#ea580c' }}>· era {formatarDataViagem(encDataOriginal)}</span>
+              )}
+            </label>
+            {encEditando ? (
+              // No EDITAR só "Hoje", com o campo de data na mesma linha (item 35): quem muda a
+              // data de uma viagem já sabe qual é. O Novo segue com Hoje/Sábado/Domingo.
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setEncForm(f => ({ ...f, data: hojeLocal() }))}
+                  className={`flex-none h-10 px-3 rounded-lg text-[12px] font-semibold transition-colors ${encForm.data === hojeLocal() ? 'bg-orange-600 text-white' : 'bg-[var(--surface-100)] text-[var(--surface-500)]'}`}
+                >
+                  Hoje
+                </button>
+                <input
+                  type="date"
+                  value={encForm.data}
+                  onChange={e => setEncForm(f => ({ ...f, data: e.target.value }))}
+                  className="flex-1 min-w-0 h-10 px-3 rounded-lg border text-[14px]"
+                  style={{ background: 'var(--surface-0)', borderColor: 'var(--surface-200)', color: 'var(--surface-700)', fontSize: 16 }}
+                />
+              </div>
+            ) : (<>
             <div className="flex flex-wrap items-center gap-1.5 mb-2">
               {(() => {
                 const { hoje, sabado, domingo } = getProximoFimDeSemana()
@@ -6665,6 +6650,7 @@ ${petNome}`
               className="w-full px-3 py-2 rounded-lg border text-[14px]"
               style={{ background: 'var(--surface-0)', borderColor: 'var(--surface-200)', color: 'var(--surface-700)' }}
             />
+            </>)}
           </div>
 
           <div>
@@ -6699,7 +6685,7 @@ ${petNome}`
               </div>
               {encFormPets.length === 0 ? (
                 <p className="text-[12px] text-[var(--surface-400)] py-2">
-                  Nenhum pet ainda. Arraste um card do pipeline até esta viagem.
+                  Nenhum pet ainda. No celular: ⋮ da viagem → Adicionar pets. No computador: arraste o card até a viagem.
                 </p>
               ) : (
                 <div className="max-h-[240px] overflow-y-auto rounded-lg border divide-y" style={{ borderColor: 'var(--surface-200)' }}>
@@ -6712,7 +6698,7 @@ ${petNome}`
                       </span>
                       <span className="text-[11px] text-[var(--surface-400)] truncate flex-1">{c.tutor?.nome || c.tutor_nome || ''}</span>
                       <button
-                        onClick={() => desvincularPet(c.id, encEditando.id)}
+                        onClick={() => setTirarPetConfirm(c)}
                         title="Tirar este pet da viagem"
                         className="flex-shrink-0 p-1 rounded text-[var(--surface-400)] hover:text-red-400 hover:bg-red-950/30"
                       >
@@ -7963,6 +7949,54 @@ ${petNome}`
             </div>
           </div>
         </div>
+      )}
+
+      {/* ─── Viagem no celular (fase 2.13c) ─────────────────────────────────── */}
+      {/* "+ Adicionar pets": pets do Ativo sem viagem, nunca Em Acolhimento (item 18). */}
+      <AdicionarPetsViagem
+        aberto={!!addPetsViagem}
+        numero={addPetsViagem?.numero || ''}
+        candidatos={addPetsViagem ? contratos
+          .filter(c => c.status === 'ativo' && !c.supinda_id && !c.aguardando_acolhimento)
+          .map(c => ({
+            id: c.id, nome: c.pet_nome || 'sem nome',
+            lacre: c.numero_lacre ? String(c.numero_lacre).replace(/\.0$/, '') : null,
+            individual: c.tipo_cremacao !== 'coletiva',
+            tutor: c.tutor?.nome || c.tutor_nome || '',
+            emoji: getPetIcon(c.pet_especie, c.pet_peso).emoji,
+          })) : []}
+        onFechar={() => setAddPetsViagem(null)}
+        onIncluir={async ids => { if (addPetsViagem) { await vincularAoEncaminhamento(ids, addPetsViagem.id); setAddPetsViagem(null) } }}
+      />
+
+      {/* Tirar pet da viagem: popup próprio por cima do Editar (item 35) — nunca confirm(). */}
+      {tirarPetConfirm && encEditando && (
+        <div className="fixed inset-0 z-[80] grid place-items-center p-5" style={{ background: 'rgba(15,23,42,.55)' }}
+          onClick={() => setTirarPetConfirm(null)}>
+          <div className="w-full max-w-[320px] rounded-2xl p-4 text-center space-y-3" style={{ background: 'var(--surface-0)' }} onClick={e => e.stopPropagation()}>
+            <div className="mx-auto w-11 h-11 rounded-full grid place-items-center" style={{ background: 'rgba(220,38,38,.14)', color: '#dc2626' }}>
+              <Unlink className="h-5 w-5" />
+            </div>
+            <p className="text-[14px]" style={{ color: 'var(--surface-700)' }}>
+              Tirar <b>{tirarPetConfirm.pet_nome || 'o pet'}</b> do {encEditando.numero}?
+            </p>
+            <p className="text-[12.5px]" style={{ color: 'var(--surface-500)' }}>Ele volta pro Ativo, sem encaminhamento.</p>
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => setTirarPetConfirm(null)} className="flex-1 py-2.5 rounded-lg border text-[13px]" style={{ borderColor: 'var(--surface-300)', color: 'var(--surface-500)' }}>Cancelar</button>
+              <button onClick={async () => { const c = tirarPetConfirm; setTirarPetConfirm(null); await desvincularPet(c.id, encEditando.id) }}
+                className="flex-1 py-2.5 rounded-lg text-[13px] font-bold text-white" style={{ background: '#dc2626' }}>Tirar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bola laranja "Novo encaminhamento" (item 16): só celular, Ativo, fora da pasta, e
+          some com menu ⋮ ou qualquer popup/modal aberto. */}
+      {encPipeline && statusFiltro === 'ativo' && encAberto === null && !menuCardViagemAberto
+        && popupHist.nivel === 0 && !encFormAberto && !addPetsViagem && !enviarModal && (
+        <button onClick={abrirNovoEncaminhamento} className="pl-fab md:hidden" title="Novo encaminhamento" aria-label="Novo encaminhamento">
+          <Plus className="h-7 w-7" strokeWidth={2.75} />
+        </button>
       )}
 
       {/* Popup de pendências do card novo (fase 2.4). Faróis com tela própria (TELAS_FAROL) abrem
