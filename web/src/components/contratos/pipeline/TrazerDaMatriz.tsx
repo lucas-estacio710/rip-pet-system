@@ -1,10 +1,10 @@
 'use client'
 
 /**
- * "Trazer da Matriz" no CELULAR — fase 2.14b (item 15 de docs/REDESENHO_CARDS_PIPELINE.md).
+ * "Trazer da Matriz" — fase 2.14b (item 15 de docs/REDESENHO_CARDS_PIPELINE.md) no celular e,
+ * desde o 2.17f (D6), também no tablet e no desktop (centralizado, 640px); a tabela antiga saiu.
  * Só o desenho: a gravação continua no `finalizarVolta` da página (reconfere no banco, lotes
- * por data+viagem, presencial pulando a Entrega). O desktop segue com a tabela de uma linha
- * por pet.
+ * por data+viagem, presencial pulando a Entrega).
  *
  *  - Título "Nicho de <unidade>", sem subtítulo. Cabeçalho e rodapé fixos; só a lista rola.
  *  - Cada pet = box de 2 linhas: lacre · NOME · IND/COL … ✓ Cinzas · ✓ Cert. · [P] /

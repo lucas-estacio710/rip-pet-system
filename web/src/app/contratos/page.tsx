@@ -62,7 +62,6 @@ import CardAcolhimento from '@/components/contratos/pipeline/CardAcolhimento'
 import CardPetDesk from '@/components/contratos/pipeline/CardPetDesk'
 import GraficosViagem from '@/components/contratos/pipeline/GraficosViagem'
 import TrazerDaMatriz from '@/components/contratos/pipeline/TrazerDaMatriz'
-import { useMediaQuery } from '@/hooks/useMediaQuery'
 import AdicionarPetsViagem from '@/components/contratos/pipeline/AdicionarPetsViagem'
 import { carregarTarefaEntrega } from '@/lib/tarefa-entrega'
 import { useToast } from '@/components/ui/Toast'
@@ -492,9 +491,6 @@ function ContratosContent() {
   // ── Nicho + Trazer da Matriz (etapas 6 e 7) ──
   const [nichoAberto, setNichoAberto] = useState(false)
   const [trazerAberto, setTrazerAberto] = useState(false)
-  // Celular E tablet usam a tela nova do "Trazer da Matriz" (2.14b; tablet desde o 2.17a, P-17);
-  // só o desktop (≥1024) segue com a tabela.
-  const ehCelular = useMediaQuery() !== 'desktop'
   const [trazerPets, setTrazerPets] = useState<PetNoNicho[]>([])
   const [trazerDatas, setTrazerDatas] = useState<Record<string, string>>({})       // contrato_id → data de volta
   const [trazerPresencial, setTrazerPresencial] = useState<Set<string>>(new Set()) // quem o tutor buscou em Pinda
@@ -6442,7 +6438,8 @@ ${petNome}`
       )}
 
       {/* Trazer da Matriz (§9.5). Fraseologia aprovada nos mockups — não reescrever. */}
-      {trazerAberto && ehCelular && (() => {
+      {/* D6 (2.17f): o MESMO popup em todos os tamanhos — no desktop centralizado (PopupCentral). */}
+      {trazerAberto && (() => {
         const sug = sugestaoDataVolta(trazerPets)
         return (
           <TrazerDaMatriz
@@ -6468,131 +6465,6 @@ ${petNome}`
           />
         )
       })()}
-      <Modal
-        isOpen={trazerAberto && !ehCelular}
-        onClose={() => { if (!trazendo) setTrazerAberto(false) }}
-        title={`Trazer ${trazerPets.length} pet${trazerPets.length !== 1 ? 's' : ''} da Matriz`}
-        size="xl"
-        footer={
-          <div className="flex items-center gap-2 w-full">
-            <span className="flex-1 text-[11px] text-[var(--surface-400)]">
-              Marque &quot;presencial&quot; para finalizar o pet pulando a etapa &quot;Entrega&quot;.
-            </span>
-            <button
-              onClick={() => setTrazerAberto(false)}
-              disabled={trazendo}
-              className="px-3 py-2 rounded-lg text-[13px] font-semibold text-[var(--surface-500)] hover:bg-[var(--surface-100)] disabled:opacity-50"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={finalizarVolta}
-              disabled={trazendo || trazerCarregando || trazerPets.length === 0}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
-            >
-              {trazendo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
-              Finalizar Volta
-            </button>
-          </div>
-        }
-      >
-        {trazerCarregando ? (
-          <div className="py-8 text-center"><Loader2 className="h-5 w-5 animate-spin inline-block text-[var(--surface-400)]" /></div>
-        ) : (
-          <div className="space-y-3">
-            <p className="text-[13px] text-[var(--surface-500)]">Seguem para o status Entrega</p>
-
-            {/* Linha do lote */}
-            {(() => {
-              const sug = sugestaoDataVolta(trazerPets)
-              const aplicar = (d: string) => setTrazerDatas(prev => {
-                const n = { ...prev }
-                for (const p of trazerPets) n[p.id] = d
-                return n
-              })
-              return (
-                <div className="flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg" style={{ background: 'var(--surface-100)' }}>
-                  <span className="text-[12px] font-semibold text-[var(--surface-600)]">Inserir mesma data de volta para todos:</span>
-                  {sug.rotulo && (
-                    <button
-                      onClick={() => aplicar(sug.data)}
-                      className="px-2.5 py-1 rounded-lg text-[12px] font-semibold bg-emerald-900/30 text-emerald-300 hover:bg-emerald-900/50"
-                    >
-                      {sug.rotulo}
-                    </button>
-                  )}
-                  <label className="flex items-center gap-1.5 text-[12px] text-[var(--surface-500)]">
-                    Outra data…
-                    <input
-                      type="date"
-                      onChange={e => { if (e.target.value) aplicar(e.target.value) }}
-                      className="px-2 py-1 rounded border text-[12px]"
-                      style={{ background: 'var(--surface-0)', borderColor: 'var(--surface-200)', color: 'var(--surface-700)' }}
-                    />
-                  </label>
-                </div>
-              )
-            })()}
-
-            {/* Cabeçalho + lista. Uma linha por pet, sem quebra (mobile + 40 pets da SP). */}
-            <div className="rounded-lg border overflow-hidden" style={{ borderColor: 'var(--surface-200)' }}>
-              <div className="flex items-center gap-2 px-2.5 py-1.5 text-[10px] font-semibold uppercase text-[var(--surface-400)]" style={{ background: 'var(--surface-100)' }}>
-                <span className="flex-1">Pet</span>
-                <span className="w-[120px] text-right flex-shrink-0">Data de volta da Matriz</span>
-              </div>
-              <div className="max-h-[45vh] overflow-y-auto divide-y" style={{ borderColor: 'var(--surface-200)' }}>
-                {trazerPets.map(p => {
-                  const presencial = trazerPresencial.has(p.id)
-                  const coletiva = p.tipo_cremacao === 'coletiva'
-                  return (
-                    <div key={p.id} className="flex items-center gap-2 px-2.5 py-2 text-[12px] whitespace-nowrap">
-                      <span className="font-mono text-[10px] text-[var(--surface-400)] w-10 flex-shrink-0">{p.numero_lacre || '—'}</span>
-                      <span className="font-semibold w-8 flex-shrink-0" style={{ color: coletiva ? '#a78bfa' : '#6ee7b7' }}>{coletiva ? 'COL' : 'IND'}</span>
-                      <span className="font-semibold text-[var(--surface-700)] truncate max-w-[110px]">{p.pet_nome || 'sem nome'}</span>
-                      <span className="text-[var(--surface-400)] truncate max-w-[110px]">{p.tutor?.nome || p.tutor_nome || ''}</span>
-                      {/* ✓Cz e ✓Ct são carinho visual, não filtro. Coletiva não devolve
-                          cinzas — só o certificado aparece. */}
-                      {!coletiva && p.contrato_gc?.cinzas_prontas && <span className="text-[10px] text-emerald-400 flex-shrink-0">✓Cz</span>}
-                      {p.contrato_gc?.certificado_pronto && <span className="text-[10px] text-emerald-400 flex-shrink-0">✓Ct</span>}
-                      {/* ⚠️ O `presencial` fica à ESQUERDA de propósito: a direita é zona
-                          de digitar data, e o toque errado ali é caro. */}
-                      <button
-                        onClick={() => setTrazerPresencial(prev => {
-                          const n = new Set(prev)
-                          if (n.has(p.id)) n.delete(p.id); else n.add(p.id)
-                          return n
-                        })}
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-semibold flex-shrink-0 transition-colors ${
-                          presencial ? 'bg-orange-600 text-white' : 'bg-[var(--surface-100)] text-[var(--surface-400)] hover:text-[var(--surface-600)]'
-                        }`}
-                      >
-                        presencial
-                      </button>
-                      <span className="flex-1" />
-                      <span className="w-[120px] text-right flex-shrink-0">
-                        {presencial ? (
-                          // Marcado: a data vira a de cremação e TRAVA — o pet não voltou
-                          // pra unidade, foi entregue em Pinda no dia da cremação.
-                          <span className="text-[11px] italic text-orange-400">crem. {formatarDataViagem(soData(p.contrato_gc?.data_cremacao))}</span>
-                        ) : (
-                          <input
-                            type="date"
-                            value={trazerDatas[p.id] || ''}
-                            onChange={e => setTrazerDatas(prev => ({ ...prev, [p.id]: e.target.value }))}
-                            className="px-1.5 py-0.5 rounded border text-[11px] w-[116px]"
-                            style={{ background: 'var(--surface-0)', borderColor: 'var(--surface-200)', color: 'var(--surface-700)' }}
-                          />
-                        )}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
-        )}
-      </Modal>
-
       {/* Conferência do envio (§9.2). Lista SÓ pra conferir: sem checkbox, sem interação
           — o operador lê e decide. Fraseologia aprovada nos mockups, não reescrever. */}
       <Modal
