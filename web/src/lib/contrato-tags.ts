@@ -3,7 +3,19 @@
 
 // --- Types ---
 
-export type TagState = 'completed' | 'rejected' | 'pending' | 'in_progress' | 'alert' | 'ghost' | 'hidden'
+// `sistema` = "Finalizado pelo sistema" (09/10/2026, item 10 dos ajustes finos): o contrato
+// finalizou com o farol ainda aberto. Conta como CONCLUÍDO, com check cinza — diferente do "Feito".
+export type TagState = 'completed' | 'rejected' | 'pending' | 'in_progress' | 'alert' | 'ghost' | 'hidden' | 'sistema'
+
+/** Concluído (lado esquerdo / ✓): feito, recusado ou finalizado pelo sistema. */
+export function estadoConcluido(state: TagState): boolean {
+  return state === 'completed' || state === 'rejected' || state === 'sistema'
+}
+
+/** Pendente (⏱): inclui o "a definir" (ghost, o ❓) — item 3 dos ajustes finos. */
+export function estadoPendente(state: TagState): boolean {
+  return state === 'pending' || state === 'in_progress' || state === 'alert' || state === 'ghost'
+}
 
 export type ComputedTag = {
   id: string
@@ -43,6 +55,9 @@ export type ContratoTagData = {
   fonte_conhecimento_ids: string[] | null
   /** id de `fontes_conhecimento` p/ 'Indicação em Clínica' — resolvido 1x por tela, não por contrato */
   indicacaoFonteId: string | null
+  /** A unidade DO CONTRATO tem `cb_operacional`? Aí personalizado "outro" (sem tarefa: plaquinha,
+   *  pingente…) não conta como pendente (item 8). Sem o campo, comportamento de antes. */
+  temOperacional?: boolean
   // Produtos
   contrato_produtos?: {
     foto_recebida: boolean
@@ -69,6 +84,7 @@ export const TAG_STATE_STYLES: Record<TagState, TagStyle> = {
   in_progress: { bg: 'rgba(219,234,254,0.5)', color: '#2563eb', borderColor: '#2563eb' },
   alert:       { bg: 'rgba(254,226,226,0.5)', color: '#dc2626', borderColor: '#dc2626' },
   ghost:       { bg: 'rgba(241,245,249,0.5)', color: '#64748b', borderColor: '#94a3b8' },
+  sistema:     { bg: 'rgba(226,232,240,0.55)', color: '#475569', borderColor: '#94a3b8' },
   hidden:      { bg: '',                      color: '',        borderColor: '' },
 }
 
@@ -226,7 +242,8 @@ export function computeRescaldo(c: ContratoTagData): ComputedTag {
     return { id: 'rescaldo', emoji: '💎', state: 'ghost', label: 'Personalizados', tooltip: 'Personalizados: Clique para adicionar', sublabel: '❓' }
   }
 
-  const pendentes = produtosRescaldo.filter(cp => !cp.rescaldo_feito).length
+  // Item 8: com cb_operacional, "outro" não vira tarefa (não há como concluir) — conta como resolvido.
+  const pendentes = produtosRescaldo.filter(cp => !cp.rescaldo_feito && !(c.temOperacional && cp.produto?.rescaldo_tipo === 'outro')).length
 
   if (pendentes === 0) {
     const sub = c.status === 'finalizado' ? `${total}` : `${total}✓`
@@ -269,8 +286,21 @@ const ALL_COMPUTE_FNS = [
   computeProtocolo,
 ]
 
+/** Pendências ETERNAS: continuam mesmo com o contrato finalizado (dinheiro e comissão). */
+export const PENDENCIAS_ETERNAS = new Set(['pagamento', 'indicacao'])
+
+/**
+ * Item 10 (09/10/2026, decisão do Lucas): contrato finalizado → todo farol ainda aberto (pendente,
+ * a definir, em andamento) vira "Finalizado pelo sistema", menos as pendências eternas. Calculado,
+ * não gravado: reabrir o contrato devolve o estado real.
+ */
+export function finalizarPeloSistema(tag: ComputedTag, status: string): ComputedTag {
+  if (status !== 'finalizado' || PENDENCIAS_ETERNAS.has(tag.id) || !estadoPendente(tag.state)) return tag
+  return { ...tag, state: 'sistema', tooltip: `${tag.label}: Finalizado pelo sistema`, sublabel: '✓', count: undefined }
+}
+
 export function computeAllTags(contrato: ContratoTagData): ComputedTag[] {
   return ALL_COMPUTE_FNS
-    .map(fn => fn(contrato))
+    .map(fn => finalizarPeloSistema(fn(contrato), contrato.status))
     .filter(tag => tag.state !== 'hidden')
 }

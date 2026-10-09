@@ -8,7 +8,7 @@ import { sanitizeBuscaPostgrest } from '@/lib/sanitize'
 import Link from 'next/link'
 import { useDebounce } from '@/hooks/useDebounce'
 import { ProtocoloData, montarProtocoloData, normalizarProtocoloData } from '@/components/protocolo/protocolo-utils'
-import { computeAllTags, getPagamentoPendente, TAG_STATE_STYLES, type ComputedTag } from '@/lib/contrato-tags'
+import { computeAllTags, getPagamentoPendente, TAG_STATE_STYLES, estadoConcluido, estadoPendente, type ComputedTag } from '@/lib/contrato-tags'
 import { contaPadraoPara, destinoDoRecebimento, taxaDaVenda, fmtBRL, type ContaEscolhivel } from '@/lib/financeiro'
 
 /** Conta da unidade como o mega pagamento precisa dela: com nome (pra exibir) e `legado`. */
@@ -4375,6 +4375,11 @@ ${petNome}`
    * pendências: faróis do `computeAllTags` + 🚐 (fluxo novo, Ativo, fora do acolhimento) +
    * 📬 (Entrega/Pendente). null = unidade sem `btn_farois` (P-05): sem resumo.
    */
+  /** A unidade DO CONTRATO tem `cb_operacional` (lido de `modulos_ativos`, nunca `hasModule`). */
+  function unidadeTemOperacional(unidadeId: string | null | undefined): boolean {
+    return !!allUnidades.find(u => u.id === unidadeId)?.modulos_ativos?.includes('cb_operacional')
+  }
+
   function faroisDoCard(c: Contrato, entregaCom: string | null = null): ComputedTag[] {
     return [
       // 🚐 Encaminhamento (2.13b): primeiro da ordem (item 26), só no fluxo novo de
@@ -4386,7 +4391,7 @@ ${petNome}`
         tooltip: c.supinda_id ? '' : (c.numero_lacre?.toString().trim() ? 'Sem viagem' : 'Sem lacre'),
         sublabel: c.supinda?.numero ? String(c.supinda.numero) : undefined,
       }] : []),
-      ...computeAllTags({ ...c, indicacaoFonteId }).filter(t => t.id !== 'protocolo'),
+      ...computeAllTags({ ...c, indicacaoFonteId, temOperacional: unidadeTemOperacional(c.unidade_id) }).filter(t => t.id !== 'protocolo'),
       // 📬 Registrar entrega (2.9): último da ordem, só na Entrega/Pendente. Fora do
       // computeAllTags de propósito (senão iria pro detalhe, /tutores e PI).
       ...((c.status === 'retorno' || c.status === 'pendente') ? [{
@@ -4407,9 +4412,9 @@ ${petNome}`
 
   function resumoDoCard(c: Contrato): { feitos: number; pendentes: number } | null {
     if (!isVisible(T, 'btn_farois')) return null
-    const tags = computeAllTags({ ...c, indicacaoFonteId }).filter(t => t.id !== 'protocolo')
-    let feitos = tags.filter(t => t.state === 'completed' || t.state === 'rejected').length
-    let pendentes = tags.filter(t => t.state === 'pending' || t.state === 'in_progress' || t.state === 'alert').length
+    const tags = computeAllTags({ ...c, indicacaoFonteId, temOperacional: unidadeTemOperacional(c.unidade_id) }).filter(t => t.id !== 'protocolo')
+    let feitos = tags.filter(t => estadoConcluido(t.state)).length
+    let pendentes = tags.filter(t => estadoPendente(t.state)).length
     if (encPipeline && c.status === 'ativo' && !c.aguardando_acolhimento) { if (c.supinda_id) feitos++; else pendentes++ }
     if (c.status === 'retorno' || c.status === 'pendente') pendentes++
     return { feitos, pendentes }

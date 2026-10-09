@@ -2875,6 +2875,7 @@ ${petNome}`
             <InteractiveTags
               contrato={{
                 ...contrato,
+                temOperacional: temOperacionalContrato,
                 contrato_produtos: contratoProdutos.map(cp => ({
                   foto_recebida: cp.foto_recebida,
                   rescaldo_feito: cp.rescaldo_feito,

@@ -15,15 +15,18 @@ export type FarolLista = {
   id: string
   emoji: string
   label: string
-  /** Concluída "por ter feito" (✓ animado) × "por não ter" (chip cinza) × pendente. */
-  tipo: 'feito' | 'nao_tem' | 'pendente'
+  /** Concluída "por ter feito" (✓ animado) × "por não ter" (chip cinza) × "pelo sistema" (✓ cinza,
+   *  contrato finalizado com o farol aberto — item 10) × pendente. */
+  tipo: 'feito' | 'nao_tem' | 'sistema' | 'pendente'
   /** Texto à direita: "Feito" não aparece (vira o ✓); os demais aparecem escritos. */
   texto: string | null
 }
 
 /** Concluída = feito ou recusado (item 6: "Não quer"/"Sem pelinho" contam como concluída). */
 export function farolConcluido(tag: Pick<ComputedTag, 'state'>): boolean {
-  return tag.state === 'completed' || tag.state === 'rejected'
+  // Mesma regra de `estadoConcluido` (contrato-tags) — repetida aqui de propósito: este arquivo só
+  // importa TIPOS de lá, senão o `npm test` (Node puro) não resolve o alias `@/`.
+  return tag.state === 'completed' || tag.state === 'rejected' || tag.state === 'sistema'
 }
 
 function textoNaoTem(id: string): string {
@@ -38,6 +41,7 @@ function textoPendente(tag: ComputedTag): string {
   // 🚐 Encaminhamento (2.13b): "Sem viagem" ou "Sem lacre" (P-13), vindo pronto no tooltip.
   if (tag.id === 'encaminhamento') return tag.tooltip || 'Sem viagem'
   if (tag.state === 'alert') return 'Em aberto'
+  if (tag.state === 'ghost') return 'A definir'   // item 3: o ❓ é pendente, não some
   if (tag.state === 'in_progress') {
     const n = tag.count ?? null
     return n ? `Em andamento · ${n}` : 'Em andamento'
@@ -51,7 +55,8 @@ function textoPendente(tag: ComputedTag): string {
 
 /** Um farol calculado vira linha da lista. Estados ocultos/fantasma ficam de fora. */
 export function farolParaLista(tag: ComputedTag): FarolLista | null {
-  if (tag.state === 'hidden' || tag.state === 'ghost') return null
+  if (tag.state === 'hidden') return null
+  if (tag.state === 'sistema') return { id: tag.id, emoji: tag.emoji, label: tag.label, tipo: 'sistema', texto: 'Finalizado pelo sistema' }
   // Concluída mostra só o ✓ — exceto o 🚐, que mostra a viagem ("ST172", item 17).
   if (tag.state === 'completed') return { id: tag.id, emoji: tag.emoji, label: tag.label, tipo: 'feito', texto: tag.id === 'encaminhamento' ? (tag.sublabel || null) : null }
   if (tag.state === 'rejected') return { id: tag.id, emoji: tag.emoji, label: tag.label, tipo: 'nao_tem', texto: textoNaoTem(tag.id) }

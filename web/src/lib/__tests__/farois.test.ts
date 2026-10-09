@@ -29,7 +29,11 @@ test('textos dos estados (item 6 e 33)', () => {
   assert.equal(farolParaLista(tag('foto', 'pending', { count: 1 }))!.texto, '1 pendente')
   assert.equal(farolParaLista(tag('foto', 'pending', { count: 2 }))!.texto, '2 pendentes')
   assert.equal(farolParaLista(tag('urna', 'pending'))!.texto, 'A definir')
-  assert.equal(farolParaLista(tag('urna', 'ghost')), null)
+  // Item 3 (09/10): o "a definir" (❓) é pendente, não some — senão não dá pra responder 💎/📜.
+  assert.deepEqual(farolParaLista(tag('rescaldo', 'ghost')), { id: 'rescaldo', emoji: '•', label: 'rescaldo', tipo: 'pendente', texto: 'A definir' })
+  // Item 10: finalizado pelo sistema é concluído, com texto próprio
+  assert.equal(farolParaLista(tag('urna', 'sistema'))!.tipo, 'sistema')
+  assert.equal(farolParaLista(tag('urna', 'sistema'))!.texto, 'Finalizado pelo sistema')
 })
 
 test('farol de entrega usa o texto pronto (D10)', () => {

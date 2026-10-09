@@ -15,7 +15,7 @@
  * - A fileira de ações é a dock (2.17c, `DockAcoes`).
  */
 import type { ReactNode } from 'react'
-import { TAG_STATE_STYLES, type ComputedTag } from '@/lib/contrato-tags'
+import { TAG_STATE_STYLES, estadoConcluido, estadoPendente, type ComputedTag } from '@/lib/contrato-tags'
 import { dataDoCard, pesoDoCard, especieDoCard, nomeDoCard } from '@/lib/card-pet'
 import DockAcoes from './DockAcoes'
 import Destacado from './Destacado'
@@ -42,8 +42,8 @@ type Props = {
   destaque?: string[]
 }
 
-const concluido = (t: ComputedTag) => t.state === 'completed' || t.state === 'rejected'
-const pendente = (t: ComputedTag) => t.state === 'pending' || t.state === 'in_progress' || t.state === 'alert'
+const concluido = (t: ComputedTag) => estadoConcluido(t.state)
+const pendente = (t: ComputedTag) => estadoPendente(t.state)
 
 function Farol({ t, grande, onFarol }: { t: ComputedTag; grande: boolean; onFarol: (id: string) => void }) {
   const st = TAG_STATE_STYLES[t.state]
