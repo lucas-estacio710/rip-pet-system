@@ -12,11 +12,12 @@
  *   abre DIRETO o 2º nível dele (`onFarol`); "‹ Pendências" volta pra lista.
  * - raça | cor some na Entrega/Pendente (item 36) — ali o meio é o endereço.
  * - Sem `btn_farois` na unidade (P-05) as colunas de faróis não aparecem.
- * - A fileira de ações vira a dock no 2.17c; aqui ela já recebe os botões prontos.
+ * - A fileira de ações é a dock (2.17c, `DockAcoes`).
  */
 import type { ReactNode } from 'react'
 import { TAG_STATE_STYLES, type ComputedTag } from '@/lib/contrato-tags'
 import { dataDoCard, pesoDoCard, especieDoCard, nomeDoCard } from '@/lib/card-pet'
+import DockAcoes from './DockAcoes'
 
 type Props = {
   dataAcolhimento: string | null
@@ -128,7 +129,8 @@ export default function CardPetDesk(p: Props) {
         </>
       ) : <div className="flex-1" />}
 
-      <div className="flex-none flex items-center gap-2" onClick={e => e.stopPropagation()}>{p.acoes}</div>
+      {/* Dock do Mac (2.17c, D3): sempre à mostra, pequena; cresce pela distância do mouse. */}
+      <div className="flex-none" onClick={e => e.stopPropagation()}><DockAcoes>{p.acoes}</DockAcoes></div>
     </div>
   )
 }

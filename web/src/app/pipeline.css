@@ -510,3 +510,15 @@
 
 /* Resumo ✓⏱ "baixinho" (24px) na linha do tutor — Entrega/Pendente (fase 2.16, item 36). */
 .pl-vidro.pl-vidro-baixo { height: 24px; padding: 0 7px; gap: 5px; font-size: 11px; border-radius: 7px; }
+
+/* Dock do card largo (fase 2.17c, D3): o botão mantém 36px reais e só ESCALA; a margem
+   negativa devolve o espaço que a escala não usa. `--k` vem do JS (DockAcoes), 0.6 em repouso. */
+.pl-dock { gap: 2px; }
+.pl-dock a, .pl-dock button {
+  transform: scale(var(--k, 0.6));
+  margin: 0 calc((var(--k, 0.6) - 1) * 18px);
+  transition: transform 0.12s ease-out, margin 0.12s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pl-dock a, .pl-dock button { transform: none; margin: 0; transition: none; }
+}
