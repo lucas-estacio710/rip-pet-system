@@ -18,6 +18,7 @@ import type { ReactNode } from 'react'
 import { TAG_STATE_STYLES, type ComputedTag } from '@/lib/contrato-tags'
 import { dataDoCard, pesoDoCard, especieDoCard, nomeDoCard } from '@/lib/card-pet'
 import DockAcoes from './DockAcoes'
+import Destacado from './Destacado'
 
 type Props = {
   dataAcolhimento: string | null
@@ -37,6 +38,8 @@ type Props = {
   onFarol: (id: string) => void
   meio?: ReactNode
   acoes: ReactNode
+  /** Termos da busca por texto pra marcar no nome do pet e do tutor (parte 5 da busca nova). */
+  destaque?: string[]
 }
 
 const concluido = (t: ComputedTag) => t.state === 'completed' || t.state === 'rejected'
@@ -99,7 +102,7 @@ export default function CardPetDesk(p: Props) {
           <div className="pl-tri" style={{ '--pl-tipo': corTipo } as React.CSSProperties}>
             {p.lacre && <span className="pl-tri-l">{p.lacre}</span>}
             <span className="pl-tri-n" style={{ color: p.petGenero === 'macho' ? '#1d4ed8' : '#db2777' }}>
-              <span className="truncate">{nomeDoCard(p.petNome)}</span>
+              <span className="truncate"><Destacado texto={nomeDoCard(p.petNome)} termos={p.destaque} /></span>
               {p.petGenero && <span style={{ marginLeft: 2, fontSize: '.75rem' }}>{p.petGenero === 'macho' ? '♂' : '♀'}</span>}
             </span>
             <span className="pl-tri-t">{p.individual ? 'IND' : 'COL'}</span>
@@ -107,8 +110,8 @@ export default function CardPetDesk(p: Props) {
         </div>
         <div className="flex items-center gap-1.5 text-xs mt-1 min-w-0">
           <span className="pl-chip truncate min-w-0 px-1.5 py-px rounded" style={{ flex: '0 1 auto' }}>
-            <span className="font-bold" style={{ color: '#6d28d9' }}>{primeiro}</span>
-            {resto.length > 0 && <span style={{ color: '#475569' }}> {resto.join(' ')}</span>}
+            <span className="font-bold" style={{ color: '#6d28d9' }}><Destacado texto={primeiro} termos={p.destaque} /></span>
+            {resto.length > 0 && <span style={{ color: '#475569' }}> <Destacado texto={resto.join(' ')} termos={p.destaque} /></span>}
           </span>
           {p.mostrarRaca && racaCor && (
             <span className="pl-chip truncate min-w-0 text-[11px] font-medium px-1.5 py-px rounded" style={{ flex: '0 2 auto', color: '#475569' }}>{racaCor}</span>

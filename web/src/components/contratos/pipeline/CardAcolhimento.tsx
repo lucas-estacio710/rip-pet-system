@@ -19,6 +19,7 @@ import { useState } from 'react'
 import { ChevronDown, ClipboardCheck, Hourglass, MapPin } from 'lucide-react'
 import TopoCardPet from './TopoCardPet'
 import TrilhoCardPet from './TrilhoCardPet'
+import Destacado from './Destacado'
 import { pesoDoCard, especieDoCard, nomeDoCard } from '@/lib/card-pet'
 
 type Props = {
@@ -38,6 +39,8 @@ type Props = {
   onPetAcolhido: () => void
   onAbrir: () => void
   rotuloAcolhido: string
+  /** Termos da busca por texto pra marcar no nome do pet e do tutor (parte 5 da busca nova). */
+  destaque?: string[]
 }
 
 function Endereco({ e }: { e: { linha1: string; linha2: string } | null }) {
@@ -87,6 +90,7 @@ export default function CardAcolhimento(p: Props) {
           }
           petNome={p.petNome} petGenero={p.petGenero} individual={p.individual} especie={p.especie} peso={p.peso}
           tutorNome={p.tutorNome} telefone={p.telefone} raca={p.raca} cor={p.cor}
+          destaque={p.destaque}
         />
         <button type="button" onClick={e => { e.stopPropagation(); setAberto(a => !a) }} aria-expanded={aberto}
           className="w-full flex items-center gap-1.5 text-left pt-0.5">
@@ -111,10 +115,10 @@ export default function CardAcolhimento(p: Props) {
         </span>
         <span className="min-w-0 w-[230px] flex-none leading-tight">
           <span className="flex items-center gap-1.5 min-w-0">
-            <span className="truncate text-[14px] font-bold" style={{ color: p.petGenero === 'macho' ? '#1d4ed8' : '#db2777' }}>{nomeDoCard(p.petNome)}</span>
+            <span className="truncate text-[14px] font-bold" style={{ color: p.petGenero === 'macho' ? '#1d4ed8' : '#db2777' }}><Destacado texto={nomeDoCard(p.petNome)} termos={p.destaque} /></span>
             <span className="flex-none text-[10px] font-bold px-1.5 py-0.5 rounded text-white" style={{ background: corTipo }}>{p.individual ? 'IND' : 'COL'}</span>
           </span>
-          <span className="block truncate text-[12px]" style={{ color: 'var(--surface-500)' }}>{nomeDoCard(p.tutorNome)}</span>
+          <span className="block truncate text-[12px]" style={{ color: 'var(--surface-500)' }}><Destacado texto={nomeDoCard(p.tutorNome)} termos={p.destaque} /></span>
         </span>
         <span className="flex-1 min-w-0"><Endereco e={p.endereco} /></span>
         {p.resumo && (

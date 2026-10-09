@@ -432,6 +432,10 @@ function ContratosContent() {
   // piscava o fluxo novo e a 1ª carga ia com `encPipeline=true`. Agora: `flsPronto` falso =
   // esqueleto e NENHUMA carga; erro na carga do FLS = fluxo antigo.
   const { cardNovo, encPipeline, pronto: flsPronto } = useCardNovo()
+  // Destaque da busca nova (parte 5): só a busca por TEXTO marca trecho no nome; lacre,
+  // telefone e código acham por outra coluna e não teriam o que destacar no nome.
+  const buscaClassificada = cardNovo && buscaDebounced.trim() ? classificarBusca(buscaDebounced) : null
+  const termosDestaque = buscaClassificada?.tipo === 'texto' ? buscaClassificada.termos : undefined
 
   // As 3 etapas que agrupam por viagem no fluxo novo. `finalizado` fica de fora de
   // propósito — ver `cargaTotalDaEtapa` em carregarContratos().
@@ -598,6 +602,9 @@ function ContratosContent() {
     }))
   }
   const popupHist = usePopupHistory()
+  // "+ Adicionar pets" (2.13c) também fecha com o voltar do celular, em vez de sair da tela.
+  const histAddPets = usePopupHistory()
+  const abrirAddPets = (v: { id: string; numero: string }) => { setAddPetsViagem(v); histAddPets.abrir() }
   useEffect(() => {
     if (popupHist.nivel === 0 && farolContratoId) setFarolContratoId(null)
   }, [popupHist.nivel, farolContratoId])
@@ -1073,7 +1080,7 @@ function ContratosContent() {
   // Atualizar URL quando estado muda (sem recarregar página). Pausado com popup aberto
   // (`popupHist.ocupado`): o replace apagaria a entrada do popup e o "voltar" sairia da tela.
   useEffect(() => {
-    if (popupHist.ocupado) return
+    if (popupHist.ocupado || histAddPets.ocupado) return
     const params = new URLSearchParams()
     if (busca) params.set('busca', busca)
     if (statusFiltro) params.set('status', statusFiltro)
@@ -1089,7 +1096,7 @@ function ContratosContent() {
 
     // Usar replace para não criar histórico a cada mudança de filtro
     router.replace(newUrl, { scroll: false })
-  }, [statusFiltro, pagina, ordenacao, ordemAsc, agruparCidade, agruparBairro, agruparSupinda, popupHist.ocupado]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [statusFiltro, pagina, ordenacao, ordemAsc, agruparCidade, agruparBairro, agruparSupinda, popupHist.ocupado, histAddPets.ocupado]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     carregarContagens()
@@ -5323,7 +5330,7 @@ ${petNome}`
                             corUnidade={corUnidade}
                             textoUnidade={textoBadgeUnidade}
                             menu={planejada && statusFiltro === 'ativo' ? {
-                              onAdicionar: () => setAddPetsViagem({ id: supId!, numero }),
+                              onAdicionar: () => abrirAddPets({ id: supId!, numero }),
                               onEditar: () => abrirEdicaoEncaminhamento(supId!, numero),
                               onEnviar: () => abrirEnvioParaMatriz(supId!, numero),
                             } : null}
@@ -5389,7 +5396,7 @@ ${petNome}`
                                   const sup = supindaDoGrupo(grupo.numero, grupo.contratos)
                                   const planejada = !!sup?.id && (!sup?.status || sup.status === 'planejada')
                                   return planejada && statusFiltro === 'ativo' ? (
-                                    <button onClick={() => setAddPetsViagem({ id: sup!.id!, numero: grupo.numero! })}
+                                    <button onClick={() => abrirAddPets({ id: sup!.id!, numero: grupo.numero! })}
                                       className="w-full py-2.5 rounded-xl border-2 border-dashed text-[13px] font-semibold" style={{ borderColor: '#f97316', color: '#ea580c' }}>
                                       + Adicionar pets
                                     </button>
@@ -5442,7 +5449,7 @@ ${petNome}`
                             <Fragment key={numero}>
                               {grupo.contratos.map(c => <Fragment key={c.id}>{renderFn(c)}</Fragment>)}
                               {planejada && statusFiltro === 'ativo' && (
-                                <button onClick={() => setAddPetsViagem({ id: supId!, numero })}
+                                <button onClick={() => abrirAddPets({ id: supId!, numero })}
                                   className="w-full py-2.5 rounded-xl border-2 border-dashed text-[13px] font-semibold" style={{ borderColor: '#f97316', color: '#ea580c' }}>
                                   + Adicionar pets
                                 </button>
@@ -5545,6 +5552,7 @@ ${petNome}`
                       onResumo={() => { setFarolContratoId(contrato.id); setFarolAnimar(true); popupHist.abrir() }}
                       onPetAcolhido={() => abrirFinalizarAtivacaoPV(contrato)}
                       onAbrir={() => router.push(`/contratos/${contrato.id}`)}
+                      destaque={termosDestaque}
                       rotuloAcolhido={`Pet Acolhido — finalizar ${contrato.tipo_plano === 'preventivo' ? 'Ativação de Preventivo' : 'Acolhimento'}`}
                     />
                   </div>
@@ -5724,6 +5732,7 @@ ${petNome}`
                         raca={contrato.pet_raca}
                         cor={contrato.pet_cor}
                         mostrarRaca={!(contrato.status === 'retorno' || contrato.status === 'pendente')}
+                        destaque={termosDestaque}
                         farois={isVisible(T, 'btn_farois') ? faroisDoCard(contrato) : null}
                         onFarol={id => abrirFarolDireto(contrato, id)}
                         meio={
@@ -6068,6 +6077,7 @@ ${petNome}`
                         telefone={contrato.tutor?.telefone || contrato.tutor_telefone}
                         raca={contrato.pet_raca}
                         cor={contrato.pet_cor}
+                        destaque={termosDestaque}
                         noLugarDaRaca={(contrato.status === 'retorno' || contrato.status === 'pendente') ? (() => {
                           const r = resumoDoCard(contrato)
                           if (!r) return undefined
@@ -7938,8 +7948,9 @@ ${petNome}`
 
       {/* ─── Viagem no celular (fase 2.13c) ─────────────────────────────────── */}
       {/* "+ Adicionar pets": pets do Ativo sem viagem, nunca Em Acolhimento (item 18). */}
+      {addPetsViagem && histAddPets.nivel > 0 && (
       <AdicionarPetsViagem
-        aberto={!!addPetsViagem}
+        aberto
         numero={addPetsViagem?.numero || ''}
         candidatos={addPetsViagem ? contratos
           .filter(c => c.status === 'ativo' && !c.supinda_id && !c.aguardando_acolhimento)
@@ -7950,9 +7961,10 @@ ${petNome}`
             tutor: c.tutor?.nome || c.tutor_nome || '',
             emoji: getPetIcon(c.pet_especie, c.pet_peso).emoji,
           })) : []}
-        onFechar={() => setAddPetsViagem(null)}
-        onIncluir={async ids => { if (addPetsViagem) { await vincularAoEncaminhamento(ids, addPetsViagem.id); setAddPetsViagem(null) } }}
+        onFechar={histAddPets.fechar}
+        onIncluir={async ids => { if (addPetsViagem) { await vincularAoEncaminhamento(ids, addPetsViagem.id); histAddPets.fechar() } }}
       />
+      )}
 
       {/* Tirar pet da viagem: popup próprio por cima do Editar (item 35) — nunca confirm(). */}
       {tirarPetConfirm && encEditando && (
@@ -7978,7 +7990,7 @@ ${petNome}`
       {/* Bola laranja "Novo encaminhamento" (item 16): só celular, Ativo, fora da pasta, e
           some com menu ⋮ ou qualquer popup/modal aberto. */}
       {encPipeline && statusFiltro === 'ativo' && encAberto === null && !menuCardViagemAberto
-        && popupHist.nivel === 0 && !encFormAberto && !addPetsViagem && !enviarModal && (
+        && popupHist.nivel === 0 && !encFormAberto && histAddPets.nivel === 0 && !enviarModal && (
         <button onClick={abrirNovoEncaminhamento} className="pl-fab" title="Novo encaminhamento" aria-label="Novo encaminhamento">
           <Plus className="h-7 w-7" strokeWidth={2.75} />
         </button>
