@@ -24,7 +24,10 @@ export const normCat = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '')
  * existir, manda.
  */
 const ALIAS_CARTAO: Record<string, string> = { ifd: 'ifood' }   // "IFD*RAPOSO BAR" = iFood
-const PALAVRA_VAZIA = new Set(['parcela', 'parc', 'inc', 'ltda', 'eireli', 'subscr', 'subscription', 'pagamento', 'compra', 'vista', 'internacional'])
+// O vocabulário do BANCO não diz do que foi o gasto: "Pix enviado" casava com o
+// sinônimo "pix" de Taxa de Pix e TODO Pix virava Taxa de Pix (08/10/2026, Lucas).
+const PALAVRA_VAZIA = new Set(['parcela', 'parc', 'inc', 'ltda', 'eireli', 'subscr', 'subscription', 'pagamento', 'compra', 'vista', 'internacional',
+  'pix', 'enviado', 'enviada', 'recebido', 'recebida', 'efetuado', 'titulo', 'convenio', 'transferencia', 'ted', 'doc', 'domicilio'])
 export function sugerirPorSinonimo<T extends CategoriaBuscavel>(folhas: T[], descricao: string): T | null {
   const palavras = (s: string) => normCat(s).split(/[^a-z0-9]+/).filter(w => w.length >= 3 && !/^\d+$/.test(w))
   const doTexto = palavras(

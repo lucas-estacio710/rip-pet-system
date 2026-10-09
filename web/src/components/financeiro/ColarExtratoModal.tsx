@@ -101,6 +101,10 @@ type Item = LinhaExtrato & {
   meses: number                  // vale por vários meses (rateio_meses); 1 = não
   doHistorico: boolean
   porSinonimo: boolean           // categoria veio do sinônimo (sem histórico) — confira
+  /** PALPITE pelo nome (sinônimo da árvore): só SUGERE, nunca escolhe — aparece
+   *  como "talvez: X?" e vale depois de um clique (08/10/2026: verde e já escolhido
+   *  parecia certeza, e era "Taxa de Pix" pra bonificação). */
+  palpite: string
   sugestoes: Sugestao<Decisao>[]
 }
 
@@ -341,7 +345,7 @@ export default function ColarExtratoModal({
         exatos: [] as RegistroSistema[], parecido: null as Item['parecido'],
         opId: '', mov: '' as MovMaquininha | '', catId: '', catTexto: '',
         metodo: ehCartao ? 'credito' : (metodoDe(l.descricao) || 'pix'), fornecedor: fornecedorDe(l.descricao),
-        doHistorico: false, porSinonimo: false, sugestoes: [] as Sugestao<Decisao>[],
+        doHistorico: false, porSinonimo: false, palpite: '', sugestoes: [] as Sugestao<Decisao>[],
         partes: [] as Parte[], meses: 1, outras: [] as ParaUnidade[],
       }
       // 1) já está no sistema?
@@ -395,8 +399,9 @@ export default function ColarExtratoModal({
       }
       // Sem decisão do histórico: tenta o sinônimo da árvore (palavra inteira).
       if (destino === 'despesa' && !item.catId) {
-        const s = sugerirPorSinonimo(folhas, l.descricao)
-        if (s) { item.catId = s.id; item.catTexto = caminhoDe(s.id); item.porSinonimo = true }
+        // Pelo nome de QUEM RECEBEU, não pelo texto do banco inteiro.
+        const s = sugerirPorSinonimo(folhas, fornecedorDe(l.descricao) || l.descricao)
+        if (s) item.palpite = s.id
       }
       const folga = pares.get(l.n)
       if (folga && (folga.tipo === 'provavel' || folga.tipo === 'ambiguo')) {
@@ -662,7 +667,7 @@ export default function ColarExtratoModal({
                   {i.outras.length > 0 && <span className="font-normal text-[var(--brand-500)]"> · parte de outra unidade</span>}
                 </span>
                 <span className="text-[11px] text-[var(--surface-400)] truncate">
-                  {i.doHistorico ? 'como das outras vezes' : i.porSinonimo ? 'pelo nome — confira' : caminhoDe(i.catId).split(' › ').slice(0, -1).join(' › ')}
+                  {i.doHistorico ? 'como das outras vezes' : caminhoDe(i.catId).split(' › ').slice(0, -1).join(' › ')}
                 </span>
                 <button type="button" onClick={() => muda(i.n, { catId: '', catTexto: '', doHistorico: false, porSinonimo: false })}
                         className="text-[11px] text-[var(--brand-500)] hover:underline shrink-0">trocar</button>
@@ -690,11 +695,18 @@ export default function ColarExtratoModal({
         {i.destino === 'despesa' && !i.catId && (() => {
           const achados = i.catTexto.trim().length >= 2 ? buscarCategorias(folhas, caminhoDe, i.catTexto, 6) : []
           const sugeridas = i.sugestoes.filter(s => s.decisao.tipo === 'despesa')
-          if (!achados.length && !sugeridas.length && i.catTexto.trim().length < 2) return null
+          if (!achados.length && !sugeridas.length && !i.palpite && i.catTexto.trim().length < 2) return null
           return (
             <div className="mt-2 ml-[34px] sm:ml-[86px] flex flex-col gap-1.5">
-              {sugeridas.length > 0 && !i.catTexto && (
+              {(sugeridas.length > 0 || i.palpite) && !i.catTexto && (
                 <div className="flex flex-wrap gap-1.5">
+                  {i.palpite && !sugeridas.some(s => s.decisao.tipo === 'despesa' && (s.decisao as { catId: string }).catId === i.palpite) && (
+                    <button type="button" onClick={() => muda(i.n, { catId: i.palpite, catTexto: '', porSinonimo: true })}
+                            className="text-xs px-2.5 py-1 rounded-full border border-dashed border-amber-500/60 text-amber-500 hover:bg-amber-500/10"
+                            title="Palpite pelo nome — não há histórico parecido. Confira antes de escolher">
+                      talvez {caminhoDe(i.palpite).split(' › ').pop()}?
+                    </button>
+                  )}
                   {sugeridas.map(s => s.decisao.tipo === 'despesa' && (
                     <button key={s.chave} type="button"
                             onClick={() => muda(i.n, { catId: (s.decisao as { catId: string }).catId, catTexto: '', porSinonimo: false })}
