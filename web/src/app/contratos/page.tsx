@@ -293,6 +293,7 @@ type PetDaViagem = {
   tutor_nome: string | null
   tutor: { nome: string | null } | null
   status: string | null
+  aguardando_acolhimento?: boolean | null
 }
 
 /** Um pet pronto no Nicho, na tela de trazer de volta (§9.5). Lido do BANCO. */
@@ -3747,11 +3748,29 @@ ${petNome}`
         return
       }
 
-      const { error } = await supabase.from('contratos')
-        .update({ supinda_id: viagem.id } as never).in('id', contratoIds)
+      // 🔴 A trava mora no UPDATE, não só na tela (fase 2.13a): entra na viagem apenas
+      // pet em `ativo`, já acolhido (B-06 — "Em Acolhimento" era despachado) e com lacre
+      // (P-13). Se a tela errar, o banco recusa; e o que não entrou é dito pelo nome.
+      const { data: entraram, error } = await supabase.from('contratos')
+        .update({ supinda_id: viagem.id } as never)
+        .in('id', contratoIds)
+        .eq('status', 'ativo')
+        .eq('aguardando_acolhimento', false)
+        .not('numero_lacre', 'is', null)
+        .neq('numero_lacre', '')
+        .select('id')
       if (error) {
         alert(`Erro ao incluir no ${viagem.numero}: ${error.message}\n\nNada foi alterado.`)
         return
+      }
+      const idsQueEntraram = new Set(((entraram || []) as { id: string }[]).map(r => r.id))
+      const ficaram = contratoIds.filter(id => !idsQueEntraram.has(id))
+      if (ficaram.length > 0) {
+        const { data: motivos } = await supabase.from('contratos')
+          .select('pet_nome, numero_lacre, aguardando_acolhimento, status').in('id', ficaram)
+        const linhas = ((motivos || []) as { pet_nome: string | null; numero_lacre: string | null; aguardando_acolhimento: boolean | null; status: string | null }[])
+          .map(m => `• ${m.pet_nome || 'Pet'}: ${m.aguardando_acolhimento ? 'ainda Em Acolhimento' : !m.numero_lacre?.trim() ? 'sem lacre' : m.status !== 'ativo' ? `não está mais em Ativo (${m.status})` : 'não pôde entrar'}`)
+        alert(`${ficaram.length} pet${ficaram.length > 1 ? 's não entraram' : ' não entrou'} no ${viagem.numero}:\n\n${linhas.join('\n')}`)
       }
 
       // Recalcula do banco (nunca soma incremental — armadilha 6 do §10.5): esses 2
@@ -3851,8 +3870,24 @@ ${petNome}`
   /** Tira UM pet da viagem (volta a ser pet solto). Só pela edição — o gesto de
    *  arrastar inclui, nunca remove, pra não desfazer trabalho por engano. */
   async function desvincularPet(contratoId: string, supindaId: string) {
-    const { error } = await supabase.from('contratos').update({ supinda_id: null } as never).eq('id', contratoId)
+    // 🔴 B-05 (fase 2.13a): reconferir no BANCO. A tela pode ter minutos de idade — se a
+    // viagem já partiu, tirar o pet desvincularia um contrato que está em `pinda`.
+    const { data: sup } = await supabase.from('supindas').select('numero, status').eq('id', supindaId).maybeSingle()
+    const viagem = sup as { numero: string; status: string | null } | null
+    if (!viagem || viagem.status !== 'planejada') {
+      alert(`O encaminhamento ${viagem?.numero || ''} já partiu — não dá mais para tirar pets dele.`.replace('  ', ' '))
+      setEncFormAberto(false)
+      await carregarContratos()
+      return
+    }
+    const { data: saiu, error } = await supabase.from('contratos').update({ supinda_id: null } as never)
+      .eq('id', contratoId).eq('supinda_id', supindaId).eq('status', 'ativo').select('id')
     if (error) { alert(`Erro ao tirar o pet do encaminhamento: ${error.message}`); return }
+    if (!saiu || (saiu as unknown[]).length === 0) {
+      alert('Este pet não está mais em Ativo nesta viagem — nada foi alterado. A lista vai ser atualizada.')
+      await carregarContratos()
+      return
+    }
     await recalcularEstatisticasSupinda(supindaId)
     setEncFormPets(prev => prev.filter(c => c.id !== contratoId))
     await carregarContratos()
@@ -3867,10 +3902,26 @@ ${petNome}`
     if (!confirm(aviso)) return
     setSalvandoEnc(true)
     try {
+      // 🔴 B-05 (fase 2.13a): reconferir no BANCO antes de apagar. Viagem que partiu tem
+      // pets em `pinda` — liberá-los aqui os deixaria em Pinda sem viagem nenhuma.
+      const { data: sup } = await supabase.from('supindas').select('status').eq('id', encEditando.id).maybeSingle()
+      if (!sup || (sup as { status: string | null }).status !== 'planejada') {
+        alert(`O ${encEditando.numero} já partiu — não pode ser excluído.\n\nNada foi alterado.`)
+        setEncFormAberto(false)
+        await carregarContratos()
+        return
+      }
+      const { data: foraDeAtivo } = await supabase.from('contratos').select('pet_nome, status')
+        .eq('supinda_id', encEditando.id).neq('status', 'ativo')
+      const fora = (foraDeAtivo || []) as { pet_nome: string | null; status: string | null }[]
+      if (fora.length > 0) {
+        alert(`O ${encEditando.numero} tem pet que já saiu de Ativo (${fora.map(f => `${f.pet_nome || 'Pet'}: ${f.status}`).join(', ')}).\n\nNão dá pra excluir — nada foi alterado.`)
+        return
+      }
       // Desvincula ANTES de apagar a viagem: se o delete falhar, os pets já estão
       // livres e dá pra repetir — o contrário deixaria contrato apontando pra uma
       // supinda que não existe mais. É a mesma ordem do "mover antes de fechar" (§10.5).
-      const { error: errDesv } = await supabase.from('contratos').update({ supinda_id: null } as never).eq('supinda_id', encEditando.id)
+      const { error: errDesv } = await supabase.from('contratos').update({ supinda_id: null } as never).eq('supinda_id', encEditando.id).eq('status', 'ativo')
       if (errDesv) { alert(`Erro ao liberar os pets: ${errDesv.message}\n\nO encaminhamento NÃO foi excluído.`); return }
       const { error } = await supabase.from('supindas').delete().eq('id', encEditando.id)
       if (error) { alert(`Os pets foram liberados, mas o encaminhamento não pôde ser excluído: ${error.message}`); return }
@@ -3882,7 +3933,7 @@ ${petNome}`
   }
 
   // ─── Enviar para a Matriz (etapa 4) ─────────────────────────────────────────
-  const CAMPOS_PET_VIAGEM = 'id, pet_nome, numero_lacre, tipo_cremacao, tutor_nome, tutor:tutores(nome), status'
+  const CAMPOS_PET_VIAGEM = 'id, pet_nome, numero_lacre, tipo_cremacao, tutor_nome, tutor:tutores(nome), status, aguardando_acolhimento'
 
   /** Lê do BANCO os pets da viagem. Usada tanto pra montar a conferência quanto pra
    *  reconferir no instante do envio — nunca se confia no que está na tela. */
@@ -3932,6 +3983,14 @@ ${petNome}`
         alert(`O ${numero} está sem nenhum pet para enviar.\n\nNada foi alterado — inclua os pets antes de enviar.`)
         setEnviarModal(null)
         await carregarContratos()
+        return
+      }
+      // 🔴 Defesa em profundidade (fase 2.13a): mesmo que tenha entrado por outro caminho,
+      // pet sem lacre ou ainda Em Acolhimento não vai pra Matriz.
+      const travados = pets.filter(pt => pt.aguardando_acolhimento || !pt.numero_lacre?.trim())
+      if (travados.length > 0) {
+        alert(`O ${numero} não pode ser enviado:\n\n${travados.map(pt => `• ${pt.pet_nome || 'Pet'}: ${pt.aguardando_acolhimento ? 'ainda Em Acolhimento' : 'sem lacre'}`).join('\n')}\n\nResolva (ou tire o pet da viagem em Editar) e envie de novo. Nada foi alterado.`)
+        setEnviarPets(pets)
         return
       }
       if (pets.length !== enviarPets.length) {
