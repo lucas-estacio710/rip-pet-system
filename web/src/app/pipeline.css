@@ -484,6 +484,26 @@
   color: #fff !important;
 }
 
+/* Em Acolhimento (fase 2.15 — item 18 e D7). No desktop o lugar da data vira um bloco roxo
+   claro tracejado com a ampulheta girando DEVAGAR; "Pet Acolhido" é botão de vidro roxo que
+   enche no hover (a versão sólida com emoji foi recusada: "PowerPoint 2ª série"). */
+.pl-acolhendo {
+  width: 64px; height: 44px; border-radius: 9px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  background: color-mix(in srgb, #8b5cf6 14%, transparent); border: 1.5px dashed #8b5cf6; color: #c4b5fd;
+}
+[data-theme="white"] .pl-acolhendo { color: #7c3aed; }
+.pl-ampulheta { animation: pl-ampulheta 3.2s ease-in-out infinite; }
+@keyframes pl-ampulheta { 0%, 40% { transform: rotate(0deg); } 50%, 90% { transform: rotate(180deg); } 100% { transform: rotate(360deg); } }
+.pl-btn-acolhido {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border-radius: 9px;
+  font-size: 12.5px; font-weight: 700; white-space: nowrap;
+  background: color-mix(in srgb, #8b5cf6 12%, transparent); border: 1.5px solid #8b5cf6; color: #c4b5fd;
+  transition: background-color .15s, color .15s;
+}
+[data-theme="white"] .pl-btn-acolhido { color: #7c3aed; }
+.pl-btn-acolhido:hover { background: #8b5cf6; color: #fff; }
+
 @media (prefers-reduced-motion: reduce) {
   .pl-viagem-war { animation: none; }
+  .pl-ampulheta { animation: none; }
 }

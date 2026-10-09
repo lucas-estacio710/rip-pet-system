@@ -58,6 +58,7 @@ import UrnaTela from '@/components/contratos/farois/UrnaTela'
 import EncaminhamentoTela from '@/components/contratos/farois/EncaminhamentoTela'
 import CardViagem from '@/components/contratos/pipeline/CardViagem'
 import EsteiraGC from '@/components/contratos/pipeline/EsteiraGC'
+import CardAcolhimento from '@/components/contratos/pipeline/CardAcolhimento'
 import TrazerDaMatriz from '@/components/contratos/pipeline/TrazerDaMatriz'
 import { useIsMobile } from '@/hooks/useMediaQuery'
 import AdicionarPetsViagem from '@/components/contratos/pipeline/AdicionarPetsViagem'
@@ -123,6 +124,10 @@ type Contrato = {
   // Ativação de Preventivo (mig 138) — true enquanto a tarefa de remoção não foi concluída;
   // contrato continua com status normal (preventivo), isso é só um flag de UI por cima.
   aguardando_acolhimento?: boolean
+  // Endereço de remoção (gravado ao criar o contrato da ficha) — o card "Em Acolhimento" (2.15).
+  remocao_endereco?: string | null
+  remocao_bairro?: string | null
+  remocao_cidade?: string | null
   fonte_conhecimento: { nome: string } | null
   fonte_conhecimento_ids: string[] | null
   fonte_outro_especificar: string | null
@@ -1278,7 +1283,7 @@ function ContratosContent() {
 
     // SELECT principal — só dados base + embeds leves essenciais (tutor + supinda + pagamentos).
     // Embeds pesados (contrato_produtos, contrato_gc, fonte_conhecimento) carregam em paralelo após.
-    const SELECT_CONTRATO = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone, endereco, numero, complemento, bairro, cidade, cep), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, tutor_endereco, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, aguardando_acolhimento, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_nome_6, certificado_nome_7, certificado_confirmado, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, data_leva_pinda, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
+    const SELECT_CONTRATO = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone, endereco, numero, complemento, bairro, cidade, cep), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, tutor_endereco, local_coleta, clinica_coleta, remocao_endereco, remocao_bairro, remocao_cidade, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, aguardando_acolhimento, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_nome_6, certificado_nome_7, certificado_confirmado, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, data_leva_pinda, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
 
     // Helper para aplicar filtros comuns (unidade + status).
     // Tipo `any` aqui porque o builder do supabase-js encadeia tipos genéricos complexos
@@ -1442,7 +1447,7 @@ function ContratosContent() {
     const agruparPorSupinda = agruparSupinda && statusFiltro !== 'preventivo' && !fluxoLocal
 
     // Mesmo padrão da listagem: SELECT leve + enriquecimento paralelo
-    const SELECT_BUSCA = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone, endereco, numero, complemento, bairro, cidade, cep), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, tutor_endereco, local_coleta, clinica_coleta, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, aguardando_acolhimento, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_nome_6, certificado_nome_7, certificado_confirmado, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, data_leva_pinda, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
+    const SELECT_BUSCA = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone, endereco, numero, complemento, bairro, cidade, cep), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, tutor_endereco, local_coleta, clinica_coleta, remocao_endereco, remocao_bairro, remocao_cidade, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, aguardando_acolhimento, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_nome_6, certificado_nome_7, certificado_confirmado, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, data_leva_pinda, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
     // Sanitiza: escapa wildcards SQL (% _) e caracteres reservados PostgREST (, ( ) : * \)
     // + limita 80 chars. Protege contra termo malicioso quebrar o filtro `or`.
     const t = sanitizeBuscaPostgrest(termoBusca)
@@ -5263,7 +5268,8 @@ ${petNome}`
                 // drag e long-press juntos, no desktop segurar o botão antes de começar a
                 // arrastar (o que é o movimento natural) selecionaria o pet sem querer.
                 // Desktop = arrastar. Mobile = segurar e tocar. Cada um no seu layout.
-                const propsPetArrastavel = (c: Contrato) => ({
+                // Em Acolhimento não arrasta pra viagem (item 18/D7; o banco também recusa, 2.13a).
+                const propsPetArrastavel = (c: Contrato) => c.aguardando_acolhimento ? {} : ({
                   draggable: true,
                   onDragStart: (e: React.DragEvent) => {
                     setPetArrastando(c.id)
@@ -5432,6 +5438,35 @@ ${petNome}`
               // indicadores do card normal (peso, fonte de conhecimento, local de remoção,
               // cor por IND/COL) — pedido do Lucas: não é "faltando dado", é "bloqueado
               // de propósito", então o clock roxo substitui só o quadradinho da data.
+              if (contrato.aguardando_acolhimento && cardNovo) {
+                // Fase 2.15 (item 18 / D7): deixa de ser travado — pendências e Ações, com
+                // "Pet Acolhido" primeiro. Sem lacre, Bypass nem viagem.
+                const l1 = (contrato.remocao_endereco || '').trim()
+                  || (contrato.local_coleta === 'Clínica' && contrato.clinica_coleta ? contrato.clinica_coleta : '')
+                const l2 = [contrato.remocao_bairro, contrato.remocao_cidade].map(x => (x || '').trim()).filter(Boolean).join(' · ')
+                return (
+                  <div key={contrato.id} data-contrato-id={contrato.id}>
+                    <CardAcolhimento
+                      petNome={contrato.pet_nome}
+                      petGenero={contrato.pet_genero}
+                      individual={contrato.tipo_cremacao === 'individual'}
+                      especie={contrato.pet_especie}
+                      peso={contrato.pet_peso}
+                      tutorNome={contrato.tutor?.nome || contrato.tutor_nome}
+                      telefone={contrato.tutor?.telefone || contrato.tutor_telefone}
+                      raca={contrato.pet_raca}
+                      cor={contrato.pet_cor}
+                      endereco={l1 || l2 ? { linha1: l1, linha2: l2 } : null}
+                      resumo={resumoDoCard(contrato)}
+                      resumoAberto={farolContratoId === contrato.id}
+                      onResumo={() => { setFarolContratoId(contrato.id); setFarolAnimar(true); popupHist.abrir() }}
+                      onPetAcolhido={() => abrirFinalizarAtivacaoPV(contrato)}
+                      onAbrir={() => router.push(`/contratos/${contrato.id}`)}
+                      rotuloAcolhido={`Pet Acolhido — finalizar ${contrato.tipo_plano === 'preventivo' ? 'Ativação de Preventivo' : 'Acolhimento'}`}
+                    />
+                  </div>
+                )
+              }
               if (contrato.aguardando_acolhimento) {
                 const isInd = contrato.tipo_cremacao === 'individual'
                 const { primeiro, resto } = separarPrimeiroNome(contrato.tutor?.nome || contrato.tutor_nome)
