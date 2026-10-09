@@ -13,6 +13,7 @@
  *   sem passar da borda; rola de lado se faltar espaço). Sem nenhuma ação, o botão nem existe.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import ResumoPendencias from './ResumoPendencias'
 
 type Props = {
   /** null = sem faróis na unidade (P-05): o resumo some. */
@@ -39,22 +40,11 @@ export default function TrilhoCardPet({ resumo, resumoAberto, onResumo, extras, 
     return () => document.removeEventListener('pointerdown', fora)
   }, [gaveta])
 
-  const temPendencia = !!resumo && resumo.pendentes > 0
 
   return (
     <div ref={ref} className="pl-trilho flex items-center gap-1.5 min-h-[36px]" onClick={e => e.stopPropagation()}>
       {resumo && (
-        <button
-          type="button"
-          onClick={onResumo}
-          className="pl-vidro"
-          style={{ '--pl-c': temPendencia ? '#f59e0b' : '#22c55e' } as React.CSSProperties}
-          aria-expanded={resumoAberto}
-          title={`${resumo.feitos} concluída(s) · ${resumo.pendentes} pendente(s)`}
-        >
-          <span>✓ {resumo.feitos}</span>
-          <span>⏱ {resumo.pendentes}</span>
-        </button>
+        <ResumoPendencias feitos={resumo.feitos} pendentes={resumo.pendentes} onClick={onResumo} ariaExpanded={resumoAberto} />
       )}
       {inicio ? <div className="flex-1 min-w-0">{inicio}</div> : <div className="flex-1" />}
       {extras}

@@ -61,6 +61,7 @@ import EsteiraGC from '@/components/contratos/pipeline/EsteiraGC'
 import { classificarBusca, filtroDaBusca, ordenarPorRelevancia, etapaComResultado } from '@/lib/busca-contratos'
 import CardAcolhimento from '@/components/contratos/pipeline/CardAcolhimento'
 import CardPetDesk from '@/components/contratos/pipeline/CardPetDesk'
+import ResumoPendencias from '@/components/contratos/pipeline/ResumoPendencias'
 import GraficosViagem from '@/components/contratos/pipeline/GraficosViagem'
 import TrazerDaMatriz from '@/components/contratos/pipeline/TrazerDaMatriz'
 import AdicionarPetsViagem from '@/components/contratos/pipeline/AdicionarPetsViagem'
@@ -6087,12 +6088,8 @@ ${petNome}`
                           const r = resumoDoCard(contrato)
                           if (!r) return undefined
                           return (
-                            <button type="button" className="pl-vidro pl-vidro-baixo"
-                              onClick={e => { e.stopPropagation(); setFarolContratoId(contrato.id); setFarolAnimar(true); popupHist.abrir() }}
-                              style={{ '--pl-c': r.pendentes > 0 ? '#f59e0b' : '#22c55e' } as React.CSSProperties}
-                              title={`${r.feitos} concluída(s) · ${r.pendentes} pendente(s)`}>
-                              <span>✓ {r.feitos}</span><span>⏱ {r.pendentes}</span>
-                            </button>
+                            <ResumoPendencias feitos={r.feitos} pendentes={r.pendentes} tamanho="baixo"
+                              onClick={() => { setFarolContratoId(contrato.id); setFarolAnimar(true); popupHist.abrir() }} />
                           )
                         })() : undefined}
                       />

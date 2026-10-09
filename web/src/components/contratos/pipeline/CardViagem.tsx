@@ -20,6 +20,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { Truck, Calendar, MoreVertical, Plus, Pencil, DollarSign, User } from 'lucide-react'
+import ResumoPendencias from './ResumoPendencias'
 
 export type PetNaViagem = { id: string; emoji: string; individual: boolean; pesoKg: number | null; pago: boolean }
 
@@ -75,7 +76,6 @@ export default function CardViagem(p: Props) {
   const ind = p.pets.filter(x => x.individual).length
   const col = total - ind
   const { emojis, ficha } = pilhaWar(total)
-  const temPend = !!p.resumo && p.resumo.pendentes > 0
 
   function abrirMenu(e: React.MouseEvent<HTMLButtonElement>) {
     e.stopPropagation()
@@ -129,11 +129,8 @@ export default function CardViagem(p: Props) {
       {/* miolo: chefão à esquerda, pilha + totais + porte à direita */}
       <div className="flex items-center justify-between gap-2.5 mt-2">
         {p.resumo ? (
-          <span className="pl-vidro pl-viagem-chefe" style={{ '--pl-c': temPend ? '#f59e0b' : '#22c55e' } as React.CSSProperties}
-            title={`Pendências dos pets da viagem: ${p.resumo.feitos} feitas, ${p.resumo.pendentes} faltando`}>
-            <span>✓ {p.resumo.feitos}</span>
-            {p.resumo.pendentes > 0 && <span>⏱ {p.resumo.pendentes}</span>}
-          </span>
+          <ResumoPendencias feitos={p.resumo.feitos} pendentes={p.resumo.pendentes} tamanho="chefe"
+            title={`Pendências dos pets da viagem: ${p.resumo.feitos} feitas, ${p.resumo.pendentes} faltando`} />
         ) : <span />}
         {p.graficos && <div className="hidden lg:flex flex-1 min-w-0 mx-1">{p.graficos}</div>}
         <div className="flex flex-col items-end gap-px min-w-0 ml-auto text-right">

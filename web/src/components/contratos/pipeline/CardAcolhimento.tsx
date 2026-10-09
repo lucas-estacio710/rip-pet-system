@@ -20,6 +20,7 @@ import { ChevronDown, ClipboardCheck, Hourglass, MapPin } from 'lucide-react'
 import TopoCardPet from './TopoCardPet'
 import TrilhoCardPet from './TrilhoCardPet'
 import Destacado from './Destacado'
+import ResumoPendencias from './ResumoPendencias'
 import { pesoDoCard, especieDoCard, nomeDoCard } from '@/lib/card-pet'
 
 type Props = {
@@ -60,7 +61,6 @@ export default function CardAcolhimento(p: Props) {
   const [aberto, setAberto] = useState(false)
   const corTipo = p.individual ? '#10b981' : '#8b5cf6'
   const fundo = `linear-gradient(135deg, color-mix(in srgb, ${corTipo} 22%, transparent) 0%, color-mix(in srgb, ${corTipo} 8%, transparent) 60%, transparent 100%)`
-  const temPend = !!p.resumo && p.resumo.pendentes > 0
   const peso = pesoDoCard(p.peso)
   const esp = especieDoCard(p.especie, p.peso)
 
@@ -122,11 +122,7 @@ export default function CardAcolhimento(p: Props) {
         </span>
         <span className="flex-1 min-w-0"><Endereco e={p.endereco} /></span>
         {p.resumo && (
-          <button type="button" onClick={e => { e.stopPropagation(); p.onResumo() }} className="pl-vidro"
-            style={{ '--pl-c': temPend ? '#f59e0b' : '#22c55e' } as React.CSSProperties}
-            title={`${p.resumo.feitos} concluída(s) · ${p.resumo.pendentes} pendente(s)`}>
-            <span>✓ {p.resumo.feitos}</span><span>⏱ {p.resumo.pendentes}</span>
-          </button>
+          <ResumoPendencias feitos={p.resumo.feitos} pendentes={p.resumo.pendentes} onClick={p.onResumo} />
         )}
         {botaoAcolhido}
       </div>
