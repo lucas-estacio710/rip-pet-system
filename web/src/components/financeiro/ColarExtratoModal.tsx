@@ -106,7 +106,16 @@ type Item = LinhaExtrato & {
    *  parecia certeza, e era "Taxa de Pix" pra bonificação). */
   palpite: string
   sugestoes: Sugestao<Decisao>[]
+  /** ENTRE CONTAS (08/10/2026): a outra conta da unidade — aplicação, resgate,
+   *  Pix pra outra conta da casa. Vira transferência em `fin_movimentos`, nunca
+   *  despesa. `entreHist`: veio do histórico ("como das outras vezes"). */
+  entreConta: string
+  entreHist: boolean
 }
+
+/** A chave do "entre contas": o nome entre aspas / do favorecido, sem número. */
+const chaveEntre = (d: string) => (fornecedorDe(d) || d).normalize('NFD').toLowerCase()
+  .replace(/[^a-z ]/g, ' ').replace(/ +/g, ' ').trim()
 
 export default function ColarExtratoModal({
   aberto, onClose, categorias, folhas, caminhoDe, mes, onRegistrou, permiteReceitas = true, onQuitar,
@@ -339,6 +348,22 @@ export default function ColarExtratoModal({
       if (saida) { estornadas.add(e.n); estornadas.add(saida.n) }
     }
 
+    // A MEMÓRIA do "entre contas": transferências desta conta com outra conta da
+    // casa (fora as maquininhas, que são receita a prazo). Mesmo favorecido →
+    // mesma outra conta, nas duas direções (aplicação e resgate do mesmo fundo).
+    const entreDe = new Map<string, string>()
+    if (!ehCartao) {
+      const { data: hm } = await supabase.from('fin_movimentos').select('descricao, conta_id, conta_destino_id')
+        .eq('tipo', 'transferencia').or(`conta_id.eq.${contaId},conta_destino_id.eq.${contaId}`)
+        .order('created_at', { ascending: false }).limit(500)
+      for (const h of (hm as { descricao: string | null; conta_id: string; conta_destino_id: string | null }[] | null) || []) {
+        const outra = h.conta_id === contaId ? h.conta_destino_id : h.conta_id
+        if (!outra || !h.descricao || maqIds.includes(outra)) continue
+        const k = chaveEntre(h.descricao)
+        if (k.length >= 4 && !entreDe.has(k)) entreDe.set(k, outra)
+      }
+    }
+
     setItens(linhas.map(l => {
       const base = {
         ...l, jaNoSistema: null as string | null, motivoFora: null as string | null, marcado: true,
@@ -347,6 +372,7 @@ export default function ColarExtratoModal({
         metodo: ehCartao ? 'credito' : (metodoDe(l.descricao) || 'pix'), fornecedor: fornecedorDe(l.descricao),
         doHistorico: false, porSinonimo: false, palpite: '', sugestoes: [] as Sugestao<Decisao>[],
         partes: [] as Parte[], meses: 1, outras: [] as ParaUnidade[],
+        entreConta: '', entreHist: false,
       }
       // 1) já está no sistema?
       const par = exatoDe(l.n)
@@ -363,7 +389,11 @@ export default function ColarExtratoModal({
         const motivo = foraDoCartao(l.descricao)
         if (motivo) return { ...base, destino: 'fora' as Destino, motivoFora: motivo, marcado: false }
       }
-      // 2) saída que não é despesa (fatura, aplicação)
+      // 2) entre contas da casa, pelo histórico
+      const entre = !ehCartao ? entreDe.get(chaveEntre(l.descricao)) : undefined
+      if (entre) return { ...base, destino: 'fora' as Destino, marcado: false, entreConta: entre, entreHist: true,
+                          motivoFora: 'entre contas da casa' }
+      // 2b) saída que não é despesa (fatura, aplicação)
       const nao = l.valor < 0 && !ehCartao ? naoEDespesa(l.descricao) : null
       if (nao) return { ...base, destino: 'fora' as Destino, motivoFora: nao, marcado: false }
 
@@ -460,13 +490,16 @@ export default function ColarExtratoModal({
     && new Set(i.outras.map(o => o.unidadeId)).size === i.outras.length
     && somaOutras(i) <= Math.abs(i.valor) + 0.005
   const despProntas = despesas.filter(i => i.marcado && i.catId && partesOk(i) && outrasOk(i))
+  const entreProntas = fora.filter(i => !i.jaNoSistema && i.entreConta)
+  /** Pra onde o dinheiro pode ter ido: as outras contas da casa (sem maquininha e cartão). */
+  const contasEntre = contas.filter(c => c.id !== contaId && c.produto !== 'maquininha' && c.tipo !== 'cartao')
   const pendentes = receitas.filter(i => i.marcado && !(i.opId || maquininhaLote) || (i.marcado && !i.mov)).length
     + despesas.filter(i => i.marcado && (!i.catId || !partesOk(i) || !outrasOk(i))).length
     + parecidos.filter(i => i.parecido!.escolhido === -2).length
 
   async function registrar() {
     if (!currentUnit?.id || !contaId) return
-    if (!recProntas.length && !despProntas.length && !confirmados.length && !exatosParaConciliar.length) {
+    if (!recProntas.length && !despProntas.length && !entreProntas.length && !confirmados.length && !exatosParaConciliar.length) {
       return toast('Nada pronto pra registrar', 'error')
     }
     if (ehCartao && despProntas.length && !vencimento) return toast('Escolha a fatura (o vencimento) dessas compras', 'error')
@@ -517,6 +550,21 @@ export default function ColarExtratoModal({
         if (error) throw new Error(`Receitas a prazo: ${error.message}`)
         entrouRec = rows.length
         ;((novosMov as { id: string }[] | null) || []).forEach((m, k) => conc(recProntas[k], [{ origem: 'movimento', origem_id: m.id }], 'novo'))
+      }
+      if (entreProntas.length) {
+        // ENTRE CONTAS: transferência — o sinal da linha diz a direção.
+        const rows = entreProntas.map(i => ({
+          unidade_id: currentUnit.id, tipo: 'transferencia',
+          conta_id: i.valor < 0 ? contaId : i.entreConta,
+          conta_destino_id: i.valor < 0 ? i.entreConta : contaId,
+          data: i.data, valor: Math.abs(i.valor),
+          descricao: i.descricao,   // texto do banco: ensina a próxima colagem
+          criado_por_nome: userName || null,
+        }))
+        const { data: novos, error } = await supabase.from('fin_movimentos').insert(rows).select('id')
+        if (error) throw new Error(`Entre contas: ${error.message}${entrouRec ? ` (as ${entrouRec} receitas a prazo JÁ entraram)` : ''}`)
+        entrouRec += rows.length
+        ;((novos as { id: string }[] | null) || []).forEach((m, k) => conc(entreProntas[k], [{ origem: 'movimento', origem_id: m.id }], 'novo'))
       }
       if (despProntas.length) {
         // Uma linha do banco = 1 lançamento, ou N com o MESMO divisao_id quando
@@ -600,7 +648,7 @@ export default function ColarExtratoModal({
           .upsert(concs, { onConflict: 'conta_id,origem,origem_id', ignoreDuplicates: true })
         if (error) toast(`Registrado, mas a conciliação não foi gravada: ${error.message}`, 'error')
       }
-      toast(`${recProntas.length} receitas a prazo · ${despProntas.length} despesas · ${concs.length} conciliados`, 'success')
+      toast(`${recProntas.length} receitas a prazo · ${entreProntas.length} entre contas · ${despProntas.length} despesas · ${concs.length} conciliados`, 'success')
       onRegistrou()
       onClose()
     } catch (e) {
@@ -965,25 +1013,41 @@ export default function ColarExtratoModal({
   /** Linha ignorada ou que é pagamento (fatura, repasse) — com o atalho certo. */
   function linhaFora(i: Item) {
     const quit = i.valor < 0 ? quitacaoDe(i.descricao) : null
+    // Aplicação/resgate já chegam perguntando a conta; o resto, por um link tímido.
+    const entreAberto = /aplica|resgate/i.test(i.descricao)
     return (
       <div key={i.n} className={`${grade} py-2.5 border-b border-[var(--surface-100)] last:border-0`}>
-        <span className="text-[var(--surface-400)] text-xs" aria-hidden="true">—</span>
+        <span className={`text-xs ${i.entreConta ? 'text-[var(--brand-500)]' : 'text-[var(--surface-400)]'}`} aria-hidden="true">{i.entreConta ? '⇄' : '—'}</span>
         <span className="text-xs text-[var(--surface-400)]">{dataCurta(i.data)}</span>
         <span className="text-sm text-[var(--surface-500)] truncate" title={i.original}>{i.descricao}</span>
         <span className="col-span-4 col-start-3 sm:col-span-1 sm:col-start-auto row-start-2 sm:row-start-auto flex flex-wrap items-center gap-2 min-w-0">
-          <span className="text-xs text-[var(--surface-400)]">{i.motivoFora || 'ignorada'}</span>
+          {!i.entreConta && <span className="text-xs text-[var(--surface-400)]">{i.motivoFora || 'ignorada'}</span>}
           {quit && onQuitar && (
             <button type="button" onClick={() => onQuitar({ tipo: quit, valor: Math.abs(i.valor), data: i.data, contaId })}
                     className="text-xs font-medium px-2.5 py-1 rounded-[var(--radius-md)] border border-[var(--brand-500)] text-[var(--brand-500)] hover:bg-[var(--brand-500)] hover:text-white">
               {quit === 'repasse' ? 'Pagar repasse' : 'Pagar fatura'}
             </button>
           )}
-          {!quit && (
+          {!quit && !i.entreConta && (
             <button type="button" onClick={() => muda(i.n, { destino: i.valor < 0 ? 'despesa' : (permiteReceitas ? 'receita' : 'fora'), marcado: true, motivoFora: null })}
                     className="text-[11px] text-[var(--brand-500)] hover:underline">não ignorar</button>
           )}
+          {!quit && !ehCartao && contasEntre.length > 0 && (i.entreConta || entreAberto || abertos.has(i.n) ? (
+            <span className="flex items-center gap-1.5 text-xs">
+              <span className="text-[var(--surface-500)]">{i.valor < 0 ? 'foi para' : 'veio de'}</span>
+              <select value={i.entreConta} onChange={e => muda(i.n, { entreConta: e.target.value, entreHist: false })}
+                      className={`input-field text-xs py-1 ${i.entreConta ? 'text-[var(--brand-500)] font-medium' : ''}`}>
+                <option value="">— escolha a conta —</option>
+                {contasEntre.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+              </select>
+              {i.entreConta && i.entreHist && <span className="text-[11px] text-[var(--surface-400)]">como das outras vezes</span>}
+            </span>
+          ) : (
+            <button type="button" onClick={() => setAbertos(a => new Set(a).add(i.n))}
+                    className="text-[11px] text-[var(--brand-500)] hover:underline">é de outra conta da casa?</button>
+          ))}
         </span>
-        <span className="text-right text-mono text-sm tabular-nums text-[var(--surface-400)]">{valorTxt(i.valor)}</span>
+        <span className={`text-right text-mono text-sm tabular-nums ${i.entreConta ? valorCor(i.valor) : 'text-[var(--surface-400)]'}`}>{valorTxt(i.valor)}</span>
       </div>
     )
   }
@@ -1042,7 +1106,7 @@ export default function ColarExtratoModal({
   // ── o placar: banco × sistema × depois de registrar (conta corrente) ──
   const depois = placar
     ? Math.round((placar.sistema
-        + [...recProntas, ...despProntas].reduce((a, i) => a + i.valor, 0)
+        + [...recProntas, ...despProntas, ...entreProntas].reduce((a, i) => a + i.valor, 0)
         + confirmados.reduce((a, i) => {
             const r = i.parecido!.candidatos[i.parecido!.escolhido]
             return a + (r.ajustavel ? i.valor - r.valor : 0)
@@ -1062,9 +1126,10 @@ export default function ColarExtratoModal({
   const ignoradas = fora.filter(i => !i.jaNoSistema)
   const frasePronto = [
     recProntas.length ? `${recProntas.length} ${recProntas.length === 1 ? 'recebimento' : 'recebimentos'}` : '',
+    entreProntas.length ? `${entreProntas.length} entre contas` : '',
     despProntas.length ? `${despProntas.length} ${despProntas.length === 1 ? 'despesa' : 'despesas'}` : '',
   ].filter(Boolean).join(' e ')
-  const conferir = exatosParaConciliar.length + confirmados.length + recProntas.length + despProntas.length
+  const conferir = exatosParaConciliar.length + confirmados.length + recProntas.length + entreProntas.length + despProntas.length
 
   return (
     <Modal
@@ -1240,7 +1305,7 @@ export default function ColarExtratoModal({
 
           {ignoradas.length > 0 && (
             <section className="flex flex-col gap-2.5">
-              {cabecaSecao('Fora', 'não vira lançamento aqui — pagamentos têm o lugar deles')}
+              {cabecaSecao('Fora', 'não vira despesa — pagamentos têm o lugar deles; entre contas vira transferência')}
               {caixaLinhas(ignoradas.map(i => linhaFora(i)))}
             </section>
           )}

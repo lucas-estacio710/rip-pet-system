@@ -119,7 +119,7 @@ export default function CaixaTab({ somenteLeitura = false, comando = null, onCom
   const [origem, setOrigem] = useState('')
   const [destino, setDestino] = useState('')
   const [valor, setValor] = useState('')
-  const [data, setData] = useState(hojeISO())
+  const [data, setData] = useState('')   // sem padrão: "hoje" já gravou aplicação de agosto em outubro (08/10/2026)
   const [descricao, setDescricao] = useState('')
   const [salvando, setSalvando] = useState(false)
   useEffect(() => {
@@ -286,7 +286,7 @@ export default function CaixaTab({ somenteLeitura = false, comando = null, onCom
     setOrigem(maq.conta_id)
     setDestino(contasCorrente[0]?.conta_id || '')
     setValor('')
-    setData(hojeISO())
+    setData('')
     setDescricao(`Liquidação ${maq.nome}`)
     setAberto(true)
   }
@@ -365,13 +365,14 @@ export default function CaixaTab({ somenteLeitura = false, comando = null, onCom
 
   function limpar() {
     setAberto(false); setTipo('transferencia'); setOrigem(''); setDestino('')
-    setValor(''); setData(hojeISO()); setDescricao('')
+    setValor(''); setData(''); setDescricao('')
   }
 
   async function salvar() {
     if (!currentUnit?.id) return
     const v = Number(valor)
     if (!origem) return toast('Escolha a conta', 'error')
+    if (!data) return toast('Informe a data — a que está no extrato do banco', 'error')
     if (defTipo.destino && !destino) return toast('Escolha a conta de destino', 'error')
     if (defTipo.destino && destino === origem) return toast('Origem e destino têm que ser diferentes', 'error')
     if (!v || v <= 0) return toast('Informe o valor', 'error')
@@ -664,6 +665,7 @@ export default function CaixaTab({ somenteLeitura = false, comando = null, onCom
         mesInicial={mes}
         onClose={() => setExtratoDe(null)}
         onConferir={somenteLeitura || !extratoDe ? undefined : () => { const c = extratoDe; setExtratoDe(null); abrirConferencia(c) }}
+        onMudou={() => void carregar()}
       />
 
       <Modal

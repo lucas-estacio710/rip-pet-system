@@ -11,17 +11,25 @@
 //
 // Despesa DIVIDIDA (mig 149) aparece numa linha só, com o total — é assim que
 // está no banco. O "conferir" (a boca do saldo, mig 136) mora no rodapé.
+//
+// MOVIMENTO (transferência, aplicação, aporte, ajuste…) se corrige AQUI: clicar
+// na linha abre data, valor e descrição, e o excluir (08/10/2026 — uma
+// aplicação lançada no dia errado não tinha onde ser corrigida). Despesa e
+// recebimento continuam se corrigindo nos lugares deles.
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import Modal from '@/components/ui/Modal'
+import { useToast } from '@/components/ui/Toast'
 import { fmtBRL, fmtData, limitesDoMes } from '@/lib/financeiro'
+
+type Mov = { id: string; tipo: string; data: string; valor: string; descricao: string; repasse: boolean }
 
 type Conta = { conta_id: string; nome: string; tipo: string; caixa_desde: string | null }
 type Linha = { data: string; tipo: string; descricao: string | null; valor: number; origem: string; origem_id: string }
-type Item = { data: string; descricao: string; valor: number; partes: number; saldoDia: number | null; ids: string[]; conciliado: boolean }
+type Item = { data: string; descricao: string; valor: number; partes: number; saldoDia: number | null; ids: string[]; conciliado: boolean; origem: string }
 
 const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
 const rotuloMes = (m: string) => `${MESES[Number(m.slice(5, 7)) - 1]} de ${m.slice(0, 4)}`
@@ -32,14 +40,22 @@ const somaMes = (m: string, d: number) => {
 }
 const centavos = (n: number) => Math.round(n * 100) / 100
 
-export default function ExtratoContaModal({ conta, mesInicial, onClose, onConferir }: {
+export default function ExtratoContaModal({ conta, mesInicial, onClose, onConferir, onMudou }: {
   conta: Conta | null
   mesInicial: string
   onClose: () => void
   /** Abre a conferência do saldo (CaixaTab). Ausente = somente leitura. */
   onConferir?: () => void
+  /** Um movimento foi corrigido/excluído aqui: o Caixa recarrega os saldos. */
+  onMudou?: () => void
 }) {
   const supabase = createClient() as unknown as SupabaseClient
+  const { toast } = useToast()
+  const podeEditar = !!onConferir
+  const [mov, setMov] = useState<Mov | null>(null)
+  const [excluindo, setExcluindo] = useState(false)   // 1º clique pede confirmação
+  const [salvando, setSalvando] = useState(false)
+  const [versao, setVersao] = useState(0)
   const [mes, setMes] = useState(mesInicial)
   const [anterior, setAnterior] = useState(0)
   const [itens, setItens] = useState<Item[]>([])
@@ -82,7 +98,7 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
         const div = l.origem === 'lancamento' ? divisaoDe.get(l.origem_id) : undefined
         const existente = div ? porDivisao.get(div) : undefined
         if (existente) { existente.valor = centavos(existente.valor + Number(l.valor)); existente.partes++; existente.ids.push(l.origem_id); continue }
-        const it: Item = { data: l.data, descricao: l.descricao || l.tipo, valor: Number(l.valor), partes: 1, saldoDia: null, ids: [l.origem_id], conciliado: false }
+        const it: Item = { data: l.data, descricao: l.descricao || l.tipo, valor: Number(l.valor), partes: 1, saldoDia: null, ids: [l.origem_id], conciliado: false, origem: l.origem }
         agrup.push(it)
         if (div) porDivisao.set(div, it)
       }
@@ -106,7 +122,47 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
       setAnterior(antes); setItens(agrup); setCarregando(false)
     })()
     return () => { cancelado = true }
-  }, [conta, mes, supabase])
+  }, [conta, mes, supabase, versao])
+
+  async function abrirMov(id: string) {
+    const [{ data }, { data: rep }] = await Promise.all([
+      supabase.from('fin_movimentos').select('id, tipo, data, valor, descricao').eq('id', id).maybeSingle(),
+      supabase.from('fin_repasses').select('id').eq('pago_movimento_id', id).limit(1),
+    ])
+    const m = data as { id: string; tipo: string; data: string; valor: number; descricao: string | null } | null
+    if (!m) return toast('Movimento não encontrado', 'error')
+    setExcluindo(false)
+    setMov({ id: m.id, tipo: m.tipo, data: m.data.slice(0, 10), valor: String(m.valor), descricao: m.descricao || '',
+             repasse: !!(rep as unknown[] | null)?.length })
+  }
+
+  async function salvarMov() {
+    if (!mov) return
+    const v = Number(mov.valor.replace(',', '.'))
+    if (!mov.data) return toast('Informe a data', 'error')
+    // Só o ajuste carrega sinal (mig 136); nos outros o tipo diz a direção.
+    if (Number.isNaN(v) || v === 0 || (mov.tipo !== 'ajuste' && v < 0)) return toast('Valor inválido', 'error')
+    setSalvando(true)
+    const { error } = await supabase.from('fin_movimentos')
+      .update({ data: mov.data, valor: v, descricao: mov.descricao.trim() || null }).eq('id', mov.id)
+    setSalvando(false)
+    if (error) return toast(error.message, 'error')
+    toast('Movimento corrigido', 'success')
+    setMov(null); setVersao(x => x + 1); onMudou?.()
+  }
+
+  async function excluirMov() {
+    if (!mov) return
+    if (!excluindo) return setExcluindo(true)
+    setSalvando(true)
+    // A conciliação não tem FK (mig 153): sai junto, senão o ✓ fica apontando pro nada.
+    await supabase.from('fin_conciliacoes').delete().eq('origem', 'movimento').eq('origem_id', mov.id)
+    const { error } = await supabase.from('fin_movimentos').delete().eq('id', mov.id)
+    setSalvando(false)
+    if (error) return toast(error.message, 'error')
+    toast('Movimento excluído', 'success')
+    setMov(null); setVersao(x => x + 1); onMudou?.()
+  }
 
   const cartao = conta?.tipo === 'cartao'
   const final = itens.length ? itens[itens.length - 1].saldoDia ?? anterior : anterior
@@ -176,7 +232,10 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
               </thead>
               <tbody className="divide-y divide-[var(--surface-200)]">
                 {itens.map((it, i) => (
-                  <tr key={i} className={it.saldoDia !== null ? '' : 'text-[var(--surface-600)]'}>
+                  <tr key={i}
+                      onClick={podeEditar && it.origem === 'movimento' ? () => void abrirMov(it.ids[0]) : undefined}
+                      title={podeEditar && it.origem === 'movimento' ? 'Corrigir ou excluir este movimento' : undefined}
+                      className={`${it.saldoDia !== null ? '' : 'text-[var(--surface-600)]'} ${podeEditar && it.origem === 'movimento' ? 'cursor-pointer hover:bg-[var(--surface-100)]' : ''}`}>
                     <td className="py-1 pr-2 whitespace-nowrap text-[var(--surface-500)]">
                       {itens[i - 1]?.data === it.data ? '' : fmtData(it.data)}
                     </td>
@@ -200,6 +259,35 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+        {mov && (
+          <div className="card p-3 space-y-2 border border-[var(--brand-500)]/40">
+            <p className="text-xs font-medium text-[var(--surface-700)]">Corrigir movimento</p>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="text-[11px] text-[var(--surface-500)]">Data
+                <input type="date" value={mov.data} onChange={e => setMov({ ...mov, data: e.target.value })} className="input-field text-sm w-full" />
+              </label>
+              <label className="text-[11px] text-[var(--surface-500)]">Valor{mov.tipo === 'ajuste' ? ' (com sinal)' : ''}
+                <input inputMode="decimal" value={mov.valor} onChange={e => setMov({ ...mov, valor: e.target.value })} className="input-field text-sm w-full text-mono" />
+              </label>
+            </div>
+            <label className="text-[11px] text-[var(--surface-500)] block">Descrição
+              <input value={mov.descricao} onChange={e => setMov({ ...mov, descricao: e.target.value })} className="input-field text-sm w-full" />
+            </label>
+            {mov.repasse && (
+              <p className="text-[11px] text-amber-500">Este movimento quitou um repasse: excluí-lo devolve o repasse para &quot;a pagar&quot;.</p>
+            )}
+            <div className="flex justify-between gap-2">
+              <button type="button" onClick={() => void excluirMov()} disabled={salvando}
+                      className={`text-xs px-2.5 py-1 rounded-[var(--radius-md)] border ${excluindo ? 'border-red-500 bg-red-500 text-white' : 'border-red-400/60 text-red-400'}`}>
+                {excluindo ? 'Confirmar exclusão' : 'Excluir'}
+              </button>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setMov(null)} className="btn-secondary text-xs">Cancelar</button>
+                <button type="button" onClick={() => void salvarMov()} disabled={salvando} className="btn-primary text-xs">Salvar</button>
+              </div>
+            </div>
           </div>
         )}
         <p className="text-[10px] text-[var(--surface-400)]">
