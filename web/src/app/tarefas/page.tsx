@@ -15,7 +15,7 @@
 // (criarContratoDeFicha, responsavelEhOperacional=true).
 // ============================================================================
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, createContext, useContext } from 'react'
 import { HandHeart, PackageCheck, PawPrint, Fingerprint, Scissors, Feather, MapPin, Navigation, FileDown, Check, Loader2, ClipboardList, UserPlus, Plus, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
@@ -204,8 +204,17 @@ const STATUS_BADGE: Record<string, { short: string; cor: string }> = {
   finalizado: { short: 'FIN', cor: '#94a3b8' },
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const info = STATUS_BADGE[status]
+// P-28 (fase 2.14c): na unidade que já migrou pro pipeline novo (`obj_enc_pipeline`), a etapa
+// `pinda` se chama Matriz/MTZ — é onde o pet está. Decide pela unidade DA TAREFA (posição
+// multi-unidade mistura filas); sem ela, a unidade atual (o pool já é filtrado por ela).
+// Nunca por `isVisible`: o Operacional não tem rows de FLS próprias.
+const MtzCtx = createContext<{ migradas: Set<string>; unidadeAtual: string | null }>({ migradas: new Set(), unidadeAtual: null })
+
+function StatusBadge({ status, unidadeId }: { status: string; unidadeId?: string | null }) {
+  const ctx = useContext(MtzCtx)
+  const unidade = unidadeId ?? ctx.unidadeAtual
+  const base = STATUS_BADGE[status]
+  const info = status === 'pinda' && unidade && ctx.migradas.has(unidade) ? { short: 'MTZ', cor: base?.cor || '#f97316' } : base
   if (!info) return null
   return (
     <span className="text-[9px] font-bold px-1 py-0.5 rounded shrink-0" style={{ background: info.cor + '22', color: info.cor }}>
@@ -279,9 +288,10 @@ function TipoGroup({ tipo, count, children, defaultAberto = true }: { tipo: Tare
 // extra opcional) em qualquer lugar da página: pool, em andamento, concluídas, minhas tarefas.
 // `onClick` = cartão inteiro é o botão (uso em "Minhas Tarefas"); sem `onClick` = linha estática
 // com `acao` (botão Atribuir/Reatribuir/Desfazer) à direita.
-function TarefaCard({ tipo, statusBadge, lacre, petNome, tutorNome, quantidade, linhaExtra, acao, onClick }: {
+function TarefaCard({ tipo, statusBadge, unidadeId, lacre, petNome, tutorNome, quantidade, linhaExtra, acao, onClick }: {
   tipo: TarefaTipo
   statusBadge?: string
+  unidadeId?: string | null
   lacre?: string | null
   petNome: string
   tutorNome: string
@@ -300,7 +310,7 @@ function TarefaCard({ tipo, statusBadge, lacre, petNome, tutorNome, quantidade, 
           {info.label}
         </p>
         <p className="text-sm font-semibold text-[var(--surface-800)] truncate flex items-center gap-1.5">
-          {statusBadge && <StatusBadge status={statusBadge} />}
+          {statusBadge && <StatusBadge status={statusBadge} unidadeId={unidadeId} />}
           {lacre ? `${lacre} — ${petNome}` : petNome}
           {!!quantidade && quantidade > 1 && (
             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full text-white shrink-0" style={{ background: info.cor }}>×{quantidade}</span>
@@ -769,6 +779,20 @@ export default function TarefasPage() {
   // O filtro certo é a unidade DA TAREFA — ver `funcionariosDaTarefa()`.
   const [funcionariosUnidade, setFuncionariosUnidade] = useState<{ id: string; nome: string; unidade_id: string }[]>([])
   const idsUnidadesUsuario = allUnidades.map(u => u.id).sort().join(',')
+
+  // Unidades que já migraram pro pipeline novo = as que NÃO têm `obj_enc_pipeline` oculto pro
+  // gerente (mig 142 nasce `hidden` nas 8; ligar uma unidade apaga as rows dela). P-28.
+  const [unidadesMigradas, setUnidadesMigradas] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    if (!idsUnidadesUsuario) return
+    supabase.from('field_permissions').select('unidade_id')
+      .eq('campo', 'obj_enc_pipeline').eq('role', 'gerente').eq('permissao', 'hidden')
+      .then(({ data, error }) => {
+        if (error) return // na dúvida, ninguém é "MTZ": o selo antigo é o seguro
+        const ocultas = new Set(((data || []) as { unidade_id: string }[]).map(r => r.unidade_id))
+        setUnidadesMigradas(new Set(idsUnidadesUsuario.split(',').filter(id => id && !ocultas.has(id))))
+      })
+  }, [supabase, idsUnidadesUsuario])
   useEffect(() => {
     if (!isPosicao && !podeAtribuir) return
     const ids = idsUnidadesUsuario ? idsUnidadesUsuario.split(',') : []
@@ -1870,6 +1894,7 @@ export default function TarefasPage() {
   }
 
   return (
+    <MtzCtx.Provider value={{ migradas: unidadesMigradas, unidadeAtual: currentUnit?.id ?? null }}>
     <div className="max-w-lg mx-auto space-y-3">
       <div className="flex items-center gap-2">
         <ClipboardList className="h-5 w-5 text-[var(--brand-500)]" />
@@ -1916,6 +1941,7 @@ export default function TarefasPage() {
                       key={t.id}
                       tipo={t.tipo}
                       statusBadge={t.statusContrato}
+                      unidadeId={t.unidade_id}
                       lacre={t.lacreContrato || t.lacre}
                       petNome={petNome}
                       tutorNome={tutorNome}
@@ -1944,6 +1970,7 @@ export default function TarefasPage() {
                       key={t.id}
                       tipo={t.tipo}
                       statusBadge={t.statusContrato}
+                      unidadeId={t.unidade_id}
                       lacre={t.lacreContrato || t.lacre}
                       petNome={petNome}
                       tutorNome={tutorNome}
@@ -1978,6 +2005,7 @@ export default function TarefasPage() {
                       key={t.id}
                       tipo="entrega_pendente"
                       statusBadge={t.statusContrato}
+                      unidadeId={t.unidade_id}
                       lacre={t.lacreContrato || t.lacre}
                       petNome={petNome}
                       tutorNome={tutorNome}
@@ -2005,6 +2033,7 @@ export default function TarefasPage() {
                     key={t.id}
                     tipo={t.tipo}
                     statusBadge={t.statusContrato}
+                    unidadeId={t.unidade_id}
                     petNome={t.petNome}
                     tutorNome={t.tutorNome}
                     acao={temPedido(t) ? <span className="text-base shrink-0" title="Tem pedido específico">📝</span> : undefined}
@@ -2631,7 +2660,7 @@ export default function TarefasPage() {
                       <div className="p-3 rounded-lg bg-[var(--surface-50)] border border-[var(--surface-200)] space-y-1">
                         <p className="text-sm flex items-center gap-1.5">
                           <strong className="text-[var(--surface-700)]">Pet:</strong>
-                          {status && <StatusBadge status={status} />}
+                          {status && <StatusBadge status={status} unidadeId={tarefaAberta.unidade_id} />}
                           {lacre ? `${lacre} — ${petNome}` : petNome}
                         </p>
                         {petDetalhe && <p className="text-xs text-[var(--surface-500)] pl-[calc(2.5rem+0.375rem)]">{petDetalhe}</p>}
@@ -2809,6 +2838,6 @@ export default function TarefasPage() {
         )
       })()}
     </div>
+    </MtzCtx.Provider>
   )
 }
-
