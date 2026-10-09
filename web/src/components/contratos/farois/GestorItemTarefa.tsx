@@ -59,6 +59,8 @@ type Props = {
   onRemover?: () => void
   /** Painel de conclusão (foto + anotação), quando este item está sendo concluído. */
   painelConclusao?: ReactNode
+  /** Ainda não se sabe se o item tem dono (item 7): mostra "carregando…", nunca "Atribuir a…". */
+  carregando?: boolean
 }
 
 /** Horas desde `iso` — fora do corpo do componente (o lint do React recusa Date.now() no render). */
@@ -155,6 +157,8 @@ export default function GestorItemTarefa(p: Props) {
                   {p.nomes[t!.atribuido_a] || '…'} - {formatarIdade(horas)}
                 </span>
               </>
+            ) : p.carregando ? (
+              <span className="inline-flex items-center h-6 px-2 rounded-md text-[12px] animate-pulse" style={{ background: 'var(--surface-100)', color: 'var(--surface-400)' }}>carregando…</span>
             ) : (
               <SeletorPessoa pessoas={p.pessoas} disabled={p.ocupado} onEscolher={p.onAtribuir}>
                 <span className="inline-flex items-center h-6 px-2 rounded-md text-[12px] font-bold" style={{ background: 'rgba(124,58,237,.10)', color: '#7c3aed' }}>Atribuir a… ▾</span>

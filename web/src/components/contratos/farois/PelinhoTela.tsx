@@ -142,7 +142,7 @@ export default function PelinhoTela(p: Props) {
             </button>
           </div>
 
-          {p.temOperacional && semDono.length >= 2 && (
+          {p.temOperacional && !g.carregando && semDono.length >= 2 && (
             <SeletorPessoa pessoas={g.pessoas} disabled={ocupado} onEscolher={id => atribuir(semDono.map(l => l.id), id)}>
               <span className="w-full inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-bold" style={{ background: 'rgba(124,58,237,.12)', color: '#7c3aed', border: '1px dashed #7c3aed' }}>
                 ⚡ Atribuir os {semDono.length} pendentes a… ▾
@@ -164,6 +164,7 @@ export default function PelinhoTela(p: Props) {
                   nomes={g.nomes}
                   comFoto={g.comFoto}
                   pessoas={g.pessoas}
+                  carregando={g.carregando}
                   modo={p.temOperacional ? 'operacional' : 'simples'}
                   ocupado={ocupado}
                   onAtribuir={id => atribuir([l.id], id)}

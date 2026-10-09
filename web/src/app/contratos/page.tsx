@@ -58,6 +58,7 @@ import UrnaTela from '@/components/contratos/farois/UrnaTela'
 import EncaminhamentoTela from '@/components/contratos/farois/EncaminhamentoTela'
 import CardViagem from '@/components/contratos/pipeline/CardViagem'
 import EsteiraGC from '@/components/contratos/pipeline/EsteiraGC'
+import { preCarregarTarefas } from '@/hooks/useGestorTarefas'
 import { classificarBusca, filtroDaBusca, ordenarPorRelevancia, etapaComResultado } from '@/lib/busca-contratos'
 import CardAcolhimento from '@/components/contratos/pipeline/CardAcolhimento'
 import CardPetDesk from '@/components/contratos/pipeline/CardPetDesk'
@@ -4380,6 +4381,18 @@ ${petNome}`
   function unidadeTemOperacional(unidadeId: string | null | undefined): boolean {
     return !!allUnidades.find(u => u.id === unidadeId)?.modulos_ativos?.includes('cb_operacional')
   }
+
+  // Item 7 dos ajustes finos: ao abrir o popup de pendências, já busca as tarefas do Pelinho e dos
+  // Personalizados daquele contrato (e quem pode receber) — a tela do farol abre pronta. Os dois
+  // conjuntos são os MESMOS que as telas usam (o cache é por conjunto de produtos).
+  useEffect(() => {
+    if (!farolContratoId) return
+    const c = contratos.find(x => x.id === farolContratoId)
+    if (!c || !unidadeTemOperacional(c.unidade_id)) return
+    const prods = c.contrato_produtos || []
+    preCarregarTarefas(supabase, prods.filter(cp => cp.produto?.rescaldo_tipo === 'pelinho').map(cp => cp.id), c.unidade_id)
+    preCarregarTarefas(supabase, prods.filter(cp => cp.produto?.rescaldo_tipo && cp.produto.rescaldo_tipo !== 'pelinho').map(cp => cp.id), null)
+  }, [farolContratoId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function faroisDoCard(c: Contrato, entregaCom: string | null = null): ComputedTag[] {
     return [

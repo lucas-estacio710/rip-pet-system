@@ -203,7 +203,7 @@ export default function PersonalizadosTela(p: Props) {
       {!tem && !p.nenhum && <p className="text-[12.5px]" style={{ color: 'var(--surface-400)' }}>Ainda não perguntado ao tutor.</p>}
       {!tem && p.nenhum && <p className="text-[12.5px]" style={{ color: 'var(--surface-400)' }}>O tutor não quer personalizado.</p>}
 
-      {p.temOperacional && semDono.length >= 2 && (
+      {p.temOperacional && !g.carregando && semDono.length >= 2 && (
         <SeletorPessoa pessoas={g.pessoas} disabled={ocupado} onEscolher={id => {
           const nome = g.pessoas.find(x => x.user_id === id)?.nome || 'alguém'
           // Atribui por tipo (cada tipo é uma tarefa diferente no /tarefas).
@@ -244,6 +244,7 @@ export default function PersonalizadosTela(p: Props) {
                   nomes={g.nomes}
                   comFoto={g.comFoto}
                   pessoas={g.pessoas}
+                  carregando={g.carregando}
                   modo={!comTarefa ? 'sem_tarefa' : p.temOperacional ? 'operacional' : 'simples'}
                   ocupado={ocupado}
                   onAtribuir={id => agir(() => atribuirProdutos(g.supabase, { ...ctxDe(i.rescaldoTipo), cpIds: [i.id], atribuidoA: id, nomeAtribuido: g.pessoas.find(x => x.user_id === id)?.nome || 'alguém' }))}

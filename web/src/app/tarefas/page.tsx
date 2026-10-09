@@ -18,6 +18,7 @@
 import { useState, useEffect, useCallback, useRef, createContext, useContext } from 'react'
 import { HandHeart, PackageCheck, PawPrint, Fingerprint, Scissors, Feather, MapPin, Navigation, FileDown, Check, Loader2, ClipboardList, UserPlus, Plus, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { atribuiveis } from '@/lib/cache-pessoas'
 import { useUnit } from '@/contexts/UnitContext'
 import { useToast } from '@/components/ui/Toast'
 import { criarContratoDeFicha, ContratoValidationError } from '@/lib/criar-contrato-de-ficha'
@@ -209,6 +210,15 @@ const STATUS_BADGE: Record<string, { short: string; cor: string }> = {
 // multi-unidade mistura filas); sem ela, a unidade atual (o pool já é filtrado por ela).
 // Nunca por `isVisible`: o Operacional não tem rows de FLS próprias.
 const MtzCtx = createContext<{ migradas: Set<string>; unidadeAtual: string | null }>({ migradas: new Set(), unidadeAtual: null })
+
+/**
+ * Item 10 dos ajustes finos (09/10/2026, decisão do Lucas): "se tá no finalizados, não é pra ter
+ * tarefa mais". Tarefa PENDENTE de contrato finalizado some de Minhas Tarefas e de Em andamento —
+ * só esconde: nada muda no banco, e reabrir o contrato traz de volta. Remoção (sem contrato) fica.
+ */
+function semContratoFinalizado<T extends { statusContrato?: string }>(lista: T[]): T[] {
+  return lista.filter(t => t.statusContrato !== 'finalizado')
+}
 
 function StatusBadge({ status, unidadeId }: { status: string; unidadeId?: string | null }) {
   const ctx = useContext(MtzCtx)
@@ -880,41 +890,52 @@ export default function TarefasPage() {
       .order('atribuido_em', { ascending: true })
 
     const tarefas = (data || []) as TarefaRow[]
-    setMinhasTarefas(agruparTarefas(await resolverPetTutor(tarefas)))
-
     const fichaIds = tarefas.filter(t => t.tipo === 'remocao' && t.ficha_id).map(t => t.ficha_id!) as string[]
     const contratoIds = tarefas.filter(t => t.tipo === 'entrega' && t.contrato_id).map(t => t.contrato_id!) as string[]
     const produtoIds = tarefas.filter(t => t.contrato_produto_id).map(t => t.contrato_produto_id!) as string[]
 
-    if (fichaIds.length > 0) {
-      const { data: fichas } = await supabase
-        .from('fichas')
-        // `velorio`, `acompanhamento`, `pagamento` e `parcelas` entram aqui porque o contrato e o
-        // PDF gerados por este caminho precisam deles tanto quanto os da Tratativa — sem eles o
-        // mesmo contrato saía diferente conforme quem clicou (ver os campos passados ao PDF logo
-        // abaixo, que estavam chumbados em null).
-        .select('id, nome_completo, cpf, telefone, email, cep, estado, cidade, bairro, endereco, numero, complemento, outros_tutores, nome_pet, idade, especie, genero, raca, cor, peso, cremacao, como_conheceu, outro_especificar, observacoes, localizacao, localizacao_outra, velorio, acompanhamento, pagamento, parcelas, unidade_id, contrato_id, processada, op_dados')
-        .in('id', fichaIds)
+    // Item 7 dos ajustes finos: tudo que depende só da lista de tarefas vai JUNTO (antes eram
+    // 4 idas em fila depois das tarefas — enriquecimento, fichas, contratos, produtos).
+    const [enriquecidas, fichasR, contratosR, produtosR] = await Promise.all([
+      resolverPetTutor(tarefas),
+      fichaIds.length > 0
+        ? supabase
+          .from('fichas')
+          // `velorio`, `acompanhamento`, `pagamento` e `parcelas` entram aqui porque o contrato e o
+          // PDF gerados por este caminho precisam deles tanto quanto os da Tratativa — sem eles o
+          // mesmo contrato saía diferente conforme quem clicou (ver os campos passados ao PDF logo
+          // abaixo, que estavam chumbados em null).
+          .select('id, nome_completo, cpf, telefone, email, cep, estado, cidade, bairro, endereco, numero, complemento, outros_tutores, nome_pet, idade, especie, genero, raca, cor, peso, cremacao, como_conheceu, outro_especificar, observacoes, localizacao, localizacao_outra, velorio, acompanhamento, pagamento, parcelas, unidade_id, contrato_id, processada, op_dados')
+          .in('id', fichaIds)
+        : Promise.resolve({ data: null }),
+      contratoIds.length > 0
+        ? supabase
+          .from('contratos')
+          .select('id, codigo, pet_nome, pet_especie, pet_raca, pet_cor, tutor_nome, tutor_telefone, tutor_endereco, tutor_bairro, tutor_cidade, tutor:tutores(endereco, numero, complemento, bairro, cidade, cep), status, numero_lacre, unidade_id, valor_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor)')
+          .in('id', contratoIds)
+        : Promise.resolve({ data: null }),
+      produtoIds.length > 0
+        ? supabase
+          .from('contrato_produtos')
+          .select('id, contrato_id, rescaldo_feito, produto:produtos(nome, rescaldo_tipo), contrato:contratos(id, codigo, pet_nome, pet_especie, pet_raca, pet_cor, tutor_nome, tutor_telefone, tutor_endereco, tutor_bairro, tutor_cidade, tutor:tutores(endereco, numero, complemento, bairro, cidade, cep), unidade_id, status, numero_lacre)')
+          .in('id', produtoIds)
+        : Promise.resolve({ data: null }),
+    ])
+    setMinhasTarefas(agruparTarefas(semContratoFinalizado(enriquecidas)))
+
+    if (fichasR.data) {
       const map: Record<string, FichaRemocao> = {}
-      for (const f of (fichas || []) as FichaRemocao[]) map[f.id] = f
+      for (const f of fichasR.data as FichaRemocao[]) map[f.id] = f
       setFichasPorId(map)
     }
-    if (contratoIds.length > 0) {
-      const { data: contratos } = await supabase
-        .from('contratos')
-        .select('id, codigo, pet_nome, pet_especie, pet_raca, pet_cor, tutor_nome, tutor_telefone, tutor_endereco, tutor_bairro, tutor_cidade, tutor:tutores(endereco, numero, complemento, bairro, cidade, cep), status, numero_lacre, unidade_id, valor_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor)')
-        .in('id', contratoIds)
+    if (contratosR.data) {
       const map: Record<string, ContratoResumo> = {}
-      for (const c of (contratos || []) as ContratoResumo[]) map[c.id] = c
+      for (const c of contratosR.data as ContratoResumo[]) map[c.id] = c
       setContratosPorId(map)
     }
-    if (produtoIds.length > 0) {
-      const { data: produtos } = await supabase
-        .from('contrato_produtos')
-        .select('id, contrato_id, rescaldo_feito, produto:produtos(nome, rescaldo_tipo), contrato:contratos(id, codigo, pet_nome, pet_especie, pet_raca, pet_cor, tutor_nome, tutor_telefone, tutor_endereco, tutor_bairro, tutor_cidade, tutor:tutores(endereco, numero, complemento, bairro, cidade, cep), unidade_id, status, numero_lacre)')
-        .in('id', produtoIds)
+    if (produtosR.data) {
       const map: Record<string, ContratoProdutoResumo> = {}
-      for (const p of (produtos || []) as unknown as ContratoProdutoResumo[]) map[p.id] = p
+      for (const p of produtosR.data as unknown as ContratoProdutoResumo[]) map[p.id] = p
       setProdutosPorId(map)
     }
     carregouMinhasAntes.current = true
@@ -1314,7 +1335,7 @@ export default function TarefasPage() {
       .eq('status', 'pendente')
       .order('atribuido_em', { ascending: true }) as { data: TarefaRow[] | null }
 
-    setEmAndamento(agruparTarefas(await resolverPetTutor(data || [])))
+    setEmAndamento(agruparTarefas(semContratoFinalizado(await resolverPetTutor(data || []))))
     carregouEmAndamentoAntes.current = true
     setLoadingEmAndamento(false)
   }, [supabase, currentUnit, podeAtribuir, resolverPetTutor])
@@ -1628,18 +1649,24 @@ export default function TarefasPage() {
     if (!currentUnit || !podeAtribuir) return
     if (!carregouPoolAntes.current) setLoadingPool(true)
 
-    const { data: pendentesEntrega } = await supabase.from('tarefas_operacionais').select('contrato_id').eq('unidade_id', currentUnit.id).eq('tipo', 'entrega').eq('status', 'pendente')
+    // Item 7 dos ajustes finos: antes eram 5 idas em FILA (ocupadas de entrega → contratos →
+    // ocupadas de personalizado → produtos → atribuíveis). Agora: 1ª rodada as 2 listas de
+    // ocupados + quem pode receber (da memória da sessão); 2ª rodada os dois pools juntos.
+    const [{ data: pendentesEntrega }, { data: pendentesRescaldo }, perfisAtribuiveis] = await Promise.all([
+      supabase.from('tarefas_operacionais').select('contrato_id').eq('unidade_id', currentUnit.id).eq('tipo', 'entrega').eq('status', 'pendente'),
+      supabase.from('tarefas_operacionais').select('contrato_produto_id').eq('unidade_id', currentUnit.id).in('tipo', ['molde_patinha', 'carimbo', 'pelo_extra', 'pelinho']).eq('status', 'pendente'),
+      // Quem pode receber tarefa: Operacional de verdade OU gerente/concierge (tem unidade sem
+      // motorista dedicado — aí o próprio gerente/concierge se atribui e resolve).
+      atribuiveis(supabase, currentUnit.id, 'tarefas'),
+    ])
     const idsEntregaOcupados = (pendentesEntrega || []).map((r: { contrato_id: string | null }) => r.contrato_id).filter(Boolean)
+    const idsRescaldoOcupados = (pendentesRescaldo || []).map((r: { contrato_produto_id: string | null }) => r.contrato_produto_id).filter(Boolean)
+    setOperacionais(perfisAtribuiveis as { user_id: string; nome: string | null; role: string }[])
 
     let qEntrega = supabase.from('contratos').select('id, codigo, pet_nome, tutor_nome, tutor_telefone, tutor_endereco, tutor_bairro, tutor_cidade, tutor:tutores(endereco, numero, complemento, bairro, cidade, cep), status, numero_lacre, unidade_id, data_acolhimento')
       .eq('unidade_id', currentUnit.id).in('status', ['retorno', 'pendente'])
       .order('data_acolhimento', { ascending: false, nullsFirst: false }) // pet mais novo primeiro
     if (idsEntregaOcupados.length > 0) qEntrega = qEntrega.not('id', 'in', `(${idsEntregaOcupados.join(',')})`)
-    const { data: contratosEntrega } = await qEntrega
-    setPoolEntrega((contratosEntrega || []) as ContratoResumo[])
-
-    const { data: pendentesRescaldo } = await supabase.from('tarefas_operacionais').select('contrato_produto_id').eq('unidade_id', currentUnit.id).in('tipo', ['molde_patinha', 'carimbo', 'pelo_extra', 'pelinho']).eq('status', 'pendente')
-    const idsRescaldoOcupados = (pendentesRescaldo || []).map((r: { contrato_produto_id: string | null }) => r.contrato_produto_id).filter(Boolean)
 
     let qRescaldo = supabase.from('contrato_produtos')
       .select('id, contrato_id, rescaldo_feito, observacao, produto:produtos!inner(nome, rescaldo_tipo), contrato:contratos!inner(id, codigo, pet_nome, tutor_nome, unidade_id, status, numero_lacre, data_acolhimento)')
@@ -1648,13 +1675,10 @@ export default function TarefasPage() {
       .eq('contrato.unidade_id', currentUnit.id)
       .in('contrato.status', ['ativo', 'pinda', 'retorno', 'pendente'])
     if (idsRescaldoOcupados.length > 0) qRescaldo = qRescaldo.not('id', 'in', `(${idsRescaldoOcupados.join(',')})`)
-    const { data: produtosRescaldo } = await qRescaldo
-    setPoolRescaldo((produtosRescaldo || []) as unknown as ContratoProdutoResumo[])
 
-    // Quem pode receber tarefa: Operacional de verdade OU gerente/concierge (tem unidade sem
-    // motorista dedicado — aí o próprio gerente/concierge se atribui e resolve).
-    const { data: perfisAtribuiveis } = await supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: currentUnit.id, p_para: 'tarefas' } as never)
-    setOperacionais((perfisAtribuiveis || []) as { user_id: string; nome: string | null; role: string }[])
+    const [{ data: contratosEntrega }, { data: produtosRescaldo }] = await Promise.all([qEntrega, qRescaldo])
+    setPoolEntrega((contratosEntrega || []) as ContratoResumo[])
+    setPoolRescaldo((produtosRescaldo || []) as unknown as ContratoProdutoResumo[])
 
     carregouPoolAntes.current = true
     setLoadingPool(false)

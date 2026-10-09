@@ -15,6 +15,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Check, UserMinus, UserPlus, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { atribuiveis, nomesDePerfis, nomesConhecidos } from '@/lib/cache-pessoas'
 import FotoProva from '@/components/tarefas/FotoProva'
 import type { FotoComprimida } from '@/lib/comprimir-imagem'
 import { hojeLocal } from '@/lib/date-local'
@@ -63,6 +64,8 @@ export default function EntregaTela(p: Props) {
   const [end, setEnd] = useState('')
   const [obs, setObs] = useState('')
   const [obsSalva, setObsSalva] = useState<string | null>(null)
+  // Item 7: até a 1ª leitura voltar não se sabe se a entrega já tem dono — nada de "Atribuir a…".
+  const [carregando, setCarregando] = useState(p.temOperacional)
 
   // Painel de conclusão
   const [concluindo, setConcluindo] = useState(false)
@@ -75,16 +78,18 @@ export default function EntregaTela(p: Props) {
   }, [supabase, p.atorNome])
 
   async function recarregar() {
-    if (!p.temOperacional) { setTarefa(null); return }
-    const t = await carregarTarefaEntrega(supabase, p.contratoId)
+    if (!p.temOperacional) { setTarefa(null); setCarregando(false); return }
+    const t = await carregarTarefaEntrega(supabase, p.contratoId).finally(() => setCarregando(false))
     setTarefa(t)
     const o = lerObsEntrega(t?.observacao_atribuicao)
     setPrevData(o.prevData || ''); setPrevPeriodo(o.prevPeriodo || '')
     setEndAlt(!!o.endereco); setEnd(o.endereco || ''); setObs(o.texto)
     setObsSalva(t?.observacao_atribuicao ?? null)
     if (t) {
-      const { data } = await supabase.rpc('resolver_nomes_perfis' as never, { p_user_ids: [t.atribuido_a] } as never) as { data: { user_id: string; nome: string | null }[] | null }
-      setNomeTarefa(data?.[0]?.nome || 'Sem nome')
+      // Nome da memória da sessão (item 7) — só vai ao banco se ainda não conhece.
+      setNomeTarefa(nomesConhecidos([t.atribuido_a])[t.atribuido_a] || null)
+      const n = await nomesDePerfis(supabase, [t.atribuido_a])
+      setNomeTarefa(n[t.atribuido_a] || 'Sem nome')
     } else setNomeTarefa(null)
   }
 
@@ -92,8 +97,9 @@ export default function EntregaTela(p: Props) {
 
   useEffect(() => {
     if (!p.temOperacional) return
-    supabase.rpc('listar_atribuiveis_operacional' as never, { p_unidade_id: p.unidadeId, p_para: 'tarefas' } as never)
-      .then(({ data }: { data: Atribuivel[] | null }) => setPessoas(data || []))
+    let vivo = true
+    atribuiveis(supabase, p.unidadeId, 'tarefas').then(lista => { if (vivo) setPessoas(lista) })
+    return () => { vivo = false }
   }, [supabase, p.temOperacional, p.unidadeId])
 
   const obsMontada = useMemo(() => montarObsEntrega({
@@ -190,7 +196,9 @@ export default function EntregaTela(p: Props) {
           {/* QUEM */}
           <div className="flex items-start gap-2">
             <span className={rotulo} style={{ color: 'var(--surface-400)' }}>Quem</span>
-            {tarefa ? (
+            {carregando ? (
+              <span className="flex-1 min-h-9 flex items-center text-[13px] animate-pulse" style={{ color: 'var(--surface-400)' }}>carregando…</span>
+            ) : tarefa ? (
               <div className="flex-1 flex items-center gap-2 min-h-9">
                 <span className="flex-1 text-[13.5px] italic truncate" style={{ color: corIdade }}>
                   👤 <b className="not-italic">{nomeTarefa || '…'}</b> · {formatarIdade(horas)}
