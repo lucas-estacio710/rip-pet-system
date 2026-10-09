@@ -461,7 +461,6 @@ function ContratosContent() {
   // ── Gesto de incluir pet numa viagem (etapa 2) ──
   const [petArrastando, setPetArrastando] = useState<string | null>(null)   // desktop: drag
   const [encAlvo, setEncAlvo] = useState<string | null>(null)               // viagem sob o cursor
-  const [petsSelecionados, setPetsSelecionados] = useState<Set<string>>(new Set()) // mobile: long-press
   const [vinculando, setVinculando] = useState(false)
   // ── Criar / editar viagem no próprio pipeline (etapa 3) ──
   // `encEditando = null` com o form aberto significa CRIAR; com id, editar aquela viagem.
@@ -1043,11 +1042,14 @@ function ContratosContent() {
   }
 
   // Persistir seleção de checkboxes em sessionStorage — sobrevive navegação no mesmo tab
+  // Com a chave do fluxo novo (2.18) as barras de lote não existem: as chaves velhas saem do
+  // sessionStorage em vez de serem regravadas.
   useEffect(() => {
     try {
+      if (cardNovo) { sessionStorage.removeItem('pipeline:selectedContratos'); return }
       sessionStorage.setItem('pipeline:selectedContratos', JSON.stringify(Array.from(selectedContratos)))
     } catch {}
-  }, [selectedContratos])
+  }, [selectedContratos, cardNovo])
 
   // cb_cremacao_local: se a unidade tem fluxo local e o filtro caiu em 'ativo' por default
   // (sem ?status na URL), trocar pra 'pinda' — que é onde os contratos nascem em PI.
@@ -1059,9 +1061,10 @@ function ContratosContent() {
 
   useEffect(() => {
     try {
+      if (cardNovo) { sessionStorage.removeItem('pipeline:selectedEntregas'); return }
       sessionStorage.setItem('pipeline:selectedEntregas', JSON.stringify(Array.from(selectedEntregas)))
     } catch {}
-  }, [selectedEntregas])
+  }, [selectedEntregas, cardNovo])
 
   // Atualizar URL quando estado muda (sem recarregar página). Pausado com popup aberto
   // (`popupHist.ocupado`): o replace apagaria a entrada do popup e o "voltar" sairia da tela.
@@ -3830,7 +3833,6 @@ ${petNome}`
       // ainda os lê e mostraria número errado.
       await recalcularEstatisticasSupinda(viagem.id)
 
-      setPetsSelecionados(new Set())
       setPetArrastando(null)
       setEncAlvo(null)
       await carregarContratos()
@@ -5228,14 +5230,10 @@ ${petNome}`
                 // arrastado (desktop) ou os selecionados por long-press (mobile).
                 const propsViagem = (numero: string, cs: Contrato[]) => {
                   const supId = supindaIdDoGrupo(numero, cs)
-                  const temSelecao = petsSelecionados.size > 0
                   return {
                     role: 'button',
                     tabIndex: 0,
                     onClick: () => {
-                      // Com seleção ativa no celular, tocar na viagem INCLUI em vez de
-                      // abrir — é o segundo tempo do gesto "segure e toque".
-                      if (temSelecao && supId) { vincularAoEncaminhamento([...petsSelecionados], supId); return }
                       entrarNoEnc(numero)
                     },
                     onKeyDown: (e: React.KeyboardEvent) => {
@@ -6175,7 +6173,6 @@ ${petNome}`
                       const pendentes = resumoCard?.pendentes ?? 0
                       const naEntrega = contrato.status === 'retorno' || contrato.status === 'pendente'
                       const acoes = acoesDoCard(contrato, !!tagsCard)
-                      const podeFase = isVisible(T, 'btn_alteracao_fase')
                       return (
                         <>
                           <TrilhoCardPet
@@ -6189,18 +6186,6 @@ ${petNome}`
                             extras={
                               <>
                                 {renderGCStatusCompacto(contrato)}
-                                {/* Entrega em lote: fica até o 2.18 (sai com a chave) */}
-                                {podeFase && naEntrega && (
-                                  <div
-                                    onClick={(e) => toggleSelectEntrega(contrato.id, e)}
-                                    className="p-2 -m-1 cursor-pointer rounded-md hover:bg-emerald-500/15 transition-colors flex-shrink-0"
-                                    title="Selecionar para registrar entrega em lote"
-                                  >
-                                    <div className={'w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ' + (selectedEntregas.has(contrato.id) ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-emerald-500/60')}>
-                                      {selectedEntregas.has(contrato.id) && <Check className="w-2.5 h-2.5" />}
-                                    </div>
-                                  </div>
-                                )}
                               </>
                             }
                           />
@@ -6685,29 +6670,6 @@ ${petNome}`
         </div>
       </Modal>
 
-      {/* Barra de seleção do celular (etapa 2). Sem ela o operador segura um pet, o card
-          acende, e não tem como saber o que fazer nem como desistir. Fica acima do
-          MobileBottomNav (z-40) e some sozinha quando a seleção é limpa. */}
-      {encPipeline && petsSelecionados.size > 0 && (
-        <div className="md:hidden fixed bottom-16 left-0 right-0 z-50 px-3 pb-2">
-          <div className="rounded-xl border shadow-lg px-3 py-2.5 flex items-center gap-3" style={{ background: 'var(--surface-0)', borderColor: corUnidadeAtual }}>
-            <span className="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--surface-700)]">
-              <PawPrint className="h-4 w-4" />
-              {petsSelecionados.size} pet{petsSelecionados.size !== 1 ? 's' : ''}
-            </span>
-            <span className="flex-1 text-[12px] text-[var(--surface-400)] leading-tight">
-              {vinculando ? 'Incluindo…' : 'Toque na viagem para incluir'}
-            </span>
-            <button
-              onClick={() => setPetsSelecionados(new Set())}
-              disabled={vinculando}
-              className="text-[12px] font-semibold px-2.5 py-1.5 rounded-lg text-[var(--surface-500)] hover:bg-[var(--surface-100)] disabled:opacity-50"
-            >
-              Cancelar
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Modal Protocolo de Entrega */}
       {protocoloModal && protocoloContrato && (
@@ -6756,7 +6718,9 @@ ${petNome}`
       )}
 
       {/* Barra flutuante de seleção para protocolo batch */}
-      {selectedContratos.size > 0 && (
+      {/* Barras de lote: só no fluxo antigo (2.18 — item 9). Com a chave, uma seleção que
+          sobrou no sessionStorage não pode ressuscitar a barra (R-U18). */}
+      {!cardNovo && selectedContratos.size > 0 && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white rounded-2xl shadow-2xl px-3 md:px-5 py-2 md:py-3 flex items-center gap-2 md:gap-4 max-w-[calc(100vw-2rem)]">
           <span className="text-sm font-medium">
             {selectedContratos.size} selecionado{selectedContratos.size > 1 ? 's' : ''}
@@ -6789,7 +6753,7 @@ ${petNome}`
       )}
 
       {/* Barra flutuante de registro de entrega em lote (retorno/pendente) */}
-      {selectedEntregas.size > 0 && (
+      {!cardNovo && selectedEntregas.size > 0 && (
         <div className={`fixed ${selectedContratos.size > 0 ? 'bottom-20' : 'bottom-4'} left-1/2 -translate-x-1/2 z-50 bg-emerald-900 text-white rounded-2xl shadow-2xl px-3 md:px-5 py-2 md:py-3 flex items-center gap-2 md:gap-4 max-w-[calc(100vw-2rem)]`}>
           <span className="text-sm font-medium">
             {selectedEntregas.size} para entrega
