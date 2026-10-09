@@ -30,7 +30,7 @@ import { Loader2, ClipboardPaste } from 'lucide-react'
 import Modal from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
-import { fmtBRL, fmtData } from '@/lib/financeiro'
+import { fmtBRL, fmtData, colarValorBR } from '@/lib/financeiro'
 import {
   lerExtrato, movimentoDe, pareceMaquininha, metodoDe, fornecedorDe, naoEDespesa, quitacaoDe, foraDoCartao, cabecalhoFatura,
   ROTULO_MOV, ENTRA_MOV, movDoRegistro, type MovMaquininha, type LinhaExtrato,
@@ -59,6 +59,17 @@ const METODOS = [
 const JANELA_DIAS = 5
 const TOLERANCIA_CAMBIO = 0.05
 
+/** Uma parte de despesa DIVIDIDA (mig 149): categoria + valor em dígitos (centavos). */
+type Parte = { key: string; catId: string; catTexto: string; valor: string }
+const soDigitos = (t: string) => t.replace(/\D/g, '').replace(/^0+(?=\d)/, '').slice(0, 12)
+const digNum = (d: string) => Number(d || '0') / 100
+const digTxt = (d: string) => digNum(d).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const MESES_ABREV = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+const mesMais = (iso: string, k: number) => {
+  const d = new Date(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1 + k, 1)
+  return `${MESES_ABREV[d.getMonth()]}/${String(d.getFullYear()).slice(2)}`
+}
+
 type Item = LinhaExtrato & {
   jaNoSistema: string | null     // com o que bateu ("contrato MEL"), ou null
   exatos: RegistroSistema[]      // o(s) registro(s) do par exato — viram conciliação
@@ -76,6 +87,9 @@ type Item = LinhaExtrato & {
   catTexto: string
   metodo: string
   fornecedor: string
+  // A LINHA QUE CRESCE (V2, etapa 2): o que o lançamento avulso faz, dentro da linha.
+  partes: Parte[]                // dividir: a principal (catId) fica com o que sobra
+  meses: number                  // vale por vários meses (rateio_meses); 1 = não
   doHistorico: boolean
   porSinonimo: boolean           // categoria veio do sinônimo (sem histórico) — confira
   sugestoes: Sugestao<Decisao>[]
@@ -302,6 +316,7 @@ export default function ColarExtratoModal({
         opId: '', mov: '' as MovMaquininha | '', catId: '', catTexto: '',
         metodo: ehCartao ? 'credito' : (metodoDe(l.descricao) || 'pix'), fornecedor: fornecedorDe(l.descricao),
         doHistorico: false, porSinonimo: false, sugestoes: [] as Sugestao<Decisao>[],
+        partes: [] as Parte[], meses: 1,
       }
       // 1) já está no sistema?
       const par = exatoDe(l.n)
@@ -405,9 +420,13 @@ export default function ColarExtratoModal({
     ...escolhidosChaves, ...itens.flatMap(i => i.exatos.map(r => r.chave)),
   ])
   const recProntas = receitas.filter(i => i.marcado && (i.opId || maquininhaLote) && i.mov)
-  const despProntas = despesas.filter(i => i.marcado && i.catId)
+  // Divisão: as partes têm categoria e valor, e SOBRA algo pra principal — o
+  // total é o do banco, então ele não muda (mesma regra do lançamento avulso).
+  const restanteDe = (i: Item) => Math.round((Math.abs(i.valor) - i.partes.reduce((a, pt) => a + digNum(pt.valor), 0)) * 100) / 100
+  const partesOk = (i: Item) => i.partes.every(pt => pt.catId && digNum(pt.valor) > 0) && restanteDe(i) > 0
+  const despProntas = despesas.filter(i => i.marcado && i.catId && partesOk(i))
   const pendentes = receitas.filter(i => i.marcado && !(i.opId || maquininhaLote) || (i.marcado && !i.mov)).length
-    + despesas.filter(i => i.marcado && !i.catId).length
+    + despesas.filter(i => i.marcado && (!i.catId || !partesOk(i))).length
     + parecidos.filter(i => i.parecido!.escolhido === -2).length
 
   async function registrar() {
@@ -465,26 +484,40 @@ export default function ColarExtratoModal({
         ;((novosMov as { id: string }[] | null) || []).forEach((m, k) => conc(recProntas[k], [{ origem: 'movimento', origem_id: m.id }], 'novo'))
       }
       if (despProntas.length) {
-        const rows = despProntas.map(i => {
-          const cat = categorias.find(c => c.id === i.catId)
-          const cc = cat?.fin_contas
-          return {
-            unidade_id: currentUnit.id, categoria_id: i.catId,
-            conta_id: cat?.fin_conta_id || null,
-            conta_codigo: cc?.codigo || null, conta_nome: cc?.nome || null,   // SNAPSHOT da DRE
-            natureza: cc?.natureza || 'opex',
-            descricao: null, observacoes: i.descricao,   // texto do banco: ensina a próxima colagem
-            valor: Math.abs(i.valor), data_competencia: i.data,
-            data_caixa: ehCartao ? vencimento : i.data,   // cartão: sai do caixa no vencimento
-            fornecedor_nome: i.fornecedor.trim() || null, conta_pagamento_id: contaId,
-            metodo_pagamento: i.metodo, rateio_meses: 1, origem: 'manual',
-            criado_por_nome: userName || null, status: 'aprovado',
-            aprovado_por: user?.id || null, aprovado_por_nome: userName || null, aprovado_em: agora,
-          }
+        // Uma linha do banco = 1 lançamento, ou N com o MESMO divisao_id quando
+        // foi dividida (a principal com o que sobra) — a regra do avulso. Um
+        // insert só: ou entram todas as partes, ou nenhuma. `donos` guarda de
+        // qual linha do banco veio cada lançamento, pra conciliar cada um.
+        const donos: Item[] = []
+        const rows = despProntas.flatMap(i => {
+          const divisao_id = i.partes.length ? crypto.randomUUID() : null
+          const pedacos = [
+            { catId: i.catId, valor: i.partes.length ? restanteDe(i) : Math.abs(i.valor) },
+            ...i.partes.map(pt => ({ catId: pt.catId, valor: digNum(pt.valor) })),
+          ]
+          return pedacos.map(pd => {
+            const cat = categorias.find(c => c.id === pd.catId)
+            const cc = cat?.fin_contas
+            donos.push(i)
+            return {
+              unidade_id: currentUnit.id, categoria_id: pd.catId,
+              conta_id: cat?.fin_conta_id || null,
+              conta_codigo: cc?.codigo || null, conta_nome: cc?.nome || null,   // SNAPSHOT da DRE
+              natureza: cc?.natureza || 'opex',
+              descricao: null, observacoes: i.descricao,   // texto do banco: ensina a próxima colagem
+              valor: pd.valor, data_competencia: i.data,
+              data_caixa: ehCartao ? vencimento : i.data,   // cartão: sai do caixa no vencimento
+              fornecedor_nome: i.fornecedor.trim() || null, conta_pagamento_id: contaId,
+              metodo_pagamento: i.metodo, rateio_meses: Math.max(1, Math.min(120, i.meses || 1)), origem: 'manual',
+              divisao_id,
+              criado_por_nome: userName || null, status: 'aprovado',
+              aprovado_por: user?.id || null, aprovado_por_nome: userName || null, aprovado_em: agora,
+            }
+          })
         })
         const { data: novosLanc, error } = await supabase.from('fin_lancamentos').insert(rows).select('id')
         if (error) throw new Error(`Despesas: ${error.message}${entrouRec ? ` (as ${entrouRec} receitas a prazo JÁ entraram)` : ''}`)
-        ;((novosLanc as { id: string }[] | null) || []).forEach((l, k) => conc(despProntas[k], [{ origem: 'lancamento', origem_id: l.id }], 'novo'))
+        ;((novosLanc as { id: string }[] | null) || []).forEach((l, k) => conc(donos[k], [{ origem: 'lancamento', origem_id: l.id }], 'novo'))
       }
       // Por último, e sem derrubar o que já entrou: se a mig 153 ainda não rodou,
       // os lançamentos ficam e só o selo de conciliado falta.
@@ -553,7 +586,11 @@ export default function ColarExtratoModal({
           <span className="col-span-4 col-start-3 sm:col-span-1 sm:col-start-auto row-start-2 sm:row-start-auto min-w-0">
             {i.destino === 'despesa' && (i.catId ? (
               <span className="flex items-baseline gap-1.5 min-w-0">
-                <span className="text-sm font-semibold text-emerald-500 truncate">{caminhoDe(i.catId).split(' › ').pop()}</span>
+                <span className="text-sm font-semibold text-emerald-500 truncate">
+                  {caminhoDe(i.catId).split(' › ').pop()}
+                  {i.partes.length > 0 && <span className="font-normal text-[var(--brand-500)]"> + {i.partes.length} {i.partes.length === 1 ? 'parte' : 'partes'}</span>}
+                  {i.meses > 1 && <span className="font-normal text-[var(--brand-500)]"> · {i.meses} meses</span>}
+                </span>
                 <span className="text-[11px] text-[var(--surface-400)] truncate">
                   {i.doHistorico ? 'como das outras vezes' : i.porSinonimo ? 'pelo nome — confira' : caminhoDe(i.catId).split(' › ').slice(0, -1).join(' › ')}
                 </span>
@@ -622,6 +659,18 @@ export default function ColarExtratoModal({
           <button type="button" onClick={alternar} className="text-[11px] text-[var(--surface-400)] hover:text-[var(--surface-700)]">
             {aberta ? 'fechar' : i.destino === 'despesa' ? 'fornecedor · forma de pagamento' : 'maquininha · movimento'}
           </button>
+          {i.destino === 'despesa' && i.partes.length === 0 && (
+            <button type="button" className="text-[11px] text-[var(--surface-400)] hover:text-[var(--surface-700)]"
+                    onClick={() => muda(i.n, { partes: [{ key: crypto.randomUUID(), catId: '', catTexto: '', valor: '' }] })}>
+              dividir em categorias
+            </button>
+          )}
+          {i.destino === 'despesa' && i.meses === 1 && (
+            <button type="button" className="text-[11px] text-[var(--surface-400)] hover:text-[var(--surface-700)]"
+                    onClick={() => muda(i.n, { meses: 12 })}>
+              vale por vários meses
+            </button>
+          )}
           <select value={i.destino} aria-label="O que é esta linha"
                   onChange={e => muda(i.n, { destino: e.target.value as Destino, marcado: e.target.value !== 'fora',
                     mov: e.target.value === 'receita' && !i.mov ? (movimentoDe(i.descricao, i.valor) || '') : i.mov })}
@@ -671,6 +720,87 @@ export default function ColarExtratoModal({
             </>)}
           </div>
         )}
+        {i.destino === 'despesa' && i.partes.length > 0 && painelDividir(i)}
+        {i.destino === 'despesa' && i.meses > 1 && (
+          <div className="mt-2 ml-[34px] sm:ml-[86px] pl-4 border-l-2 border-[var(--brand-500)] flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-sm text-[var(--surface-700)]">
+              Vale por
+              <input type="number" min={2} max={120} value={i.meses}
+                     onChange={e => muda(i.n, { meses: Math.max(1, Math.min(120, Number(e.target.value) || 1)) })}
+                     className="input text-sm py-1 w-20 text-mono" />
+              meses
+            </label>
+            <span className="text-sm text-[var(--surface-500)]">
+              {fmtBRL(Math.abs(i.valor) / i.meses)} por mês, de {mesMais(i.data, 0)} a {mesMais(i.data, i.meses - 1)}
+            </span>
+            <button type="button" onClick={() => muda(i.n, { meses: 1 })} className="ml-auto text-[11px] text-[var(--surface-400)] hover:text-[var(--surface-700)]">
+              é só deste mês
+            </button>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  /** DIVIDIR — dentro da linha. A principal (a categoria da linha) fica com o
+   *  que sobra; as partes têm categoria e valor; o painel diz quando fecha. */
+  function painelDividir(i: Item) {
+    const resto = restanteDe(i)
+    const mudaParte = (k: number, patch: Partial<Parte>) =>
+      muda(i.n, { partes: i.partes.map((pt, j) => (j === k ? { ...pt, ...patch } : pt)) })
+    const total = Math.abs(i.valor)
+    return (
+      <div className="mt-2 ml-[34px] sm:ml-[86px] pl-4 border-l-2 border-[var(--brand-500)] flex flex-col gap-2.5">
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-semibold text-[var(--surface-800)]">Dividir os {fmtBRL(total)}</span>
+          <button type="button" onClick={() => muda(i.n, { partes: [] })}
+                  className="ml-auto text-[11px] text-[var(--surface-400)] hover:text-[var(--surface-700)]">desfazer divisão</button>
+        </div>
+        <div className="grid grid-cols-[minmax(0,1fr)_120px_22px] gap-2 items-center">
+          <span className="text-sm text-[var(--surface-600)] truncate px-3 py-1.5 rounded-[var(--radius-md)] bg-[var(--surface-50)]">
+            {i.catId ? caminhoDe(i.catId) : <span className="text-amber-500">escolha a categoria da linha (acima)</span>}
+          </span>
+          <span className={`text-right text-mono text-sm px-3 py-1.5 ${resto > 0 ? 'text-[var(--surface-700)]' : 'text-red-500'}`}
+                title="A principal fica com o que sobra">{fmtBRL(Math.max(resto, 0)).replace('R$', '').trim()}</span>
+          <span />
+          {i.partes.map((pt, k) => (
+            <span key={pt.key} className="contents">
+              <span className="relative">
+                <input value={pt.catId ? caminhoDe(pt.catId) : pt.catTexto} autoComplete="off"
+                       aria-label={`Categoria da parte ${k + 1}`} placeholder="do que foi esta parte?"
+                       onChange={e => mudaParte(k, { catTexto: e.target.value, catId: '' })}
+                       className="input text-sm py-1.5 w-full" style={!pt.catId ? { borderColor: '#f59e0b' } : undefined} />
+                {!pt.catId && pt.catTexto.trim().length >= 2 && (() => {
+                  const achados = buscarCategorias(folhas, caminhoDe, pt.catTexto, 5)
+                  return achados.length ? (
+                    <span className="absolute z-10 left-0 right-0 mt-1 rounded-[var(--radius-md)] border border-[var(--surface-200)] bg-[var(--surface-0)] shadow-lg divide-y divide-[var(--surface-100)] flex flex-col">
+                      {achados.map(({ c }) => (
+                        <button key={c.id} type="button" onClick={() => mudaParte(k, { catId: c.id, catTexto: '' })}
+                                className="text-left px-3 py-1.5 text-sm hover:bg-[var(--surface-50)] truncate">{caminhoDe(c.id)}</button>
+                      ))}
+                    </span>
+                  ) : null
+                })()}
+              </span>
+              <input inputMode="decimal" value={pt.valor ? digTxt(pt.valor) : ''} placeholder="0,00"
+                     aria-label={`Valor da parte ${k + 1}`}
+                     onChange={e => mudaParte(k, { valor: soDigitos(e.target.value) })}
+                     onPaste={e => { const d = colarValorBR(e.clipboardData.getData('text')); if (d !== null) { e.preventDefault(); mudaParte(k, { valor: d }) } }}
+                     className="input text-sm py-1.5 text-right text-mono" />
+              <button type="button" aria-label="Tirar esta parte" onClick={() => muda(i.n, { partes: i.partes.filter((_, j) => j !== k) })}
+                      className="text-[var(--surface-400)] hover:text-red-400 text-base leading-none">×</button>
+            </span>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="button" onClick={() => muda(i.n, { partes: [...i.partes, { key: crypto.randomUUID(), catId: '', catTexto: '', valor: '' }] })}
+                  className="text-sm text-[var(--brand-500)] hover:underline">+ outra parte</button>
+          <span className={`ml-auto text-sm ${resto <= 0 ? 'text-red-500' : partesOk(i) && i.catId ? 'text-emerald-500' : 'text-[var(--surface-500)]'}`}>
+            {resto <= 0 ? `as partes passam dos ${fmtBRL(total)} do banco`
+              : partesOk(i) && i.catId ? `✓ soma ${fmtBRL(total)} — fecha com o banco`
+              : 'falta a categoria ou o valor de alguma parte'}
+          </span>
+        </div>
       </div>
     )
   }
