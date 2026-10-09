@@ -17,6 +17,9 @@
 //   1. exato     — mesma data e mesmo valor (como sempre foi);
 //   2. contrato  — a soma dos pagamentos de UM contrato no mesmo dia (Pix único
 //                  que no contrato virou plano + acessório; só conta corrente);
+//      2b. e a soma de VÁRIOS contratos no mesmo dia (09/10/2026: a tutora pagou
+//          MOZART 97 + LYON 1.290 num Pix só de 1.387). Só com UMA combinação
+//          possível — duas que somam igual é coincidência, e aí a pessoa decide;
 //   3. provavel  — um único candidato dentro da folga;
 //   4. ambiguo   — mais de um candidato: a tela lista e a pessoa escolhe.
 
@@ -79,6 +82,34 @@ export function conciliar(
           break
         }
       }
+    }
+  }
+
+  // 2b) a soma de 2 a 4 CONTRATOS diferentes no mesmo dia — cada contrato entra
+  //     inteiro (todos os pagamentos dele naquele dia). Só entradas, e só quando
+  //     a combinação é única.
+  if (opts.porContrato !== false) {
+    for (const l of linhas) {
+      if (pares.has(l.n) || l.valor <= 0) continue
+      const porContrato = new Map<string, RegistroSistema[]>()
+      for (const r of registros) {
+        if (usado.has(r.chave) || !r.contrato || r.data !== l.data || r.valor <= 0) continue
+        porContrato.set(r.contrato, [...(porContrato.get(r.contrato) || []), r])
+      }
+      const grupos = [...porContrato.values()].map(rs => ({ rs, soma: rs.reduce((a, r) => a + r.valor, 0) }))
+      if (grupos.length < 2 || grupos.length > 25) continue
+      const achadas: number[][] = []
+      const busca = (ini: number, esc: number[], soma: number) => {
+        if (achadas.length > 1) return
+        if (esc.length >= 2 && igual(soma, l.valor)) { achadas.push([...esc]); return }
+        if (esc.length === 4 || soma > l.valor + 0.005) return
+        for (let k = ini; k < grupos.length; k++) busca(k + 1, [...esc, k], soma + grupos[k].soma)
+      }
+      busca(0, [], 0)
+      if (achadas.length !== 1) continue
+      const partes = achadas[0].flatMap(k => grupos[k].rs)
+      partes.forEach(r => usado.add(r.chave))
+      pares.set(l.n, { tipo: 'contrato', candidatos: partes })
     }
   }
 
