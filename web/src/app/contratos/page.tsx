@@ -58,6 +58,8 @@ import UrnaTela from '@/components/contratos/farois/UrnaTela'
 import EncaminhamentoTela from '@/components/contratos/farois/EncaminhamentoTela'
 import CardViagem from '@/components/contratos/pipeline/CardViagem'
 import EsteiraGC from '@/components/contratos/pipeline/EsteiraGC'
+import TrazerDaMatriz from '@/components/contratos/pipeline/TrazerDaMatriz'
+import { useIsMobile } from '@/hooks/useMediaQuery'
 import AdicionarPetsViagem from '@/components/contratos/pipeline/AdicionarPetsViagem'
 import { carregarTarefaEntrega } from '@/lib/tarefa-entrega'
 import { useToast } from '@/components/ui/Toast'
@@ -475,6 +477,8 @@ function ContratosContent() {
   // ── Nicho + Trazer da Matriz (etapas 6 e 7) ──
   const [nichoAberto, setNichoAberto] = useState(false)
   const [trazerAberto, setTrazerAberto] = useState(false)
+  // Celular usa a tela nova do "Trazer da Matriz" (fase 2.14b); desktop segue com a tabela.
+  const ehCelular = useIsMobile()
   const [trazerPets, setTrazerPets] = useState<PetNoNicho[]>([])
   const [trazerDatas, setTrazerDatas] = useState<Record<string, string>>({})       // contrato_id → data de volta
   const [trazerPresencial, setTrazerPresencial] = useState<Set<string>>(new Set()) // quem o tutor buscou em Pinda
@@ -4078,12 +4082,12 @@ ${petNome}`
     if (!pets) { setTrazerAberto(false); return }
     setTrazerPets(pets)
     setTrazerPresencial(new Set())
-    // Sugestão inicial: a data da viagem de ida mais recente entre os pets do nicho
-    // (§9.5 — "mesma data do encaminhamento ST170"). O Lucas faz isso de verdade: vai de
-    // manhã, crema, e volta no fim do dia com as cinzas.
-    const sugestao = sugestaoDataVolta(pets)
+    // Valor inicial = HOJE (P-14, item 15 — fase 2.14b). Antes era a data da viagem de ida
+    // mais recente; ela continua oferecida como opção ("ST170 · 06/set"), não como padrão.
+    // Risco aceito pelo Lucas: no passivo de PA/RS a data de volta precisa ser ajustada pet
+    // a pet pela unidade.
     const mapa: Record<string, string> = {}
-    for (const p of pets) mapa[p.id] = sugestao.data
+    for (const p of pets) mapa[p.id] = hojeLocal()
     setTrazerDatas(mapa)
   }
 
@@ -6375,8 +6379,34 @@ ${petNome}`
       )}
 
       {/* Trazer da Matriz (§9.5). Fraseologia aprovada nos mockups — não reescrever. */}
+      {trazerAberto && ehCelular && (() => {
+        const sug = sugestaoDataVolta(trazerPets)
+        return (
+          <TrazerDaMatriz
+            aberto
+            carregando={trazerCarregando}
+            trazendo={trazendo}
+            unidadeNome={currentUnit?.nome || ''}
+            pets={trazerPets}
+            datas={trazerDatas}
+            presencial={trazerPresencial}
+            hoje={hojeLocal()}
+            sugestaoViagem={sug.rotulo ? { data: sug.data, rotulo: sug.rotulo } : null}
+            onData={(id, d) => setTrazerDatas(prev => ({ ...prev, [id]: d }))}
+            onLote={(de, para) => setTrazerDatas(prev => {
+              // Muda só quem acompanha o lote; pet com data própria fica como está.
+              const n = { ...prev }
+              for (const pt of trazerPets) if ((n[pt.id] || de) === de) n[pt.id] = para
+              return n
+            })}
+            onPresencial={id => setTrazerPresencial(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })}
+            onCancelar={() => setTrazerAberto(false)}
+            onFinalizar={finalizarVolta}
+          />
+        )
+      })()}
       <Modal
-        isOpen={trazerAberto}
+        isOpen={trazerAberto && !ehCelular}
         onClose={() => { if (!trazendo) setTrazerAberto(false) }}
         title={`Trazer ${trazerPets.length} pet${trazerPets.length !== 1 ? 's' : ''} da Matriz`}
         size="xl"
