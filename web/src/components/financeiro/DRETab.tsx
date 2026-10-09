@@ -50,7 +50,6 @@ const ZERO: Resumo = {
   desp_financeira: 0, outras_despesas: 0, investimentos: 0, margem_bruta: 0, resultado: 0,
 }
 
-const mesAtual = () => new Date().toISOString().slice(0, 7)
 
 /** Mês anterior a 'YYYY-MM'. */
 function mesAnterior(mes: string): string {
@@ -74,13 +73,12 @@ type Linha = {
   maiorEhMelhor: boolean    // decide a cor do Δ
 }
 
-export default function DRETab() {
+export default function DRETab({ mes }: { mes: string }) {
   const supabaseTipado = createClient()
   // As views vw_dre_* (mig 111) não estão em types/database.ts → client destipado.
   const supabase = supabaseTipado as unknown as SupabaseClient
   const { currentUnit } = useUnit()
 
-  const [mes, setMes] = useState(mesAtual())
   const [resumo, setResumo] = useState<Resumo>(ZERO)
   const [antes, setAntes] = useState<Resumo>(ZERO)
   const [contas, setContas] = useState<LinhaConta[]>([])
@@ -196,10 +194,6 @@ export default function DRETab() {
   return (
     <div className="animate-fade-in space-y-3">
       <div className="flex flex-wrap items-center gap-3">
-        <input
-          type="month" value={mes} onChange={e => setMes(e.target.value)}
-          className="input text-sm w-36 py-1"
-        />
         <span className="text-xs text-[var(--surface-500)]">
           {currentUnit?.nome} · {rotuloMes(mesParaData(mes))} · comparado com {rotuloMes(mesParaData(mesAnterior(mes)))}
         </span>

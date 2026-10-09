@@ -26,6 +26,7 @@ import DRETab from '@/components/financeiro/DRETab'
 import ContasTab from '@/components/financeiro/ContasTab'
 import CaixaTab from '@/components/financeiro/CaixaTab'
 import VisaoMesTab from '@/components/financeiro/VisaoMesTab'
+import SeletorMes, { mesDeHoje } from '@/components/financeiro/SeletorMes'
 import { ITENS_LANCAR, type AcaoLancar } from '@/lib/lancar'
 
 const TELA = 'tela_financeiro'
@@ -53,6 +54,8 @@ export default function FinanceiroPage() {
 
   const visibleTabs = useMemo(() => TABS.filter(t => isVisible(TELA, t.obj)), [isVisible])
   const [active, setActive] = useState<string | null>(null)
+  // O MÊS É UM SÓ (09/10/2026): escolhido acima das abas, vale pra todas.
+  const [mes, setMes] = useState(mesDeHoje)
   const activeTab = visibleTabs.find(t => t.key === active) ?? visibleTabs[0] ?? null
 
   // + LANÇAR (lib/lancar.ts). Cada item só aparece pra quem pode lançar aquilo —
@@ -130,6 +133,8 @@ export default function FinanceiroPage() {
         </div>
       </div>
 
+      {activeTab?.key !== 'contas' && <SeletorMes mes={mes} onMes={setMes} />}
+
       {/* Abas sublinhadas (V2): roxo só na ativa. Contas mora na engrenagem. */}
       {visibleTabs.filter(t => t.key !== 'contas').length > 1 && (
         <nav className="flex gap-6 overflow-x-auto border-b border-[var(--surface-200)] -mt-1">
@@ -146,7 +151,7 @@ export default function FinanceiroPage() {
       )}
 
       {activeTab?.key === 'visao' ? (
-        <VisaoMesTab
+        <VisaoMesTab mes={mes}
           verResultado={temAba('dre')} verCaixa={temAba('caixa')} verRepasse={temAba('repasse')} verLancamentos={temAba('lancamentos')}
           onIr={irPara} onLancar={itensLancar.length ? lancar : undefined} />
       ) : activeTab?.key === 'lancamentos' ? (
@@ -159,15 +164,15 @@ export default function FinanceiroPage() {
         // permissão da TELA. A segunda é o que dá efeito hoje — "a tela está em
         // leitura" tem de significar que nada nela se edita, senão `read` vira
         // uma etiqueta sem consequência.
-        <LancamentosTab somenteLeitura={!canEdit(TELA, 'btn_lancamento_editar') || !canEdit(TELA, TELA)}
+        <LancamentosTab mes={mes} somenteLeitura={!canEdit(TELA, 'btn_lancamento_editar') || !canEdit(TELA, TELA)}
           comando={comandoPara('lancamentos')} onComandoFeito={() => setComando(null)} />
       ) : activeTab?.key === 'repasse' ? (
-        <RepasseTab somenteLeitura={repasseSomenteLeitura} />
+        <RepasseTab mes={mes} somenteLeitura={repasseSomenteLeitura} />
       ) : activeTab?.key === 'caixa' ? (
-        <CaixaTab somenteLeitura={!canEdit(TELA, 'btn_caixa_editar')}
+        <CaixaTab mes={mes} somenteLeitura={!canEdit(TELA, 'btn_caixa_editar')}
           comando={comandoPara('caixa')} onComandoFeito={() => setComando(null)} />
       ) : activeTab?.key === 'dre' ? (
-        <DRETab />
+        <DRETab mes={mes} />
       ) : activeTab?.key === 'contas' ? (
         <ContasTab somenteLeitura={!canEdit(TELA, 'btn_contas_editar')} />
       ) : (

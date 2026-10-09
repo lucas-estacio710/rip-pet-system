@@ -59,7 +59,6 @@ type Linha = {
   unidade_origem: string | null   // de qual unidade é o CONTRATO (mig 126)
 }
 
-const mesAtual = () => new Date().toISOString().slice(0, 7)
 
 /** Os movimentos que o usuário pode lançar, e como cada um se comporta. */
 const TIPOS = [
@@ -84,7 +83,9 @@ function IconeConta({ tipo, produto }: { tipo: string; produto?: string | null }
 const ehMaquininha = (x: { produto?: string | null }) => x.produto === 'maquininha'
 const ehCartao = (x: { tipo: string }) => x.tipo === 'cartao'
 
-export default function CaixaTab({ somenteLeitura = false, comando = null, onComandoFeito }: {
+export default function CaixaTab({ mes, somenteLeitura = false, comando = null, onComandoFeito }: {
+  /** O mês do Financeiro — um só, escolhido acima das abas (09/10/2026). */
+  mes: string
   somenteLeitura?: boolean
   /** "+ Lançar › Movimentação entre contas" (lib/lancar.ts). */
   comando?: AcaoLancar | null
@@ -95,7 +96,6 @@ export default function CaixaTab({ somenteLeitura = false, comando = null, onCom
   const { toast } = useToast()
   const { currentUnit, userName } = useUnit()
 
-  const [mes, setMes] = useState(mesAtual())
   const [saldos, setSaldos] = useState<Saldo[]>([])
   const [linhas, setLinhas] = useState<Linha[]>([])
   // Lançamento DIVIDIDO (mig 149): id do lançamento → posição, nº de partes e o
@@ -432,10 +432,6 @@ export default function CaixaTab({ somenteLeitura = false, comando = null, onCom
   return (
     <div className="animate-fade-in space-y-3">
       <div className="flex flex-wrap items-center gap-3">
-        <input
-          type="month" value={mes} onChange={e => setMes(e.target.value)}
-          className="input text-sm w-36 py-1"
-        />
         <span className="text-xs text-[var(--surface-500)]">
           disponível <span className="text-mono text-[var(--surface-800)]">{fmtBRL(totalDisponivel)}</span>
           {totalAReceber > 0 && (

@@ -80,7 +80,6 @@ type ContaBancaria = {
   preferencial_recebimento: boolean | null
 }
 
-const mesAtual = () => new Date().toISOString().slice(0, 7)
 
 /**
  * VALOR EM CENTAVOS, do jeito que app de banco faz (13/09/2026, pedido do Lucas).
@@ -123,7 +122,9 @@ function IconeCat({ nome, className }: { nome?: string | null; className?: strin
  *   cria, edita nem exclui. Era a única aba do financeiro que ignorava isso —
  *   Repasse, Caixa e Contas já recebiam a prop, e Lançamentos não (13/09/2026).
  */
-export default function LancamentosTab({ somenteLeitura = false, comando = null, onComandoFeito }: {
+export default function LancamentosTab({ mes, somenteLeitura = false, comando = null, onComandoFeito }: {
+  /** O mês do Financeiro — um só, escolhido acima das abas (09/10/2026). */
+  mes: string
   somenteLeitura?: boolean
   /** Do "+ Lançar" da página (lib/lancar.ts): abre o formulário certo. */
   comando?: AcaoLancar | null
@@ -136,7 +137,6 @@ export default function LancamentosTab({ somenteLeitura = false, comando = null,
   const { currentUnit, userName } = useUnit()
   const { isVisible } = useFieldPermission()
 
-  const [mes, setMes] = useState(mesAtual())
   /**
    * DESPESAS × RECEITAS A PRAZO — as duas metades do mesmo gesto.
    *
@@ -840,10 +840,6 @@ export default function LancamentosTab({ somenteLeitura = false, comando = null,
 
       {veReceitas && faixa === 'receitas' ? (
         <div className="space-y-3">
-          <input
-            type="month" value={mes} onChange={e => setMes(e.target.value)}
-            className="input text-sm w-36 py-1"
-          />
           <ReceitasPrazoTab key={versaoColar} somenteLeitura={somenteLeitura} mes={mes}
             comando={comando === 'recebiveis'} onComandoFeito={onComandoFeito} />
         </div>
@@ -851,10 +847,6 @@ export default function LancamentosTab({ somenteLeitura = false, comando = null,
 
       {/* Cabeçalho compacto */}
       <div className="flex flex-wrap items-center gap-3">
-        <input
-          type="month" value={mes} onChange={e => setMes(e.target.value)}
-          className="input text-sm w-36 py-1"
-        />
         <span className="text-xs text-[var(--surface-500)]">
           <span className="text-mono text-[var(--surface-700)]">{fmtBRL(total)}</span>
           {' · '}{lancamentos.length} {lancamentos.length === 1 ? 'lançamento' : 'lançamentos'}

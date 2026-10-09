@@ -22,7 +22,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { useUnit } from '@/contexts/UnitContext'
 import { fmtBRL, fmtData, limitesDoMes, hojeISO } from '@/lib/financeiro'
 import { mesParaData } from '@/lib/repasse'
@@ -67,7 +67,8 @@ const GRUPOS: { campo: keyof Resumo; nome: string; cor: string }[] = [
   { campo: 'outras_despesas', nome: 'Outros', cor: '#94a3b8' },
 ]
 
-export default function VisaoMesTab({ verResultado, verCaixa, verRepasse, verLancamentos, onIr, onLancar }: {
+export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, verLancamentos, onIr, onLancar }: {
+  mes: string
   verResultado: boolean
   verCaixa: boolean
   verRepasse: boolean
@@ -77,7 +78,6 @@ export default function VisaoMesTab({ verResultado, verCaixa, verRepasse, verLan
 }) {
   const supabase = createClient() as unknown as SupabaseClient
   const { currentUnit } = useUnit()
-  const [mes, setMes] = useState(() => hojeISO().slice(0, 7))
   const [carregando, setCarregando] = useState(false)
   const [resumo, setResumo] = useState<Resumo | null>(null)
   const [qtdDespesas, setQtdDespesas] = useState(0)
@@ -195,19 +195,7 @@ export default function VisaoMesTab({ verResultado, verCaixa, verRepasse, verLan
 
   return (
     <div className="space-y-7 max-w-[1120px]">
-      {/* A COMISSÃO DE FRENTE: o mês, grande */}
-      <div className="flex items-center gap-3">
-        <button onClick={() => setMes(m => somaMes(m, -1))} aria-label="Mês anterior"
-                className="h-9 w-9 rounded-full border border-[var(--surface-300)] flex items-center justify-center text-[var(--surface-600)] hover:bg-[var(--surface-100)]">
-          <ChevronLeft className="h-4 w-4" />
-        </button>
-        <h2 className="text-[28px] sm:text-[32px] font-bold tracking-tight text-[var(--surface-900)] capitalize">{rotulo(mes)}</h2>
-        <button onClick={() => setMes(m => somaMes(m, 1))} aria-label="Próximo mês"
-                className="h-9 w-9 rounded-full border border-[var(--surface-300)] flex items-center justify-center text-[var(--surface-600)] hover:bg-[var(--surface-100)]">
-          <ChevronRight className="h-4 w-4" />
-        </button>
-        {carregando && <Loader2 className="h-4 w-4 animate-spin text-[var(--surface-400)]" />}
-      </div>
+      {carregando && <Loader2 className="h-4 w-4 animate-spin text-[var(--surface-400)]" />}
 
       {/* 1 · COMO FOI O MÊS */}
       {verResultado && (

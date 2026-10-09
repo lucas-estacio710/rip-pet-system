@@ -63,9 +63,8 @@ type RepasseSalvo = {
   updated_at: string                 // última gravação (trigger) — mostrada como "Salvo em"
 }
 
-const mesAtual = () => new Date().toISOString().slice(0, 7)
 
-export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?: boolean }) {
+export default function RepasseTab({ mes, somenteLeitura = false }: { mes: string; somenteLeitura?: boolean }) {
   const supabaseTipado = createClient()
   // As tabelas fin_* (migrations 103/104) ainda não estão em types/database.ts,
   // então o client tipado infere `never`. Client destipado só para elas.
@@ -74,7 +73,6 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
   const { currentUnit, isSuperAdmin } = useUnit()
 
   const [unidadeId, setUnidadeId] = useState('')
-  const [mes, setMes] = useState(mesAtual())
   const [itens, setItens] = useState<ItemRepasse[]>([])
   const [carregando, setCarregando] = useState(false)
   const [fechando, setFechando] = useState(false)
@@ -529,10 +527,6 @@ export default function RepasseTab({ somenteLeitura = false }: { somenteLeitura?
     <div className="animate-fade-in space-y-2">
       {/* Cabeçalho: título + mês + consolidado, tudo numa linha */}
       <div className="flex flex-wrap items-center gap-3">
-        <input
-          type="month" value={mes} onChange={e => setMes(e.target.value)}
-          className="input text-sm w-36 py-1"
-        />
         <span className="text-xs text-[var(--surface-500)]">
           <span className="text-mono text-[var(--surface-700)]">
             {fmtBRL([...resumo.values()].reduce((s, r) => s + r.valor, 0))}
