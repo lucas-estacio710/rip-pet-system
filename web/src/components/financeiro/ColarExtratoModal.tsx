@@ -386,7 +386,11 @@ export default function ColarExtratoModal({
       }
       // 2a) cartão: pagamento da fatura e estorno não são compra
       if (ehCartao) {
-        const motivo = foraDoCartao(l.descricao)
+        // "+ R$ 1,20" na fatura do Inter é CRÉDITO, não compra (o leitor força
+        // compra no cartão porque há fatura que lista a compra positiva).
+        const motivo = /\+\s*R\$/.test(l.original)
+          ? 'crédito na fatura (+) — abate a fatura, não é compra; desconte do lançamento original'
+          : foraDoCartao(l.descricao)
         if (motivo) return { ...base, destino: 'fora' as Destino, motivoFora: motivo, marcado: false }
       }
       // 2) entre contas da casa, pelo histórico

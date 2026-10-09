@@ -258,6 +258,13 @@ export function parcelaDe(descricao: string): [number, number] | null {
   const a = Number(m[1]), t = Number(m[2])
   return a >= 1 && t >= a ? [a, t] : null
 }
+/** A parcela que o CARTÃO numera (com a palavra) — a única que desloca a data. */
+function parcelaDoCartao(descricao: string): [number, number] | null {
+  const m = descricao.match(/PARC(?:ELA)?\.?\s*(\d{1,2})\s*(?:DE|\/)\s*(\d{1,2})/i)
+  if (!m) return null
+  const a = Number(m[1]), t = Number(m[2])
+  return a >= 1 && t >= a ? [a, t] : null
+}
 /** Soma meses a uma data ISO, segurando o dia no fim do mês (31/01 + 1 = 28/02). */
 function somaMeses(iso: string, meses: number): string {
   const [a, m, d] = iso.split('-').map(Number)
@@ -390,8 +397,12 @@ export function lerExtrato(
   })
   if (!opts.cartao) return out
   // Parcela no mês DELA (ver `opts`): a N-ésima de uma compra vai N−1 meses à frente.
+  // ⚠️ SÓ a parcela DO CARTÃO ("(Parcela 03 de 06)", "PARC 02/10"), que o banco
+  // lista com a data da compra original. "ALLIANZ SEGU*02 de 10" é a numeração
+  // da SEGURADORA e já vem com a data da cobrança: deslocar jogava a 2ª parcela
+  // (23/07) para 23/08 — fatura de 10/08/2026.
   return out.map(l => {
-    const p = parcelaDe(l.descricao)
+    const p = parcelaDoCartao(l.descricao)
     return p && p[0] > 1 ? { ...l, data: somaMeses(l.data, p[0] - 1) } : l
   })
 }
