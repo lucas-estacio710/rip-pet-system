@@ -54,6 +54,7 @@ import PelinhoTela from '@/components/contratos/farois/PelinhoTela'
 import PersonalizadosTela from '@/components/contratos/farois/PersonalizadosTela'
 import EntregaTela from '@/components/contratos/farois/EntregaTela'
 import PagamentoTela from '@/components/contratos/farois/PagamentoTela'
+import UrnaTela from '@/components/contratos/farois/UrnaTela'
 import { carregarTarefaEntrega } from '@/lib/tarefa-entrega'
 import { useToast } from '@/components/ui/Toast'
 import { usePopupHistory } from '@/hooks/usePopupHistory'
@@ -266,7 +267,7 @@ const STATUS_FLOW = [
  *   O `status` no banco continua `pinda`; muda só o rótulo.
  */
 /** Faróis que já têm tela própria no 2º nível do popup de pendências (cresce de 2.5 a 2.12). */
-const TELAS_FAROL = new Set<string>(['certificado', 'indicacao', 'foto', 'pelinho', 'entrega', 'rescaldo', 'pagamento'])
+const TELAS_FAROL = new Set<string>(['certificado', 'indicacao', 'foto', 'pelinho', 'entrega', 'rescaldo', 'pagamento', 'urna'])
 
 function etapasDoPipeline(fluxoLocal: boolean, cardNovo: boolean) {
   return STATUS_FLOW
@@ -4219,6 +4220,16 @@ ${petNome}`
     return true
   }
 
+  // Relê os totais de acessórios do contrato — o trigger da mig 074 os recalcula a cada
+  // mudança em contrato_produtos, e o farol 💵 depende deles.
+  async function recarregarValoresDoContrato(contratoId: string) {
+    const { data } = await supabase.from('contratos')
+      .select('valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste')
+      .eq('id', contratoId).single()
+    if (!data) return
+    setContratos(prev => prev.map(c => c.id === contratoId ? { ...c, ...(data as Partial<Contrato>) } : c))
+  }
+
   // Relê todos os produtos de um contrato (depois de concluir/atribuir pela tela nova).
   async function recarregarProdutosDoContrato(contratoId: string) {
     const { data } = await supabase
@@ -7933,7 +7944,29 @@ ${petNome}`
               abrirAntigo[id]?.(c)
             }}
             onVoltar={popupHist.voltar}
-            tela={popupHist.nivel >= 2 && farolTela === 'pagamento' && farolTelaContrato ? {
+            tela={popupHist.nivel >= 2 && farolTela === 'urna' ? {
+              emoji: '⚱️',
+              titulo: 'Urna',
+              conteudo: (() => {
+                const prods = c.contrato_produtos || []
+                const nenhum = prods.find(cp => cp.produto?.codigo === '0002')
+                return (
+                  <UrnaTela
+                    contratoId={c.id}
+                    unidadeId={c.unidade_id}
+                    petNome={c.pet_nome}
+                    urnasAtuais={prods.filter(cp => cp.produto?.tipo === 'urna' && !cp.id.startsWith('temp-')).map(cp => ({
+                      id: cp.id, produtoId: cp.produto_id, nome: cp.produto?.nome || 'Urna', codigo: cp.produto?.codigo || '',
+                      imagemUrl: cp.produto?.imagem_url ?? null, rescaldoTipo: cp.produto?.rescaldo_tipo ?? null, feito: !!cp.rescaldo_feito,
+                    }))}
+                    temNenhumPersonalizado={!!nenhum}
+                    onApagarNenhumPersonalizado={() => nenhum ? apagarRescaldoDe(c, nenhum.id, nenhum.produto_id) : Promise.resolve(true)}
+                    onMudou={async () => { await Promise.all([recarregarProdutosDoContrato(c.id), recarregarValoresDoContrato(c.id)]) }}
+                    onVoltar={popupHist.voltar}
+                  />
+                )
+              })(),
+            } : popupHist.nivel >= 2 && farolTela === 'pagamento' && farolTelaContrato ? {
               emoji: '💵',
               titulo: 'Pagamento',
               // Snapshot: o formulário nasce com o saldo de quando a tela abriu.
