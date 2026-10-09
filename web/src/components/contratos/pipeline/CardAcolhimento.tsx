@@ -74,8 +74,8 @@ export default function CardAcolhimento(p: Props) {
       className="rounded-lg border-2 border-dashed p-1.5 cursor-pointer"
       style={{ background: fundo, borderColor: corTipo }}>
 
-      {/* CELULAR (item 18) */}
-      <div className="md:hidden space-y-1">
+      {/* CELULAR e TABLET (item 18; P-17) */}
+      <div className="lg:hidden space-y-1">
         <TopoCardPet
           dataAcolhimento={null}
           lacre={null}
@@ -100,7 +100,7 @@ export default function CardAcolhimento(p: Props) {
       </div>
 
       {/* DESKTOP (D7) */}
-      <div className="hidden md:flex items-center gap-3">
+      <div className="hidden lg:flex items-center gap-3">
         <span className="pl-acolhendo flex-none">
           <Hourglass className="h-4 w-4 pl-ampulheta" />
           <span className="text-[10px] font-bold">acolhendo</span>

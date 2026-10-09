@@ -60,7 +60,7 @@ import CardViagem from '@/components/contratos/pipeline/CardViagem'
 import EsteiraGC from '@/components/contratos/pipeline/EsteiraGC'
 import CardAcolhimento from '@/components/contratos/pipeline/CardAcolhimento'
 import TrazerDaMatriz from '@/components/contratos/pipeline/TrazerDaMatriz'
-import { useIsMobile } from '@/hooks/useMediaQuery'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
 import AdicionarPetsViagem from '@/components/contratos/pipeline/AdicionarPetsViagem'
 import { carregarTarefaEntrega } from '@/lib/tarefa-entrega'
 import { useToast } from '@/components/ui/Toast'
@@ -484,8 +484,9 @@ function ContratosContent() {
   // ── Nicho + Trazer da Matriz (etapas 6 e 7) ──
   const [nichoAberto, setNichoAberto] = useState(false)
   const [trazerAberto, setTrazerAberto] = useState(false)
-  // Celular usa a tela nova do "Trazer da Matriz" (fase 2.14b); desktop segue com a tabela.
-  const ehCelular = useIsMobile()
+  // Celular E tablet usam a tela nova do "Trazer da Matriz" (2.14b; tablet desde o 2.17a, P-17);
+  // só o desktop (≥1024) segue com a tabela.
+  const ehCelular = useMediaQuery() !== 'desktop'
   const [trazerPets, setTrazerPets] = useState<PetNoNicho[]>([])
   const [trazerDatas, setTrazerDatas] = useState<Record<string, string>>({})       // contrato_id → data de volta
   const [trazerPresencial, setTrazerPresencial] = useState<Set<string>>(new Set()) // quem o tutor buscou em Pinda
@@ -4458,7 +4459,7 @@ ${petNome}`
             <>
             {/* CELULAR (2.13c): uma linha só, laranja forte — impossível não perceber que se
                 está dentro de uma viagem. ↳ [ST172] · data · responsável · ✏ · Enviar */}
-            <div className="md:hidden pl-pasta-laranja flex items-center gap-2 mt-1.5 px-2.5 py-1.5 rounded-lg min-w-0">
+            <div className="lg:hidden pl-pasta-laranja flex items-center gap-2 mt-1.5 px-2.5 py-1.5 rounded-lg min-w-0">
               <button onClick={() => setEncAberto(null)} className="flex items-center gap-1 flex-none" title={`Sair de ${encAberto}`}>
                 <CornerDownRight className="h-4 w-4" />
                 <span className="text-[13px] font-black px-1.5 py-0.5 rounded bg-white" style={{ color: '#ea580c' }}>{encAberto}</span>
@@ -4480,7 +4481,7 @@ ${petNome}`
                 </>
               )}
             </div>
-            <div className="hidden md:flex items-center gap-3 mt-1.5 ml-1 flex-wrap">
+            <div className="hidden lg:flex items-center gap-3 mt-1.5 ml-1 flex-wrap">
               {/* O caminho, com o MESMO quadradinho do card (pedido do Lucas): o número ganha
                   o box na cor da unidade, então o breadcrumb tem o peso visual de um título de
                   seção e não de uma legenda perdida. Clicar volta pra raiz. */}
@@ -4547,7 +4548,7 @@ ${petNome}`
   const botaoNovoEnc = encPipeline && statusFiltro === 'ativo' ? (
     <button
       onClick={abrirNovoEncaminhamento}
-      className="flex-shrink-0 hidden md:flex items-center gap-1 h-9 md:h-auto px-3 md:px-2 md:py-1 rounded-lg text-sm md:text-xs font-semibold bg-orange-600 text-white hover:bg-orange-700 transition-colors"
+      className="flex-shrink-0 hidden lg:flex items-center gap-1 h-9 md:h-auto px-3 md:px-2 md:py-1 rounded-lg text-sm md:text-xs font-semibold bg-orange-600 text-white hover:bg-orange-700 transition-colors"
       title="Criar um encaminhamento novo"
     >
       <Truck className="h-4 w-4 md:h-3.5 md:w-3.5" />+ Enc
@@ -5311,7 +5312,9 @@ ${petNome}`
                   <>
                     {/* DESKTOP — leitura vertical de sempre: faixa da viagem e card de pet
                         ocupam a mesma largura, um por linha. */}
-                    <div className="hidden md:block space-y-2">
+                    {/* P-17 (fase 2.17a): o card largo só a partir de `lg` — o tablet (768–1023)
+                        usa o layout do celular, porque o largo ficaria espremido. */}
+                    <div className="hidden lg:block space-y-2">
                       {/* DENTRO DA PASTA: só a viagem aberta, e nada mais — nem os outros
                           encaminhamentos, nem os pets soltos. É o que diferencia "entrar" de
                           "expandir": a lista inteira passa a ser o conteúdo da pasta. A faixa
@@ -5351,7 +5354,7 @@ ${petNome}`
                         de sempre; viagem com o card "pans" (toque = pasta, ⋮ = Adicionar /
                         Editar / Enviar); dentro da pasta, os pets com o MESMO card do Ativo,
                         um por linha, e "+ Adicionar pets". Sai o segurar-e-tocar. */}
-                    <div className="md:hidden space-y-2">
+                    <div className="lg:hidden space-y-2">
                       {grupos.filter(g => encAberto === null || g.numero === encAberto).map(grupo => {
                         if (grupo.numero === null) return grupo.contratos.map(c => <Fragment key={c.id}>{renderFn(c)}</Fragment>)
                         const numero = grupo.numero
@@ -5652,8 +5655,8 @@ ${petNome}`
                   />
                 )}
                 <div className="p-1.5 relative z-[1]">
-                  {/* === DESKTOP LAYOUT === */}
-                  <div className="hidden md:flex items-center gap-2">
+                  {/* === DESKTOP LAYOUT === (card novo: só a partir de `lg`, P-17) */}
+                  <div className={`hidden ${cardNovo ? 'lg:flex' : 'md:flex'} items-center gap-2`}>
                     {/* Coluna de ações: [DocMenu] sempre (exceto preventivo) + [Checkbox] em retorno/pendente */}
                     {contrato.status !== 'preventivo' && (
                       <div className="flex-shrink-0 flex flex-col items-center gap-1">
@@ -5951,8 +5954,8 @@ ${petNome}`
                     </div>
                   </div>
 
-                  {/* === MOBILE LAYOUT === */}
-                  <div className="md:hidden space-y-1">
+                  {/* === MOBILE LAYOUT === (card novo: também no tablet, P-17) */}
+                  <div className={`${cardNovo ? 'lg:hidden' : 'md:hidden'} space-y-1`}>
                     {/* Bloco topo. Com o card novo (obj_enc_pipeline, fase 2.2) entra o TopoCardPet:
                         data · lacre·nome·IND · peso / tutor com WhatsApp · raça|cor — sem DOC,
                         fonte e local (item 2). Sem a chave, o topo antigo abaixo, intocado. */}
@@ -8109,7 +8112,7 @@ ${petNome}`
           some com menu ⋮ ou qualquer popup/modal aberto. */}
       {encPipeline && statusFiltro === 'ativo' && encAberto === null && !menuCardViagemAberto
         && popupHist.nivel === 0 && !encFormAberto && !addPetsViagem && !enviarModal && (
-        <button onClick={abrirNovoEncaminhamento} className="pl-fab md:hidden" title="Novo encaminhamento" aria-label="Novo encaminhamento">
+        <button onClick={abrirNovoEncaminhamento} className="pl-fab lg:hidden" title="Novo encaminhamento" aria-label="Novo encaminhamento">
           <Plus className="h-7 w-7" strokeWidth={2.75} />
         </button>
       )}
