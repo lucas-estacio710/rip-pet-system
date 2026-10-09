@@ -30,6 +30,8 @@ export type LinhaExtrato = {
   /** nenhuma marca de sinal (-, D, parênteses) e nada pra conferir: mostrar pra pessoa olhar */
   sinalIncerto: boolean
   original: string
+  /** ID do lançamento dado pelo banco — só quando veio de OFX (lib/ofx.ts) */
+  fitid?: string
 }
 
 // ════════════════════════════════════════════════════════════════════════════

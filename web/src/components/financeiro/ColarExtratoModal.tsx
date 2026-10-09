@@ -38,6 +38,7 @@ import {
 import { criarIndice, sugerir, type Sugestao } from '@/lib/similaridade'
 import { buscarCategorias, sugerirPorSinonimo, type CategoriaBuscavel } from '@/lib/busca-categoria'
 import { conciliar, semPar, type RegistroSistema, type Ref } from '@/lib/conciliacao'
+import { ehOFX, lerOFX, textoDoArquivo, type ExtratoOFX } from '@/lib/ofx'
 import { reconhecerCobranca } from '@/lib/reconhecer-cobranca'
 
 type ContaRow = { id: string; nome: string; produto: string | null; tipo: string | null; preferencial_recebimento: boolean | null }
@@ -117,9 +118,12 @@ type Item = LinhaExtrato & {
   estorno: boolean
 }
 
-/** Crédito na fatura: "+ R$ 1,20" (Inter) ou texto de estorno/reembolso. */
-const creditoNoCartao = (l: { original: string; descricao: string }) =>
-  /\+\s*R\$/.test(l.original) || (foraDoCartao(l.descricao) || '').startsWith('estorno')
+/** Crédito na fatura: "+ R$ 1,20" (Inter) ou texto de estorno/reembolso. No
+ *  OFX o sinal é confiável: positivo que não é o pagamento da fatura. */
+const creditoNoCartao = (l: { original: string; descricao: string; valor: number; fitid?: string }) =>
+  l.fitid
+    ? l.valor > 0 && !(foraDoCartao(l.descricao) || '').startsWith('pagamento')
+    : /\+\s*R\$/.test(l.original) || (foraDoCartao(l.descricao) || '').startsWith('estorno')
 
 /** A chave do "entre contas": o nome entre aspas / do favorecido, sem número. */
 const chaveEntre = (d: string) => (fornecedorDe(d) || d).normalize('NFD').toLowerCase()
@@ -146,6 +150,8 @@ export default function ColarExtratoModal({
   const { currentUnit, userName } = useUnit()
 
   const [texto, setTexto] = useState('')
+  // O ARQUIVO OFX (09/10/2026): quando vem, ele é a fonte — não o texto.
+  const [ofx, setOfx] = useState<{ nome: string; dados: ExtratoOFX } | null>(null)
   const [itens, setItens] = useState<Item[]>([])
   const [contas, setContas] = useState<ContaRow[]>([])
   const [contaId, setContaId] = useState('')         // de QUAL conta é o extrato
@@ -219,7 +225,7 @@ export default function ColarExtratoModal({
   // As contas da unidade (as dela + as compartilhadas com ela), sem legado.
   useEffect(() => {
     if (!aberto || !currentUnit?.id) return
-    setTexto(''); setItens([])
+    setTexto(''); setItens([]); setOfx(null)
     void supabase.from('contas')
       .select('id, nome, produto, tipo, preferencial_recebimento')
       .or(`unidade_id.eq.${currentUnit.id},unidades_extras.cs.{${currentUnit.id}}`)
@@ -234,12 +240,17 @@ export default function ColarExtratoModal({
       })
   }, [aberto, currentUnit?.id, supabase])
 
-  async function ler() {
+  async function ler(deArquivo?: ExtratoOFX) {
     if (!contaId) return toast('Escolha de qual conta é o extrato', 'error')
     const ano = Number(mes.slice(0, 4)) || new Date().getFullYear()
+    // OFX: do arquivo enviado ou colado no campo de texto.
+    const fonteOfx = deArquivo ?? ofx?.dados ?? (ehOFX(texto) ? lerOFX(texto) : null)
+    if (fonteOfx && fonteOfx.cartao !== ehCartao) {
+      toast(fonteOfx.cartao ? 'Este OFX é de cartão — confira a conta escolhida' : 'Este OFX é de conta corrente — confira a conta escolhida', 'error')
+    }
     // No cartão o sinal do banco não serve: há fatura que lista a compra positiva.
     // Toda linha que não é pagamento nem estorno é COMPRA, e compra é saída.
-    const linhas = lerExtrato(texto, ano, undefined, { cartao: ehCartao }).map(l => {
+    const linhas = (fonteOfx ? fonteOfx.linhas : lerExtrato(texto, ano, undefined, { cartao: ehCartao })).map(l => {
       if (!ehCartao) return l
       if (creditoNoCartao(l)) return { ...l, valor: Math.abs(l.valor) }   // estorno: entra
       return foraDoCartao(l.descricao) ? l : { ...l, valor: -Math.abs(l.valor) }
@@ -375,6 +386,17 @@ export default function ColarExtratoModal({
       }
     }
 
+    // FITID já visto nesta conta (mig 158): a linha foi importada antes, mesmo
+    // que o registro tenha mudado de data/valor desde então.
+    const fitidVisto = new Set<string>()
+    const fitids = linhas.map(l => l.fitid).filter((f): f is string => !!f)
+    for (let k = 0; k < fitids.length; k += 150) {
+      const { data: fv, error: efv } = await supabase.from('fin_conciliacoes').select('fitid')
+        .eq('conta_id', contaId).in('fitid', fitids.slice(k, k + 150))
+      if (efv) break                                   // sem a mig 158: segue sem
+      for (const r of (fv as { fitid: string }[] | null) || []) fitidVisto.add(r.fitid)
+    }
+
     setItens(linhas.map(l => {
       const base = {
         ...l, jaNoSistema: null as string | null, motivoFora: null as string | null, marcado: true,
@@ -390,6 +412,10 @@ export default function ColarExtratoModal({
       if (par) {
         const rot = par.tipo === 'contrato' ? `${par.candidatos[0].rotulo} (${par.candidatos.length} pagamentos)` : par.candidatos[0].rotulo
         return { ...base, destino: 'fora' as Destino, jaNoSistema: rot, exatos: par.candidatos, marcado: false }
+      }
+      if (l.fitid && fitidVisto.has(l.fitid)) {
+        return { ...base, destino: 'fora' as Destino, marcado: false,
+                 jaNoSistema: 'a mesma linha já importada antes (ID do banco)' }
       }
       if (estornadas.has(l.n)) {
         return { ...base, destino: 'fora' as Destino, marcado: false,
@@ -534,11 +560,12 @@ export default function ColarExtratoModal({
       const { data: { user } } = await supabase.auth.getUser()
       const agora = new Date().toISOString()
       // A CONCILIAÇÃO de cada linha (mig 153): linha do banco ↔ registro.
-      type Conc = { conta_id: string; origem: Ref['origem']; origem_id: string; data_banco: string; valor_banco: number; texto_banco: string; como: string; criado_por_nome: string | null }
+      type Conc = { conta_id: string; origem: Ref['origem']; origem_id: string; data_banco: string; valor_banco: number; texto_banco: string; como: string; criado_por_nome: string | null; fitid?: string | null }
       const concs: Conc[] = []
       const conc = (i: Item, refs: Ref[], como: string) => refs.forEach(r => concs.push({
         conta_id: contaId, origem: r.origem, origem_id: r.origem_id, data_banco: i.data,
         valor_banco: i.valor, texto_banco: i.descricao, como, criado_por_nome: userName || null,
+        ...(i.fitid ? { fitid: i.fitid } : {}),
       }))
       for (const i of exatosParaConciliar) conc(i, i.exatos.flatMap(r => r.refs), 'exato')
 
@@ -669,8 +696,13 @@ export default function ColarExtratoModal({
       // Por último, e sem derrubar o que já entrou: se a mig 153 ainda não rodou,
       // os lançamentos ficam e só o selo de conciliado falta.
       if (concs.length) {
-        const { error } = await supabase.from('fin_conciliacoes')
+        let { error } = await supabase.from('fin_conciliacoes')
           .upsert(concs, { onConflict: 'conta_id,origem,origem_id', ignoreDuplicates: true })
+        // Sem a mig 158 a coluna `fitid` não existe: grava sem ela.
+        if (error && /fitid/i.test(error.message)) {
+          ({ error } = await supabase.from('fin_conciliacoes')
+            .upsert(concs.map(c => { const sem = { ...c }; delete sem.fitid; return sem }), { onConflict: 'conta_id,origem,origem_id', ignoreDuplicates: true }))
+        }
         if (error) toast(`Registrado, mas a conciliação não foi gravada: ${error.message}`, 'error')
       }
       toast(`${recProntas.length} receitas a prazo · ${entreProntas.length} entre contas · ${despProntas.length} despesas · ${concs.length} conciliados`, 'success')
@@ -1172,7 +1204,7 @@ export default function ColarExtratoModal({
             </>}
             {pendentes > 0 && <span className="text-amber-500"> Falta decidir {pendentes}.</span>}
           </span>
-          <button onClick={() => { setItens([]); setPlacar(null) }} className="btn-secondary text-sm">Colar outro texto</button>
+          <button onClick={() => { setItens([]); setPlacar(null); setOfx(null) }} className="btn-secondary text-sm">Colar outro texto</button>
           <button onClick={() => void registrar()} disabled={salvando || conferir === 0} className="btn-primary text-sm">
             {salvando ? <><Loader2 className="h-4 w-4 animate-spin" /> Registrando…</> : 'Registrar e conferir'}
           </button>
@@ -1180,7 +1212,7 @@ export default function ColarExtratoModal({
       ) : (
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="btn-secondary text-sm">Cancelar</button>
-          <button onClick={() => void ler()} disabled={!texto.trim() || lendo || !contaId} className="btn-primary text-sm">
+          <button onClick={() => void ler()} disabled={(!texto.trim() && !ofx) || lendo || !contaId} className="btn-primary text-sm">
             {lendo ? <><Loader2 className="h-4 w-4 animate-spin" /> Lendo…</> : <><ClipboardPaste className="h-4 w-4" /> Ler o extrato</>}
           </button>
         </div>
@@ -1234,6 +1266,27 @@ export default function ColarExtratoModal({
               Do jeito que veio do banco — um dia, uma semana, tudo misturado. Cada linha é conferida com o que já
               está no sistema; só o que for novo vira lançamento.
             </span>
+            {/* OFX: o formato padrão dos bancos — data, sinal, ID e saldo sem adivinhação */}
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <label className="text-sm font-medium px-3 py-1.5 rounded-[10px] border border-[var(--surface-300)] text-[var(--surface-800)] hover:bg-[var(--surface-100)] cursor-pointer">
+                ou envie o arquivo OFX
+                <input type="file" accept=".ofx,.OFX,application/x-ofx" className="sr-only"
+                       onChange={async e => {
+                         const arq = e.target.files?.[0]
+                         e.target.value = ''
+                         if (!arq) return
+                         const t = await textoDoArquivo(arq)
+                         if (!ehOFX(t)) return toast('Esse arquivo não parece um OFX', 'error')
+                         const dados = lerOFX(t)
+                         if (!dados.linhas.length) return toast('O OFX não trouxe nenhum lançamento', 'error')
+                         setOfx({ nome: arq.name, dados })
+                         void ler(dados)
+                       }} />
+              </label>
+              <span className="text-xs text-[var(--surface-500)]">
+                {ofx ? `${ofx.nome} · ${ofx.dados.linhas.length} lançamentos` : 'no app do banco: Extrato › Exportar › OFX — vem com o saldo e um ID por lançamento'}
+              </span>
+            </div>
           </div>
         </div>
       ) : (
