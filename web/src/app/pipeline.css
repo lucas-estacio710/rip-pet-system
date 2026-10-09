@@ -507,3 +507,6 @@
   .pl-viagem-war { animation: none; }
   .pl-ampulheta { animation: none; }
 }
+
+/* Resumo ✓⏱ "baixinho" (24px) na linha do tutor — Entrega/Pendente (fase 2.16, item 36). */
+.pl-vidro.pl-vidro-baixo { height: 24px; padding: 0 7px; gap: 5px; font-size: 11px; border-radius: 7px; }

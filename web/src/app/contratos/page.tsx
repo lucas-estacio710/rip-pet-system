@@ -430,7 +430,9 @@ function ContratosContent() {
 
   // As 3 etapas que agrupam por viagem no fluxo novo. `finalizado` fica de fora de
   // propósito — ver `cargaTotalDaEtapa` em carregarContratos().
-  const ETAPAS_AGRUPADAS = ['ativo', 'pinda', 'retorno']
+  // `pendente` entrou na fase 2.16 (item 39): mesmo desenho da Entrega, e paginada de 30 o
+  // 📏 CEP ordenava só o pedaço carregado. Medido 08/10: 7 contratos em pendente no total.
+  const ETAPAS_AGRUPADAS = ['ativo', 'pinda', 'retorno', 'pendente']
 
   // Cor da unidade ativa — badge do número da viagem, anel de seleção e borda da barra
   // de seleção. No escopo do componente porque a barra do celular vive fora da IIFE
@@ -1942,6 +1944,32 @@ function ContratosContent() {
              className="px-1.5 py-1 rounded text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25" title="Abrir no Google Maps">Maps</a>
         </div>
       </div>
+    )
+  }
+
+  // Endereço do tutor no TRILHO do card novo (Entrega/Pendente — itens 36 e 39): 📍 vermelho,
+  // rua/nº/compl. em negrito e bairro · cidade embaixo. Cadastro do tutor primeiro, snapshot do
+  // contrato de fallback (mesma regra de `renderEnderecoEntrega`). Navegar fica nas Ações.
+  function renderEnderecoNoTrilho(contrato: Contrato): React.ReactNode {
+    const t = contrato.tutor
+    const logradouro = (t?.endereco || contrato.tutor_endereco || '').trim()
+    const numero = (t?.numero || '').trim()
+    const compl = (t?.complemento || '').trim()
+    const bairro = (t?.bairro || contrato.tutor_bairro || '').trim()
+    const cidade = (t?.cidade || contrato.tutor_cidade || '').trim()
+    if (!logradouro && !bairro && !cidade) {
+      return <span className="text-[12px] font-semibold text-amber-500">⚠ sem endereço do tutor</span>
+    }
+    const linha1 = [logradouro, numero].filter(Boolean).join(', ') + (compl ? ` — ${compl}` : '')
+    const linha2 = [bairro, cidade].filter(Boolean).join(' · ')
+    return (
+      <span className="flex items-start gap-1 min-w-0">
+        <MapPin className="h-4 w-4 flex-none mt-px" style={{ color: '#dc2626' }} />
+        <span className="min-w-0 leading-tight">
+          <span className="block text-[12.5px] font-bold truncate" style={{ color: 'var(--surface-800)' }} title={linha1}>{linha1 || '—'}</span>
+          {linha2 && <span className="block text-[11.5px] truncate" style={{ color: 'var(--surface-500)' }} title={linha2}>{linha2}</span>}
+        </span>
+      </span>
     )
   }
 
@@ -5942,6 +5970,18 @@ ${petNome}`
                         telefone={contrato.tutor?.telefone || contrato.tutor_telefone}
                         raca={contrato.pet_raca}
                         cor={contrato.pet_cor}
+                        noLugarDaRaca={(contrato.status === 'retorno' || contrato.status === 'pendente') ? (() => {
+                          const r = resumoDoCard(contrato)
+                          if (!r) return undefined
+                          return (
+                            <button type="button" className="pl-vidro pl-vidro-baixo"
+                              onClick={e => { e.stopPropagation(); setFarolContratoId(contrato.id); setFarolAnimar(true); popupHist.abrir() }}
+                              style={{ '--pl-c': r.pendentes > 0 ? '#f59e0b' : '#22c55e' } as React.CSSProperties}
+                              title={`${r.feitos} concluída(s) · ${r.pendentes} pendente(s)`}>
+                              <span>✓ {r.feitos}</span><span>⏱ {r.pendentes}</span>
+                            </button>
+                          )
+                        })() : undefined}
                       />
                     ) : (
                     <div className="flex items-stretch gap-1.5">
@@ -6158,7 +6198,10 @@ ${petNome}`
                       return (
                         <>
                           <TrilhoCardPet
-                            resumo={tagsCard ? { feitos, pendentes } : null}
+                            // Entrega/Pendente (itens 36 e 39): o resumo sobe pra linha do tutor e o
+                            // trilho mostra PRA ONDE VAI — o endereço do tutor.
+                            resumo={tagsCard && !naEntrega ? { feitos, pendentes } : null}
+                            inicio={naEntrega ? renderEnderecoNoTrilho(contrato) : undefined}
                             resumoAberto={farolContratoId === contrato.id}
                             onResumo={() => { setFarolContratoId(contrato.id); setFarolAnimar(true); popupHist.abrir() }}
                             acoes={acoes}

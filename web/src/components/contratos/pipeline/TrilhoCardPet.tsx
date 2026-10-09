@@ -23,9 +23,11 @@ type Props = {
   extras?: ReactNode
   /** Botões da gaveta, já na ordem (Waze/Maps primeiro). Vazio = sem botão "Ações". */
   acoes: ReactNode[]
+  /** Ocupa o espaço à esquerda até as Ações (ex.: o endereço do tutor na Entrega — item 36). */
+  inicio?: ReactNode
 }
 
-export default function TrilhoCardPet({ resumo, resumoAberto, onResumo, extras, acoes }: Props) {
+export default function TrilhoCardPet({ resumo, resumoAberto, onResumo, extras, acoes, inicio }: Props) {
   const [gaveta, setGaveta] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -54,7 +56,7 @@ export default function TrilhoCardPet({ resumo, resumoAberto, onResumo, extras, 
           <span>⏱ {resumo.pendentes}</span>
         </button>
       )}
-      <div className="flex-1" />
+      {inicio ? <div className="flex-1 min-w-0">{inicio}</div> : <div className="flex-1" />}
       {extras}
       {acoes.length > 0 && (
         <>
