@@ -188,6 +188,9 @@ export default function LancamentosTab({ somenteLeitura = false, comando = null,
   const [nivel1, setNivel1] = useState<string | null>(null)
   const [nivel2, setNivel2] = useState<string | null>(null)
   const [valor, setValor] = useState('')
+  // Estorno (valor negativo, 09/10/2026): o campo mostra o valor sem sinal e o
+  // update devolve o sinal — senão editar um estorno o viraria em despesa.
+  const [editEstorno, setEditEstorno] = useState(false)
   const [data, setData] = useState(hojeISO())
   /**
    * COMO FOI PAGO — de volta à tela em 13/09/2026, mas com outro papel.
@@ -553,7 +556,7 @@ export default function LancamentosTab({ somenteLeitura = false, comando = null,
     setDestinos([]); setMetodo(''); setMaisOpcoes(false)
     setDataOutra(false); setCaixaOutra(false)
     setAberto(false)
-    setEditandoId(null)
+    setEditandoId(null); setEditEstorno(false)
   }
 
   /** Abre o modal com o lançamento carregado. */
@@ -561,7 +564,8 @@ export default function LancamentosTab({ somenteLeitura = false, comando = null,
     if (somenteLeitura) return
     setEditandoId(l.id)
     setCatId(l.categoria_id || '')
-    setValor(l.valor ? numeroParaDigitos(Number(l.valor)) : '')
+    setEditEstorno(Number(l.valor) < 0)
+    setValor(l.valor ? numeroParaDigitos(Math.abs(Number(l.valor))) : '')
     setData((l.data_competencia || '').slice(0, 10))
     setFornecedor(l.fornecedor_nome || '')
     setDescricao(l.descricao || '')
@@ -654,7 +658,7 @@ export default function LancamentosTab({ somenteLeitura = false, comando = null,
         conta_nome: conta?.nome || null,
         natureza: duravel === true ? 'capex' : (conta?.natureza || 'opex'),
         descricao: descricao.trim() || null,
-        valor: v,
+        valor: editandoId && editEstorno ? -v : v,
         data_competencia,
         data_caixa,
         // `status` e `origem` NÃO entram aqui: são de criação. No update,
@@ -944,11 +948,12 @@ export default function LancamentosTab({ somenteLeitura = false, comando = null,
               <span
                 className="text-mono text-sm shrink-0"
                 style={{
-                  color: l.status === 'rejeitado' ? 'var(--surface-400)' : 'var(--surface-800)',
+                  color: l.status === 'rejeitado' ? 'var(--surface-400)' : Number(l.valor) < 0 ? '#10b981' : 'var(--surface-800)',
                   textDecoration: l.status === 'rejeitado' ? 'line-through' : undefined,
                 }}
+                title={Number(l.valor) < 0 ? 'Estorno: abate a despesa da categoria e a fatura' : undefined}
               >
-                {fmtBRL(l.valor)}
+                {Number(l.valor) < 0 ? <><span className="text-[10px] mr-1">estorno</span>−{fmtBRL(Math.abs(Number(l.valor)))}</> : fmtBRL(l.valor)}
               </span>
               {!travadaAqui && (
                 <button

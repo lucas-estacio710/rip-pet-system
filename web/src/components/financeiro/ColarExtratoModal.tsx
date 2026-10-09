@@ -111,7 +111,15 @@ type Item = LinhaExtrato & {
    *  despesa. `entreHist`: veio do histórico ("como das outras vezes"). */
   entreConta: string
   entreHist: boolean
+  /** ESTORNO no cartão (09/10/2026): crédito na fatura ("+ R$", "ESTORNO…") vira
+   *  lançamento NEGATIVO na mesma fatura, com a categoria da compra original —
+   *  abate a fatura e a despesa da DRE. O banco aceita (`valor <> 0`, mig 103). */
+  estorno: boolean
 }
+
+/** Crédito na fatura: "+ R$ 1,20" (Inter) ou texto de estorno/reembolso. */
+const creditoNoCartao = (l: { original: string; descricao: string }) =>
+  /\+\s*R\$/.test(l.original) || (foraDoCartao(l.descricao) || '').startsWith('estorno')
 
 /** A chave do "entre contas": o nome entre aspas / do favorecido, sem número. */
 const chaveEntre = (d: string) => (fornecedorDe(d) || d).normalize('NFD').toLowerCase()
@@ -231,8 +239,11 @@ export default function ColarExtratoModal({
     const ano = Number(mes.slice(0, 4)) || new Date().getFullYear()
     // No cartão o sinal do banco não serve: há fatura que lista a compra positiva.
     // Toda linha que não é pagamento nem estorno é COMPRA, e compra é saída.
-    const linhas = lerExtrato(texto, ano, undefined, { cartao: ehCartao }).map(l =>
-      ehCartao && !foraDoCartao(l.descricao) ? { ...l, valor: -Math.abs(l.valor) } : l)
+    const linhas = lerExtrato(texto, ano, undefined, { cartao: ehCartao }).map(l => {
+      if (!ehCartao) return l
+      if (creditoNoCartao(l)) return { ...l, valor: Math.abs(l.valor) }   // estorno: entra
+      return foraDoCartao(l.descricao) ? l : { ...l, valor: -Math.abs(l.valor) }
+    })
     if (!linhas.length) { setItens([]); return toast('Nenhuma linha com data e valor no texto colado', 'error') }
     setLendo(true)
     const datas = linhas.map(l => l.data).sort()
@@ -372,7 +383,7 @@ export default function ColarExtratoModal({
         metodo: ehCartao ? 'credito' : (metodoDe(l.descricao) || 'pix'), fornecedor: fornecedorDe(l.descricao),
         doHistorico: false, porSinonimo: false, palpite: '', sugestoes: [] as Sugestao<Decisao>[],
         partes: [] as Parte[], meses: 1, outras: [] as ParaUnidade[],
-        entreConta: '', entreHist: false,
+        entreConta: '', entreHist: false, estorno: false,
       }
       // 1) já está no sistema?
       const par = exatoDe(l.n)
@@ -385,12 +396,10 @@ export default function ColarExtratoModal({
                  motivoFora: 'estornado no mesmo dia — a saída e o estorno se anulam' }
       }
       // 2a) cartão: pagamento da fatura e estorno não são compra
-      if (ehCartao) {
-        // "+ R$ 1,20" na fatura do Inter é CRÉDITO, não compra (o leitor força
-        // compra no cartão porque há fatura que lista a compra positiva).
-        const motivo = /\+\s*R\$/.test(l.original)
-          ? 'crédito na fatura (+) — abate a fatura, não é compra; desconte do lançamento original'
-          : foraDoCartao(l.descricao)
+      // Crédito na fatura NÃO é fora: é estorno, segue como despesa negativa.
+      const estorno = ehCartao && creditoNoCartao(l)
+      if (ehCartao && !estorno) {
+        const motivo = foraDoCartao(l.descricao)
         if (motivo) return { ...base, destino: 'fora' as Destino, motivoFora: motivo, marcado: false }
       }
       // 2) entre contas da casa, pelo histórico
@@ -404,7 +413,7 @@ export default function ColarExtratoModal({
       // 3) o histórico, só com decisões compatíveis com a direção do dinheiro
       const r = sugerir(indice, l.descricao, undefined, { max: 3 })
       const validas = r.sugestoes.filter(s => s.decisao.tipo === 'despesa'
-        ? l.valor < 0
+        ? l.valor < 0 || estorno
         : !!s.decisao.mov && ENTRA_MOV[s.decisao.mov] === (l.valor > 0))
       const top = validas[0]
       const alta = r.confianca === 'alta' && top === r.sugestoes[0]
@@ -417,7 +426,7 @@ export default function ColarExtratoModal({
       if (destino === 'receita' && !permiteReceitas) destino = l.valor < 0 ? 'despesa' : 'fora'
       if (ehCartao) destino = 'despesa'
 
-      const item: Item = { ...base, destino, sugestoes: validas }
+      const item: Item = { ...base, destino, sugestoes: validas, estorno }
       if (destino === 'fora') {
         item.marcado = false
         item.motivoFora = /pix recebido|transfer/i.test(l.descricao)
@@ -529,7 +538,7 @@ export default function ColarExtratoModal({
         if (reg.ajustavel && (Math.abs(reg.valor - i.valor) >= 0.005 || reg.data !== i.data)) {
           const { error } = await supabase.from('fin_lancamentos')
             .update(ehCartao
-              ? { valor: Math.abs(i.valor), data_competencia: i.data }
+              ? { valor: i.estorno ? -Math.abs(i.valor) : Math.abs(i.valor), data_competencia: i.data }
               : { valor: Math.abs(i.valor), data_caixa: i.data })
             .eq('id', reg.ajustavel)
           if (error) throw new Error(`Ajustar "${reg.rotulo}": ${error.message}`)
@@ -581,7 +590,7 @@ export default function ColarExtratoModal({
           principal.set(i.n, donos.length)
           const divisao_id = i.partes.length ? crypto.randomUUID() : null
           const pedacos = [
-            { catId: i.catId, valor: i.partes.length ? restanteDe(i) : Math.abs(i.valor) },
+            { catId: i.catId, valor: i.estorno ? -Math.abs(i.valor) : i.partes.length ? restanteDe(i) : Math.abs(i.valor) },
             ...i.partes.map(pt => ({ catId: pt.catId, valor: digNum(pt.valor) })),
           ]
           return pedacos.map(pd => {
@@ -706,6 +715,7 @@ export default function ColarExtratoModal({
           <span className="text-xs text-[var(--surface-400)]">{dataCurta(i.data)}</span>
           <span className="text-sm text-[var(--surface-600)] truncate" title={i.original}>
             {i.descricao}
+            {i.estorno && <span className="ml-1.5 px-1.5 rounded-full text-[10px] font-medium bg-emerald-500/15 text-emerald-500" title="Crédito na fatura: entra negativo, abate a fatura e a despesa da categoria">estorno</span>}
             {i.fornecedor && i.destino === 'despesa' && <span className="text-[var(--surface-400)]"> · {i.fornecedor}</span>}
           </span>
           {/* A DECISÃO — categoria (despesa) ou o que a maquininha fez (recebimento) */}
@@ -793,19 +803,19 @@ export default function ColarExtratoModal({
           <button type="button" onClick={alternar} className="text-[11px] text-[var(--surface-400)] hover:text-[var(--surface-700)]">
             {aberta ? 'fechar' : i.destino === 'despesa' ? 'fornecedor · forma de pagamento' : 'maquininha · movimento'}
           </button>
-          {i.destino === 'despesa' && i.outras.length === 0 && i.partes.length === 0 && unidades.length > 0 && (
+          {i.destino === 'despesa' && !i.estorno && i.outras.length === 0 && i.partes.length === 0 && unidades.length > 0 && (
             <button type="button" className="text-[11px] text-[var(--surface-400)] hover:text-[var(--surface-700)]"
                     onClick={() => muda(i.n, { outras: [{ key: crypto.randomUUID(), unidadeId: '', valor: '', modo: 'repasse', repasseId: '' }] })}>
               foi para outras unidades
             </button>
           )}
-          {i.destino === 'despesa' && i.partes.length === 0 && i.outras.length === 0 && (
+          {i.destino === 'despesa' && !i.estorno && i.partes.length === 0 && i.outras.length === 0 && (
             <button type="button" className="text-[11px] text-[var(--surface-400)] hover:text-[var(--surface-700)]"
                     onClick={() => muda(i.n, { partes: [{ key: crypto.randomUUID(), catId: '', catTexto: '', valor: '' }] })}>
               dividir em categorias
             </button>
           )}
-          {i.destino === 'despesa' && i.meses === 1 && (
+          {i.destino === 'despesa' && !i.estorno && i.meses === 1 && (
             <button type="button" className="text-[11px] text-[var(--surface-400)] hover:text-[var(--surface-700)]"
                     onClick={() => muda(i.n, { meses: 12 })}>
               vale por vários meses
