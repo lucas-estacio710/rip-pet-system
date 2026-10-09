@@ -522,3 +522,16 @@
 @media (prefers-reduced-motion: reduce) {
   .pl-dock a, .pl-dock button { transform: none; margin: 0; transition: none; }
 }
+
+/* Viagem larga no desktop (fase 2.17d, D4): arrastando um pet por cima ela ganha contorno
+   tracejado laranja; ao receber, dá um "pulso". */
+.pl-viagem-alvo { outline: 3px dashed #ea580c; outline-offset: 3px; transform: scale(1.01); }
+.pl-viagem-recebeu { animation: pl-viagem-pulso 0.9s ease-out 1; }
+@keyframes pl-viagem-pulso {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, #f97316 60%, transparent); }
+  100% { box-shadow: 0 0 0 14px transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pl-viagem-recebeu { animation: none; }
+  .pl-viagem-alvo { transform: none; }
+}

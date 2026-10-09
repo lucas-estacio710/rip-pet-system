@@ -2,7 +2,7 @@
 
 import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { AlertTriangle, ArrowDown, ArrowUp, Calendar, CalendarClock, Check, CheckCheck, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Copy, CornerDownRight, DollarSign, Flame, FolderOpen, Loader2, MapPin, MoreVertical, Move, Navigation, Package, PawPrint, Pencil, Plus, Printer, Scale, Search, SearchCheck, Star, Tag, Trash2, Truck, Unlink, User, Weight, X, XCircle } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, Calendar, CalendarClock, Check, CheckCheck, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Copy, CornerDownRight, Flame, Loader2, MapPin, Move, Navigation, Package, PawPrint, Pencil, Plus, Printer, Search, SearchCheck, Star, Trash2, Truck, Unlink, Weight, X, XCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { sanitizeBuscaPostgrest } from '@/lib/sanitize'
 import Link from 'next/link'
@@ -470,13 +470,15 @@ function ContratosContent() {
   const [encForm, setEncForm] = useState({ numero: '', data: '', responsavel: '', observacoes: '' })
   const [encFormPets, setEncFormPets] = useState<Contrato[]>([])
   const [salvandoEnc, setSalvandoEnc] = useState(false)
-  const [menuViagem, setMenuViagem] = useState<string | null>(null)
+  // O menu ⋯ antigo da faixa saiu no 2.17d (o card novo tem o seu); o setter segue fechando-o.
+  const [, setMenuViagem] = useState<string | null>(null)
   // Fase 2.13c: "+ Adicionar pets" da viagem, confirmação de tirar pet (popup próprio, nunca
   // confirm()), data original no Editar ("era 05/out") e menu ⋮ aberto (esconde a bola).
   const [addPetsViagem, setAddPetsViagem] = useState<{ id: string; numero: string } | null>(null)
   const [tirarPetConfirm, setTirarPetConfirm] = useState<Contrato | null>(null)
   const [encDataOriginal, setEncDataOriginal] = useState('')
-  const [menuCardViagemAberto, setMenuCardViagemAberto] = useState(false)   // número da viagem com o menu "⋯" aberto
+  const [menuCardViagemAberto, setMenuCardViagemAberto] = useState(false)
+  const [viagemRecebeu, setViagemRecebeu] = useState<string | null>(null)   // 2.17d: "pulso" ao receber   // número da viagem com o menu "⋯" aberto
   // ── Enviar para a Matriz (etapa 4) — o botão irreversível ──
   const [enviarModal, setEnviarModal] = useState<{ id: string; numero: string; data: string | null } | null>(null)
   const [enviarPets, setEnviarPets] = useState<PetDaViagem[]>([])
@@ -1998,9 +2000,6 @@ function ContratosContent() {
     }
     return { total: cs.length, comLacre, pagos, ind, col, peso }
   }
-
-  // Cor de um par do placar: verde quando fecha, âmbar quando falta alguém (§9.1).
-  const corPlacar = (ok: boolean) => (ok ? '#22c55e' : '#f59e0b')
 
   const chipsTipo = (p: ReturnType<typeof calcularPlacar>) => (
     <>
@@ -4573,7 +4572,7 @@ ${petNome}`
             <>
             {/* CELULAR (2.13c): uma linha só, laranja forte — impossível não perceber que se
                 está dentro de uma viagem. ↳ [ST172] · data · responsável · ✏ · Enviar */}
-            <div className="lg:hidden pl-pasta-laranja flex items-center gap-2 mt-1.5 px-2.5 py-1.5 rounded-lg min-w-0">
+            <div className="pl-pasta-laranja flex items-center gap-2 mt-1.5 px-2.5 py-1.5 rounded-lg min-w-0">
               <button onClick={() => setEncAberto(null)} className="flex items-center gap-1 flex-none" title={`Sair de ${encAberto}`}>
                 <CornerDownRight className="h-4 w-4" />
                 <span className="text-[13px] font-black px-1.5 py-0.5 rounded bg-white" style={{ color: '#ea580c' }}>{encAberto}</span>
@@ -4595,64 +4594,6 @@ ${petNome}`
                 </>
               )}
             </div>
-            <div className="hidden lg:flex items-center gap-3 mt-1.5 ml-1 flex-wrap">
-              {/* O caminho, com o MESMO quadradinho do card (pedido do Lucas): o número ganha
-                  o box na cor da unidade, então o breadcrumb tem o peso visual de um título de
-                  seção e não de uma legenda perdida. Clicar volta pra raiz. */}
-              <button
-                onClick={() => setEncAberto(null)}
-                className="flex items-center gap-1.5 group"
-                title={`Sair de ${encAberto} e voltar para a lista`}
-              >
-                <CornerDownRight className="h-4 w-4 flex-shrink-0 text-[var(--surface-400)] group-hover:text-[var(--surface-600)]" />
-                <FolderOpen className="h-4 w-4 flex-shrink-0" style={{ color: corUnidadeAtual }} />
-                <span className="text-[13px] font-black px-2 py-1 rounded flex-shrink-0" style={{ background: corUnidadeAtual, color: textoBadgeUnidadeAtual }}>{encAberto}</span>
-              </button>
-
-              {/* Responsável e data vêm ANTES dos botões, na ordem que o Lucas pediu: primeiro
-                  o que a viagem É, depois o que se faz com ela. */}
-              {sup?.responsavel && (
-                <span className="flex items-center gap-1.5 flex-shrink-0">
-                  <User className="h-4 w-4 text-[var(--surface-400)]" />
-                  <span className="text-[12px] text-[var(--surface-400)]">Responsável:</span>
-                  <span className="text-[13px] text-[var(--surface-700)]">{sup.responsavel}</span>
-                </span>
-              )}
-              {sup?.data && (
-                <span className="flex items-center gap-1.5 flex-shrink-0">
-                  <Calendar className="h-4 w-4 text-[var(--surface-400)]" />
-                  <span className="text-[12px] text-[var(--surface-400)]">Data programada:</span>
-                  <span className="text-[13px] font-semibold text-[var(--surface-700)]">{formatarDataViagem(sup.data)}</span>
-                </span>
-              )}
-
-              {planejada && sup?.id && (
-                <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
-                  <button
-                    onClick={() => abrirEdicaoEncaminhamento(sup.id!, encAberto)}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold border text-[var(--surface-600)] hover:bg-[var(--surface-100)]"
-                    style={{ borderColor: 'var(--surface-300)' }}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />Editar
-                  </button>
-                  {/* POR ÚLTIMO, e é o único jeito de pôr um botão irreversível numa barra:
-                      na ponta, onde não se clica por engano ao mirar outra coisa.
-                      ⚠️ Isto REVERTE o §9.1 ("ação irreversível nunca visível por padrão"),
-                      que o escondia no menu `⋯`. Com o card fora da pasta o menu não existe
-                      mais aqui, e deixar o despacho a dois cliques de profundidade escondia o
-                      passo principal da etapa. A proteção que vale continua de pé, e é a que
-                      sempre valeu: a confirmação com a lista rolável e as 4 travas do SP47. */}
-                  {statusFiltro === 'ativo' && (
-                    <button
-                      onClick={() => abrirEnvioParaMatriz(sup.id!, encAberto)}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-bold text-white bg-orange-600 hover:bg-orange-700"
-                    >
-                      <Truck className="h-3.5 w-3.5" />Enviar para Matriz
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
             </>
           )
   })() : null
@@ -4662,7 +4603,7 @@ ${petNome}`
   const botaoNovoEnc = encPipeline && statusFiltro === 'ativo' ? (
     <button
       onClick={abrirNovoEncaminhamento}
-      className="flex-shrink-0 hidden lg:flex items-center gap-1 h-9 md:h-auto px-3 md:px-2 md:py-1 rounded-lg text-sm md:text-xs font-semibold bg-orange-600 text-white hover:bg-orange-700 transition-colors"
+      className="flex-shrink-0 hidden items-center gap-1 h-9 md:h-auto px-3 md:px-2 md:py-1 rounded-lg text-sm md:text-xs font-semibold bg-orange-600 text-white hover:bg-orange-700 transition-colors"
       title="Criar um encaminhamento novo"
     >
       <Truck className="h-4 w-4 md:h-3.5 md:w-3.5" />+ Enc
@@ -5077,8 +5018,6 @@ ${petNome}`
             const corUnidade = corUnidadeAtual
             const textoBadgeUnidade = textoBadgeUnidadeAtual
 
-            // Menu "⋯" da viagem. `stopPropagation` em tudo: o wrapper da faixa abre os
-            // pets no clique, e sem isso escolher "Editar" também expandiria a lista.
             // Dados da viagem SEM depender do embed dos contratos. O embed só existe se
             // houver pet dentro; numa viagem recém-criada (vazia) ele é `undefined`, e sem
             // isso a faixa fica sem data e — pior — sem `id`, virando um alvo de arrasto
@@ -5087,105 +5026,6 @@ ${petNome}`
             const supindaDoGrupo = (numero: string, cs: Contrato[]): { id?: string; data?: string | null; responsavel?: string | null; status?: string | null } | undefined =>
               cs.find(c => c.supinda)?.supinda ?? encPlanejados.find(s => s.numero === numero)
 
-            const menuEncaminhamento = (numero: string, cs: Contrato[]) => {
-              // Mesma armadilha da faixa: lendo só o embed, o menu sumia justamente na
-              // viagem recém-criada — a única que ainda precisa ser editada, ter pet
-              // removido ou ser excluída.
-              const sup = supindaDoGrupo(numero, cs)
-              const supId = sup?.id || null
-              // ⚠️ O menu só existe em viagem AINDA PLANEJADA. Numa viagem que já partiu,
-              // "Editar" abriria o desvincular-pet e o Excluir sobre um lote já despachado
-              // — destrutivo e sem sentido. Histórico de viagem passada se olha na
-              // /encaminhamentos, que existe exatamente pra isso (§4.6).
-              if (!supId || (sup?.status && sup.status !== 'planejada')) return null
-              const aberto = menuViagem === numero
-              return (
-                <div className="relative flex-shrink-0" onClick={e => e.stopPropagation()}>
-                  <button
-                    onClick={e => { e.stopPropagation(); setMenuViagem(a => (a === numero ? null : numero)) }}
-                    className="p-1 rounded hover:bg-[var(--surface-100)] text-[var(--surface-400)]"
-                    title="Ações do encaminhamento"
-                    aria-label={`Ações do encaminhamento ${numero}`}
-                  >
-                    <MoreVertical className="h-5 w-5" />
-                  </button>
-                  {aberto && (
-                    <>
-                      {/* Clique fora fecha. Fica ANTES do menu no DOM pra ficar atrás dele. */}
-                      <div className="fixed inset-0 z-[55]" onClick={e => { e.stopPropagation(); setMenuViagem(null) }} />
-                      <div className="absolute right-0 top-full mt-1 z-[56] min-w-[210px] rounded-lg border shadow-lg py-1" style={{ background: 'var(--surface-0)', borderColor: 'var(--surface-200)' }}>
-                        <button
-                          onClick={e => { e.stopPropagation(); if (supId) abrirEdicaoEncaminhamento(supId, numero) }}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-[var(--surface-700)] hover:bg-[var(--surface-100)] text-left"
-                        >
-                          <Pencil className="h-4 w-4 flex-shrink-0" />Editar encaminhamento
-                        </button>
-                        {/* Só na etapa Ativo: é de lá que a viagem parte. Fica por último
-                            e em laranja — é a ação irreversível (§9.1). */}
-                        {statusFiltro === 'ativo' && (
-                          <button
-                            onClick={e => { e.stopPropagation(); if (supId) abrirEnvioParaMatriz(supId, numero) }}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-[13px] font-semibold text-orange-400 hover:bg-orange-950/30 text-left border-t"
-                            style={{ borderColor: 'var(--surface-200)' }}
-                          >
-                            <Truck className="h-4 w-4 flex-shrink-0" />Enviar para Matriz
-                          </button>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-              )
-            }
-
-            // ─── DESKTOP: a viagem é uma FAIXA de largura cheia ─────────────────
-            // Decisão do Lucas em 06/09/2026, revendo a tela: no desktop o grid de 2
-            // colunas "não faz sentido" — a faixa ocupa o mesmo espaço de uma linha de
-            // pet, e a leitura vertical da etapa continua igual à de sempre.
-            const renderFaixaEncaminhamento = (numero: string, cs: Contrato[], aberto: boolean) => {
-              const p = calcularPlacar(cs)
-              const sup = supindaDoGrupo(numero, cs)
-              // `min-h-[68px]` iguala a faixa à altura do card de pet (mesmo valor do
-              // Skeleton da lista) — pedido do Lucas em 06/09: os dois tipos de item
-              // ocupam o mesmo espaço, e a coluna fica com ritmo regular.
-              return (
-                // Fundo LARANJA (pedido do Lucas, 13/09): a faixa é o único item da lista
-                // que não é um pet, e no cinza padrão ela se perdia no meio dos cards. Em
-                // `rgba` com alpha em vez de classe Tailwind fixa porque o app tem 4 temas —
-                // laranja translúcido sobre o surface funciona no claro e no escuro; um
-                // `bg-orange-900` ficaria ilegível em dois deles. Começou em 10% e subiu
-                // para 18% na hora de olhar: a 10% só a borda aparecia, e o pedido era o
-                // FUNDO. Se ficar berrante em algum tema, é este número que se mexe.
-                <div className="rounded-lg border px-3 py-2 min-h-[68px] flex items-center gap-x-4 gap-y-1.5 flex-wrap" style={{ background: 'rgba(249, 115, 22, 0.18)', borderColor: 'rgba(249, 115, 22, 0.55)' }}>
-                  <span className="text-[13px] font-black px-2 py-1 rounded flex-shrink-0" style={{ background: corUnidade, color: textoBadgeUnidade }}>{numero}</span>
-                  {campoFaixa(Calendar, 'Data programada', formatarDataViagem(sup?.data))}
-                  {campoFaixa(PawPrint, 'Pets', p.total)}
-                  {campoFaixa(Weight, 'Peso total', `${p.peso.toFixed(p.peso % 1 === 0 ? 0 : 1)} kg`)}
-                  {/* Peso MÉDIO por pet (13/09) — "é um bom indicador", e é mesmo: o total
-                      sozinho não distingue 140 kg de 7 pets grandes de 140 kg de 20 pequenos, e
-                      são cargas diferentes na hora de montar o carro. Só aparece com pet dentro:
-                      numa viagem vazia seria divisão por zero, e "0 kg/pet" não informa nada. */}
-                  {p.total > 0 && campoFaixa(Scale, 'Peso/pet', `${(p.peso / p.total).toFixed(1)} kg`)}
-                  {campoFaixa(Tag, 'Com lacre', `${p.comLacre}/${p.total}`, corPlacar(p.comLacre === p.total))}
-                  {campoFaixa(DollarSign, 'Pagos', `${p.pagos}/${p.total}`, corPlacar(p.pagos === p.total))}
-                  <div className="flex items-center gap-1.5 flex-shrink-0 ml-auto">{chipsTipo(p)}</div>
-                  {sup?.responsavel && (
-                    <span className="hidden lg:flex items-center gap-1.5 flex-shrink-0 max-w-[210px]" title={sup.responsavel}>
-                      <User className="h-4 w-4 flex-shrink-0 text-[var(--surface-400)]" />
-                      <span className="text-[12px] text-[var(--surface-400)]">Responsável:</span>
-                      <span className="text-[13px] text-[var(--surface-700)] truncate">{sup.responsavel}</span>
-                    </span>
-                  )}
-                  {/* Menu de ações — separado do clique que abre os pets.
-                      O §9.1 previa uma setinha "▾ ações"; ela virou este "⋯" porque a
-                      setinha passou a significar "abrir os pets" quando a faixa ganhou
-                      lista expansível. A intenção original se mantém: **ação
-                      irreversível nunca fica visível por padrão**. */}
-                  {menuEncaminhamento(numero, cs)}
-                  <ChevronDown className={`h-5 w-5 flex-shrink-0 text-[var(--surface-400)] transition-transform ${aberto ? 'rotate-180' : ''}`} />
-                </div>
-              )
-            }
 
             function renderSupindaGroup(lista: Contrato[], renderFn: (c: Contrato, meio?: React.ReactNode) => React.ReactNode) {
               // ─── PINDA no fluxo novo: cards soltos + linha do tempo (§3.2) ─────
@@ -5407,6 +5247,39 @@ ${petNome}`
                   }
                 }
 
+                // Card da viagem do fluxo novo (2.13c celular; 2.17d também no desktop, D4) — um
+                // desenho só pros dois tamanhos.
+                const cardViagemNovo = (numero: string, contratosDaViagem: Contrato[]) => {
+                        const grupo = { contratos: contratosDaViagem }
+                        const sup = supindaDoGrupo(numero, grupo.contratos)
+                        const supId = sup?.id || null
+                        const planejada = !!supId && (!sup?.status || sup.status === 'planejada')
+                        const somaResumo = isVisible(T, 'btn_farois')
+                          ? grupo.contratos.reduce((acc, c) => { const r = resumoDoCard(c); return r ? { feitos: acc.feitos + r.feitos, pendentes: acc.pendentes + r.pendentes } : acc }, { feitos: 0, pendentes: 0 })
+                          : null
+                        return (
+                          <CardViagem
+                            numero={numero}
+                            data={sup?.data ?? null}
+                            responsavel={sup?.responsavel ?? null}
+                            pets={grupo.contratos.map(c => {
+                              const pend = getPagamentoPendente(c)
+                              return { id: c.id, emoji: getPetIcon(c.pet_especie, c.pet_peso).emoji, individual: c.tipo_cremacao !== 'coletiva', pesoKg: c.pet_peso ?? null, pago: !pend.planoPendente && !pend.acessoriosPendente }
+                            })}
+                            resumo={somaResumo}
+                            corUnidade={corUnidade}
+                            textoUnidade={textoBadgeUnidade}
+                            menu={planejada && statusFiltro === 'ativo' ? {
+                              onAdicionar: () => setAddPetsViagem({ id: supId!, numero }),
+                              onEditar: () => abrirEdicaoEncaminhamento(supId!, numero),
+                              onEnviar: () => abrirEnvioParaMatriz(supId!, numero),
+                            } : null}
+                            onAbrir={() => entrarNoEnc(numero)}
+                            onMenuAberto={setMenuCardViagemAberto}
+                          />
+                        )
+                }
+
                 // ⚠️ Os dois gestos são SEPARADOS de propósito. Se o mesmo wrapper tivesse
                 // drag e long-press juntos, no desktop segurar o botão antes de começar a
                 // arrastar (o que é o movimento natural) selecionaria o pet sem querer.
@@ -5443,7 +5316,7 @@ ${petNome}`
                         const dentro = encAberto === grupo.numero
                         return (
                           <Fragment key={grupo.numero}>
-                            {!dentro && mostrarDica && i === idxPrimeiraViagem && dicaGesto(Move, 'Para encaminhar um pet, arraste o card dele até uma das viagens abaixo')}
+                            {!dentro && mostrarDica && i === idxPrimeiraViagem && dicaGesto(Move, 'Para encaminhar um pet, arraste o card dele até a viagem, ou use ⋮ → Adicionar pets')}
                             {/* Dentro da pasta a FAIXA SOME (pedido do Lucas, 13/09): o placar,
                                 o responsável, a data e as ações passaram todos para a linha do
                                 breadcrumb, que sobra vazia à direita do caminho. Manter os dois
@@ -5453,12 +5326,42 @@ ${petNome}`
                             {dentro ? (
                               <div className="space-y-2">
                                 {grupo.contratos.map(c => renderFn(c))}
+                                {(() => {
+                                  const sup = supindaDoGrupo(grupo.numero, grupo.contratos)
+                                  const planejada = !!sup?.id && (!sup?.status || sup.status === 'planejada')
+                                  return planejada && statusFiltro === 'ativo' ? (
+                                    <button onClick={() => setAddPetsViagem({ id: sup!.id!, numero: grupo.numero! })}
+                                      className="w-full py-2.5 rounded-xl border-2 border-dashed text-[13px] font-semibold" style={{ borderColor: '#f97316', color: '#ea580c' }}>
+                                      + Adicionar pets
+                                    </button>
+                                  ) : null
+                                })()}
                               </div>
-                            ) : (
-                              <div {...propsViagem(grupo.numero, grupo.contratos)}>
-                                {renderFaixaEncaminhamento(grupo.numero, grupo.contratos, false)}
-                              </div>
-                            )}
+                            ) : (() => {
+                              // D4: o card "pans" largo. Arrastar um pet até ele inclui (contorno
+                              // tracejado enquanto passa por cima, "pulso" ao receber); o clique
+                              // é o do próprio card (abre a pasta) — o do wrapper fica de fora.
+                              // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                              const { onClick, onKeyDown, role, tabIndex, className, style, ...arrastar } = propsViagem(grupo.numero, grupo.contratos)
+                              const supId = supindaIdDoGrupo(grupo.numero, grupo.contratos)
+                              const numero = grupo.numero
+                              return (
+                                <div {...arrastar}
+                                  onDrop={async (e: React.DragEvent) => {
+                                    e.preventDefault()
+                                    const id = petArrastando || e.dataTransfer.getData('text/plain')
+                                    setEncAlvo(null)
+                                    if (id && supId) {
+                                      await vincularAoEncaminhamento([id], supId)
+                                      setViagemRecebeu(numero)
+                                      setTimeout(() => setViagemRecebeu(v => (v === numero ? null : v)), 900)
+                                    }
+                                  }}
+                                  className={`rounded-[14px] transition-transform ${encAlvo === numero ? 'pl-viagem-alvo' : ''} ${viagemRecebeu === numero ? 'pl-viagem-recebeu' : ''}`}>
+                                  {cardViagemNovo(numero, grupo.contratos)}
+                                </div>
+                              )
+                            })()}
                           </Fragment>
                         )
                       })}
@@ -5488,31 +5391,7 @@ ${petNome}`
                             </Fragment>
                           )
                         }
-                        const somaResumo = isVisible(T, 'btn_farois')
-                          ? grupo.contratos.reduce((acc, c) => { const r = resumoDoCard(c); return r ? { feitos: acc.feitos + r.feitos, pendentes: acc.pendentes + r.pendentes } : acc }, { feitos: 0, pendentes: 0 })
-                          : null
-                        return (
-                          <CardViagem
-                            key={numero}
-                            numero={numero}
-                            data={sup?.data ?? null}
-                            responsavel={sup?.responsavel ?? null}
-                            pets={grupo.contratos.map(c => {
-                              const pend = getPagamentoPendente(c)
-                              return { id: c.id, emoji: getPetIcon(c.pet_especie, c.pet_peso).emoji, individual: c.tipo_cremacao !== 'coletiva', pesoKg: c.pet_peso ?? null, pago: !pend.planoPendente && !pend.acessoriosPendente }
-                            })}
-                            resumo={somaResumo}
-                            corUnidade={corUnidade}
-                            textoUnidade={textoBadgeUnidade}
-                            menu={planejada && statusFiltro === 'ativo' ? {
-                              onAdicionar: () => setAddPetsViagem({ id: supId!, numero }),
-                              onEditar: () => abrirEdicaoEncaminhamento(supId!, numero),
-                              onEnviar: () => abrirEnvioParaMatriz(supId!, numero),
-                            } : null}
-                            onAbrir={() => entrarNoEnc(numero)}
-                            onMenuAberto={setMenuCardViagemAberto}
-                          />
-                        )
+                        return <Fragment key={numero}>{cardViagemNovo(numero, grupo.contratos)}</Fragment>
                       })}
                     </div>
 
@@ -8199,7 +8078,7 @@ ${petNome}`
           some com menu ⋮ ou qualquer popup/modal aberto. */}
       {encPipeline && statusFiltro === 'ativo' && encAberto === null && !menuCardViagemAberto
         && popupHist.nivel === 0 && !encFormAberto && !addPetsViagem && !enviarModal && (
-        <button onClick={abrirNovoEncaminhamento} className="pl-fab lg:hidden" title="Novo encaminhamento" aria-label="Novo encaminhamento">
+        <button onClick={abrirNovoEncaminhamento} className="pl-fab" title="Novo encaminhamento" aria-label="Novo encaminhamento">
           <Plus className="h-7 w-7" strokeWidth={2.75} />
         </button>
       )}
