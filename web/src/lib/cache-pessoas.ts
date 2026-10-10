@@ -44,6 +44,9 @@ export function atribuiveis(cliente: unknown, unidadeId: string, para: 'tarefas'
   const promessa = Promise.resolve((cliente as Rpc).rpc('listar_atribuiveis_operacional', { p_unidade_id: unidadeId, p_para: para }))
     .then(({ data }) => {
       const lista = (data || []) as Atribuivel[]
+      // Lista vazia não fica guardada: pode ser a sessão ainda carregando (RPC volta null sem
+      // erro) — guardar prenderia "ninguém pode receber" por 5 min.
+      if (lista.length === 0) listas.delete(chave)
       for (const p of lista) if (p.nome) nomes.set(p.user_id, p.nome)
       return lista
     })
