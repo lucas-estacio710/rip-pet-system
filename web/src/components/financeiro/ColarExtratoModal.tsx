@@ -116,6 +116,9 @@ type Item = LinhaExtrato & {
    *  lançamento NEGATIVO na mesma fatura, com a categoria da compra original —
    *  abate a fatura e a despesa da DRE. O banco aceita (`valor <> 0`, mig 103). */
   estorno: boolean
+  /** Devolução na CONTA (10/10/2026): "Pix enviado devolvido" — a saída que ela
+   *  desfaz ("devolve a saída de 11/09"). Vira estorno na categoria da saída. */
+  estornoDe: string
 }
 
 /** Crédito na fatura: "+ R$ 1,20" (Inter) ou texto de estorno/reembolso. No
@@ -397,6 +400,29 @@ export default function ColarExtratoModal({
       for (const r of (fv as { fitid: string }[] | null) || []) fitidVisto.add(r.fitid)
     }
 
+    // DEVOLUÇÃO NA CONTA (10/10/2026: "Pix enviado devolvido" +418,60, devolução
+    // do Pix de −418,60 de 11/09 lançado como despesa). Procura a saída: mesmo
+    // valor, até 60 dias antes, nesta conta; com mais de uma, desempata pelo
+    // favorecido. Achou UMA → estorno na categoria dela (negativo, como no cartão).
+    const devolucao = new Map<number, { catId: string; data: string }>()
+    const candDev = ehCartao ? [] : linhas.filter(l => l.valor > 0 && /devolvid|devolu[cç][aã]o|estorno|reembolso/i.test(l.descricao))
+    if (candDev.length) {
+      const primeira = candDev.map(l => l.data).sort()[0]
+      const ini60 = new Date(Date.parse(primeira) - 60 * 86400000).toISOString().slice(0, 10)
+      const { data: sai } = await supabase.from('fin_lancamentos')
+        .select('categoria_id, valor, data_caixa, observacoes, fornecedor_nome')
+        .eq('conta_pagamento_id', contaId).neq('status', 'rejeitado').gt('valor', 0)
+        .gte('data_caixa', ini60).lte('data_caixa', fim).not('categoria_id', 'is', null)
+      type Sai = { categoria_id: string; valor: number; data_caixa: string; observacoes: string | null; fornecedor_nome: string | null }
+      for (const l of candDev) {
+        const mesmos = ((sai as Sai[] | null) || []).filter(x => Math.abs(Number(x.valor) - l.valor) < 0.005 && x.data_caixa.slice(0, 10) <= l.data)
+        const quem = chaveEntre(l.descricao)
+        const peloNome = mesmos.filter(x => quem.length >= 4 && chaveEntre(`${x.observacoes || ''} ${x.fornecedor_nome || ''}`).includes(quem))
+        const achou = mesmos.length === 1 ? mesmos[0] : peloNome.length === 1 ? peloNome[0] : null
+        if (achou) devolucao.set(l.n, { catId: achou.categoria_id, data: achou.data_caixa.slice(0, 10) })
+      }
+    }
+
     setItens(linhas.map(l => {
       const base = {
         ...l, jaNoSistema: null as string | null, motivoFora: null as string | null, marcado: true,
@@ -405,7 +431,7 @@ export default function ColarExtratoModal({
         metodo: ehCartao ? 'credito' : (metodoDe(l.descricao) || 'pix'), fornecedor: fornecedorDe(l.descricao),
         doHistorico: false, porSinonimo: false, palpite: '', sugestoes: [] as Sugestao<Decisao>[],
         partes: [] as Parte[], meses: 1, outras: [] as ParaUnidade[],
-        entreConta: '', entreHist: false, estorno: false,
+        entreConta: '', entreHist: false, estorno: false, estornoDe: '',
       }
       // 1) já está no sistema?
       const par = exatoDe(l.n)
@@ -427,6 +453,12 @@ export default function ColarExtratoModal({
       if (ehCartao && !estorno) {
         const motivo = foraDoCartao(l.descricao)
         if (motivo) return { ...base, destino: 'fora' as Destino, motivoFora: motivo, marcado: false }
+      }
+      // 2a) devolução de uma saída desta conta → estorno
+      const dev = devolucao.get(l.n)
+      if (dev) {
+        return { ...base, destino: 'despesa' as Destino, estorno: true, catId: dev.catId, catTexto: caminhoDe(dev.catId),
+                 estornoDe: `devolve a saída de ${dev.data.slice(8, 10)}/${dev.data.slice(5, 7)}` }
       }
       // 2) entre contas da casa, pelo histórico
       const entre = !ehCartao ? entreDe.get(chaveEntre(l.descricao)) : undefined
@@ -455,7 +487,9 @@ export default function ColarExtratoModal({
       const item: Item = { ...base, destino, sugestoes: validas, estorno }
       if (destino === 'fora') {
         item.marcado = false
-        item.motivoFora = /pix recebido|transfer/i.test(l.descricao)
+        item.motivoFora = /resgate|aplica/i.test(l.descricao)
+          ? 'resgate de aplicação — escolha de qual conta da casa veio'
+          : /pix recebido|transfer/i.test(l.descricao)
           ? 'entrada sem par no sistema — se for de tutor, registre o pagamento no contrato'
           : 'entrada que não é de maquininha nem está no sistema — confira'
       }
@@ -773,7 +807,7 @@ export default function ColarExtratoModal({
                   {i.outras.length > 0 && <span className="font-normal text-[var(--brand-500)]"> · parte de outra unidade</span>}
                 </span>
                 <span className="text-[11px] text-[var(--surface-400)] truncate">
-                  {i.doHistorico ? 'como das outras vezes' : caminhoDe(i.catId).split(' › ').slice(0, -1).join(' › ')}
+                  {i.estornoDe || (i.doHistorico ? 'como das outras vezes' : caminhoDe(i.catId).split(' › ').slice(0, -1).join(' › '))}
                 </span>
                 <button type="button" onClick={() => muda(i.n, { catId: '', catTexto: '', doHistorico: false, porSinonimo: false })}
                         className="text-[11px] text-[var(--brand-500)] hover:underline shrink-0">trocar</button>
@@ -1171,6 +1205,8 @@ export default function ColarExtratoModal({
           }, 0)) * 100) / 100
     : null
   const fecha = placar && placar.banco !== null && depois !== null && Math.abs(depois - placar.banco) < 0.005
+  /** banco − sistema: positivo = falta no sistema; negativo = o sistema tem a mais. */
+  const difTxt = (d: number) => d > 0 ? `faltam ${fmtBRL(d)} no sistema` : `o sistema tem ${fmtBRL(-d)} a mais`
   const somaRec = recProntas.reduce((a, i) => a + i.valor, 0)
   const somaDesp = despProntas.reduce((a, i) => a + i.valor, 0)
   const contaNome = contas.find(c => c.id === contaId)?.nome || ''
@@ -1302,10 +1338,10 @@ export default function ColarExtratoModal({
                 {placar.banco === null && <span className="text-xs text-[var(--surface-400)]">o texto colado não trouxe o saldo</span>}
               </div>
               <div className="flex flex-col gap-0.5">
-                <span className="text-sm text-[var(--surface-500)]">No sistema hoje</span>
+                <span className="text-sm text-[var(--surface-500)]">No sistema em {fmtData(placar.data)}</span>
                 <span className="text-mono text-xl tabular-nums text-[var(--surface-800)]">{fmtBRL(placar.sistema)}</span>
                 {placar.banco !== null && Math.abs(placar.banco - placar.sistema) >= 0.005 && (
-                  <span className="text-xs text-amber-500">faltam {fmtBRL(Math.abs(placar.banco - placar.sistema))}</span>
+                  <span className="text-xs text-amber-500">{difTxt(placar.banco - placar.sistema)}</span>
                 )}
               </div>
               <div className="flex flex-col gap-0.5">
@@ -1313,7 +1349,7 @@ export default function ColarExtratoModal({
                 <span className={`text-mono text-xl tabular-nums ${fecha ? 'text-emerald-500' : 'text-[var(--surface-800)]'}`}>{fmtBRL(depois ?? 0)}</span>
                 {placar.banco !== null && (fecha
                   ? <span className="text-xs text-emerald-500">✓ bate com o banco</span>
-                  : <span className="text-xs text-amber-500">ainda faltam {fmtBRL(Math.abs((placar.banco ?? 0) - (depois ?? 0)))} — veja as linhas ignoradas ou em aberto</span>)}
+                  : <span className="text-xs text-amber-500">{difTxt((placar.banco ?? 0) - (depois ?? 0))} — veja as linhas ignoradas ou em aberto</span>)}
               </div>
             </div>
           )}
