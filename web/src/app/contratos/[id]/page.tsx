@@ -2491,7 +2491,7 @@ ${petNome}`
     link.download = nomeArquivo
     link.href = url
     link.click()
-    URL.revokeObjectURL(url)
+    setTimeout(() => URL.revokeObjectURL(url), 1000) // no mesmo tick pode cancelar o download no celular
   }
 
   // Badges de status GC (mesma lógica de /contratos pipeline) — só em status pinda
