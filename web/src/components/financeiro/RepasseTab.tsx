@@ -107,14 +107,27 @@ export default function RepasseTab({ mes, somenteLeitura = false }: { mes: strin
   const codigoUnidade = unidadesPagantes.find(u => u.id === unidadeId)?.codigo || ''
   // As três abas do repasse (02/10/2026): Cremações · Acertos · Resumo.
   const [aba, setAba] = useState<'cremacoes' | 'acertos' | 'resumo'>('cremacoes')
-  // O que a unidade pagou DE VERDADE (pago_movimento_id, mig 150) — pro Resumo.
-  const [pagamento, setPagamento] = useState<{ valor: number; data: string } | null>(null)
+  // O que a unidade pagou DE VERDADE — pro Resumo. Desde a mig 159 um repasse
+  // pode ser pago em partes: todos os movimentos com `repasse_id`. Sem a 159
+  // (ou pagamento antigo), cai no `pago_movimento_id` da mig 150.
+  const [pagamentos, setPagamentos] = useState<{ valor: number; data: string }[]>([])
   useEffect(() => {
-    const id = existente?.pago_movimento_id
-    if (!id) { setPagamento(null); return }
-    void supabase.from('fin_movimentos').select('valor, data').eq('id', id).maybeSingle()
-      .then(({ data }) => setPagamento(data ? { valor: Number((data as { valor: number }).valor), data: (data as { data: string }).data } : null))
-  }, [existente?.pago_movimento_id, supabase])
+    const rid = existente?.id
+    const mid = existente?.pago_movimento_id
+    if (!rid) { setPagamentos([]); return }
+    void (async () => {
+      const { data, error } = await supabase.from('fin_movimentos').select('valor, data').eq('repasse_id', rid).order('data')
+      let lista = error ? [] : ((data as { valor: number; data: string }[] | null) || [])
+      if (!lista.length && mid) {
+        const { data: um } = await supabase.from('fin_movimentos').select('valor, data').eq('id', mid).maybeSingle()
+        lista = um ? [um as { valor: number; data: string }] : []
+      }
+      setPagamentos(lista.map(p => ({ valor: Number(p.valor), data: p.data })))
+    })()
+  }, [existente?.id, existente?.pago_movimento_id, existente?.updated_at, supabase])
+  const totalPago = Math.round(pagamentos.reduce((a, p) => a + p.valor, 0) * 100) / 100
+  // Pro Excel (que tem uma linha só): a soma, com a data do último.
+  const pagamento = pagamentos.length ? { valor: totalPago, data: pagamentos[pagamentos.length - 1].data } : null
 
   useEffect(() => {
     supabase
@@ -310,6 +323,9 @@ export default function RepasseTab({ mes, somenteLeitura = false }: { mes: strin
           classe: 'bg-emerald-500/15 text-emerald-500', dica: 'A unidade quitou — não muda mais' }
       // A hora da última versão salva (02/10/2026): dá a segurança de que o que a
       // unidade vê é o que está na tela — clicou Salvar, a hora atualiza.
+      : totalPago > 0
+        ? { rotulo: `Pago em parte · ${fmtBRL(totalPago)}`, classe: 'bg-sky-500/15 text-sky-500',
+            dica: 'A unidade pagou uma parte; o repasse segue aberto até quitar' }
       : { rotulo: `Salvo em ${new Date(existente.updated_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
           classe: 'bg-amber-500/15 text-amber-500',
           dica: 'Última versão salva — é ela que a unidade vê para pagar. Mexeu? Salve de novo e a hora atualiza' }
@@ -713,15 +729,19 @@ export default function RepasseTab({ mes, somenteLeitura = false }: { mes: strin
               </div>
               <div className="text-xs text-[var(--surface-500)] space-y-0.5 border-t border-[var(--surface-200)] pt-2">
                 <p>Situação: <span className="text-[var(--surface-700)]">{situacao.rotulo}</span></p>
-                {pagamento ? (
-                  <p>
-                    Pago em <span className="text-[var(--surface-700)]">{fmtData(pagamento.data)}</span> ·{' '}
-                    <span className="text-mono text-[var(--surface-700)]">{fmtBRL(pagamento.valor)}</span>
-                    {Math.abs(pagamento.valor - totais.aPagar) >= 0.005 && (
-                      <span className="text-amber-500"> · diferença de {fmtBRL(Math.abs(pagamento.valor - totais.aPagar))} em relação ao a pagar</span>
-                    )}
-                  </p>
-                ) : (
+                {pagamentos.length ? (<>
+                  {pagamentos.map((p, i) => (
+                    <p key={i}>
+                      {pagamentos.length > 1 ? `${i + 1}º pagamento` : 'Pago'} em <span className="text-[var(--surface-700)]">{fmtData(p.data)}</span> ·{' '}
+                      <span className="text-mono text-[var(--surface-700)]">{fmtBRL(p.valor)}</span>
+                    </p>
+                  ))}
+                  {existente?.status !== 'pago' ? (
+                    <p className="text-sky-500">Falta pagar {fmtBRL(Math.max(0, totais.aPagar - totalPago))}.</p>
+                  ) : Math.abs(totalPago - totais.aPagar) >= 0.005 && (
+                    <p className="text-amber-500">Diferença de {fmtBRL(Math.abs(totalPago - totais.aPagar))} em relação ao a pagar.</p>
+                  )}
+                </>) : (
                   <p>{existente ? 'Ainda não pago — a unidade quita em + Lançar › Quitação.' : 'Salve o repasse para a unidade poder pagar.'}</p>
                 )}
                 <p className="text-[var(--surface-400)]">

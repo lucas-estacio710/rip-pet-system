@@ -31,7 +31,10 @@ type Conta = { id: string; nome: string; produto: string | null; tipo: string | 
 type Repasse = {
   id: string; mes_referencia: string; status: string; qtd_pets: number
   total_bruto: number; total_deflator: number; total_liquido: number
-  abate: number; acresce: number; aPagar: number
+  abate: number; acresce: number
+  /** Pago até agora (mig 159: Σ movimentos com repasse_id) e o que FALTA —
+   *  `aPagar` já é o que falta, pra todo lugar que o usa mostrar o certo. */
+  pago: number; total: number; aPagar: number
 }
 type Fatura = { venc: string; total: number; itens: { data: string; valor: number; nome: string }[] }
 type Tela = 'menu' | 'repasse' | 'fatura'
@@ -68,6 +71,8 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
 
   // campos do pagamento (os dois fluxos usam)
   const [repasseId, setRepasseId] = useState('')       // '' = escolher · 'sem' = mês sem fechamento
+  // PAGAMENTO EM PARTES (mig 159, 10/10/2026): marcado, o repasse fica aberto.
+  const [parcial, setParcial] = useState(false)
   const [mesSem, setMesSem] = useState('')             // YYYY-MM, quando 'sem'
   const [cartaoId, setCartaoId] = useState('')
   const [faturaVenc, setFaturaVenc] = useState('')
@@ -148,17 +153,24 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
     }
 
     // a pagar de cada repasse = líquido − abatimentos + acréscimos (lib/repasse totalAPagar)
-    type R = Omit<Repasse, 'abate' | 'acresce' | 'aPagar'>
+    type R = Omit<Repasse, 'abate' | 'acresce' | 'pago' | 'total' | 'aPagar'>
     const lista = (rs as R[] | null) || []
     const ids = lista.map(r => r.id)
     const { data: ps } = ids.length
       ? await supabase.from('fin_repasse_permutas').select('repasse_id, valor, direcao').in('repasse_id', ids)
       : { data: [] }
     const perm = (ps as { repasse_id: string; valor: number; direcao: string }[] | null) || []
+    // O que já foi pago de cada um (sem a mig 159 a coluna não existe: 0).
+    const { data: pgs } = ids.length
+      ? await supabase.from('fin_movimentos').select('repasse_id, valor').in('repasse_id', ids)
+      : { data: [] }
+    const pagos = (pgs as { repasse_id: string; valor: number }[] | null) || []
     setRepasses(lista.map(r => {
       const abate = perm.filter(p => p.repasse_id === r.id && p.direcao === 'abate').reduce((a, p) => a + Number(p.valor || 0), 0)
       const acresce = perm.filter(p => p.repasse_id === r.id && p.direcao === 'acresce').reduce((a, p) => a + Number(p.valor || 0), 0)
-      return { ...r, abate, acresce, aPagar: Math.round((Number(r.total_liquido) - abate + acresce) * 100) / 100 }
+      const total = Math.round((Number(r.total_liquido) - abate + acresce) * 100) / 100
+      const pago = Math.round(pagos.filter(p => p.repasse_id === r.id).reduce((a, p) => a + Number(p.valor || 0), 0) * 100) / 100
+      return { ...r, abate, acresce, total, pago, aPagar: Math.round((total - pago) * 100) / 100 }
     }))
 
     // faturas de cada cartão: lançamentos de crédito agrupados por vencimento,
@@ -226,18 +238,26 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
     setSalvando(true)
     try {
       const mes = repasseSel ? rotuloMes(repasseSel.mes_referencia) : rotuloMes(`${mesSem}-01`)
-      const { data: mov, error } = await supabase.from('fin_movimentos').insert({
+      const linha = {
         unidade_id: currentUnit.id,
         tipo: 'transferencia',
         conta_id: origemId,                 // sai da unidade
         conta_destino_id: destinoMatrizId,  // entra na Matriz
         data,
         valor: v,                           // o que saiu DE VERDADE, não o total do sistema
-        descricao: `Repasse ${mes} · ${currentUnit.nome}${repasseSel ? '' : ' (mês sem fechamento no sistema)'}`,
+        descricao: `Repasse ${mes}${parcial && repasseSel ? ' (parte)' : ''} · ${currentUnit.nome}${repasseSel ? '' : ' (mês sem fechamento no sistema)'}`,
         criado_por_nome: userName || null,
-      }).select('id').single()
+      }
+      let { data: mov, error } = await supabase.from('fin_movimentos')
+        .insert(repasseSel ? { ...linha, repasse_id: repasseSel.id } : linha).select('id').single()
+      // Sem a mig 159 não há `repasse_id`: pagamento integral segue como antes;
+      // o parcial não tem como ficar ligado ao repasse, então não grava.
+      if (error && repasseSel && /repasse_id/i.test(error.message)) {
+        if (parcial) throw new Error('Pagamento em partes precisa da migration 159 rodada no banco.')
+        ;({ data: mov, error } = await supabase.from('fin_movimentos').insert(linha).select('id').single())
+      }
       if (error) throw new Error(error.message)
-      if (repasseSel) {
+      if (repasseSel && !parcial) {
         const { data: { user } } = await supabase.auth.getUser()
         const { error: e2 } = await supabase.from('fin_repasses').update({
           status: 'pago',
@@ -247,7 +267,9 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
         }).eq('id', repasseSel.id)
         if (e2) throw new Error(`O dinheiro foi registrado, mas o repasse não foi marcado como pago: ${e2.message}`)
       }
-      toast(`Repasse ${mes} pago — ${fmtBRL(v)}`, 'success')
+      toast(parcial && repasseSel
+        ? `Parte do repasse ${mes} registrada — faltam ${fmtBRL(Math.max(0, repasseSel.aPagar - v))}`
+        : `Repasse ${mes} pago — ${fmtBRL(v)}`, 'success')
       onRegistrou(); onClose()
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Falha ao registrar', 'error')
@@ -292,7 +314,7 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
              onChange={e => setValor(soDigitos(e.target.value))}
              onPaste={e => { const d = colarValorBR(e.clipboardData.getData('text')); if (d !== null) { e.preventDefault(); setValor(d) } }}
              className="input text-sm text-mono w-full" />
-      {esperado !== undefined && Math.abs(diferenca) >= 0.005 && (
+      {esperado !== undefined && Math.abs(diferenca) >= 0.005 && !(tela === 'repasse' && parcial) && (
         <p className="text-[11px] text-amber-500 mt-1">
           {diferenca > 0 ? 'Pago a mais' : 'Pago a menos'}: {fmtBRL(Math.abs(diferenca))} em relação aos {fmtBRL(esperado)} esperados.
           {tela === 'fatura' && diferenca > 0 && ' Se foram juros/multa, lance a diferença em Despesas, Financeiro › Encargos.'}
@@ -383,7 +405,13 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
               {Number(repasseSel.total_deflator) > 0 && <p className="flex justify-between"><span className="text-[var(--surface-500)]">descontos por pet</span><span className="text-mono">− {fmtBRL(repasseSel.total_deflator)}</span></p>}
               {repasseSel.abate > 0 && <p className="flex justify-between"><span className="text-[var(--surface-500)]">acertos que abatem</span><span className="text-mono">− {fmtBRL(repasseSel.abate)}</span></p>}
               {repasseSel.acresce > 0 && <p className="flex justify-between"><span className="text-[var(--surface-500)]">acertos que acrescem</span><span className="text-mono">+ {fmtBRL(repasseSel.acresce)}</span></p>}
-              <p className="flex justify-between font-semibold pt-1 border-t border-[var(--surface-200)]"><span>A pagar</span><span className="text-mono">{fmtBRL(repasseSel.aPagar)}</span></p>
+              {repasseSel.pago > 0 ? (<>
+                <p className="flex justify-between pt-1 border-t border-[var(--surface-200)]"><span className="text-[var(--surface-500)]">total</span><span className="text-mono">{fmtBRL(repasseSel.total)}</span></p>
+                <p className="flex justify-between"><span className="text-[var(--surface-500)]">já pago</span><span className="text-mono text-emerald-500">− {fmtBRL(repasseSel.pago)}</span></p>
+                <p className="flex justify-between font-semibold"><span>Falta pagar</span><span className="text-mono">{fmtBRL(repasseSel.aPagar)}</span></p>
+              </>) : (
+                <p className="flex justify-between font-semibold pt-1 border-t border-[var(--surface-200)]"><span>A pagar</span><span className="text-mono">{fmtBRL(repasseSel.aPagar)}</span></p>
+              )}
             </div>
           ) : (
             <div>
@@ -413,6 +441,19 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
             </div>
             {campoValor}
           </div>
+          {repasseSel && (
+            <label className="flex items-start gap-2 text-sm text-[var(--surface-700)] cursor-pointer">
+              <input type="checkbox" checked={parcial} onChange={e => setParcial(e.target.checked)} className="mt-0.5 accent-[var(--brand-500)]" />
+              <span>
+                Pagamento parcial — ainda vou pagar o resto
+                <span className="block text-[11px] text-[var(--surface-500)]">
+                  {parcial
+                    ? `O repasse continua aberto${v ? `: depois deste, faltam ${fmtBRL(Math.max(0, repasseSel.aPagar - v))}` : ''}.`
+                    : 'Desmarcado, este pagamento quita o repasse — mesmo com valor diferente (desconto, arredondamento).'}
+                </span>
+              </span>
+            </label>
+          )}
         </div>
       ) : (
         <div className="space-y-3">

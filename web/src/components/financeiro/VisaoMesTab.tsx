@@ -150,11 +150,19 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
 
     // ── ato 4: o que falta ──
     const lista: Pendencia[] = []
-    for (const rep of (rp.data as { id: string; mes_referencia: string; status: string; qtd_pets: number; total_liquido: number }[] | null) || []) {
+    const reps = (rp.data as { id: string; mes_referencia: string; status: string; qtd_pets: number; total_liquido: number }[] | null) || []
+    // Pago em parte (mig 159): a pendência é o que falta, não o total.
+    const pagoDe = new Map<string, number>()
+    if (reps.length) {
+      const { data: pgs } = await supabase.from('fin_movimentos').select('repasse_id, valor').in('repasse_id', reps.map(r => r.id))
+      for (const p of (pgs as { repasse_id: string; valor: number }[] | null) || []) pagoDe.set(p.repasse_id, (pagoDe.get(p.repasse_id) || 0) + Number(p.valor))
+    }
+    for (const rep of reps) {
+      const jaPago = c2(pagoDe.get(rep.id) || 0)
       lista.push({
         chave: `rep-${rep.id}`, titulo: `Pagar o repasse de ${rotulo(rep.mes_referencia.slice(0, 7))} à Matriz`,
-        detalhe: `${rep.status === 'aberto' ? 'a Matriz ainda pode mexer' : 'salvo pela Matriz'} · ${rep.qtd_pets} cremações`,
-        valor: Number(rep.total_liquido), acao: 'Pagar', atencao: true,
+        detalhe: `${rep.status === 'aberto' ? 'a Matriz ainda pode mexer' : 'salvo pela Matriz'} · ${rep.qtd_pets} cremações${jaPago ? ` · já pago ${fmtBRL(jaPago)}` : ''}`,
+        valor: c2(Number(rep.total_liquido) - jaPago), acao: jaPago ? 'Pagar o resto' : 'Pagar', atencao: true,
         onClick: () => onLancar?.('quitacao'),
       })
     }

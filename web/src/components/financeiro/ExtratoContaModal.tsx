@@ -25,7 +25,9 @@ import Modal from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
 import { fmtBRL, fmtData, limitesDoMes } from '@/lib/financeiro'
 
-type Mov = { id: string; tipo: string; data: string; valor: string; descricao: string; repasse: { id: string; enviado: boolean } | null }
+/** `repasse.quitou`: este movimento é o que QUITOU (pago_movimento_id).
+ *  `repasse.pago`: o repasse está pago — apagar QUALQUER pagamento dele o reabre. */
+type Mov = { id: string; tipo: string; data: string; valor: string; descricao: string; repasse: { id: string; enviado: boolean; quitou: boolean; pago: boolean } | null }
 
 type Conta = { conta_id: string; nome: string; tipo: string; caixa_desde: string | null }
 type Linha = { data: string; tipo: string; descricao: string | null; valor: number; origem: string; origem_id: string }
@@ -126,14 +128,21 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
 
   async function abrirMov(id: string) {
     const [{ data }, { data: rep }] = await Promise.all([
-      supabase.from('fin_movimentos').select('id, tipo, data, valor, descricao').eq('id', id).maybeSingle(),
-      supabase.from('fin_repasses').select('id, enviado_em').eq('pago_movimento_id', id).limit(1),
+      supabase.from('fin_movimentos').select('*').eq('id', id).maybeSingle(),
+      supabase.from('fin_repasses').select('id, enviado_em, status, pago_movimento_id').eq('pago_movimento_id', id).limit(1),
     ])
-    const m = data as { id: string; tipo: string; data: string; valor: number; descricao: string | null } | null
+    const m = data as { id: string; tipo: string; data: string; valor: number; descricao: string | null; repasse_id?: string | null } | null
     if (!m) return toast('Movimento não encontrado', 'error')
+    // Parte de um repasse pago em partes (mig 159): o repasse vem pelo repasse_id.
+    type Rep = { id: string; enviado_em: string | null; status: string; pago_movimento_id: string | null }
+    let r: Rep | undefined = (rep as Rep[] | null)?.[0]
+    if (!r && m.repasse_id) {
+      const { data: rr } = await supabase.from('fin_repasses').select('id, enviado_em, status, pago_movimento_id').eq('id', m.repasse_id).maybeSingle()
+      r = (rr as Rep | null) || undefined
+    }
     setExcluindo(false)
     setMov({ id: m.id, tipo: m.tipo, data: m.data.slice(0, 10), valor: String(m.valor), descricao: m.descricao || '',
-             repasse: (() => { const r = (rep as { id: string; enviado_em: string | null }[] | null)?.[0]; return r ? { id: r.id, enviado: !!r.enviado_em } : null })() })
+             repasse: r ? { id: r.id, enviado: !!r.enviado_em, quitou: r.pago_movimento_id === m.id, pago: r.status === 'pago' } : null })
   }
 
   async function salvarMov() {
@@ -149,7 +158,7 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
     // Quitação de repasse: o "Pago em" do Repasse é a data DO PAGAMENTO —
     // corrigir o movimento e deixar o repasse com a data velha mostrava "Pago em
     // 20/10" de um pagamento feito em 20/08 (09/10/2026).
-    if (mov.repasse) {
+    if (mov.repasse?.quitou) {
       const { error: e2 } = await supabase.from('fin_repasses')
         .update({ pago_em: `${mov.data}T12:00:00-03:00` }).eq('id', mov.repasse.id)
       if (e2) toast(`Movimento corrigido, mas o repasse não: ${e2.message}`, 'error')
@@ -166,7 +175,9 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
     // Movimento que QUITOU um repasse: a FK da mig 150 só anula pago_movimento_id
     // — o status ficaria 'pago' sem pagamento e o repasse sumiria da lista de
     // pagar. Ele volta ao estado de antes de pago, ANTES do delete.
-    if (mov.repasse) {
+    // Pagamento em partes: apagar uma parte de repasse AINDA aberto só baixa o
+    // "já pago" (é soma) — não há o que desfazer no repasse.
+    if (mov.repasse?.pago) {
       const { error: e1 } = await supabase.from('fin_repasses')
         .update({ status: mov.repasse.enviado ? 'enviado' : 'aberto', pago_em: null, pago_por: null, pago_movimento_id: null })
         .eq('id', mov.repasse.id)
@@ -293,7 +304,9 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
               <input value={mov.descricao} onChange={e => setMov({ ...mov, descricao: e.target.value })} className="input-field text-sm w-full" />
             </label>
             {mov.repasse && (
-              <p className="text-[11px] text-amber-500">Este movimento quitou um repasse: excluí-lo devolve o repasse para &quot;a pagar&quot;.</p>
+              <p className="text-[11px] text-amber-500">{mov.repasse.pago
+                ? 'Este movimento é pagamento de um repasse quitado: excluí-lo devolve o repasse para "a pagar".'
+                : 'Este movimento é parte do pagamento de um repasse: excluí-lo aumenta o que falta pagar.'}</p>
             )}
             <div className="flex justify-between gap-2">
               <button type="button" onClick={() => void excluirMov()} disabled={salvando}
