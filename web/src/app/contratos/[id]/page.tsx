@@ -35,6 +35,7 @@ import { baixarContratoPDF } from '@/lib/contrato-pdf-download'
 import HistoricoCard from '@/components/contratos/HistoricoCard'
 import RecontratacaoButton from '@/components/contratos/RecontratacaoButton'
 import AlterarDadosEnviadosModal from '@/components/contratos/modals/AlterarDadosEnviadosModal'
+import DevolucaoModal from '@/components/contratos/modals/DevolucaoModal'
 import { ordenarCategoriasUrnas } from '@/lib/categorias'
 import { hojeLocal } from '@/lib/date-local'
 import { tituloNome, primeiroNome } from '@/lib/nome-tutor'
@@ -320,6 +321,8 @@ export default function ContratoDetalhe() {
   const [loading, setLoading] = useState(true)
   const [salvando, setSalvando] = useState(false)
   const [contratoProdutos, setContratoProdutos] = useState<ContratoProduto[]>([])
+  // Devolver ao tutor (10/10/2026) — link discreto no rodapé dos pagamentos.
+  const [devolucaoAberta, setDevolucaoAberta] = useState(false)
   const [carregandoProdutos, setCarregandoProdutos] = useState(true)
   const [addProdutoModal, setAddProdutoModal] = useState(false)
   const [todosProdutos, setTodosProdutos] = useState<Produto[]>([])
@@ -3507,14 +3510,22 @@ ${petNome}`
 
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="font-semibold text-slate-200">
+                          <span className={`font-semibold ${pag.id_transacao === 'devolucao' ? 'text-red-400' : 'text-slate-200'}`}>
                             {formatarMoeda(pag.valor - (pag.desconto || 0))}
                           </span>
+                          {pag.id_transacao === 'devolucao' ? (
+                            <span className="text-xs px-1.5 py-0.5 rounded bg-red-900/40 text-red-400">↩ Devolução</span>
+                          ) : pag.id_transacao === 'devolucao-reclass' ? (
+                            <span className="text-xs px-1.5 py-0.5 rounded bg-slate-600/50 text-slate-400" title="Parte retida da devolução: passa de acessório para plano (não move dinheiro)">
+                              {pag.tipo === 'plano' ? '↔ vira plano' : '↔ sai de acessório'}
+                            </span>
+                          ) : (
                           <span className={`text-xs px-1.5 py-0.5 rounded ${
                             pag.tipo === 'plano' ? 'bg-blue-900/40 text-blue-400' : 'bg-purple-900/40 text-purple-400'
                           }`}>
                             {pag.tipo === 'plano' ? 'Plano' : 'Acessório'}
                           </span>
+                          )}
                           {pag.is_seguradora && (
                             <span className="text-xs px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-400">
                               Seguradora
@@ -3533,13 +3544,13 @@ ${petNome}`
                     </div>
 
                     <div className="flex items-center gap-1">
-                      <button
+                      {!pag.id_transacao?.startsWith('devolucao') && <button
                         onClick={() => abrirMegaPagamento(0, 0, pag)}
                         className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-blue-900/30 rounded transition-colors"
                         title="Editar"
                       >
                         <Pencil className="h-4 w-4" />
-                      </button>
+                      </button>}
                       <button
                         onClick={() => excluirPagamento(pag.id)}
                         className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-900/30 rounded transition-colors"
@@ -3644,6 +3655,23 @@ ${petNome}`
                       )}
                     </div>
                   )}
+                  {/* Raro de propósito (1 em 10.000, Lucas): link pequeno, sem botão. */}
+                  {canEdit(T, 'btn_mega_pagamento') && pagamentos.some(p => p.valor > 0) && (
+                    <div className="mt-2 text-right">
+                      <button onClick={() => setDevolucaoAberta(true)} className="text-[11px] text-slate-500 hover:text-slate-300 hover:underline">
+                        devolver ao tutor
+                      </button>
+                    </div>
+                  )}
+                  <DevolucaoModal
+                    aberto={devolucaoAberta}
+                    onClose={() => setDevolucaoAberta(false)}
+                    contrato={{ id: contrato.id, unidade_id: contrato.unidade_id ?? null, valor_plano: contrato.valor_plano ?? null }}
+                    itens={contratoProdutos.map(cp => ({ id: cp.id, valor: cp.valor, desconto: cp.desconto, quantidade: cp.quantidade, produto: cp.produto ? { id: cp.produto.id, nome: cp.produto.nome } : null }))}
+                    saldoAFavor={saldo < -0.01 ? Math.round(-saldo * 100) / 100 : 0}
+                    tipoExcedente={saldoPlano <= saldoAcessorio ? 'plano' : 'catalogo'}
+                    onFeito={() => { void carregarContrato(); void carregarProdutosContrato(); void carregarPagamentos() }}
+                  />
                 </div>
               )
             })()}

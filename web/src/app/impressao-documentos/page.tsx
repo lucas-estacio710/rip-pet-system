@@ -707,8 +707,9 @@ function mapToContratoDados(c: any): DadosContrato {
     localColeta: c.local_coleta,
     tipoCremacao: c.tipo_cremacao,
     valorPlano: c.valor_plano,
-    metodoPagamento: c.pagamentos?.[0]?.metodo || null,
-    parcelas: c.pagamentos?.[0]?.parcelas || null,
+    // Devolução ao tutor (pagamento negativo, 10/10/2026) não é a forma de pagamento.
+    metodoPagamento: c.pagamentos?.find((p: { valor: number }) => p.valor > 0)?.metodo || null,
+    parcelas: c.pagamentos?.find((p: { valor: number }) => p.valor > 0)?.parcelas || null,
     velorioDeseja: c.velorio_deseja ?? null,
     acompanhamentoOnline: c.acompanhamento_online ?? false,
     acompanhamentoPresencial: c.acompanhamento_presencial ?? false,
