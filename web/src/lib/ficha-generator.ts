@@ -16,12 +16,29 @@ export type FichaProgress = {
   mensagem: string
 }
 
-export async function captureElementAsBlob(element: HTMLElement): Promise<Blob> {
-  const canvas = await html2canvas(element, {
+/**
+ * Opções do html2canvas pra capturar UM nó (10/10/2026, as mesmas que resolveram a
+ * /gruposencaminhamentos):
+ * - `ignoreElements`: sem ele o html2canvas clona a PÁGINA INTEIRA e calcula o estilo de cada
+ *   nó — no pipeline são centenas de cards, ~20 s no celular. Só entram os ancestrais do nó,
+ *   o próprio nó e o `<head>`.
+ * - `scrollX/Y: 0`: o default soma a rolagem da página à posição; com a página rolada o
+ *   arquivo saía em branco.
+ */
+export function opcoesCaptura(el: HTMLElement) {
+  return {
     scale: 2,
     backgroundColor: '#ffffff',
     useCORS: true,
-  })
+    scrollX: 0,
+    scrollY: 0,
+    ignoreElements: (n: Element) =>
+      !(n.contains(el) || el.contains(n) || n.tagName === 'HEAD' || !!n.closest('head')),
+  }
+}
+
+export async function captureElementAsBlob(element: HTMLElement): Promise<Blob> {
+  const canvas = await html2canvas(element, opcoesCaptura(element))
 
   return new Promise((resolve, reject) => {
     canvas.toBlob(
@@ -94,12 +111,17 @@ const FICHA_Y_MM = (A4L_PAGE_H - FICHA_H_MM) / 2 // \u2248 9.5 mm (centraliza ve
 export async function gerarFichasA4Blob(elements: HTMLElement[]): Promise<Blob> {
   if (elements.length === 0) throw new Error('Nenhuma ficha para gerar')
 
-  // Captura todas em paralelo (alta resolu\u00e7\u00e3o)
+  // Captura cada n\u00f3 UMA vez (alta resolu\u00e7\u00e3o) \u2014 a c\u00f3pia de assinatura passa o mesmo n\u00f3 2\u00d7
+  const capturas = new Map<HTMLElement, Promise<string>>()
   const imgs = await Promise.all(
-    elements.map(el =>
-      html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true })
-        .then(c => c.toDataURL('image/png'))
-    )
+    elements.map(el => {
+      let p = capturas.get(el)
+      if (!p) {
+        p = html2canvas(el, opcoesCaptura(el)).then(c => c.toDataURL('image/png'))
+        capturas.set(el, p)
+      }
+      return p
+    })
   )
 
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })

@@ -93,5 +93,6 @@ export async function baixarContratoPDF(supabase: SupabaseClient, contratoId: st
   a.href = url
   a.download = contratoFilename(f.codigo, f.pet_nome)
   a.click()
-  URL.revokeObjectURL(url)
+  // Revogar no mesmo tick pode cancelar o download no celular (o navegador ainda não leu o blob)
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }

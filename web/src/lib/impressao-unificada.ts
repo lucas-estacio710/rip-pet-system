@@ -11,7 +11,7 @@ import html2canvas from 'html2canvas'
 import JSZip from 'jszip'
 
 import { gerarContratoPDF, DadosContrato } from './contrato-pdf'
-import { gerarFichasA4Blob, nomeFicha } from './ficha-generator'
+import { gerarFichasA4Blob, nomeFicha, opcoesCaptura } from './ficha-generator'
 import { gerarProtocolosPDF } from './protocolo-pdf'
 import FichaRemocao, { FichaContratoData } from '@/components/fichas/FichaRemocao'
 import { ProtocoloData } from '@/components/protocolo/protocolo-utils'
@@ -164,7 +164,7 @@ export async function gerarImpressaoIndividual(
     try {
       for (let i = 0; i < elements.length; i++) {
         onProgress?.({ fase: 'fichas', atual: i + 1, total: elements.length })
-        const canvas = await html2canvas(elements[i], { scale: 2, backgroundColor: '#ffffff', useCORS: true })
+        const canvas = await html2canvas(elements[i], opcoesCaptura(elements[i]))
         const png = await new Promise<Blob>((resolve, reject) =>
           canvas.toBlob(b => b ? resolve(b) : reject(new Error('toBlob falhou')), 'image/png')
         )
