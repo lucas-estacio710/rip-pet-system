@@ -11,7 +11,7 @@
  *   em chip cinza), PENDENTES embaixo com o estado escrito. Ordem fixa (item 26) — vem pronta do
  *   computeAllTags.
  * - Tocar numa linha chama `onFarol(id)`. Farol que já tem tela própria abre o 2º NÍVEL na
- *   mesma janela (`tela`): cabeçalho padrão "‹ Pendências · lacre · PET · ✕" + emoji e nome da
+ *   mesma janela (`tela`): cabeçalho padrão "lacre · PET · ‹ Pendências ✕" + emoji e nome da
  *   pendência, depois o corpo (regra do item 25 — nunca popup sobre popup). Os que ainda não
  *   têm (até o 2.12), quem chama fecha o popup e abre o modal de hoje.
  *
@@ -105,14 +105,6 @@ export default function FarolPopup({ aberto, onFechar, tags, animar, onFarol, te
     const tituloTela = (
       <div className="min-w-0 space-y-1.5">
         <div className="flex items-center gap-1.5 min-w-0">
-          <button
-            type="button"
-            onClick={onVoltar}
-            className="flex items-center gap-0.5 text-[13px] font-bold flex-shrink-0 -ml-1 pr-1"
-            style={{ color: '#7c3aed' }}
-          >
-            <ChevronLeft className="h-4 w-4" />Pendências
-          </button>
           <div className="pl-tri" style={{ '--pl-tipo': corTipo } as React.CSSProperties}>
             {pet.lacre && <span className="pl-tri-l">{pet.lacre}</span>}
             <span className="pl-tri-n" style={{ color: pet.genero === 'macho' ? '#1d4ed8' : '#db2777' }}>
@@ -126,7 +118,19 @@ export default function FarolPopup({ aberto, onFechar, tags, animar, onFarol, te
       </div>
     )
     return (
-      <PopupCentral aberto={aberto} onFechar={onFechar} titulo={tituloTela}>
+      <PopupCentral aberto={aberto} onFechar={onFechar} titulo={tituloTela}
+        // "‹ Pendências" colado no ✕ (10/10/2026, pedido do Lucas): os dois caminhos de saída
+        // juntos, no canto — antes ficava à esquerda, antes do nome do pet.
+        antesDoFechar={
+          <button
+            type="button"
+            onClick={onVoltar}
+            className="flex items-center gap-0.5 h-9 pl-1.5 pr-2.5 rounded-full text-[13px] font-bold shrink-0"
+            style={{ color: '#7c3aed', background: 'color-mix(in srgb, #7c3aed 12%, transparent)' }}
+          >
+            <ChevronLeft className="h-4 w-4" />Pendências
+          </button>
+        }>
         <div className="pt-1">{tela.conteudo}</div>
       </PopupCentral>
     )

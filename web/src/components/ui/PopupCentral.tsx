@@ -31,9 +31,11 @@ type Props = {
   largura?: 500 | 640
   /** Clique fora fecha? (padrão sim; desligue em formulário com dado digitado). */
   fecharNoFundo?: boolean
+  /** Fica colado à esquerda do ✕ (ex.: "‹ Pendências" no 2º nível dos faróis). */
+  antesDoFechar?: ReactNode
 }
 
-export default function PopupCentral({ aberto, onFechar, titulo, children, rodape, largura = 500, fecharNoFundo = true }: Props) {
+export default function PopupCentral({ aberto, onFechar, titulo, children, rodape, largura = 500, fecharNoFundo = true, antesDoFechar }: Props) {
   const overlayRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
 
@@ -87,6 +89,7 @@ export default function PopupCentral({ aberto, onFechar, titulo, children, rodap
         {titulo !== undefined && (
           <div className="flex items-center gap-2 px-4 pt-3 pb-2 shrink-0">
             <div className="flex-1 min-w-0 font-semibold" style={{ color: 'var(--surface-900)' }}>{titulo}</div>
+            {antesDoFechar}
             <button
               type="button"
               onClick={onFechar}
