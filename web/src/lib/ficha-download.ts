@@ -4,15 +4,13 @@
 // baixar o pdf ou png"*. A gerente da Matriz é analógica e vai imprimir — que imprima, mas a
 // partir do documento do sistema, não de uma foto de papel tirada no celular.
 //
-// 🔴 **Os dois imports são DINÂMICOS de propósito.** `html2canvas` e `jspdf` juntos são ~500 KB
-// de JS. Como import normal eles entrariam no bundle de quem só quer VER a ficha na conversa —
-// e ver é o que 99% das aberturas faz. Assim, o download só paga o download.
-// (`lib/ficha-generator.ts` importa html2canvas no topo; por isso não dá pra reusar ela aqui
-// sem arrastar o peso de volta.)
+// 🔴 **O import do `jspdf` é DINÂMICO de propósito** (~350 KB de JS): como import normal entraria
+// no bundle de quem só quer VER a ficha na conversa — e ver é o que 99% das aberturas faz.
+// Desde 10/10/2026 o PNG não usa biblioteca nenhuma (ver `paraCanvas`).
 //
 // ⚠️ O elemento passado aqui tem que estar RENDERIZADO e em escala natural (sem
-// `transform: scale`) — o html2canvas lê o layout real e ignora transform. Quem chama deve
-// manter um nó em tamanho 1:1 (pode estar `visibility: hidden` — o clone é que fica visível).
+// `transform: scale`) — a largura e a altura saem do layout real. Quem chama mantém um nó 1:1
+// (pode estar dentro de um ancestral `visibility: hidden`).
 
 /** Vira nome de arquivo: sem acento, sem espaço, sem caractere proibido. */
 export function nomeDeArquivo(...pedacos: (string | null | undefined)[]): string {
@@ -40,16 +38,68 @@ function dispararDownload(blob: Blob, nome: string) {
 }
 
 /**
- * Baixa o código do html2canvas e do jsPDF ANTES do clique — chamar quando a ficha ampliada
- * abre. Sem isso, o primeiro toque em "PDF" no celular espera ~500 KB de JS pela rede sem
- * nenhum retorno visual. O `import()` é cacheado pelo bundler: chamar de novo não baixa nada.
+ * Baixa o código do jsPDF ANTES do clique — chamar quando a ficha ampliada abre. Sem isso, o
+ * primeiro toque em "PDF" no celular espera o JS pela rede sem nenhum retorno visual. O
+ * `import()` é cacheado pelo bundler: chamar de novo não baixa nada.
  */
 export function preCarregarDownload(): void {
-  void import('html2canvas').catch(() => {})
   void import('jspdf').catch(() => {})
 }
 
 /**
+ * Pinta o elemento num canvas SEM html2canvas: o próprio navegador desenha o HTML dentro de um
+ * SVG (`<foreignObject>`) e o SVG vira imagem. `escala: 3` → ~1330px de largura, nítido em A4.
+ *
+ * 🔴 **POR QUE NÃO É MAIS HTML2CANVAS (10/10/2026).** Mesmo com as correções abaixo (que ficam
+ * como histórico), o arquivo baixado no **Chrome do Android do Lucas** saía cortado por uma
+ * linha vertical no meio do "o" de "autenticação" e com o dobro de margem em cima — e a tela,
+ * perfeita. O emulador do Chromium NÃO reproduzia. O html2canvas faz três coisas que o aparelho
+ * real interpreta diferente do emulador: clona a página num iframe da largura da TELA, copia o
+ * estilo COMPUTADO de cada nó (no Android, com o "aumento automático de texto" do Chrome já
+ * aplicado em bloco mais largo que a tela — o nó de captura tem 444px) e desloca o
+ * `<foreignObject>` em `x = y = escala`. Aqui não há nada disso: o SVG leva **só os estilos
+ * escritos no componente** (o `FichaRemocaoDoc` é 100% inline, e a marca é `<svg>` inline), em
+ * `x = y = 0`, e a escala é uma só, pelo `viewBox`. É o mesmo princípio do html-to-image.
+ *
+ * Funciona porque o `FichaRemocaoDoc` cumpre as condições: sem `<img>` (imagem externa não
+ * carrega dentro de SVG-imagem), sem classe CSS (a folha de estilo da página não entra) e sem
+ * fonte web (só Arial/monoespaçada do sistema). Ao mexer no componente, manter as três.
+ *
+ * ⚠️ O nó pode estar `visibility: hidden` num ANCESTRAL (é assim no `LightboxFicha`): só o
+ * elemento é serializado, então o ancestral oculto não vai junto. `hidden` dentro dele (o
+ * rótulo "Tutor(es):" dos tutores 2+) é preservado.
+ */
+async function paraCanvas(el: HTMLElement, escala = 3): Promise<HTMLCanvasElement> {
+  const w = Math.ceil(el.offsetWidth)
+  const h = Math.ceil(el.offsetHeight)
+  const xhtml = new XMLSerializer().serializeToString(el)
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${w * escala}" height="${h * escala}" viewBox="0 0 ${w} ${h}">` +
+    `<foreignObject x="0" y="0" width="${w}" height="${h}">${xhtml}</foreignObject></svg>`
+
+  const img = new Image()
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve()
+    img.onerror = () => reject(new Error('Falha ao montar a imagem da ficha'))
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)
+  })
+  await img.decode?.().catch(() => {})
+
+  const canvas = document.createElement('canvas')
+  canvas.width = w * escala
+  canvas.height = h * escala
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Canvas indisponível')
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+  return canvas
+}
+
+/**
+ * HISTÓRICO — a versão com html2canvas (até 10/10/2026). Mantida em comentário porque cada
+ * armadilha abaixo custou um ciclo com o Lucas e vale pra qualquer outra tela que use html2canvas.
+ *
  * `escala: 3` deixa ~1260px de largura numa ficha de 420 — imprime nítido em A4.
  *
  * 🔴 **`foreignObjectRendering: true` é OBRIGATÓRIO aqui, não é otimização.** O rasterizador
@@ -94,40 +144,12 @@ export function preCarregarDownload(): void {
  * milhares de nós. Medido com 40 fichas na página (1.892 elementos): **2.020 ms → 127 ms** no
  * desktop, mesmo arquivo pixel a pixel. Celular é 5–10× mais lento: eram os "20 segundos pra um
  * PNG de 200 KB". O filtro mantém só os ancestrais do alvo (o caminho até ele) e o próprio alvo.
+ *
+ * Mais duas, do `onclone` daquela versão: o nó de captura `visibility: hidden` precisava voltar
+ * a `visible` em CADA descendente do clone (o `copyStyles` grava o hidden computado em todos),
+ * preservando só o que era hidden inline no original; e a ALTURA computada injetada pelo cloner
+ * tinha de voltar a `auto` (só a altura, nunca a largura — a folha e os slots têm largura fixa).
  */
-async function paraCanvas(el: HTMLElement, escala = 3): Promise<HTMLCanvasElement> {
-  const { default: html2canvas } = await import('html2canvas')
-  return html2canvas(el, {
-    scale: escala,
-    backgroundColor: '#ffffff',
-    useCORS: true,
-    foreignObjectRendering: true,
-    scrollX: 0,
-    scrollY: 0,
-    ignoreElements: n => !(n.contains(el) || el.contains(n)),
-    onclone: (doc, clonado) => {
-      // Visível no clone, MENOS o que é `hidden` de propósito no próprio layout (o
-      // `FichaRemocaoDoc` esconde o rótulo "Tutor(es):" dos tutores 2+). Clone e original têm a
-      // mesma árvore, então a ordem do querySelectorAll casa elemento a elemento; o critério é
-      // o estilo INLINE do original, que o `copyStyles` apaga no clone.
-      const origs = [el, ...el.querySelectorAll<HTMLElement>('*')]
-      const clones = [clonado, ...clonado.querySelectorAll<HTMLElement>('*')]
-      clones.forEach((n, i) => {
-        n.style.visibility = origs[i]?.style.visibility === 'hidden' ? 'hidden' : 'visible'
-      })
-      // Desfaz a ALTURA computada que o cloner injeta: no SVG a métrica de texto muda
-      // sub-pixel, o texto quebra uma linha a mais e, preso numa altura fixa, encavala no
-      // bloco de baixo.
-      //
-      // 🔴 **Só `height`. NUNCA `width`.** O `FichaRemocaoDoc` não declara `height` em
-      // elemento nenhum (usa `minHeight`), então toda altura explícita no clone é injetada e
-      // zerar é um desfazer puro. Já a LARGURA é de propósito — a folha tem `width: DOC_W` e
-      // cada slot de dia/mês/ano tem largura própria; `width: auto` colapsaria o desenho
-      // inteiro. (Errei nisso na primeira versão desta função.)
-      doc.querySelectorAll<HTMLElement>('*').forEach(n => { n.style.height = 'auto' })
-    },
-  })
-}
 
 export async function baixarFichaPng(el: HTMLElement, nomeBase: string): Promise<void> {
   const canvas = await paraCanvas(el)

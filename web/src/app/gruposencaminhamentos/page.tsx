@@ -1045,23 +1045,24 @@ function LightboxFicha({ ficha, escala, onFechar }: {
       {erro && <p className="mt-2 text-xs text-red-300">{erro}</p>}
      </div>
 
-      {/* Nó de captura: renderizado de verdade (o html2canvas precisa de layout real).
-          🔴 Fica no **canto superior esquerdo**, NÃO em `left: -10000`. O
-          `foreignObjectRendering` (obrigatório aqui — ver `lib/ficha-download.ts`) não
-          translada o offset: elemento deslocado do topo do documento sai **em branco**.
+      {/* Nó de captura: em escala 1:1 (a miniatura visível está sob `transform: scale`),
+          renderizado de verdade porque largura e altura do arquivo saem do layout dele.
           🔴 **`visibility: hidden`**, e não "escondido atrás do overlay": este nó é FILHO do
           overlay, então o `zIndex` dele vale dentro do overlay e ele era pintado POR CIMA —
-          a 2ª ficha no canto superior esquerdo do celular (10/10/2026). O `onclone` de
-          `lib/ficha-download.ts` o torna visível só na cópia que vira arquivo. */}
+          a 2ª ficha no canto superior esquerdo do celular (10/10/2026). O
+          `lib/ficha-download.ts` serializa só ESTE nó, então o ancestral oculto não vai junto
+          e o arquivo sai visível. */}
       <div
         aria-hidden="true"
         style={{ position: 'fixed', top: 0, left: 0, visibility: 'hidden', pointerEvents: 'none' }}
       >
-        {/* 🔴 `padding` branco em volta é OBRIGATÓRIO: no modo foreignObject o html2canvas
-            pinta o conteúdo alguns px deslocado pra direita e pra baixo, e o que passa da
-            borda do canvas some — a borda preta da direita e a de baixo saíam cortadas
-            (10/10/2026, reproduzido numa tela de 390px). A margem absorve o deslocamento. */}
-        <div ref={capturaRef} style={{ width: DOC_W, padding: 12, background: '#fff' }}>
+        {/* `padding` branco = margem do arquivo baixado. `textSizeAdjust: 100%` desliga o
+            "aumento automático de texto" do Chrome Android, que age em bloco mais largo que a
+            tela (este tem 444px) e mudaria a altura medida pro tamanho da imagem. */}
+        <div
+          ref={capturaRef}
+          style={{ width: DOC_W, padding: 12, background: '#fff', WebkitTextSizeAdjust: '100%', textSizeAdjust: '100%' }}
+        >
           <FichaRemocaoDoc contrato={ficha.ficha} />
         </div>
       </div>
