@@ -11,7 +11,7 @@
 
 import { PDFDocument, rgb, PDFFont, PDFPage } from 'pdf-lib'
 import fontkit from '@pdf-lib/fontkit'
-import { getUnidade, type DadosContrato } from './contrato-pdf'
+import { getUnidade, buscarBytes, type DadosContrato } from './contrato-pdf'
 
 const mmToPt = 2.835
 const PAGE_W = 210 * mmToPt
@@ -54,9 +54,9 @@ export async function gerarContratoPvPDF(dados: DadosContrato, nomeUnidade: stri
   const pdfDoc = await PDFDocument.create()
   pdfDoc.registerFontkit(fontkit)
   const [regularBytes, boldBytes, logoBytes] = await Promise.all([
-    fetch('/fonts/DMSans-Regular.ttf').then(r => r.arrayBuffer()),
-    fetch('/fonts/DMSans-Bold.ttf').then(r => r.arrayBuffer()),
-    fetch('/logo_rounded.png').then(r => r.arrayBuffer()).catch(() => null), // emblema RIP (as versões com texto são brancas — somem no fundo branco)
+    buscarBytes('/fonts/DMSans-Regular.ttf'),
+    buscarBytes('/fonts/DMSans-Bold.ttf'),
+    buscarBytes('/logo_rounded.png').catch(() => null), // emblema RIP (as versões com texto são brancas — somem no fundo branco)
   ])
   const font = await pdfDoc.embedFont(regularBytes, { subset: true })
   const fontBold = await pdfDoc.embedFont(boldBytes, { subset: true })

@@ -13,39 +13,42 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { gerarContratoPDF, contratoFilename } from './contrato-pdf'
+import { comAvisoGerando } from './aviso-gerando'
 
-export async function baixarContratoPDF(supabase: SupabaseClient, contratoId: string): Promise<void> {
-  const { data: full } = await supabase.from('contratos').select('*').eq('id', contratoId).single()
+export function baixarContratoPDF(supabase: SupabaseClient, contratoId: string): Promise<void> {
+  // O aviso cobre também as consultas ao banco, não só a montagem do PDF
+  return comAvisoGerando('Gerando o contrato…', () => montarEBaixar(supabase, contratoId))
+}
+
+async function montarEBaixar(supabase: SupabaseClient, contratoId: string): Promise<void> {
+  // Contrato e ficha em paralelo (a ficha só depende do id) — eram 4 consultas em fila
+  const [{ data: full }, { data: ficha }] = await Promise.all([
+    supabase.from('contratos').select('*').eq('id', contratoId).single(),
+    // Forma de pagamento e parcelas vêm da FICHA (opção do tutor), não da tabela pagamentos.
+    // op_dados traz o toggle camposAssinatura (PV) definido no processamento.
+    supabase
+      .from('fichas')
+      .select('pagamento, parcelas, op_dados')
+      .eq('contrato_id', contratoId)
+      .order('created_at', { ascending: true })
+      .limit(1),
+  ])
   if (!full) throw new Error('Contrato não encontrado')
-
-  // Forma de pagamento e parcelas vêm da FICHA (opção do tutor), não da tabela pagamentos.
-  // op_dados traz o toggle camposAssinatura (PV) definido no processamento.
-  const { data: ficha } = await supabase
-    .from('fichas')
-    .select('pagamento, parcelas, op_dados')
-    .eq('contrato_id', contratoId)
-    .order('created_at', { ascending: true })
-    .limit(1)
   const fi = ((ficha as { pagamento: string | null; parcelas: string | null; op_dados: Record<string, unknown> | null }[] | null) || [])[0] || null
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const f: any = full
 
-  // Nome da unidade
+  // Unidade (nome) e tutor (endereço/cpf/email completos), em paralelo
+  const [uRes, tRes] = await Promise.all([
+    f.unidade_id ? supabase.from('unidades').select('cidade, estado').eq('id', f.unidade_id).single() : null,
+    f.tutor_id ? supabase.from('tutores').select('*').eq('id', f.tutor_id).single() : null,
+  ])
   let nomeUnidade = 'Santos - SP'
-  if (f.unidade_id) {
-    const { data: u } = await supabase.from('unidades').select('cidade, estado').eq('id', f.unidade_id).single()
-    const ud = u as { cidade: string; estado: string } | null
-    if (ud) nomeUnidade = `${ud.cidade} - ${ud.estado}`
-  }
-
-  // Tutor (endereço/cpf/email completos)
+  const ud = (uRes?.data ?? null) as { cidade: string; estado: string } | null
+  if (ud) nomeUnidade = `${ud.cidade} - ${ud.estado}`
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let tutorObj: any = null
-  if (f.tutor_id) {
-    const { data: t } = await supabase.from('tutores').select('*').eq('id', f.tutor_id).single()
-    tutorObj = t
-  }
+  const tutorObj: any = tRes?.data ?? null
 
   const blob = await gerarContratoPDF({
     codigo: f.codigo,

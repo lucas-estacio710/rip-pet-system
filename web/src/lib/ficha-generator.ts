@@ -1,5 +1,6 @@
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
+import { comAvisoGerando } from './aviso-gerando'
 
 export type FichaGenerationResult = {
   codigo: string
@@ -37,7 +38,11 @@ export function opcoesCaptura(el: HTMLElement) {
   }
 }
 
-export async function captureElementAsBlob(element: HTMLElement): Promise<Blob> {
+export function captureElementAsBlob(element: HTMLElement): Promise<Blob> {
+  return comAvisoGerando('Gerando a ficha…', () => capturarPng(element))
+}
+
+async function capturarPng(element: HTMLElement): Promise<Blob> {
   const canvas = await html2canvas(element, opcoesCaptura(element))
 
   return new Promise((resolve, reject) => {
@@ -145,7 +150,7 @@ export async function gerarFichasA4Blob(elements: HTMLElement[]): Promise<Blob> 
  * A4 landscape = 297\u00d7210mm comporta 2 c\u00f3pias lado a lado com gap central.
  */
 export async function gerarFichaPDFA4Duplicada(element: HTMLElement, filename: string): Promise<void> {
-  const blob = await gerarFichasA4Blob([element, element])
+  const blob = await comAvisoGerando('Gerando a ficha…', () => gerarFichasA4Blob([element, element]))
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url

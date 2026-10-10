@@ -1,5 +1,6 @@
 import { PDFDocument, rgb } from 'pdf-lib'
 import fontkit from '@pdf-lib/fontkit'
+import { comAvisoGerando } from './aviso-gerando'
 
 export type DadosUnidade = {
   razaoSocial: string
@@ -168,7 +169,30 @@ function fmtTel(t: string | null): string {
   return t
 }
 
-export async function gerarContratoPDF(dados: DadosContrato, nomeUnidade: string): Promise<Blob> {
+/**
+ * Arquivos estáticos do PDF (modelo, fontes, logo) baixados UMA vez por sessão — o 2º
+ * contrato em diante não refaz as requisições. Cada chamada recebe uma CÓPIA do buffer,
+ * pra nenhum parser segurar/alterar o que o próximo vai usar.
+ */
+const bytesCache = new Map<string, Promise<ArrayBuffer>>()
+export function buscarBytes(url: string): Promise<ArrayBuffer> {
+  let p = bytesCache.get(url)
+  if (!p) {
+    p = fetch(url).then(r => {
+      if (!r.ok) throw new Error(`Falha ao baixar ${url} (${r.status})`)
+      return r.arrayBuffer()
+    })
+    p.catch(() => bytesCache.delete(url)) // falhou: a próxima tentativa busca de novo
+    bytesCache.set(url, p)
+  }
+  return p.then(b => b.slice(0))
+}
+
+export function gerarContratoPDF(dados: DadosContrato, nomeUnidade: string): Promise<Blob> {
+  return comAvisoGerando('Gerando o contrato…', () => montarContratoPDF(dados, nomeUnidade))
+}
+
+async function montarContratoPDF(dados: DadosContrato, nomeUnidade: string): Promise<Blob> {
   // Contrato PREVENTIVO tem documento próprio (texto de cláusulas, sem template de fundo)
   if (dados.tipoPlano === 'preventivo') {
     const { gerarContratoPvPDF } = await import('./contrato-pv-pdf')
@@ -178,14 +202,14 @@ export async function gerarContratoPDF(dados: DadosContrato, nomeUnidade: string
   // Template por unidade: PA e RS usam template específico
   const u = getUnidade(nomeUnidade)
   const templateFile = (u.sigla === 'PA' || u.sigla === 'RS') ? '/contrato-template-PA-RS.pdf' : '/contrato-template.pdf'
-  const templateBytes = await fetch(templateFile).then(r => r.arrayBuffer())
+  const templateBytes = await buscarBytes(templateFile)
   const pdfDoc = await PDFDocument.load(templateBytes)
   pdfDoc.registerFontkit(fontkit)
   const page = pdfDoc.getPages()[0]
   // DM Sans (alinha com o Design System) — Unicode completo, evita erros WinAnsi
   const [regularBytes, boldBytes] = await Promise.all([
-    fetch('/fonts/DMSans-Regular.ttf').then(r => r.arrayBuffer()),
-    fetch('/fonts/DMSans-Bold.ttf').then(r => r.arrayBuffer()),
+    buscarBytes('/fonts/DMSans-Regular.ttf'),
+    buscarBytes('/fonts/DMSans-Bold.ttf'),
   ])
   const font = await pdfDoc.embedFont(regularBytes, { subset: true })
   const fontBold = await pdfDoc.embedFont(boldBytes, { subset: true })

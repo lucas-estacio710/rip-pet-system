@@ -1,6 +1,7 @@
 import { PDFDocument, rgb, PDFFont, PDFPage } from 'pdf-lib'
 import fontkit from '@pdf-lib/fontkit'
 import { tituloNome } from './nome-tutor'
+import { comAvisoGerando } from './aviso-gerando'
 
 const MESES_PT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
 const ESPECIE_LABEL: Record<string, string> = { canina: 'Canina', felina: 'Felina', exotica: 'Exótica' }
@@ -94,7 +95,11 @@ function desenharLinhaJustificada(
   }
 }
 
-export async function gerarCertificadoPDF(dados: DadosCertificado): Promise<Blob> {
+export function gerarCertificadoPDF(dados: DadosCertificado): Promise<Blob> {
+  return comAvisoGerando('Gerando o certificado…', () => montarCertificadoPDF(dados))
+}
+
+async function montarCertificadoPDF(dados: DadosCertificado): Promise<Blob> {
   const pdfDoc = await PDFDocument.create()
   pdfDoc.registerFontkit(fontkit)
 
