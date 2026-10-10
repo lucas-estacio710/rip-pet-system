@@ -25,7 +25,9 @@ type Props = {
 export default function EntregaModal({ isOpen, onClose, contrato, onSuccess }: Props) {
   const supabase = createClient()
 
-  const [entregaForm, setEntregaForm] = useState({ dataHoje: true, data_entrega: '' })
+  // Nasce SEM data escolhida (10/10/2026, pedido do Lucas — igual ao pagamento): "Hoje" pré-marcado
+  // fazia o operador não conferir.
+  const [entregaForm, setEntregaForm] = useState({ dataHoje: false, data_entrega: '' })
   const [salvando, setSalvando] = useState(false)
 
   if (!isOpen) return null
@@ -124,7 +126,7 @@ export default function EntregaModal({ isOpen, onClose, contrato, onSuccess }: P
                   type="button"
                   onClick={() => setEntregaForm({
                     dataHoje: false,
-                    data_entrega: hojeLocal()
+                    data_entrega: ''
                   })}
                   className="px-2 py-0.5 rounded text-xs text-white/70 hover:text-white transition-colors"
                 >

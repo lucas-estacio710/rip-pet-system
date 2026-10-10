@@ -69,7 +69,9 @@ export default function EntregaTela(p: Props) {
 
   // Painel de conclusão
   const [concluindo, setConcluindo] = useState(false)
-  const [dataEntrega, setDataEntrega] = useState(hojeLocal())
+  // Nasce SEM data (10/10/2026, pedido do Lucas — mesma regra do pagamento): com hoje pré-marcado
+  // o operador não conferia, e a entrega costuma ser registrada depois.
+  const [dataEntrega, setDataEntrega] = useState('')
   const [foto, setFoto] = useState<FotoComprimida | null>(null)
   const [anotacao, setAnotacao] = useState('')
 
