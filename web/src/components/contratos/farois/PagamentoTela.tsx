@@ -57,7 +57,9 @@ export default function PagamentoTela(p: Props) {
   const [descPlanoOn, setDescPlanoOn] = useState(false)
   const [descAcessOn, setDescAcessOn] = useState(false)
   const [prop, setProp] = useState('')
-  const [dataHoje, setDataHoje] = useState(true)
+  // Nasce SEM data escolhida (10/10/2026, pedido do Lucas — igual ao Mega do detalhe): com "Hoje"
+  // pré-marcado o operador não olhava, e na maioria das vezes o pagamento é retroativo.
+  const [dataHoje, setDataHoje] = useState(false)
   const [data, setData] = useState('')
   const [metodo, setMetodo] = useState<Metodo>('pix')
   const [bandeira, setBandeira] = useState<string>('master')
@@ -112,7 +114,7 @@ export default function PagamentoTela(p: Props) {
   // Por que o ✅ está apagado — só depois que algo foi preenchido (tela nova não grita).
   const preencheu = f.planoFechado ? !!f.pfTotal : !!(f.valorPlano || f.valorAcessorio || f.descontoPlano || f.descontoAcessorio)
   const motivo = erroGravar || (!preencheu ? null
-    : calc.erro || (faltaData ? 'Informe a data do pagamento'
+    : calc.erro || (faltaData ? 'Escolha a data do pagamento: Hoje ou a data em que foi pago'
       : faltaCartao ? 'Cartão: escolha bandeira, parcelas e informe o ID da transação'
       : semConta ? 'Nenhuma conta desta unidade recebe este método — cadastre em Financeiro › Contas'
       : null))
@@ -194,12 +196,13 @@ export default function PagamentoTela(p: Props) {
         <div className="flex items-center gap-2">
           <span className="flex-none text-xs font-medium" style={{ color: 'var(--surface-400)' }}>Data</span>
           <span className="flex-1" />
-          <div className="flex items-center gap-0.5 rounded-lg border p-0.5" style={{ background: 'var(--surface-100)', borderColor: 'var(--surface-200)' }}>
+          <div className="flex items-center gap-0.5 rounded-lg border p-0.5"
+            style={{ background: 'var(--surface-100)', borderColor: faltaData && preencheu ? '#f59e0b' : 'var(--surface-200)' }}>
             <button type="button" onClick={() => { setDataHoje(true); setData('') }}
               className="px-2.5 py-1 rounded-md text-xs font-semibold"
               style={dataHoje ? { background: '#16a34a', color: '#fff' } : { color: 'var(--surface-500)' }}>Hoje</button>
             {dataHoje ? (
-              <button type="button" onClick={() => { setDataHoje(false); setData(hojeLocal()) }}
+              <button type="button" onClick={() => { setDataHoje(false); setData('') }}
                 className="px-2.5 py-1 rounded-md text-xs" style={{ color: 'var(--surface-500)' }}>Outra</button>
             ) : (
               <input type="date" value={data} onChange={e => setData(e.target.value)}
