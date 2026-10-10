@@ -196,6 +196,7 @@ export default function FinanceiroPage() {
       <ContasFaturasModal
         aberto={contasAberto}
         onClose={() => setContasAberto(false)}
+        podeEditar={canEdit(TELA, 'btn_caixa_editar')}
         // Importar fica dentro do extrato da conta, já nela (pedido do Lucas:
         // "importar o quê?" — no card não se sabe de qual banco é).
         onImportar={pode.importar ? (contaId) => {

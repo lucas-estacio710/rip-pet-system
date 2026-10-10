@@ -70,11 +70,13 @@ function rotuloLinha(l: Linha): string {
   return (l.descricao || '').split(' — ')[0] || l.origem
 }
 
-export default function ContasFaturasModal({ aberto, onClose, onImportar }: {
+export default function ContasFaturasModal({ aberto, onClose, onImportar, podeEditar = false }: {
   aberto: boolean
   onClose: () => void
   /** Abre o Importar extrato já nesta conta (o popup fecha). Ausente = só consulta. */
   onImportar?: (contaId: string) => void
+  /** FLS `btn_caixa_editar`: corrigir/excluir movimento pelo extrato. Sem ele, só consulta. */
+  podeEditar?: boolean
 }) {
   const supabase = useMemo(() => createClient() as unknown as SupabaseClient, [])
   const { currentUnit } = useUnit()
@@ -198,7 +200,7 @@ export default function ContasFaturasModal({ aberto, onClose, onImportar }: {
         <Geral cards={cards} carregando={carregando} disponivel={disponivel} onAbrir={setTela} />
       )}
       {tela.tipo === 'conta' && (
-        <VerExtrato card={tela.card} onImportar={onImportar} onMudou={() => void carregar()} />
+        <VerExtrato card={tela.card} onImportar={onImportar} podeEditar={podeEditar} onMudou={() => void carregar()} />
       )}
       {tela.tipo === 'agenda' && <VerAgenda card={tela.card} />}
     </Modal>
@@ -256,7 +258,7 @@ function Geral({ cards, carregando, disponivel, onAbrir }: {
 }
 
 // ── VER EXTRATO: o livro, mais novo em cima ─────────────────────────────────
-function VerExtrato({ card, onImportar, onMudou }: { card: Card; onImportar?: (contaId: string) => void; onMudou: () => void }) {
+function VerExtrato({ card, onImportar, podeEditar, onMudou }: { card: Card; onImportar?: (contaId: string) => void; podeEditar: boolean; onMudou: () => void }) {
   const supabase = useMemo(() => createClient() as unknown as SupabaseClient, [])
   const [dias, setDias] = useState(30)
   const [linhas, setLinhas] = useState<Linha[]>([])
@@ -349,7 +351,7 @@ function VerExtrato({ card, onImportar, onMudou }: { card: Card; onImportar?: (c
                   const todosOk = ls.every(l => conc.has(l.origem_id))
                   const chave = `${d.data}|${rot}`
                   const aberto = abertos.has(chave)
-                  const mov = ls.length === 1 && ls[0].origem === 'movimento'
+                  const mov = podeEditar && ls.length === 1 && ls[0].origem === 'movimento'
                   return (
                     <div key={chave}>
                       <div className={`grid grid-cols-[18px_1fr_auto] gap-2 py-1 text-sm ${mov ? 'cursor-pointer hover:bg-[var(--surface-100)] rounded' : ''}`}
@@ -393,7 +395,7 @@ function VerExtrato({ card, onImportar, onMudou }: { card: Card; onImportar?: (c
         conta={editarMes ? { conta_id: card.conta_id, nome: card.nome, tipo: card.tipo, caixa_desde: card.caixa_desde } : null}
         mesInicial={editarMes || hojeISO().slice(0, 7)}
         onClose={() => setEditarMes(null)}
-        podeEditar
+        podeEditar={podeEditar}
         onMudou={() => { void carregar(); onMudou() }}
       />
     </div>
