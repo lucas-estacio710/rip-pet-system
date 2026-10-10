@@ -227,6 +227,10 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
   const v = emNumero(valor)
   const esperado = tela === 'repasse' ? repasseSel?.aPagar : faturaSel?.total
   const diferenca = esperado !== undefined ? Math.round((v - esperado) * 100) / 100 : 0
+  // Parcial só faz sentido se SOBRA algo: valor que cobre o que falta quita
+  // (10/10/2026, Lucas) — a caixinha fica cinza e desmarcada na prática.
+  const podeParcial = !!repasseSel && v > 0 && v < repasseSel.aPagar - 0.005
+  const parcialEf = parcial && podeParcial
 
   async function pagarRepasse() {
     if (!currentUnit?.id) return
@@ -245,7 +249,7 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
         conta_destino_id: destinoMatrizId,  // entra na Matriz
         data,
         valor: v,                           // o que saiu DE VERDADE, não o total do sistema
-        descricao: `Repasse ${mes}${parcial && repasseSel ? ' (parte)' : ''} · ${currentUnit.nome}${repasseSel ? '' : ' (mês sem fechamento no sistema)'}`,
+        descricao: `Repasse ${mes}${parcialEf ? ' (parte)' : ''} · ${currentUnit.nome}${repasseSel ? '' : ' (mês sem fechamento no sistema)'}`,
         criado_por_nome: userName || null,
       }
       let { data: mov, error } = await supabase.from('fin_movimentos')
@@ -253,11 +257,11 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
       // Sem a mig 159 não há `repasse_id`: pagamento integral segue como antes;
       // o parcial não tem como ficar ligado ao repasse, então não grava.
       if (error && repasseSel && /repasse_id/i.test(error.message)) {
-        if (parcial) throw new Error('Pagamento em partes precisa da migration 159 rodada no banco.')
+        if (parcialEf) throw new Error('Pagamento em partes precisa da migration 159 rodada no banco.')
         ;({ data: mov, error } = await supabase.from('fin_movimentos').insert(linha).select('id').single())
       }
       if (error) throw new Error(error.message)
-      if (repasseSel && !parcial) {
+      if (repasseSel && !parcialEf) {
         const { data: { user } } = await supabase.auth.getUser()
         const { error: e2 } = await supabase.from('fin_repasses').update({
           status: 'pago',
@@ -267,7 +271,7 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
         }).eq('id', repasseSel.id)
         if (e2) throw new Error(`O dinheiro foi registrado, mas o repasse não foi marcado como pago: ${e2.message}`)
       }
-      toast(parcial && repasseSel
+      toast(parcialEf && repasseSel
         ? `Parte do repasse ${mes} registrada — faltam ${fmtBRL(Math.max(0, repasseSel.aPagar - v))}`
         : `Repasse ${mes} pago — ${fmtBRL(v)}`, 'success')
       onRegistrou(); onClose()
@@ -314,7 +318,7 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
              onChange={e => setValor(soDigitos(e.target.value))}
              onPaste={e => { const d = colarValorBR(e.clipboardData.getData('text')); if (d !== null) { e.preventDefault(); setValor(d) } }}
              className="input text-sm text-mono w-full" />
-      {esperado !== undefined && Math.abs(diferenca) >= 0.005 && !(tela === 'repasse' && parcial) && (
+      {esperado !== undefined && Math.abs(diferenca) >= 0.005 && !(tela === 'repasse' && parcialEf) && (
         <p className="text-[11px] text-amber-500 mt-1">
           {diferenca > 0 ? 'Pago a mais' : 'Pago a menos'}: {fmtBRL(Math.abs(diferenca))} em relação aos {fmtBRL(esperado)} esperados.
           {tela === 'fatura' && diferenca > 0 && ' Se foram juros/multa, lance a diferença em Despesas, Financeiro › Encargos.'}
@@ -442,12 +446,14 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
             {campoValor}
           </div>
           {repasseSel && (
-            <label className="flex items-start gap-2 text-sm text-[var(--surface-700)] cursor-pointer">
-              <input type="checkbox" checked={parcial} onChange={e => setParcial(e.target.checked)} className="mt-0.5 accent-[var(--brand-500)]" />
+            <label className={`flex items-start gap-2 text-sm ${podeParcial ? 'text-[var(--surface-700)] cursor-pointer' : 'text-[var(--surface-400)] cursor-not-allowed'}`}>
+              <input type="checkbox" checked={parcialEf} disabled={!podeParcial} onChange={e => setParcial(e.target.checked)} className="mt-0.5 accent-[var(--brand-500)] disabled:opacity-50" />
               <span>
                 Pagamento parcial — ainda vou pagar o resto
                 <span className="block text-[11px] text-[var(--surface-500)]">
-                  {parcial
+                  {!podeParcial
+                    ? (v ? 'Este valor cobre o que falta — quita o repasse.' : 'Informe o valor pago.')
+                    : parcialEf
                     ? `O repasse continua aberto${v ? `: depois deste, faltam ${fmtBRL(Math.max(0, repasseSel.aPagar - v))}` : ''}.`
                     : 'Desmarcado, este pagamento quita o repasse — mesmo com valor diferente (desconto, arredondamento).'}
                 </span>
