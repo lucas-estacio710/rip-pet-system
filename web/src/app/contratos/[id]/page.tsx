@@ -18,6 +18,7 @@ import EntregaModal from '@/components/contratos/modals/EntregaModal'
 import GCTracking from '@/components/contratos/gc/GCTracking'
 import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
+import { useCardNovo } from '@/hooks/useCardNovo'
 import PelinhoModal from '@/components/contratos/modals/PelinhoModal'
 import RescaldoModal from '@/components/contratos/modals/RescaldoModal'
 import CertificadoModal from '@/components/contratos/modals/CertificadoModal'
@@ -610,6 +611,9 @@ export default function ContratoDetalhe() {
 
   const { canEdit, isVisible } = useFieldPermission()
   const T = 'tela_contrato' // tela FLS (detalhe do contrato)
+  // Detalhe no padrão novo (docs/PLAYBOOK_CONTRATO_ID.md) — mesma chave do pipeline redesenhado.
+  // Sem ela, a tela fica IDÊNTICA à de antes.
+  const { cardNovo, pronto: cardNovoPronto } = useCardNovo()
   const pagamentoCompleto = isVisible(T, 'pagamento_completo')
 
   // Função para obter URL da imagem local
@@ -2332,7 +2336,8 @@ ${petNome}`
   // a lib corrige isso.
   const gerarCodigoReferencia = (): string => nomeParaAgenda(contrato)
 
-  if (loading) {
+  // Espera o FLS dizer qual layout é (senão a unidade migrada pisca o antigo).
+  if (loading || !cardNovoPronto) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-pulse text-slate-400">Carregando...</div>
@@ -2527,6 +2532,109 @@ ${petNome}`
     )
   }
 
+  // ---- Card principal no padrão novo (docs/PLAYBOOK_CONTRATO_ID.md, itens 9–17) ----
+  // Lacre · Nome · IND/COL numa peça só (.pl-tri.titulo, a mesma do card do pipeline). O lacre
+  // continua sendo o botão do "Alterar Lacre?"; sem lacre, o "+ Lacre" vem antes da peça.
+  const corTipoHero = contrato.tipo_cremacao === 'individual' ? '#10b981' : '#8b5cf6'
+  const triNomeHero = (comLacre: boolean) => (
+    <div className="pl-tri titulo" style={{ '--pl-tipo': corTipoHero } as React.CSSProperties}>
+      {comLacre && (
+        <button type="button" className="pl-tri-l" onClick={() => setLacrePopup(!lacrePopup)} title="Clique para alterar lacre">
+          {String(contrato.numero_lacre).replace(/\.0$/, '')}
+        </button>
+      )}
+      <span className="pl-tri-n" style={{ color: contrato.pet_genero === 'femea' ? '#db2777' : '#1d4ed8' }}>
+        <span className="truncate">{contrato.pet_nome}</span>
+        {contrato.pet_genero && <span style={{ marginLeft: 3, fontSize: '.75em' }}>{contrato.pet_genero === 'macho' ? '♂' : '♀'}</span>}
+      </span>
+      <span className="pl-tri-t">{contrato.tipo_cremacao === 'individual' ? 'IND' : 'COL'}</span>
+    </div>
+  )
+  // Botões de ação (mensagens + fase + certificado) — ficam ao lado do DOC, no canto de cima.
+  const acoesHeroNovo = (
+    <>
+      {isVisible(T, 'btn_mensagens') && (
+        <ActionButtons
+          contrato={contrato}
+          handlers={{
+            onPetGrato: () => abrirPetGrato(),
+            onChegamos: () => setChegamosModalOpen(true),
+            onChegaram: () => setChegaramModalOpen(true),
+            onFinalizadora: () => setFinalizadoraModalOpen(true),
+          }}
+          layout="detail"
+          stopPropagation={false}
+        />
+      )}
+      {isVisible(T, 'btn_alteracao_fase') && (
+        <ActionButtons
+          contrato={contrato}
+          handlers={{
+            onAtivar: () => setAtivarModalOpen(true),
+            onEntrega: () => setEntregaModalOpen(true),
+          }}
+          layout="detail"
+          stopPropagation={false}
+        />
+      )}
+      {(() => {
+        const nomes = [
+          contrato.certificado_nome_1, contrato.certificado_nome_2, contrato.certificado_nome_3,
+          contrato.certificado_nome_4, contrato.certificado_nome_5,
+        ].filter(n => n && n.trim())
+        const qtd = nomes.length
+        const confirmado = !!contrato.certificado_confirmado
+        return (
+          <button
+            onClick={() => setCertificadoModalOpen(true)}
+            className="relative flex items-center justify-center w-7 h-7 bg-amber-500/90 text-white rounded-full hover:bg-amber-500 transition-colors"
+            title={qtd > 0 ? `Certificado: ${qtd} nome(s)${confirmado ? ' · confirmado' : ' · não confirmado'}` : 'Definir nomes do certificado'}
+          >
+            <Award className="h-4 w-4" />
+            {qtd > 0 && (
+              <span className={`absolute -top-1 -right-1 min-w-[14px] h-[14px] flex items-center justify-center rounded-full text-[8px] font-bold text-white ring-1 ring-slate-800 ${confirmado ? 'bg-emerald-500' : 'bg-orange-500'}`}>
+                {qtd}
+              </span>
+            )}
+          </button>
+        )
+      })()}
+    </>
+  )
+  // Código do contrato + "Alterar dados": linha dos faróis no desktop, linha própria no celular.
+  const codigoEAlterarNovo = (
+    <>
+      <button
+        onClick={async () => {
+          await copyToClipboard(contrato.codigo)
+          setCodigoCopied(true)
+          setTimeout(() => setCodigoCopied(false), 1500)
+        }}
+        className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-mono font-semibold transition-colors ${
+          codigoCopied
+            ? 'bg-green-900/30 text-green-400'
+            : 'bg-[var(--surface-50)] hover:bg-[var(--surface-100)] text-[var(--surface-400)] hover:text-[var(--surface-600)]'
+        }`}
+        title={codigoCopied ? 'Copiado!' : 'Copiar código do contrato'}
+      >
+        {codigoCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+        {contrato.codigo}
+      </button>
+      {podeAlterarDados && (
+        <button
+          type="button"
+          onClick={() => setAlterarDadosOpen(true)}
+          className="flex items-center gap-1 px-2 py-1 rounded-lg border border-red-500/60 bg-red-900/20 text-red-300 text-[11px] font-semibold hover:bg-red-900/40 transition-colors"
+          title="Alterar dados que o tutor enviou (uso restrito — registrado em histórico)"
+        >
+          <AlertTriangle className="h-3.5 w-3.5" />
+          <span className="sm:hidden">Alterar dados</span>
+          <span className="hidden sm:inline">Alterar Dados Enviados</span>
+        </button>
+      )}
+    </>
+  )
+
   return (
     <div className="max-w-4xl mx-auto pb-8">
       {/* Header com botão voltar */}
@@ -2541,13 +2649,14 @@ ${petNome}`
       </div>
 
       {/* Hero Card - Pet + Info Principal */}
-      <div className="rounded-xl overflow-hidden mb-6 bg-[var(--surface-0)] border border-[var(--surface-200)] shadow-md">
+      <div className={`rounded-xl overflow-hidden mb-6 bg-[var(--surface-0)] border border-[var(--surface-200)] shadow-md ${cardNovo ? 'relative' : ''}`}>
         {/* Status accent strip */}
         <div className="h-1.5" style={{ background: statusConfig.strip }} />
 
         <div className="p-4 md:p-5">
           {/* Row 1: Lacre + Pet Name + Badges + Code */}
-          <div className="flex items-center gap-2 flex-wrap mb-2">
+          <div className={cardNovo ? 'flex items-start gap-2 mb-2' : 'flex items-center gap-2 flex-wrap mb-2'}>
+          <div className={cardNovo ? 'flex-1 min-w-0 flex items-center gap-2 flex-wrap' : 'contents'}>
             {/* Lacre */}
             <div className="relative" ref={lacreRef}>
               {editandoLacre ? (
@@ -2572,6 +2681,8 @@ ${petNome}`
                     <X className="h-4 w-4" />
                   </button>
                 </div>
+              ) : contrato.numero_lacre && cardNovo ? (
+                triNomeHero(true)
               ) : contrato.numero_lacre ? (
                 <button
                   onClick={() => setLacrePopup(!lacrePopup)}
@@ -2589,6 +2700,7 @@ ${petNome}`
                   + Lacre
                 </button>
               )}
+              {cardNovo && (editandoLacre || !contrato.numero_lacre) && <span className="inline-flex ml-2 align-middle">{triNomeHero(false)}</span>}
 
               {/* Popup de confirmação */}
               {lacrePopup && !editandoLacre && (
@@ -2617,14 +2729,14 @@ ${petNome}`
             </div>
 
             {/* Pet Name + Gender */}
-            <h1 className="text-2xl font-bold text-[var(--surface-800)]">
+            {!cardNovo && <h1 className="text-2xl font-bold text-[var(--surface-800)]">
               {contrato.pet_nome}
               {contrato.pet_genero && (
                 <span className="ml-1 text-lg" style={{ color: contrato.pet_genero === 'macho' ? '#3b82f6' : '#ec4899' }}>
                   {contrato.pet_genero === 'macho' ? '♂' : '♀'}
                 </span>
               )}
-            </h1>
+            </h1>}
 
             {/* Inline Badges */}
             <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
@@ -2632,11 +2744,11 @@ ${petNome}`
             }`}>
               {contrato.tipo_plano === 'preventivo' ? 'PV' : 'EM'}
             </span>
-            <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+            {!cardNovo && <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
               contrato.tipo_cremacao === 'individual' ? 'bg-green-900/40 text-green-300' : 'bg-purple-900/40 text-purple-300'
             }`}>
               {contrato.tipo_cremacao === 'individual' ? 'IND' : 'COL'}
-            </span>
+            </span>}
             <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${statusConfig.bg} ${statusConfig.color}`}>
               {statusConfig.label}
             </span>
@@ -2650,8 +2762,8 @@ ${petNome}`
               </span>
             )}
 
-            {/* GC Status badges (só em pinda) */}
-            {renderGCStatusBadges()}
+            {/* GC Status badges (só em pinda) — no padrão novo o GC vive só no card dele */}
+            {!cardNovo && renderGCStatusBadges()}
 
             {/* Complexidade (retorno only) */}
             {complexidadeConfig && (
@@ -2661,7 +2773,7 @@ ${petNome}`
             )}
 
             {/* Códigos (pushed right on desktop): contrato + referência, empilhados */}
-            <div className="md:ml-auto flex flex-col items-end gap-1">
+            {!cardNovo && <div className="md:ml-auto flex flex-col items-end gap-1">
               <button
                 onClick={async () => {
                   await copyToClipboard(contrato.codigo)
@@ -2695,7 +2807,22 @@ ${petNome}`
                 {refCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                 {gerarCodigoReferencia()}
               </button>
+            </div>}
+          </div>
+          {cardNovo && (
+            <div className="flex-none flex items-center gap-2">
+              {acoesHeroNovo}
+              <DocMenu
+                contratoId={contrato.id}
+                onEditarContrato={() => setEditarContratoOpen(true)}
+                onImprimirContrato={() => gerarContratoDoc()}
+                onEditarFicha={() => setEditarFichaOpen(true)}
+                onImprimirFicha={() => imprimirFichaDoc()}
+                onProtocolo={() => abrirProtocoloDoc()}
+                loading={gerandoContratoDoc || imprimindoFicha}
+              />
             </div>
+          )}
           </div>
 
           {/* Row 2: Pet details */}
@@ -2706,7 +2833,7 @@ ${petNome}`
             {contrato.pet_idade_anos && <><span className="text-[var(--surface-300)]">·</span><span>{contrato.pet_idade_anos} anos</span></>}
             {contrato.pet_peso && (
               <><span className="text-[var(--surface-300)]">·</span><span className="font-mono font-semibold">{contrato.pet_peso}kg</span>
-              {getPetPorte(contrato.pet_peso) && <span className="font-bold text-[var(--surface-600)]">{getPetPorte(contrato.pet_peso)}</span>}</>
+              {!cardNovo && getPetPorte(contrato.pet_peso) && <span className="font-bold text-[var(--surface-600)]">{getPetPorte(contrato.pet_peso)}</span>}</>
             )}
           </div>
 
@@ -2873,8 +3000,8 @@ ${petNome}`
             )
           })()}
 
-          {/* Row 3: Tags */}
-          <div className="mb-3">
+          {/* Row 3: Tags — no novo: placar + pendentes; código + Alterar dados à direita no desktop */}
+          <div className={cardNovo ? 'mb-3 flex flex-wrap items-center gap-2' : 'mb-3'}>
             <InteractiveTags
               contrato={{
                 ...contrato,
@@ -2913,11 +3040,14 @@ ${petNome}`
                 },
                 rescaldo: () => setRescaldoModal(true),
               }}
-              layout="detail"
+              layout={cardNovo ? 'detail-novo' : 'detail'}
               stopPropagation={false}
             />
+            {cardNovo && <div className="hidden md:flex ml-auto items-center gap-2">{codigoEAlterarNovo}</div>}
           </div>
+          {cardNovo && <div className="md:hidden flex justify-end items-center gap-2">{codigoEAlterarNovo}</div>}
 
+          {!cardNovo && (<>
           {/* Row 4: Actions + Copy ref */}
           <div className="flex items-center gap-2 flex-wrap">
             {/* Mensagens Personalizadas (FLS: btn_mensagens — 3-way com pipeline) */}
@@ -2999,6 +3129,7 @@ ${petNome}`
               loading={gerandoContratoDoc || imprimindoFicha}
             />
           </div>
+          </>)}
         </div>
       </div>
 

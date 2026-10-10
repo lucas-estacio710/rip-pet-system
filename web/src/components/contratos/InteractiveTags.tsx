@@ -1,14 +1,16 @@
 'use client'
 
+import { useState } from 'react'
 import { computeAllTags, TAG_STATE_STYLES, type ContratoTagData, type ComputedTag, type TagStyle } from '@/lib/contrato-tags'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
+import ResumoPendencias from '@/components/contratos/pipeline/ResumoPendencias'
 
 type TagHandlers = Partial<Record<string, () => void>>
 
 type Props = {
   contrato: ContratoTagData & { status: string }
   handlers: TagHandlers
-  layout: 'pipeline-desktop-green' | 'pipeline-desktop-pending' | 'pipeline-mobile' | 'pipeline-mobile-split' | 'pipeline-mobile-green' | 'pipeline-mobile-pending' | 'detail'
+  layout: 'pipeline-desktop-green' | 'pipeline-desktop-pending' | 'pipeline-mobile' | 'pipeline-mobile-split' | 'pipeline-mobile-green' | 'pipeline-mobile-pending' | 'detail' | 'detail-novo'
   stopPropagation?: boolean
 }
 
@@ -33,6 +35,8 @@ export default function InteractiveTags({ contrato, handlers, layout, stopPropag
   const showFarois = isVisible('tela_pipeline', 'btn_farois')
   // Protocolo saiu daqui — agora é botão dedicado no espaço do checkbox de seleção
   const allTags = showFarois ? computeAllTags(contrato).filter(t => t.id !== 'protocolo') : []
+  // detail-novo: os concluídos ficam escondidos até tocar no placar (estado local, não persiste)
+  const [concluidosAbertos, setConcluidosAbertos] = useState(false)
 
   const handleClick = (handler: (() => void) | undefined, e: React.MouseEvent) => {
     if (!handler) return
@@ -229,6 +233,64 @@ export default function InteractiveTags({ contrato, handlers, layout, stopPropag
             </div>
           )
         })}
+      </div>
+    )
+  }
+
+  // Detalhe no padrão novo (docs/PLAYBOOK_CONTRATO_ID.md, item 3): placar ✓N ⏱M do pipeline + só as
+  // pendentes. Tocar no placar abre os concluídos ANTES das pendentes, separados por uma barrinha.
+  if (layout === 'detail-novo') {
+    if (allTags.length === 0) return null
+    const LEFT_STATES = new Set(['completed', 'rejected', 'sistema'])
+    const feitos = allTags.filter(t => LEFT_STATES.has(t.state))
+    const pendentes = allTags.filter(t => !LEFT_STATES.has(t.state))
+    const pill = (tag: ComputedTag) => {
+      const s = getStyle(tag)
+      const handler = isNoClick(tag, contrato.status) ? undefined : handlers[tag.id]
+      return (
+        <button
+          key={`${tag.id}-dn`}
+          type="button"
+          onClick={handler ? (e) => handleClick(handler, e) : undefined}
+          className={`px-2 py-1 rounded-lg text-sm ${handler ? 'cursor-pointer hover:opacity-80' : 'cursor-default'} transition-opacity`}
+          style={{ backgroundColor: s.bg, color: s.color }}
+          title={tag.tooltip}
+        >
+          {tag.emoji} {tag.sublabel || (tag.state === 'completed' ? '✅' : tag.state === 'rejected' ? '❌' : '❓')}
+        </button>
+      )
+    }
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <ResumoPendencias
+          feitos={feitos.length}
+          pendentes={pendentes.length}
+          ariaExpanded={concluidosAbertos}
+          title={concluidosAbertos ? 'Esconder os concluídos' : 'Ver os concluídos'}
+          onClick={() => setConcluidosAbertos(v => !v)}
+        />
+        {concluidosAbertos && feitos.length > 0 && (
+          <>
+            {feitos.map(tag => {
+              const s = getStyle(tag)
+              const handler = isNoClick(tag, contrato.status) ? undefined : handlers[tag.id]
+              return (
+                <button
+                  key={`${tag.id}-feito`}
+                  type="button"
+                  onClick={handler ? (e) => handleClick(handler, e) : undefined}
+                  className={`w-8 h-8 rounded-lg text-base flex items-center justify-center ${handler ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}
+                  style={{ backgroundColor: s.bg }}
+                  title={tag.tooltip}
+                >
+                  {tag.emoji}
+                </button>
+              )
+            })}
+            {pendentes.length > 0 && <span className="w-px h-5 bg-slate-600 mx-1" aria-hidden />}
+          </>
+        )}
+        {pendentes.map(pill)}
       </div>
     )
   }

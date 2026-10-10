@@ -251,6 +251,25 @@
   background: var(--pl-tipo);
 }
 
+/* Escala de TÍTULO — card principal do /contratos/[id] (docs/PLAYBOOK_CONTRATO_ID.md, item 9). O
+   lacre é um <button> (abre o "Alterar Lacre?"); a emenda do degradê cresce junto (12 → 16px). */
+.pl-tri.titulo { height: 30px; border-radius: 7px; }
+.pl-tri.titulo .pl-tri-l {
+  font-size: 16px; padding: 0 16px 0 8px; border: 0; cursor: pointer;
+  background: linear-gradient(90deg, #1d4ed8 0, #1d4ed8 calc(100% - 16px), var(--chip-neutro) 100%);
+}
+.pl-tri.titulo .pl-tri-n {
+  font-size: 18px; padding: 0 16px 0 6px;
+  background: linear-gradient(90deg, var(--chip-neutro) 0, var(--chip-neutro) calc(100% - 16px), var(--pl-tipo) 100%);
+}
+.pl-tri.titulo .pl-tri-t { font-size: 11px; padding: 0 9px 0 4px; }
+@media (min-width: 768px) {
+  .pl-tri.titulo { height: 36px; }
+  .pl-tri.titulo .pl-tri-l { font-size: 19px; padding-left: 9px; padding-right: 18px; }
+  .pl-tri.titulo .pl-tri-n { font-size: 22px; padding-left: 7px; padding-right: 18px; }
+  .pl-tri.titulo .pl-tri-t { font-size: 12px; padding-right: 10px; }
+}
+
 /* ============================================================================
    Trilho do card (fase 2.3 — itens 6, 8, 11, 32 e 37): resumo ✓N ⏱M + "Ações «".
    Estilo "vidro" (item 11): fundo translúcido + borda na cor. No escuro o resumo tem fundo
