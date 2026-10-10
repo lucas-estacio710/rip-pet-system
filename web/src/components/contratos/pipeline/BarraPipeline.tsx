@@ -64,6 +64,11 @@ type Props = {
   onAgruparCidade: (v: boolean) => void
   agruparBairro: boolean
   onAgruparBairro: (v: boolean) => void
+  /** Visão "Ícones" do placar de pendências (10/10/2026) — só no menu do celular, onde há placar;
+   *  no desktop os faróis já ficam à vista. Só aparece com faróis na unidade (P-05). */
+  mostrarVerIcones: boolean
+  verIcones: boolean
+  onVerIcones: (v: boolean) => void
 
   /** Ação na barra (ex.: "+ Enc" — sai daqui pra bola flutuante no 2.13). */
   acao?: ReactNode
@@ -103,13 +108,15 @@ export default function BarraPipeline(p: Props) {
     ordem !== 'novos' ||
     (p.mostrarAgruparEnc && !p.agruparEnc) ||
     p.agruparCidade ||
-    p.agruparBairro
+    p.agruparBairro ||
+    (p.mostrarVerIcones && p.verIcones)
 
   const voltarAoPadrao = () => {
     p.onOrdenar('data', false)
     if (p.mostrarAgruparEnc) p.onAgruparEnc(true)
     p.onAgruparCidade(false)
     p.onAgruparBairro(false)
+    p.onVerIcones(false)
   }
 
   const escolherOrdem = (o: typeof ordem) => {
@@ -228,6 +235,15 @@ export default function BarraPipeline(p: Props) {
                     {p.agruparCidade && op(p.agruparBairro, '🏘️ Bairro', () => p.onAgruparBairro(!p.agruparBairro))}
                   </div>
                 </div>
+                {p.mostrarVerIcones && (
+                  <div>
+                    <div className="pl-org-titulo">Pendências</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {op(!p.verIcones, '✓⏱ Números', () => p.onVerIcones(false))}
+                      {op(p.verIcones, '🔔 Ícones', () => p.onVerIcones(true))}
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-3 px-3 pb-3">
                 {foraDoPadrao && (

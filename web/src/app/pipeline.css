@@ -551,6 +551,18 @@
 [data-theme="white"] .pl-rs.ok { background: rgba(16, 185, 129, 0.16); color: #047857; }
 .pl-rs.baixo { height: 24px; padding: 0 7px; gap: 6px; font-size: 11px; border-radius: 7px; }
 .pl-rs.chefe { height: 40px; padding: 0 12px; gap: 12px; font-size: 17px; font-weight: 900; border-width: 2px; border-radius: 12px; }
+/* Visão "Ícones" (10/10): o ✓N e cada pendência são botões dentro do mesmo box. O ícone ganha
+   um alvo de 28px (dedo) sem aumentar o box; fundo leve pra ler como tocável. */
+.pl-rs.pl-rs-icones { flex-shrink: 1; min-width: 0; gap: 3px; padding: 0 3px 0 8px; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.pl-rs.pl-rs-icones::-webkit-scrollbar { display: none; }
+.pl-rs.pl-rs-icones .pl-rs-a { margin-right: 5px; font: inherit; color: inherit; }
+.pl-rs.pl-rs-icones.pend .pl-rs-a { color: #34d399; }
+[data-theme="white"] .pl-rs.pl-rs-icones.pend .pl-rs-a { color: #047857; }
+.pl-rs-ic { flex: none; width: 28px; height: 26px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 15px; line-height: 1; background: rgba(255, 255, 255, 0.08); }
+[data-theme="white"] .pl-rs-ic { background: rgba(255, 255, 255, 0.7); }
+.pl-rs-ic:active { transform: scale(0.92); }
+.pl-rs.baixo.pl-rs-icones .pl-rs-ic { width: 22px; height: 20px; font-size: 12px; }
 .pl-rs.chefe .pl-rs-a, .pl-rs.chefe .pl-rs-b { gap: 4px; }
 
 /* Esteira do GC (item 9 dos ajustes finos, 09/10) — o desenho da bancada: moldura, rótulos curtos,

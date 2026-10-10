@@ -529,6 +529,14 @@ function ContratosContent() {
   // Default: agrupado por encaminhamento (mantém comportamento histórico). URL ?encam=false desliga.
   const [agruparSupinda, setAgruparSupinda] = useState(searchParams.get('encam') !== 'false')
   const [agruparBairro, setAgruparBairro] = useState(searchParams.get('bairro') === 'true')
+  // Visão "Ícones" do placar de pendências (10/10/2026): preferência de quem olha, guardada no
+  // aparelho. Lida depois de montar — no servidor não há localStorage.
+  const [pendIcones, setPendIcones] = useState(false)
+  useEffect(() => { try { setPendIcones(localStorage.getItem('pipeline.pendencias.icones') === '1') } catch {} }, [])
+  const trocarPendIcones = (v: boolean) => {
+    setPendIcones(v)
+    try { localStorage.setItem('pipeline.pendencias.icones', v ? '1' : '0') } catch {}
+  }
 
   // Filtro de dificuldade de montagem (só para aba Retorno)
 
@@ -4424,6 +4432,12 @@ ${petNome}`
     if (TELAS_FAROL.has(id)) { setFarolTela(id); setFarolTelaContrato(c); popupHist.entrar() }
   }
 
+  /** Visão "Ícones" do placar (10/10/2026): as pendências do card, na ordem dos faróis. */
+  function iconesDoCard(c: Contrato): { id: string; emoji: string; titulo: string }[] {
+    return faroisDoCard(c).filter(t => estadoPendente(t.state))
+      .map(t => ({ id: t.id, emoji: t.emoji, titulo: `${t.label}${t.tooltip ? ' · ' + t.tooltip : ''}` }))
+  }
+
   function resumoDoCard(c: Contrato): { feitos: number; pendentes: number } | null {
     if (!isVisible(T, 'btn_farois')) return null
     const tags = computeAllTags({ ...c, indicacaoFonteId, temOperacional: unidadeTemOperacional(c.unidade_id) }).filter(t => t.id !== 'protocolo')
@@ -4715,6 +4729,9 @@ ${petNome}`
           onAgruparCidade={setAgruparCidade}
           agruparBairro={agruparBairro}
           onAgruparBairro={setAgruparBairro}
+          mostrarVerIcones={isVisible(T, 'btn_farois')}
+          verIcones={pendIcones}
+          onVerIcones={trocarPendIcones}
           acao={botaoNovoEnc}
           abaixo={<>
             {breadcrumbPasta}
@@ -6121,7 +6138,9 @@ ${petNome}`
                           if (!r) return undefined
                           return (
                             <ResumoPendencias feitos={r.feitos} pendentes={r.pendentes} tamanho="baixo"
-                              onClick={() => { setFarolContratoId(contrato.id); setFarolAnimar(true); popupHist.abrir() }} />
+                              onClick={() => { setFarolContratoId(contrato.id); setFarolAnimar(true); popupHist.abrir() }}
+                              icones={pendIcones ? iconesDoCard(contrato) : undefined}
+                              onIcone={id => abrirFarolDireto(contrato, id)} />
                           )
                         })() : undefined}
                       />
@@ -6275,6 +6294,8 @@ ${petNome}`
                             inicio={naEntrega ? renderEnderecoNoTrilho(contrato) : undefined}
                             resumoAberto={farolContratoId === contrato.id}
                             onResumo={() => { setFarolContratoId(contrato.id); setFarolAnimar(true); popupHist.abrir() }}
+                            icones={pendIcones && tagsCard && !naEntrega ? iconesDoCard(contrato) : undefined}
+                            onIcone={id => abrirFarolDireto(contrato, id)}
                             acoes={acoes}
                             extras={
                               <>

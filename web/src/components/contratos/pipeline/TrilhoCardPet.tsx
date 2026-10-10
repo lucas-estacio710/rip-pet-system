@@ -26,9 +26,12 @@ type Props = {
   acoes: ReactNode[]
   /** Ocupa o espaço à esquerda até as Ações (ex.: o endereço do tutor na Entrega — item 36). */
   inicio?: ReactNode
+  /** Visão "Ícones" do placar (ver ResumoPendencias). */
+  icones?: { id: string; emoji: string; titulo: string }[]
+  onIcone?: (id: string) => void
 }
 
-export default function TrilhoCardPet({ resumo, resumoAberto, onResumo, extras, acoes, inicio }: Props) {
+export default function TrilhoCardPet({ resumo, resumoAberto, onResumo, extras, acoes, inicio, icones, onIcone }: Props) {
   const [gaveta, setGaveta] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -44,7 +47,7 @@ export default function TrilhoCardPet({ resumo, resumoAberto, onResumo, extras, 
   return (
     <div ref={ref} className="pl-trilho flex items-center gap-1.5 min-h-[36px]" onClick={e => e.stopPropagation()}>
       {resumo && (
-        <ResumoPendencias feitos={resumo.feitos} pendentes={resumo.pendentes} onClick={onResumo} ariaExpanded={resumoAberto} />
+        <ResumoPendencias feitos={resumo.feitos} pendentes={resumo.pendentes} onClick={onResumo} ariaExpanded={resumoAberto} icones={icones} onIcone={onIcone} />
       )}
       {inicio ? <div className="flex-1 min-w-0">{inicio}</div> : <div className="flex-1" />}
       {extras}
