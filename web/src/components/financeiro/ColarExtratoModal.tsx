@@ -520,6 +520,7 @@ export default function ColarExtratoModal({
       void supabase.from('fin_saldos_banco').upsert(
         { conta_id: contaId, data: cab.venc, saldo: -cab.total, origem: 'fatura', criado_por_nome: userName || null },
         { onConflict: 'conta_id,data' })
+        .then(({ error }) => { if (error) console.warn('[saldo do banco]', error.message) })
     }
     if (cab && !vencimento) { setVencimento(cab.venc); setNovaFatura(!faturas.some(f => f.venc === cab.venc)) }
 
@@ -546,6 +547,9 @@ export default function ColarExtratoModal({
         void supabase.from('fin_saldos_banco').upsert(
           { conta_id: contaId, data: fim, saldo: ultimo.saldo, origem: 'extrato', criado_por_nome: userName || null },
           { onConflict: 'conta_id,data' })
+          // ⚠️ O builder do supabase-js só dispara no .then/await: `void` sozinho
+          // NÃO enviava nada — a tabela ficou vazia até 10/10/2026.
+          .then(({ error }) => { if (error) console.warn('[saldo do banco]', error.message) })
       }
     }
     setLendo(false)
