@@ -151,8 +151,67 @@ async function paraCanvas(el: HTMLElement, escala = 3): Promise<HTMLCanvasElemen
  * tinha de voltar a `auto` (só a altura, nunca a largura — a folha e os slots têm largura fixa).
  */
 
+/**
+ * O canvas saiu legível e com a ficha dentro? Duas falhas possíveis do caminho SVG:
+ *  - **canvas "contaminado"** (tainted): navegador que trata SVG com `<foreignObject>` como
+ *    origem insegura faz `getImageData`/`toBlob` lançar SecurityError. É o risco clássico do
+ *    WebKit (todo navegador do iPhone) — não testado aqui por falta do WebKit na máquina;
+ *  - **imagem vazia**: o SVG carregou mas o navegador não pintou o HTML de dentro.
+ * Confere a borda esquerda da folha (preta, logo depois da margem branca de 12px).
+ */
+function canvasValido(canvas: HTMLCanvasElement, escala: number): boolean {
+  try {
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return false
+    const x = Math.round(13 * escala)
+    const col = ctx.getImageData(x - escala, Math.round(canvas.height * 0.3), escala * 2, Math.round(canvas.height * 0.4)).data
+    for (let i = 0; i < col.length; i += 4) if (col[i] < 100 && col[i + 3] > 200) return true
+    return false
+  } catch {
+    return false
+  }
+}
+
+/**
+ * PLANO B: o desenhista INTERNO do html2canvas (`foreignObjectRendering: false`), que não usa
+ * SVG e por isso não contamina o canvas. ⚠️ Cair no html2canvas em modo foreignObject não
+ * adiantaria — é o mesmo mecanismo do caminho principal. Custo conhecido do plano B: o texto
+ * sai ~4–5px abaixo da linha (bug do html2canvas 1.4.1, ver histórico acima). Ficha legível
+ * com o texto um pouco baixo é melhor que download quebrado.
+ */
+async function paraCanvasReserva(el: HTMLElement, escala: number): Promise<HTMLCanvasElement> {
+  const { default: html2canvas } = await import('html2canvas')
+  return html2canvas(el, {
+    scale: escala,
+    backgroundColor: '#ffffff',
+    scrollX: 0,
+    scrollY: 0,
+    ignoreElements: n => !(n.contains(el) || el.contains(n)),
+    onclone: (_doc, clonado) => {
+      // O nó vive sob um ancestral `visibility: hidden`; o desenhista interno pula invisíveis.
+      // Volta a visível, menos o que já era hidden de propósito (rótulo "Tutor(es):" 2+).
+      const origs = [el, ...el.querySelectorAll<HTMLElement>('*')]
+      const clones = [clonado, ...clonado.querySelectorAll<HTMLElement>('*')]
+      clones.forEach((n, i) => {
+        n.style.visibility = origs[i]?.style.visibility === 'hidden' ? 'hidden' : 'visible'
+      })
+    },
+  })
+}
+
+async function canvasDaFicha(el: HTMLElement, escala = 3): Promise<HTMLCanvasElement> {
+  try {
+    const canvas = await paraCanvas(el, escala)
+    if (canvasValido(canvas, escala)) return canvas
+    console.warn('[ficha-download] caminho SVG saiu inválido; usando o plano B (html2canvas)')
+  } catch (e) {
+    console.warn('[ficha-download] caminho SVG falhou; usando o plano B (html2canvas)', e)
+  }
+  return paraCanvasReserva(el, escala)
+}
+
 export async function baixarFichaPng(el: HTMLElement, nomeBase: string): Promise<void> {
-  const canvas = await paraCanvas(el)
+  const canvas = await canvasDaFicha(el)
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(b => (b ? resolve(b) : reject(new Error('Falha ao gerar o PNG da ficha'))), 'image/png')
   })
@@ -160,7 +219,7 @@ export async function baixarFichaPng(el: HTMLElement, nomeBase: string): Promise
 }
 
 export async function baixarFichaPdf(el: HTMLElement, nomeBase: string): Promise<void> {
-  const canvas = await paraCanvas(el)
+  const canvas = await canvasDaFicha(el)
   const { default: jsPDF } = await import('jspdf')
 
   // 🔴 `compress: true` + compressão da imagem NÃO SÃO OPCIONAIS. Sem elas o jsPDF embute os
