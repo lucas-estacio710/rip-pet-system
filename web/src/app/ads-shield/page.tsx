@@ -271,7 +271,7 @@ export default function AdsShieldPage() {
     a.href = url
     a.download = `rip-shield-ips-${hojeLocal()}.txt`
     a.click()
-    URL.revokeObjectURL(url)
+    setTimeout(() => URL.revokeObjectURL(url), 1000) // no mesmo tick pode cancelar o download no celular
   }
 
   async function whitelistIP(ip: string) {

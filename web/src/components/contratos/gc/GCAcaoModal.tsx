@@ -160,7 +160,7 @@ export default function GCAcaoModal({ contratoId, contratoCodigo, petNome, tipoC
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      setTimeout(() => URL.revokeObjectURL(url), 1000) // no mesmo tick pode cancelar o download no celular
       if (!gc.certificado_pronto) mudar({ certificado_pronto: true })
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro desconhecido'

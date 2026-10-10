@@ -482,7 +482,7 @@ export default function FichasPage() {
       a.href = url
       a.download = contratoFilename(String(op.codigo || 'FICHA'), ficha.nome_pet || 'PET')
       a.click()
-      URL.revokeObjectURL(url)
+      setTimeout(() => URL.revokeObjectURL(url), 1000) // no mesmo tick pode cancelar o download no celular
     } catch (err) {
       console.error('Erro ao gerar PDF:', err)
     }
