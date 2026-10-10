@@ -27,6 +27,7 @@ import ContasTab from '@/components/financeiro/ContasTab'
 import CaixaTab from '@/components/financeiro/CaixaTab'
 import VisaoMesTab from '@/components/financeiro/VisaoMesTab'
 import SeletorMes, { mesDeHoje } from '@/components/financeiro/SeletorMes'
+import ContasFaturasModal from '@/components/financeiro/ContasFaturasModal'
 import { ITENS_LANCAR, type AcaoLancar } from '@/lib/lancar'
 
 const TELA = 'tela_financeiro'
@@ -56,6 +57,11 @@ export default function FinanceiroPage() {
   const [active, setActive] = useState<string | null>(null)
   // O MÊS É UM SÓ (09/10/2026): escolhido acima das abas, vale pra todas.
   const [mes, setMes] = useState(mesDeHoje)
+  // CONTAS E FATURAS (10/10/2026): o antigo Caixa vira popup — "onde está o
+  // dinheiro agora" não segue o mês das abas. A aba 'caixa' continua existindo
+  // por dentro só para a Movimentação entre contas do + Lançar.
+  const [contasAberto, setContasAberto] = useState(false)
+  const [contaImportar, setContaImportar] = useState<string | null>(null)
   const activeTab = visibleTabs.find(t => t.key === active) ?? visibleTabs[0] ?? null
 
   // + LANÇAR (lib/lancar.ts). Cada item só aparece pra quem pode lançar aquilo —
@@ -75,6 +81,7 @@ export default function FinanceiroPage() {
   // useCallback: a Visão do mês recarrega quando estes mudam — sem memo, laço.
   const lancar = useCallback((acao: AcaoLancar) => {
     setMenuLancar(false)
+    setContaImportar(null)
     setActive(acao === 'movimentacao' ? 'caixa' : 'lancamentos')
     setComando(acao)
   }, [])
@@ -104,6 +111,9 @@ export default function FinanceiroPage() {
                   className={`h-9 w-9 rounded-[10px] border flex items-center justify-center ${activeTab?.key === 'contas' ? 'border-[var(--brand-500)] text-[var(--brand-500)]' : 'border-[var(--surface-300)] text-[var(--surface-600)] hover:bg-[var(--surface-100)]'}`}>
             <Settings className="h-4 w-4" />
           </button>
+        )}
+        {temAba('caixa') && (
+          <button onClick={() => setContasAberto(true)} className="btn-secondary text-sm">Contas e Faturas</button>
         )}
         {itensLancar.length > 0 && (
           <div className="relative">
@@ -136,9 +146,9 @@ export default function FinanceiroPage() {
       {activeTab?.key !== 'contas' && <SeletorMes mes={mes} onMes={setMes} />}
 
       {/* Abas sublinhadas (V2): roxo só na ativa. Contas mora na engrenagem. */}
-      {visibleTabs.filter(t => t.key !== 'contas').length > 1 && (
+      {visibleTabs.filter(t => t.key !== 'contas' && t.key !== 'caixa').length > 1 && (
         <nav className="flex gap-6 overflow-x-auto border-b border-[var(--surface-200)] -mt-1">
-          {visibleTabs.filter(t => t.key !== 'contas').map(t => {
+          {visibleTabs.filter(t => t.key !== 'contas' && t.key !== 'caixa').map(t => {
             const ativa = activeTab?.key === t.key
             return (
               <button key={t.key} onClick={() => setActive(t.key)}
@@ -165,7 +175,7 @@ export default function FinanceiroPage() {
         // leitura" tem de significar que nada nela se edita, senão `read` vira
         // uma etiqueta sem consequência.
         <LancamentosTab mes={mes} somenteLeitura={!canEdit(TELA, 'btn_lancamento_editar') || !canEdit(TELA, TELA)}
-          comando={comandoPara('lancamentos')} onComandoFeito={() => setComando(null)} />
+          comando={comandoPara('lancamentos')} onComandoFeito={() => setComando(null)} contaImportar={contaImportar} />
       ) : activeTab?.key === 'repasse' ? (
         <RepasseTab mes={mes} somenteLeitura={repasseSomenteLeitura} />
       ) : activeTab?.key === 'caixa' ? (
@@ -182,6 +192,17 @@ export default function FinanceiroPage() {
           description="Nenhuma aba do financeiro está visível para o seu perfil."
         />
       )}
+
+      <ContasFaturasModal
+        aberto={contasAberto}
+        onClose={() => setContasAberto(false)}
+        // Importar fica dentro do extrato da conta, já nela (pedido do Lucas:
+        // "importar o quê?" — no card não se sabe de qual banco é).
+        onImportar={pode.importar ? (contaId) => {
+          setContasAberto(false); setMenuLancar(false)
+          setActive('lancamentos'); setContaImportar(contaId); setComando('importar')
+        } : undefined}
+      />
     </div>
   )
 }

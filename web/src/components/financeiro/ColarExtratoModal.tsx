@@ -133,7 +133,7 @@ const chaveEntre = (d: string) => (fornecedorDe(d) || d).normalize('NFD').toLowe
   .replace(/[^a-z ]/g, ' ').replace(/ +/g, ' ').trim()
 
 export default function ColarExtratoModal({
-  aberto, onClose, categorias, folhas, caminhoDe, mes, onRegistrou, permiteReceitas = true, onQuitar,
+  aberto, onClose, categorias, folhas, caminhoDe, mes, onRegistrou, permiteReceitas = true, onQuitar, contaInicial,
 }: {
   aberto: boolean
   onClose: () => void
@@ -147,6 +147,8 @@ export default function ColarExtratoModal({
   /** Linha que é quitação (repasse à Matriz, fatura de cartão): abre o pagamento
    *  em Lançamentos especiais já preenchido com valor, data e conta da linha. */
   onQuitar?: (q: { tipo: 'repasse' | 'fatura'; valor: number; data: string; contaId: string }) => void
+  /** Abrir já nesta conta ("Importar extrato desta conta", em Contas e Faturas). */
+  contaInicial?: string | null
 }) {
   const supabase = createClient() as unknown as SupabaseClient
   const { toast } = useToast()
@@ -237,11 +239,11 @@ export default function ColarExtratoModal({
         const cs = (data as ContaRow[] | null) || []
         setContas(cs)
         const corr = cs.filter(c => c.produto !== 'maquininha' && c.tipo !== 'cartao')
-        setContaId((corr.find(c => c.preferencial_recebimento) || corr[0])?.id || '')
+        setContaId(contaInicial && cs.some(c => c.id === contaInicial) ? contaInicial : (corr.find(c => c.preferencial_recebimento) || corr[0])?.id || '')
         const maq = cs.filter(c => c.produto === 'maquininha')
         setMaquininhaLote(maq.length === 1 ? maq[0].id : '')
       })
-  }, [aberto, currentUnit?.id, supabase])
+  }, [aberto, currentUnit?.id, supabase, contaInicial])
 
   async function ler(deArquivo?: ExtratoOFX) {
     if (!contaId) return toast('Escolha de qual conta é o extrato', 'error')

@@ -42,7 +42,7 @@ const somaMes = (m: string, d: number) => {
 }
 const centavos = (n: number) => Math.round(n * 100) / 100
 
-export default function ExtratoContaModal({ conta, mesInicial, onClose, onConferir, onMudou }: {
+export default function ExtratoContaModal({ conta, mesInicial, onClose, onConferir, onMudou, podeEditar: podeEditarProp }: {
   conta: Conta | null
   mesInicial: string
   onClose: () => void
@@ -50,10 +50,12 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
   onConferir?: () => void
   /** Um movimento foi corrigido/excluído aqui: o Caixa recarrega os saldos. */
   onMudou?: () => void
+  /** Corrigir/excluir movimento sem a porta do "conferir saldo" (Contas e Faturas). */
+  podeEditar?: boolean
 }) {
   const supabase = createClient() as unknown as SupabaseClient
   const { toast } = useToast()
-  const podeEditar = !!onConferir
+  const podeEditar = !!onConferir || !!podeEditarProp
   const [mov, setMov] = useState<Mov | null>(null)
   const [excluindo, setExcluindo] = useState(false)   // 1º clique pede confirmação
   const [salvando, setSalvando] = useState(false)

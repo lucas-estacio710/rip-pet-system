@@ -122,12 +122,14 @@ function IconeCat({ nome, className }: { nome?: string | null; className?: strin
  *   cria, edita nem exclui. Era a única aba do financeiro que ignorava isso —
  *   Repasse, Caixa e Contas já recebiam a prop, e Lançamentos não (13/09/2026).
  */
-export default function LancamentosTab({ mes, somenteLeitura = false, comando = null, onComandoFeito }: {
+export default function LancamentosTab({ mes, somenteLeitura = false, comando = null, onComandoFeito, contaImportar = null }: {
   /** O mês do Financeiro — um só, escolhido acima das abas (09/10/2026). */
   mes: string
   somenteLeitura?: boolean
   /** Do "+ Lançar" da página (lib/lancar.ts): abre o formulário certo. */
   comando?: AcaoLancar | null
+  /** Com o comando 'importar': a conta em que o Importar já abre. */
+  contaImportar?: string | null
   onComandoFeito?: () => void
 }) {
   const supabaseTipado = createClient()
@@ -981,6 +983,7 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
         permiteReceitas={veReceitas}
         onRegistrou={() => { void carregar(); setVersaoColar(v => v + 1) }}
         onQuitar={q => { setColarAberto(false); setEspeciaisInicial(q); setEspeciaisAberto(true) }}
+        contaInicial={contaImportar}
       />
 
       <LancamentosEspeciaisModal
