@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { ChevronUp, ChevronDown } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { tituloNome } from '@/lib/certificado-pdf'
+import { tituloNome } from '@/lib/nome-tutor'
 import RacaAutocomplete from '@/components/ui/RacaAutocomplete'
 import type { EspeciePet } from '@/lib/racas'
 

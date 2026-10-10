@@ -1,6 +1,6 @@
 // Helpers para montar links de WhatsApp (chat direto e mensagens prontas) de forma consistente.
 import { primeiroNome } from '@/lib/nome-tutor'
-import { tituloNome } from '@/lib/certificado-pdf'
+import { tituloNome } from '@/lib/nome-tutor'
 
 const NOME_OPERADOR = 'Angela'
 

@@ -1,5 +1,6 @@
-import { PDFDocument, rgb } from 'pdf-lib'
-import fontkit from '@pdf-lib/fontkit'
+// pdf-lib e fontkit (~1,3 MB) vêm em import() dinâmico dentro da geração (10/10/2026): este
+// arquivo é importado pelo pipeline, detalhe, /tarefas e /fichas, e um import estático
+// colocava as duas bibliotecas no carregamento dessas telas mesmo sem ninguém baixar nada.
 import { comAvisoGerando } from './aviso-gerando'
 
 export type DadosUnidade = {
@@ -202,7 +203,9 @@ async function montarContratoPDF(dados: DadosContrato, nomeUnidade: string): Pro
   // Template por unidade: PA e RS usam template específico
   const u = getUnidade(nomeUnidade)
   const templateFile = (u.sigla === 'PA' || u.sigla === 'RS') ? '/contrato-template-PA-RS.pdf' : '/contrato-template.pdf'
-  const templateBytes = await buscarBytes(templateFile)
+  const [templateBytes, { PDFDocument, rgb }, { default: fontkit }] = await Promise.all([
+    buscarBytes(templateFile), import('pdf-lib'), import('@pdf-lib/fontkit'),
+  ])
   const pdfDoc = await PDFDocument.load(templateBytes)
   pdfDoc.registerFontkit(fontkit)
   const page = pdfDoc.getPages()[0]

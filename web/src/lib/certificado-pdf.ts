@@ -1,7 +1,10 @@
-import { PDFDocument, rgb, PDFFont, PDFPage } from 'pdf-lib'
-import fontkit from '@pdf-lib/fontkit'
+// pdf-lib e fontkit (~1,3 MB) vêm em import() dinâmico dentro da geração (10/10/2026): este
+// arquivo é importado pelo modal do GC, e um import estático colocava as duas bibliotecas
+// no carregamento dele mesmo sem ninguém baixar nada.
+import type { PDFFont, PDFPage, RGB } from 'pdf-lib'
 import { tituloNome } from './nome-tutor'
 import { comAvisoGerando } from './aviso-gerando'
+import { buscarBytes } from './contrato-pdf'
 
 const MESES_PT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
 const ESPECIE_LABEL: Record<string, string> = { canina: 'Canina', felina: 'Felina', exotica: 'Exótica' }
@@ -78,7 +81,8 @@ function desenharLinhaJustificada(
   x0: number,
   y: number,
   larguraTotal: number,
-  justificar: boolean
+  justificar: boolean,
+  cor: RGB,
 ) {
   const spaceW = font.widthOfTextAtSize(' ', size)
   const widths = palavras.map(p => font.widthOfTextAtSize(p, size))
@@ -90,7 +94,7 @@ function desenharLinhaJustificada(
   }
   let x = x0
   for (let i = 0; i < palavras.length; i++) {
-    page.drawText(palavras[i], { x, y, size, font, color: rgb(0, 0, 0) })
+    page.drawText(palavras[i], { x, y, size, font, color: cor })
     x += widths[i] + espacoEntre
   }
 }
@@ -100,17 +104,15 @@ export function gerarCertificadoPDF(dados: DadosCertificado): Promise<Blob> {
 }
 
 async function montarCertificadoPDF(dados: DadosCertificado): Promise<Blob> {
+  const [{ PDFDocument, rgb }, { default: fontkit }] = await Promise.all([import('pdf-lib'), import('@pdf-lib/fontkit')])
   const pdfDoc = await PDFDocument.create()
   pdfDoc.registerFontkit(fontkit)
 
   // Century Gothic (copiada do Windows pra /public/fonts)
-  const [regularBytes, boldBytes] = await Promise.all([
-    fetch('/fonts/CenturyGothic-Regular.ttf').then(r => r.arrayBuffer()),
-    fetch('/fonts/CenturyGothic-Bold.ttf').then(r => r.arrayBuffer()),
-  ])
+  // Só a Regular: a Bold era baixada (130 KB) e embutida sem uso nenhum. Se um trecho
+  // precisar de negrito, ela está em /fonts/CenturyGothic-Bold.ttf.
+  const regularBytes = await buscarBytes('/fonts/CenturyGothic-Regular.ttf')
   const font = await pdfDoc.embedFont(regularBytes, { subset: true })
-  // Bold disponível caso queira reutilizar em algum trecho futuro
-  await pdfDoc.embedFont(boldBytes, { subset: true })
 
   // A4 retrato (1mm = 2.835pt)
   const mmToPt = 2.8346
@@ -139,7 +141,7 @@ async function montarCertificadoPDF(dados: DadosCertificado): Promise<Blob> {
       const palavras = linhas[i]
       const ehUltimaLinha = i === linhas.length - 1
       // Justifica todas exceto a última linha do parágrafo
-      desenharLinhaJustificada(page, palavras, font, size, x0, yPt - size, contentW, !ehUltimaLinha)
+      desenharLinhaJustificada(page, palavras, font, size, x0, yPt - size, contentW, !ehUltimaLinha, rgb(0, 0, 0))
       yPt -= lineHeight
     }
     yPt -= espacoEntreParagrafos

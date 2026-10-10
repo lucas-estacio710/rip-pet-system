@@ -1,5 +1,6 @@
-import html2canvas from 'html2canvas'
-import jsPDF from 'jspdf'
+// html2canvas e jspdf (~600 KB) em import() dinâmico dentro da geração (10/10/2026): este
+// arquivo é importado pelo pipeline e pelo detalhe do contrato, e o import estático punha as
+// duas bibliotecas no carregamento dessas telas.
 import { comAvisoGerando } from './aviso-gerando'
 
 export type FichaGenerationResult = {
@@ -43,6 +44,7 @@ export function captureElementAsBlob(element: HTMLElement): Promise<Blob> {
 }
 
 async function capturarPng(element: HTMLElement): Promise<Blob> {
+  const { default: html2canvas } = await import('html2canvas')
   const canvas = await html2canvas(element, opcoesCaptura(element))
 
   return new Promise((resolve, reject) => {
@@ -115,6 +117,7 @@ const FICHA_Y_MM = (A4L_PAGE_H - FICHA_H_MM) / 2 // \u2248 9.5 mm (centraliza ve
  */
 export async function gerarFichasA4Blob(elements: HTMLElement[]): Promise<Blob> {
   if (elements.length === 0) throw new Error('Nenhuma ficha para gerar')
+  const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')])
 
   // Captura cada n\u00f3 UMA vez (alta resolu\u00e7\u00e3o) \u2014 a c\u00f3pia de assinatura passa o mesmo n\u00f3 2\u00d7
   const capturas = new Map<HTMLElement, Promise<string>>()
