@@ -980,11 +980,16 @@ function LightboxFicha({ ficha, escala, onFechar }: {
     }
   }
 
+  // Overlay com `justify-start` + `my-auto` no conteúdo, e não `justify-center`: com
+  // `justify-center` + `overflow-auto`, uma ficha mais alta que a tela tem o TOPO cortado e
+  // inalcançável (o flex centraliza para fora da área rolável). `my-auto` centraliza quando
+  // cabe e encosta no topo quando não cabe.
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center p-4 overflow-auto"
+      className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-start p-4 overflow-auto"
       onClick={onFechar}
     >
+     <div className="my-auto flex flex-col items-center">
       <div className="flex items-center justify-between gap-3 w-full max-w-md mb-3 text-white/90">
         <span className="text-sm font-medium truncate">
           Ficha de {ficha.petNome}
@@ -1009,38 +1014,35 @@ function LightboxFicha({ ficha, escala, onFechar }: {
         <button
           onClick={() => baixar('pdf')}
           disabled={baixando !== null}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-50 text-white text-xs font-medium transition-colors"
+          className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-50 text-white text-sm font-medium transition-colors"
         >
-          {baixando === 'pdf' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+          {baixando === 'pdf' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
           PDF
         </button>
         <button
           onClick={() => baixar('png')}
           disabled={baixando !== null}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-50 text-white text-xs font-medium transition-colors"
+          className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-50 text-white text-sm font-medium transition-colors"
         >
-          {baixando === 'png' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+          {baixando === 'png' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
           PNG
         </button>
-        <Link
-          href={`/contratos/${ficha.contratoId}`}
-          className="ml-1 text-xs text-white/70 hover:text-white underline"
-        >
-          Abrir o contrato
-        </Link>
       </div>
 
       {erro && <p className="mt-2 text-xs text-red-300">{erro}</p>}
+     </div>
 
       {/* Nó de captura: renderizado de verdade (o html2canvas precisa de layout real).
           🔴 Fica no **canto superior esquerdo**, NÃO em `left: -10000`. O
           `foreignObjectRendering` (obrigatório aqui — ver `lib/ficha-download.ts`) não
           translada o offset: elemento deslocado do topo do documento sai **em branco**.
-          Quem esconde é o overlay preto do lightbox, que cobre a tela toda por cima — daí o
-          `zIndex: 0` contra o `z-50` do overlay. */}
+          🔴 **`visibility: hidden`**, e não "escondido atrás do overlay": este nó é FILHO do
+          overlay, então o `zIndex` dele vale dentro do overlay e ele era pintado POR CIMA —
+          a 2ª ficha no canto superior esquerdo do celular (10/10/2026). O `onclone` de
+          `lib/ficha-download.ts` o torna visível só na cópia que vira arquivo. */}
       <div
         aria-hidden="true"
-        style={{ position: 'fixed', top: 0, left: 0, zIndex: 0, pointerEvents: 'none' }}
+        style={{ position: 'fixed', top: 0, left: 0, visibility: 'hidden', pointerEvents: 'none' }}
       >
         <div ref={capturaRef} style={{ width: DOC_W }}>
           <FichaRemocaoDoc contrato={ficha.ficha} />

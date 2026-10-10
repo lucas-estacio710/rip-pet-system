@@ -12,7 +12,7 @@
 //
 // ⚠️ O elemento passado aqui tem que estar RENDERIZADO e em escala natural (sem
 // `transform: scale`) — o html2canvas lê o layout real e ignora transform. Quem chama deve
-// manter um nó oculto em tamanho 1:1, como `lib/impressao-unificada.ts` já faz.
+// manter um nó em tamanho 1:1 (pode estar `visibility: hidden` — o clone é que fica visível).
 
 /** Vira nome de arquivo: sem acento, sem espaço, sem caractere proibido. */
 export function nomeDeArquivo(...pedacos: (string | null | undefined)[]): string {
@@ -65,6 +65,17 @@ function dispararDownload(blob: Blob, nome: string) {
  *    `onclone` devolve `height`/`width` pra `auto` em todo elemento do clone.
  *  - e o elemento tem que estar no TOPO do documento (elemento deslocado sai em branco) —
  *    responsabilidade de quem chama; ver o nó de captura no `LightboxFicha`.
+ *
+ * 🔴 **`scrollX: 0, scrollY: 0` são obrigatórios** (10/10/2026 — PDF e PNG saíam EM BRANCO no
+ * celular). O html2canvas soma o scroll da janela à posição do elemento
+ * (`Bounds.fromClientRect` + `windowBounds`), e no modo foreignObject desenha a imagem em
+ * `-y × escala`. O nó de captura é `position: fixed` no topo, mas com a conversa rolada
+ * `pageYOffset` vale centenas de px: a ficha era desenhada FORA do canvas e sobrava só o fundo
+ * branco. No desktop passava porque a página quase nunca estava rolada na hora do clique.
+ *
+ * ⚠️ O nó de captura fica com `visibility: hidden` na página (senão aparece por cima do
+ * lightbox) e o `onclone` o torna visível **só no clone** — `copyStyles` grava o `hidden`
+ * computado em cada descendente, por isso a volta é no elemento E em todos os filhos.
  */
 async function paraCanvas(el: HTMLElement, escala = 3): Promise<HTMLCanvasElement> {
   const { default: html2canvas } = await import('html2canvas')
@@ -73,7 +84,18 @@ async function paraCanvas(el: HTMLElement, escala = 3): Promise<HTMLCanvasElemen
     backgroundColor: '#ffffff',
     useCORS: true,
     foreignObjectRendering: true,
-    onclone: (doc) => {
+    scrollX: 0,
+    scrollY: 0,
+    onclone: (doc, clonado) => {
+      // Visível no clone, MENOS o que é `hidden` de propósito no próprio layout (o
+      // `FichaRemocaoDoc` esconde o rótulo "Tutor(es):" dos tutores 2+). Clone e original têm a
+      // mesma árvore, então a ordem do querySelectorAll casa elemento a elemento; o critério é
+      // o estilo INLINE do original, que o `copyStyles` apaga no clone.
+      const origs = [el, ...el.querySelectorAll<HTMLElement>('*')]
+      const clones = [clonado, ...clonado.querySelectorAll<HTMLElement>('*')]
+      clones.forEach((n, i) => {
+        n.style.visibility = origs[i]?.style.visibility === 'hidden' ? 'hidden' : 'visible'
+      })
       // Desfaz a ALTURA computada que o cloner injeta: no SVG a métrica de texto muda
       // sub-pixel, o texto quebra uma linha a mais e, preso numa altura fixa, encavala no
       // bloco de baixo.
