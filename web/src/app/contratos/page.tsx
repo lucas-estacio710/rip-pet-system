@@ -43,6 +43,7 @@ import { baixarContratoPDF } from '@/lib/contrato-pdf-download'
 import { tituloNome, primeiroNome, separarPrimeiroNome } from '@/lib/nome-tutor'
 import { consultaEmLotes } from '@/lib/consulta-em-lotes'
 import { useCardNovo } from '@/hooks/useCardNovo'
+import { montarVizinhos, gravarVizinhos } from '@/lib/vizinhos-contrato'
 import CardPet from '@/components/contratos/pipeline/CardPet'
 import BarraPipeline from '@/components/contratos/pipeline/BarraPipeline'
 import TopoCardPet from '@/components/contratos/pipeline/TopoCardPet'
@@ -402,6 +403,20 @@ function ContratosContent() {
 
   // Inicializar estado a partir dos query params
   const [contratos, setContratos] = useState<Contrato[]>([])
+  // ‹ Anterior · Próximo › do detalhe (docs/PLAYBOOK_CONTRATO_ID.md §3): no clique que abre o
+  // contrato, grava os pets DO MESMO STATUS na ordem em que estão NA TELA (o DOM é quem sabe a
+  // ordem: viagens, CEP e ordenação por nome acontecem no client).
+  const lembrarVizinhos = (idAberto: string) => {
+    const ids = Array.from(document.querySelectorAll<HTMLElement>('[data-contrato-id]'))
+      .map(e => e.dataset.contratoId || '').filter(Boolean)
+    const statusDe = Object.fromEntries(contratos.map(c => [c.id, c.status]))
+    const nomes = Object.fromEntries(contratos.map(c => [c.id, c.pet_nome || '']))
+    gravarVizinhos(montarVizinhos(ids, statusDe, idAberto, nomes))
+  }
+  const abrirContrato = (id: string) => {
+    lembrarVizinhos(id)
+    router.push(`/contratos/${id}`)
+  }
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({})
   const [statusCountsOriginal, setStatusCountsOriginal] = useState<Record<string, number>>({})
   const buscaIdRef = useRef(0) // Evita race condition entre buscas
@@ -1006,7 +1021,7 @@ function ContratosContent() {
         ? "text-white font-bold bg-blue-700 px-1 py-0 rounded text-base"
         : "text-white font-bold bg-blue-700 px-1.5 rounded text-sm h-6 flex items-center flex-shrink-0"
       return (
-        <Link href={`/contratos/${contrato.id}`} className="hover:opacity-80 flex-shrink-0">
+        <Link href={`/contratos/${contrato.id}`} onClick={() => lembrarVizinhos(contrato.id)} className="hover:opacity-80 flex-shrink-0">
           <span className={badgeClass}>
             {String(contrato.numero_lacre).replace(/\.0$/, '')}
           </span>
@@ -5611,7 +5626,7 @@ ${petNome}`
                           layout="pipeline"
                         />
                       ) : undefined}
-                      onAbrir={() => router.push(`/contratos/${contrato.id}`)}
+                      onAbrir={() => abrirContrato(contrato.id)}
                       destaque={termosDestaque}
                       rotuloAcolhido={`Pet Acolhido — finalizar ${contrato.tipo_plano === 'preventivo' ? 'Ativação de Preventivo' : 'Acolhimento'}`}
                     />
@@ -5740,7 +5755,7 @@ ${petNome}`
                 <div
                   key={contrato.id}
                   data-contrato-id={contrato.id}
-                  onClick={() => router.push(`/contratos/${contrato.id}`)}
+                  onClick={() => abrirContrato(contrato.id)}
                   className={`relative overflow-hidden rounded-lg shadow-sm border-2 hover:shadow-md cursor-pointer ${
                     highlightId === contrato.id
                       ? 'ring-2 ring-yellow-400 shadow-lg shadow-yellow-400/30'
@@ -5920,7 +5935,7 @@ ${petNome}`
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         {renderLacreCell(contrato, 'desktop')}
-                        <Link href={`/contratos/${contrato.id}`} className="hover:opacity-80">
+                        <Link href={`/contratos/${contrato.id}`} onClick={() => lembrarVizinhos(contrato.id)} className="hover:opacity-80">
                           <span className="text-base font-bold" style={{ background: 'linear-gradient(90deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', color: contrato.pet_genero === 'macho' ? '#1d4ed8' : '#db2777', padding: '1px 6px', borderRadius: '4px' }}>
                             {contrato.pet_nome}
                             {contrato.pet_genero && <span style={{ marginLeft: '3px', fontSize: '0.8rem' }}>{contrato.pet_genero === 'macho' ? '♂' : '♀'}</span>}
@@ -6255,7 +6270,7 @@ ${petNome}`
                       </div>
                       {/* Coluna: Pet nome + Raça/Cor */}
                       <div className="min-w-0 flex flex-col justify-center gap-1 items-end">
-                        <Link href={`/contratos/${contrato.id}`} className="hover:opacity-80 max-w-[140px]" onClick={(e) => e.stopPropagation()}>
+                        <Link href={`/contratos/${contrato.id}`} className="hover:opacity-80 max-w-[140px]" onClick={(e) => { e.stopPropagation(); lembrarVizinhos(contrato.id) }}>
                           <span className="text-sm font-bold truncate h-6 flex items-center" style={{ background: 'linear-gradient(90deg, #cbd5e1 0%, #f1f5f9 50%, #cbd5e1 100%)', color: contrato.pet_genero === 'macho' ? '#1d4ed8' : '#db2777', padding: '0 5px', borderRadius: '4px' }}>
                             {contrato.pet_nome}
                             {contrato.pet_genero && <span style={{ marginLeft: '2px', fontSize: '0.7rem' }}>{contrato.pet_genero === 'macho' ? '♂' : '♀'}</span>}

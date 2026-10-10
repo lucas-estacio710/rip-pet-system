@@ -29,9 +29,30 @@ type Tarefa = {
 type Props = {
   contratoId: string
   observacoesFicha: string | null
+  /**
+   * Padrão novo do detalhe (docs/PLAYBOOK_CONTRATO_ID.md, item 6 — opção "AD"): título "Registros de
+   * Atendimento", campo de escrever NO TOPO e linha do tempo MAIS RECENTE PRIMEIRO, com o selo da
+   * unidade sobre o fio. Mesmas ações e mesmas gravações de sempre; nada recolhido.
+   */
+  novo?: boolean
 }
 
-export default function ObservacoesCard({ contratoId, observacoesFicha }: Props) {
+const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+/** Chave do dia na data LOCAL (o created_at vem em UTC). */
+function chaveDia(iso: string): string {
+  const d = new Date(iso)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+function rotuloDia(chave: string): string {
+  const [a, m, d] = chave.split('-').map(Number)
+  const ano = a !== new Date().getFullYear() ? ` ${a}` : ''
+  return `${String(d).padStart(2, '0')} ${MESES[m - 1]}${ano}`
+}
+function hora(iso: string): string {
+  return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+}
+
+export default function ObservacoesCard({ contratoId, observacoesFicha, novo = false }: Props) {
   const supabase = createClient()
   const { currentUnit, userName, userEmail } = useUnit()
 
@@ -207,6 +228,141 @@ export default function ObservacoesCard({ contratoId, observacoesFicha }: Props)
   }
 
   const temObs = tarefas.length > 0 || observacoesFicha
+
+  if (novo) {
+    const importantes = tarefas.filter(t => t.importante && !t.resolvido).length
+    // Mais recente primeiro: dias do mais novo pro mais velho e, dentro do dia, idem.
+    const ordenadas = [...tarefas].sort((a, b) => b.created_at.localeCompare(a.created_at))
+    const dias: { chave: string; itens: Tarefa[] }[] = []
+    for (const t of ordenadas) {
+      const k = chaveDia(t.created_at)
+      const d = dias[dias.length - 1]
+      if (d && d.chave === k) d.itens.push(t); else dias.push({ chave: k, itens: [t] })
+    }
+    const fichaSolta = observacoesFicha && !tarefas.some(t => (t.tipo as unknown as { nome: string })?.nome?.includes('Ficha'))
+    const btn = 'p-1.5 rounded-lg transition-colors hover:bg-slate-700'
+    return (
+      <div className="bg-slate-800 rounded-xl shadow-md p-5 border border-slate-700">
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          <div className="w-8 h-8 rounded-lg bg-slate-700 flex items-center justify-center">
+            <MessageSquare className="h-4 w-4 text-slate-400" />
+          </div>
+          <h2 className="font-semibold text-slate-200">Registros de Atendimento</h2>
+          {tarefas.length > 0 && <span className="text-sm text-slate-400">({tarefas.length})</span>}
+          {importantes > 0 && (
+            <span className="text-xs bg-red-900/30 text-red-400 px-2 py-0.5 rounded-full font-semibold">
+              {importantes} importante{importantes > 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
+
+        {/* Escrever fica no topo: o registro novo aparece logo abaixo. */}
+        <div className="flex gap-2 mb-3">
+          <input
+            type="text"
+            value={novaObs}
+            onChange={e => setNovaObs(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && novaObs.trim()) adicionarObs() }}
+            placeholder="Adicionar observação..."
+            className="flex-1 px-3 py-2 text-sm rounded-lg bg-slate-700 border border-slate-600 text-slate-200 placeholder-slate-500 outline-none focus:border-slate-500"
+          />
+          <button
+            onClick={adicionarObs}
+            disabled={salvando || !novaObs.trim()}
+            className="px-3 py-2 rounded-lg bg-slate-600 text-slate-200 hover:bg-slate-500 transition-colors disabled:opacity-40 text-sm"
+          >
+            {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="text-center py-4 text-slate-500 text-sm">Carregando...</div>
+        ) : (
+          <div>
+            {dias.map(d => (
+              <div key={d.chave} className="mb-2">
+                <div className="text-[11px] uppercase tracking-wider text-slate-500 mb-1">{rotuloDia(d.chave)}</div>
+                <div className="relative pl-9 md:pl-[86px]">
+                  <span className="absolute top-2 bottom-2 left-[13px] md:left-[63px] w-px bg-slate-700" aria-hidden />
+                  {d.itens.map(tarefa => {
+                    const badge = getBadge(tarefa)
+                    const fundo = tarefa.importante && !tarefa.resolvido
+                      ? { background: 'rgba(127,29,29,.12)', boxShadow: 'inset 0 0 0 1px rgba(239,68,68,.25)' }
+                      : tarefa.resolvido ? { background: 'rgba(6,78,59,.12)', boxShadow: 'inset 0 0 0 1px rgba(16,185,129,.22)' } : undefined
+                    return (
+                      <div key={tarefa.id} className="relative flex items-start gap-2 py-1.5 px-2 -mx-2 rounded-lg" style={fundo}>
+                        <span className="hidden md:block absolute -left-[86px] top-[11px] w-[40px] text-right text-[11px] text-slate-500 tabular-nums">{hora(tarefa.created_at)}</span>
+                        <span className="absolute -left-[30px] top-[6px] w-7 h-7 rounded-full flex items-center justify-center text-[8px] font-bold"
+                          style={{ background: badge.bg, color: badge.text }}>
+                          {badge.label}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          {editandoId === tarefa.id ? (
+                            <textarea
+                              value={textoEditado}
+                              onChange={e => setTextoEditado(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); salvarEdicao(tarefa) }
+                                if (e.key === 'Escape') cancelarEdicao()
+                              }}
+                              rows={2}
+                              className="w-full px-2 py-1 text-sm rounded bg-slate-700 border border-slate-500 text-slate-200 outline-none focus:border-slate-400 resize-y"
+                            />
+                          ) : (
+                            <p className="text-sm text-slate-300 whitespace-pre-wrap break-words">
+                              {tarefa.importante && !tarefa.resolvido && <span title="Importante">🚨 </span>}
+                              {tarefa.resolvido && <span title="Resolvido">✅ </span>}
+                              {tarefa.descricao}
+                            </p>
+                          )}
+                          <p className="text-[10px] text-slate-500 mt-0.5">
+                            {tarefa.criado_por || 'Sistema'}<span className="md:hidden"> · {hora(tarefa.created_at)}</span>
+                            {tarefa.resolvido && tarefa.resolvido_por && (
+                              <span className="text-emerald-500"> · Resolvido por {tarefa.resolvido_por}{tarefa.resolvido_em ? ` em ${new Date(tarefa.resolvido_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}</span>
+                            )}
+                          </p>
+                        </div>
+                        <div className="flex items-center shrink-0">
+                          {editandoId === tarefa.id ? (
+                            <>
+                              <button onClick={() => salvarEdicao(tarefa)} title="Salvar" className={`${btn} text-emerald-400 hover:text-emerald-300`}><Check className="h-4 w-4" /></button>
+                              <button onClick={cancelarEdicao} title="Cancelar" className={`${btn} text-slate-500 hover:text-slate-300`}><X className="h-4 w-4" /></button>
+                            </>
+                          ) : (
+                            <>
+                              <button onClick={() => iniciarEdicao(tarefa)} title="Editar" className={`${btn} text-slate-500 hover:text-slate-300`}><Pencil className="h-4 w-4" /></button>
+                              <button onClick={() => toggleImportante(tarefa)} title={tarefa.importante ? 'Remover importância' : 'Marcar importante'}
+                                className={`${btn} ${tarefa.importante ? 'text-red-400 hover:text-red-300' : 'text-slate-500 hover:text-slate-300'}`}><AlertTriangle className="h-4 w-4" /></button>
+                              <button onClick={() => toggleResolvido(tarefa)} title={tarefa.resolvido ? 'Reabrir' : 'Resolver'}
+                                className={`${btn} ${tarefa.resolvido ? 'text-emerald-400 hover:text-emerald-300' : 'text-slate-500 hover:text-slate-300'}`}><Check className="h-4 w-4" /></button>
+                              <button onClick={() => excluirTarefa(tarefa)} title="Excluir" className={`${btn} text-slate-500 hover:text-red-400`}><Trash2 className="h-4 w-4" /></button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+
+            {/* A observação original da ficha (quando não foi migrada pra tarefas) é a mais antiga: vai no fim. */}
+            {fichaSolta && (
+              <div className="flex gap-2 items-start mt-1">
+                <div className="w-7 h-7 rounded-full flex items-center justify-center text-[8px] font-bold shrink-0" style={{ background: '#7c3aed', color: '#fff' }}>FI</div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-slate-300 whitespace-pre-wrap">{observacoesFicha}</p>
+                  <p className="text-[10px] text-slate-500 mt-0.5">Observação da ficha do tutor</p>
+                </div>
+              </div>
+            )}
+
+            {!temObs && <p className="text-sm text-slate-500 text-center py-2">Nenhum registro ainda</p>}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="bg-slate-800 rounded-xl shadow-md p-5 border border-slate-700 md:col-span-2">

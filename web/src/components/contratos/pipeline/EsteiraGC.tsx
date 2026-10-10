@@ -66,7 +66,7 @@ function Trilha({ titulo, passos, atual }: { titulo: string; passos: Passo[]; at
   )
 }
 
-export default function EsteiraGC({ gc, dataIda }: { gc: GCDoCard; dataIda: string | null }) {
+export default function EsteiraGC({ gc, dataIda, sempreAberta = false }: { gc: GCDoCard; dataIda: string | null; /** Detalhe do contrato: nunca colapsa nas 3 caixinhas (PLAYBOOK_CONTRATO_ID item 14). */ sempreAberta?: boolean }) {
   const [aberta, setAberta] = useState(false)
   const etapa = gc.etapa || 'provisionado'
   const iEtapa = Math.max(0, ['provisionado', 'recebido', 'cremado', 'disponivel'].indexOf(etapa))
@@ -103,7 +103,7 @@ export default function EsteiraGC({ gc, dataIda }: { gc: GCDoCard; dataIda: stri
     </div>
   )
 
-  if (etapa !== 'disponivel') return completa(false)
+  if (sempreAberta || etapa !== 'disponivel') return completa(false)
   if (aberta) return completa(true)
 
   // GC concluído: as três caixinhas da bancada, centralizadas; a setinha abre a esteira inteira.

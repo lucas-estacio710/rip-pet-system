@@ -6,7 +6,7 @@ import FichaRemocao from '@/components/fichas/FichaRemocao'
 import { captureElementAsBlob, fichaFilename, gerarFichaPDFA4Duplicada, nomeFicha } from '@/lib/ficha-generator'
 import EditarFichaModal from '@/components/contratos/modals/EditarFichaModal'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, User, Phone, Mail, MapPin, DollarSign, FileText, X, Search, Plus, Pencil, Trash2, Check, Copy, Package, AlertTriangle, Star, Download, Share2, Receipt, Award, Clock, CheckCheck, CalendarClock, SearchCheck, Flame, CheckCircle2 } from 'lucide-react'
+import { ArrowLeft, User, Phone, Mail, MapPin, DollarSign, FileText, X, Search, Plus, Pencil, Trash2, Check, Copy, Package, AlertTriangle, Star, Download, Share2, Receipt, Award, Clock, CheckCheck, CalendarClock, SearchCheck, Flame, CheckCircle2, ShoppingCart, ListChecks, Heart, Stethoscope, ExternalLink } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { copyToClipboard } from '@/lib/clipboard'
 import Link from 'next/link'
@@ -44,6 +44,10 @@ import { nomeParaAgenda } from '@/lib/nome-agenda'
 import { concluirTarefasPendentesDe, reabrirTarefasOperacionais, podeMarcarFeitoSemFoto } from '@/lib/atribuir-tarefa'
 import { carregarExigeFoto, type ExigeFotoPorTipo } from '@/lib/foto-tarefa'
 import ProdutosFilterBar from '@/components/ui/ProdutosFilterBar'
+import AbasContrato, { type AbaDef } from '@/components/contratos/AbasContrato'
+import TarefasAba, { SELECT_TAREFAS_DO_CONTRATO, type TarefaDoContrato } from '@/components/contratos/TarefasAba'
+import EsteiraGC from '@/components/contratos/pipeline/EsteiraGC'
+import { lerVizinhosGravados, vizinhosDe } from '@/lib/vizinhos-contrato'
 
 function PixIcon({ className = "h-5 w-5" }: { className?: string }) {
   return (
@@ -271,7 +275,7 @@ type Contrato = {
   // Pagamento (parcelas no 1º pagamento)
   parcelas: number | null
   // GC tracking (embed)
-  contrato_gc?: { etapa: string; cinzas_prontas: boolean; certificado_pronto: boolean; contato_status: string | null } | null
+  contrato_gc?: { etapa: string; cinzas_prontas: boolean; certificado_pronto: boolean; contato_status: string | null; contato_tutor_em?: string | null; data_agendamento?: string | null; data_recebimento?: string | null; data_cremacao?: string | null; data_disponivel?: string | null } | null
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; strip: string }> = {
@@ -614,6 +618,47 @@ export default function ContratoDetalhe() {
   // Detalhe no padrão novo (docs/PLAYBOOK_CONTRATO_ID.md) — mesma chave do pipeline redesenhado.
   // Sem ela, a tela fica IDÊNTICA à de antes.
   const { cardNovo, pronto: cardNovoPronto } = useCardNovo()
+  // Abas dos cards de baixo (PLAYBOOK_CONTRATO_ID item 16): a aba sobrevive ao ‹ Anterior / Próximo ›.
+  const [abaContrato, setAbaContrato] = useState<string>(() => {
+    try { return sessionStorage.getItem('contrato:aba') || 'tutor' } catch { return 'tutor' }
+  })
+  const trocarAba = (id: string) => {
+    setAbaContrato(id)
+    try { sessionStorage.setItem('contrato:aba', id) } catch { /* aba privada */ }
+  }
+  const [tarefasContrato, setTarefasContrato] = useState<TarefaDoContrato[]>([])
+  const [carregandoTarefasContrato, setCarregandoTarefasContrato] = useState(false)
+  const [outrosContratos, setOutrosContratos] = useState<{ id: string; pet_nome: string | null; pet_genero: string | null; tipo_cremacao: string | null; tipo_plano: string | null; status: string; data_acolhimento: string | null; data_contrato: string | null; unidade_id: string | null }[]>([])
+  // fichas.como_conheceu é uma LISTA (text[]) — mesma checagem do IndicacaoCard: includes('Veterinário')
+  const [fichaComoConheceu, setFichaComoConheceu] = useState<string[] | null>(null)
+  const [cpfCopiado, setCpfCopiado] = useState(false)
+  const [editValorTxt, setEditValorTxt] = useState('')
+  const [editDescTxt, setEditDescTxt] = useState('')
+  // Padrão novo do detalhe: tarefas do pet (aba Tarefas), se a ficha veio de Veterinário (aba
+  // Indicação) e os outros contratos do mesmo tutor (card Tutor) — inclusive de outras unidades.
+  useEffect(() => {
+    if (!cardNovo || !contrato?.id) return
+    let vivo = true
+    setCarregandoTarefasContrato(true)
+    supabase.from('tarefas_operacionais').select(SELECT_TAREFAS_DO_CONTRATO).eq('contrato_id', contrato.id)
+      .then(({ data }) => {
+        if (!vivo) return
+        setTarefasContrato((data || []) as TarefaDoContrato[])
+        setCarregandoTarefasContrato(false)
+      })
+    supabase.from('fichas').select('como_conheceu').eq('contrato_id', contrato.id).limit(1)
+      .then(({ data }) => { if (vivo) setFichaComoConheceu(((data || []) as { como_conheceu: string[] | null }[])[0]?.como_conheceu || null) })
+    if (contrato.tutor_id) {
+      supabase.from('contratos')
+        .select('id, pet_nome, pet_genero, tipo_cremacao, tipo_plano, status, data_acolhimento, data_contrato, unidade_id')
+        .eq('tutor_id', contrato.tutor_id).neq('id', contrato.id)
+        .then(({ data }) => { if (vivo) setOutrosContratos((data || []) as typeof outrosContratos) })
+    } else {
+      setOutrosContratos([])
+    }
+    return () => { vivo = false }
+  }, [cardNovo, contrato?.id, contrato?.tutor_id]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const pagamentoCompleto = isVisible(T, 'pagamento_completo')
 
   // Função para obter URL da imagem local
@@ -1342,7 +1387,7 @@ export default function ContratoDetalhe() {
     })
   }
 
-  async function salvarEdicao(cpId: string) {
+  async function salvarEdicao(cpId: string, valores?: { valor: number; desconto: number }) {
     if (!contrato) return
     setSalvando(true)
 
@@ -1350,8 +1395,8 @@ export default function ContratoDetalhe() {
     const { error } = await supabase
       .from('contrato_produtos')
       .update({
-        valor: editForm.valor === '' ? 0 : editForm.valor,
-        desconto: editForm.desconto === '' ? 0 : editForm.desconto,
+        valor: valores ? valores.valor : (editForm.valor === '' ? 0 : editForm.valor),
+        desconto: valores ? valores.desconto : (editForm.desconto === '' ? 0 : editForm.desconto),
       } as never)
       .eq('id', cpId)
 
@@ -1874,7 +1919,7 @@ export default function ContratoDetalhe() {
     const contratoId = params.id as string
     const { data, error } = await supabase
       .from('contratos')
-      .select('*, tutor:tutores(*), supinda:supindas!fk_contrato_supinda(numero, data), funcionario:funcionarios!contratos_funcionario_id_fkey(nome), estabelecimento_coleta:estabelecimentos!contratos_estabelecimento_id_fkey(nome), contato:contatos!contratos_contato_id_fkey(nome, cargo), estabelecimento_indicacao:estabelecimentos!contratos_estabelecimento_indicacao_id_fkey(nome), contrato_gc(etapa, cinzas_prontas, certificado_pronto, contato_status)')
+      .select('*, tutor:tutores(*), supinda:supindas!fk_contrato_supinda(numero, data), funcionario:funcionarios!contratos_funcionario_id_fkey(nome), estabelecimento_coleta:estabelecimentos!contratos_estabelecimento_id_fkey(nome), contato:contatos!contratos_contato_id_fkey(nome, cargo), estabelecimento_indicacao:estabelecimentos!contratos_estabelecimento_indicacao_id_fkey(nome), contrato_gc(etapa, cinzas_prontas, certificado_pronto, contato_status, contato_tutor_em, data_agendamento, data_recebimento, data_cremacao, data_disponivel)')
       .eq('id', contratoId)
       .single()
 
@@ -2532,6 +2577,618 @@ ${petNome}`
     )
   }
 
+  // ---- Cards de baixo no padrão novo (docs/PLAYBOOK_CONTRATO_ID.md, itens 5, 7, 8, 14, 16, 18) ----
+  // Dinheiro das listas: sem centavos quando é inteiro (R$ 300), com centavos só quando tem (decisão 3).
+  const dinheiro = (v: number) => {
+    const r = Math.round((v || 0) * 100) / 100
+    return 'R$ ' + r.toLocaleString('pt-BR', Number.isInteger(r) ? {} : { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  }
+  const n2 = (v: number | null | undefined) => (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const parseMoeda = (t: string) => {
+    const n = parseFloat(t.replace(/\./g, '').replace(',', '.'))
+    return isNaN(n) ? 0 : n
+  }
+  // Uma conta só pro Financeiro inteiro (antes era calculada duas vezes no card).
+  const fin = (() => {
+    const descPlano = contrato.desconto_plano_unificado || 0
+    const descAcess = (contrato.desconto_acessorios || 0) + (contrato.desconto_acessorios_ajuste || 0)
+    const totPlano = (contrato.valor_plano || 0) - descPlano
+    const totAcess = (contrato.valor_acessorios || 0) - descAcess
+    const recPlano = pagamentos.filter(p => p.tipo === 'plano').reduce((s, p) => s + p.valor, 0)
+    const recAcess = pagamentos.filter(p => p.tipo === 'catalogo').reduce((s, p) => s + p.valor, 0)
+    const recebido = pagamentos.reduce((s, p) => s + p.valor, 0)
+    const total = totPlano + totAcess
+    return { descPlano, descAcess, totPlano, totAcess, recPlano, recAcess, recebido, total, saldo: total - recebido, saldoPlano: totPlano - recPlano, saldoAcess: totAcess - recAcess }
+  })()
+  const corSaldoNovo = (v: number) => v > 0.01 ? 'text-red-400' : v < -0.01 ? 'text-blue-400' : 'text-green-400'
+
+  // Editores inline do Financeiro (os mesmos estados/salvamentos de sempre, só mudam de lugar).
+  const inputValorCls = 'w-20 px-1.5 py-0.5 bg-slate-900 border rounded text-xs text-right focus:outline-none'
+  const editorValorPlano = valorPlanoEditing ? (
+    <span className="inline-flex items-center gap-1">
+      <input type="text" inputMode="decimal" value={valorPlanoInput} onChange={e => setValorPlanoInput(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') salvarValorPlano(); if (e.key === 'Escape') setValorPlanoEditing(false) }}
+        disabled={valorPlanoSaving} className={`${inputValorCls} border-slate-600 text-slate-200 focus:border-blue-500`} />
+      <button onClick={salvarValorPlano} disabled={valorPlanoSaving} className="text-green-400" title="Salvar (Enter)"><Check className="h-3.5 w-3.5" /></button>
+      <button onClick={() => setValorPlanoEditing(false)} disabled={valorPlanoSaving} className="text-slate-400" title="Cancelar (Esc)"><X className="h-3.5 w-3.5" /></button>
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1">
+      {n2(contrato.valor_plano)}
+      {isVisible(T, 'valor_plano') && canEdit(T, 'valor_plano') && (
+        <button onClick={abrirEditorValorPlano} className="text-slate-500 hover:text-blue-400" title="Editar valor do plano"><Pencil className="h-3 w-3" /></button>
+      )}
+    </span>
+  )
+  const editorDescPlano = descontoPlanoEditing ? (
+    <span className="inline-flex items-center gap-1">
+      <input type="text" inputMode="decimal" value={descontoPlanoInput} onChange={e => setDescontoPlanoInput(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') salvarDescontoPlano(); if (e.key === 'Escape') setDescontoPlanoEditing(false) }}
+        disabled={descontoPlanoSaving} className={`${inputValorCls} border-amber-600 text-amber-200 focus:border-amber-400`} />
+      <button onClick={salvarDescontoPlano} disabled={descontoPlanoSaving} className="text-green-400"><Check className="h-3.5 w-3.5" /></button>
+      <button onClick={() => setDescontoPlanoEditing(false)} disabled={descontoPlanoSaving} className="text-slate-400"><X className="h-3.5 w-3.5" /></button>
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1">
+      −{n2(fin.descPlano)}
+      <button onClick={abrirEditorDescontoPlano} className="text-slate-500 hover:text-amber-400" title="Editar desconto do plano"><Pencil className="h-3 w-3" /></button>
+    </span>
+  )
+  const editorDescAcess = descontoAcessAjusteEditing ? (
+    <span className="inline-flex items-center gap-1">
+      <input type="text" inputMode="decimal" value={descontoAcessAjusteInput} onChange={e => setDescontoAcessAjusteInput(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') salvarDescontoAcessAjuste(); if (e.key === 'Escape') setDescontoAcessAjusteEditing(false) }}
+        disabled={descontoAcessAjusteSaving} className={`${inputValorCls} border-amber-600 text-amber-200 focus:border-amber-400`} />
+      <button onClick={salvarDescontoAcessAjuste} disabled={descontoAcessAjusteSaving} className="text-green-400"><Check className="h-3.5 w-3.5" /></button>
+      <button onClick={() => setDescontoAcessAjusteEditing(false)} disabled={descontoAcessAjusteSaving} className="text-slate-400"><X className="h-3.5 w-3.5" /></button>
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1" title={`Auto: ${formatarMoeda(contrato.desconto_acessorios || 0)} (dos produtos) + Manual: ${formatarMoeda(contrato.desconto_acessorios_ajuste || 0)}`}>
+      −{n2(fin.descAcess)}
+      <button onClick={abrirEditorDescontoAcessAjuste} className="text-slate-500 hover:text-amber-400" title="Ajustar desconto extra dos acessórios (além do desconto por produto)"><Pencil className="h-3 w-3" /></button>
+    </span>
+  )
+
+  // ── Financeiro (item 5, opção "AC") ──────────────────────────────────────────
+  const pctRecebido = fin.total > 0 ? Math.max(0, Math.min(100, (fin.recebido / fin.total) * 100)) : 100
+  const linhasFinMob: { rot: string; cls: string; plano: React.ReactNode; acess: React.ReactNode }[] = [
+    { rot: 'Bruto', cls: 'text-slate-400', plano: editorValorPlano, acess: n2(contrato.valor_acessorios) },
+    { rot: 'Desconto', cls: 'text-amber-400', plano: <span className="text-amber-400">{editorDescPlano}</span>, acess: <span className="text-amber-400">{editorDescAcess}</span> },
+    { rot: 'Total', cls: 'text-slate-400', plano: n2(fin.totPlano), acess: n2(fin.totAcess) },
+    { rot: 'Recebido', cls: 'text-slate-400', plano: <span className="text-green-400">{n2(fin.recPlano)}</span>, acess: <span className="text-green-400">{n2(fin.recAcess)}</span> },
+    { rot: 'Saldo', cls: 'text-slate-400', plano: <span className={corSaldoNovo(fin.saldoPlano)}>{n2(fin.saldoPlano)}</span>, acess: <span className={corSaldoNovo(fin.saldoAcess)}>{n2(fin.saldoAcess)}</span> },
+  ]
+  const cardFinanceiroNovo = (
+    <div className="bg-slate-800 rounded-xl shadow-md p-5 border border-slate-700">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-emerald-900/40 flex items-center justify-center"><DollarSign className="h-4 w-4 text-emerald-400" /></div>
+          <h2 className="font-semibold text-slate-200">Financeiro</h2>
+        </div>
+        {contrato.nfse_numero ? (
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-green-900/40 text-green-400 rounded-lg text-sm">
+            <span>📄</span><span>NF: {contrato.nfse_numero}</span>
+            {contrato.nfse_link_pdf && <a href={contrato.nfse_link_pdf} target="_blank" rel="noopener noreferrer" className="text-green-400 hover:underline ml-1">PDF</a>}
+          </div>
+        ) : fin.total > 0 && isVisible(T, 'btn_emitir_nfse') ? (
+          <button onClick={emitirNfse} disabled={emitindoNf || !canEdit(T, 'btn_emitir_nfse')}
+            className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
+            <FileText className="h-4 w-4" />{emitindoNf ? 'Emitindo...' : 'Emitir NF'}
+          </button>
+        ) : null}
+      </div>
+      {nfMensagem && (
+        <div className={`mb-3 p-3 rounded-lg text-sm ${nfMensagem.tipo === 'sucesso' ? 'bg-green-900/40 text-green-400' : 'bg-red-900/40 text-red-400'}`}>{nfMensagem.texto}</div>
+      )}
+
+      <div className="md:grid md:grid-cols-2 md:gap-5">
+        {/* Esquerda: a resposta (recebido de total + saldo + barra) e a tabela — dita a altura */}
+        <div className="min-w-0">
+          <div className="flex items-baseline justify-between gap-2 mb-1.5">
+            <span className="text-sm text-slate-400">Recebido <b className="text-emerald-400 tabular-nums">{n2(fin.recebido)}</b> de <b className="text-slate-200 tabular-nums">{n2(fin.total)}</b></span>
+            <span className={`text-lg font-bold whitespace-nowrap ${corSaldoNovo(fin.saldo)}`}>{Math.abs(fin.saldo) < 0.01 ? '✓ Quitado' : n2(fin.saldo)}</span>
+          </div>
+          <div className="h-2 rounded-full bg-slate-700 overflow-hidden mb-1"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${pctRecebido}%` }} /></div>
+          {fin.saldo < -0.01 && <p className="text-[10px] text-blue-400 italic text-right">Pagamento excede saldo — ajuste produtos ou desconto</p>}
+
+          {/* Desktop: Plano/Acessórios × colunas */}
+          <table className="pl-tab-fin hidden md:table w-full text-xs mt-3 tabular-nums">
+            <thead>
+              <tr className="text-slate-400 uppercase text-[10px]">
+                <th></th><th className="text-right font-medium py-1">Bruto</th><th className="text-right font-medium text-amber-400">Desconto</th>
+                <th className="text-right font-medium">Total</th><th className="text-right font-medium">Recebido</th><th className="text-right font-medium">Saldo</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-t border-slate-700">
+                <td className="py-1.5 text-right text-slate-300">Plano</td>
+                <td className="text-right text-slate-200">{editorValorPlano}</td>
+                <td className="text-right text-amber-400">{editorDescPlano}</td>
+                <td className="text-right text-slate-200">{n2(fin.totPlano)}</td>
+                <td className="text-right text-green-400">{n2(fin.recPlano)}</td>
+                <td className={`text-right ${corSaldoNovo(fin.saldoPlano)}`}>{n2(fin.saldoPlano)}</td>
+              </tr>
+              <tr className="border-t border-slate-700">
+                <td className="py-1.5 text-right text-slate-300">Acessórios</td>
+                <td className="text-right text-slate-200">{n2(contrato.valor_acessorios)}</td>
+                <td className="text-right text-amber-400">{editorDescAcess}</td>
+                <td className="text-right text-slate-200">{n2(fin.totAcess)}</td>
+                <td className="text-right text-green-400">{n2(fin.recAcess)}</td>
+                <td className={`text-right ${corSaldoNovo(fin.saldoAcess)}`}>{n2(fin.saldoAcess)}</td>
+              </tr>
+            </tbody>
+          </table>
+          {/* Celular: transposta (cabe em 360px sem rolar de lado) */}
+          <table className="pl-tab-fin md:hidden w-full text-xs mt-3 tabular-nums">
+            <thead>
+              <tr className="text-slate-400 uppercase text-[10px]"><th></th><th className="text-right font-medium py-1">Plano</th><th className="text-right font-medium">Acessórios</th></tr>
+            </thead>
+            <tbody>
+              {linhasFinMob.map(l => (
+                <tr key={l.rot} className="border-t border-slate-700">
+                  <td className={`py-1.5 ${l.cls}`}>{l.rot}</td>
+                  <td className="text-right text-slate-200">{l.plano}</td>
+                  <td className="text-right text-slate-200">{l.acess}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Direita: pagamentos — a lista rola se passar da altura da esquerda; botões fixos embaixo */}
+        <div className="relative min-w-0 mt-4 md:mt-0 md:border-l md:border-slate-700 md:min-h-[200px]">
+          <div className="md:absolute md:inset-0 md:pl-5 flex flex-col">
+            <div className="text-sm font-medium text-slate-300 mb-1 flex-none">Pagamentos <span className="text-xs text-slate-400">({pagamentos.length})</span></div>
+            <div className="md:flex-1 md:min-h-0 md:overflow-y-auto pr-1 divide-y divide-slate-700/60">
+              {carregandoPagamentos ? (
+                <div className="text-center py-3 text-slate-400 text-sm">Carregando...</div>
+              ) : pagamentos.length === 0 ? (
+                <div className="text-center py-3 text-slate-500 text-sm">Nenhum pagamento registrado</div>
+              ) : pagamentos.map(pag => {
+                const devolucao = pag.id_transacao === 'devolucao'
+                return (
+                  <div key={pag.id} className="flex items-center gap-2 py-1.5">
+                    <span className={`w-8 h-6 rounded flex-none flex items-center justify-center ${
+                      pag.metodo === 'pix' ? 'bg-green-900/40' : pag.metodo === 'credito' ? 'bg-blue-900/40' : pag.metodo === 'debito' ? 'bg-purple-900/40' : 'bg-amber-900/40'
+                    }`}><PaymentIcon metodo={pag.metodo} bandeira={pag.bandeira} size="sm" /></span>
+                    <span className={`font-semibold text-sm tabular-nums ${devolucao ? 'text-red-400' : 'text-slate-200'}`}>{n2(pag.valor - (pag.desconto || 0))}</span>
+                    {devolucao ? (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-900/40 text-red-400">↩ Devolução</span>
+                    ) : pag.id_transacao === 'devolucao-reclass' ? (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-600/50 text-slate-400">{pag.tipo === 'plano' ? '↔ vira plano' : '↔ sai de acessório'}</span>
+                    ) : (
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${pag.tipo === 'plano' ? 'bg-blue-900/40 text-blue-400' : 'bg-purple-900/40 text-purple-400'}`}>{pag.tipo === 'plano' ? 'Plano' : 'Acessório'}</span>
+                    )}
+                    {pag.is_seguradora && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-400">Seguradora</span>}
+                    <span className="text-[11px] text-slate-500 truncate min-w-0">
+                      {pag.metodo}{pag.parcelas > 1 ? ` ${pag.parcelas}x` : ''}{pag.data_pagamento ? ` · ${new Date(pag.data_pagamento + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}` : ''}{pag.conta?.nome ? ` · ${pag.conta.nome}` : ''}
+                    </span>
+                    <span className="ml-auto flex items-center flex-none">
+                      {!pag.id_transacao?.startsWith('devolucao') && (
+                        <button onClick={() => abrirMegaPagamento(0, 0, pag)} className="p-1 text-slate-400 hover:text-blue-400" title="Editar"><Pencil className="h-4 w-4" /></button>
+                      )}
+                      <button onClick={() => excluirPagamento(pag.id)} className="p-1 text-slate-400 hover:text-red-400" title="Excluir"><Trash2 className="h-4 w-4" /></button>
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+            <div className="flex-none">
+              {isVisible(T, 'btn_mega_pagamento') && (
+                <div className="flex gap-2 mt-2">
+                  <button onClick={() => abrirMegaPagamento(0, 0)} disabled={!canEdit(T, 'btn_mega_pagamento')}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50">
+                    <Plus className="h-4 w-4" />Novo Pagamento
+                  </button>
+                  {fin.saldo > 0.01 && (
+                    <button onClick={() => abrirMegaPagamento(fin.saldoPlano, fin.saldoAcess)} disabled={!canEdit(T, 'btn_mega_pagamento')} title="Quitar saldo pendente"
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50">
+                      <DollarSign className="h-4 w-4" />
+                      <span className="flex flex-col leading-tight text-left"><span>Pgto. do Saldo</span><span className="text-[10px] font-normal opacity-90">({formatarMoeda(fin.saldo)})</span></span>
+                    </button>
+                  )}
+                </div>
+              )}
+              {canEdit(T, 'btn_mega_pagamento') && pagamentos.some(p => p.valor > 0) && (
+                <div className="mt-1.5 text-right">
+                  <button onClick={() => setDevolucaoAberta(true)} className="text-[11px] text-slate-500 hover:text-slate-300 hover:underline">devolver ao tutor</button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+      <DevolucaoModal
+        aberto={devolucaoAberta}
+        onClose={() => setDevolucaoAberta(false)}
+        contrato={{ id: contrato.id, unidade_id: contrato.unidade_id ?? null, valor_plano: contrato.valor_plano ?? null }}
+        itens={contratoProdutos.map(cp => ({ id: cp.id, valor: cp.valor, desconto: cp.desconto, quantidade: cp.quantidade, produto: cp.produto ? { id: cp.produto.id, nome: cp.produto.nome } : null }))}
+        saldoAFavor={fin.saldo < -0.01 ? Math.round(-fin.saldo * 100) / 100 : 0}
+        tipoExcedente={fin.saldoPlano <= fin.saldoAcess ? 'plano' : 'catalogo'}
+        onFeito={() => { void carregarContrato(); void carregarProdutosContrato(); void carregarPagamentos() }}
+      />
+    </div>
+  )
+
+  // ── Tutor (item 7, opção "E" + 7b) ───────────────────────────────────────────
+  const tutorN = {
+    nome: contrato.tutor?.nome || contrato.tutor_nome,
+    cpf: contrato.tutor?.cpf || contrato.tutor_cpf,
+    telefone: contrato.tutor?.telefone || contrato.tutor_telefone,
+    telefone2: contrato.tutor?.telefone2 || contrato.tutor_telefone2,
+    telefoneNome: contrato.tutor?.telefone_nome || contrato.tutor_telefone_nome || null,
+    telefone2Nome: contrato.tutor?.telefone2_nome || contrato.tutor_telefone2_nome || null,
+    principal: contrato.tutor_telefone_principal || 1,
+    email: contrato.tutor?.email || contrato.tutor_email,
+    endereco: contrato.tutor?.endereco || contrato.tutor_endereco,
+    numero: contrato.tutor?.numero || contrato.tutor_numero,
+    complemento: contrato.tutor?.complemento || contrato.tutor_complemento,
+    bairro: contrato.tutor?.bairro || contrato.tutor_bairro,
+    cidade: contrato.tutor?.cidade || contrato.tutor_cidade,
+    estado: contrato.tutor?.estado || contrato.tutor_estado,
+    cep: contrato.tutor?.cep || contrato.tutor_cep,
+  }
+  const enderecoBusca = [tutorN.endereco, tutorN.numero, tutorN.bairro, tutorN.cidade, tutorN.estado, tutorN.cep].filter(Boolean).join(', ')
+  const botaoRecontratacao = contrato.tutor_id ? (
+    <RecontratacaoButton
+      tutorId={contrato.tutor_id}
+      tela="tela_contrato"
+      telefone={tutorN.telefone}
+      className="flex items-center gap-1.5 text-xs py-1 px-2.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 disabled:opacity-50"
+    />
+  ) : null
+  const apelidoTel = (qual: 1 | 2) => {
+    const editando = qual === 1 ? tel1NomeEditing : tel2NomeEditing
+    const valor = qual === 1 ? tel1NomeInput : tel2NomeInput
+    const setValor = qual === 1 ? setTel1NomeInput : setTel2NomeInput
+    const salvar = qual === 1 ? salvarTel1Nome : salvarTel2Nome
+    const setEditando = qual === 1 ? setTel1NomeEditing : setTel2NomeEditing
+    const apelido = qual === 1 ? tutorN.telefoneNome : tutorN.telefone2Nome
+    return editando ? (
+      <span className="inline-flex items-center gap-1">
+        <input type="text" value={valor} onChange={e => setValor(e.target.value)} placeholder="Apelido" maxLength={80}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); salvar() } if (e.key === 'Escape') { e.preventDefault(); setEditando(false) } }}
+          className="bg-slate-800 border border-slate-600 rounded px-1 py-0 text-[10px] text-slate-200 w-28" />
+        <button onClick={() => salvar()} disabled={salvandoTelefone} title="Salvar" className="text-green-400"><Check className="h-3 w-3" /></button>
+        <button onClick={() => setEditando(false)} title="Cancelar" className="text-slate-400"><X className="h-3 w-3" /></button>
+      </span>
+    ) : (
+      <span className="inline-flex items-center gap-1">
+        {apelido && <span className="text-slate-300">{apelido} ·</span>}
+        {qual === 1 ? 'Ficha' : 'Processado'}
+        <button onClick={() => { setValor(apelido || ''); setEditando(true) }} title="Editar apelido" className="text-slate-500 hover:text-blue-400"><Pencil className="h-2.5 w-2.5" /></button>
+      </span>
+    )
+  }
+  const linhaTel = (qual: 1 | 2, numero: string) => {
+    const ativo = tutorN.principal === qual
+    return (
+      <div className="flex items-center gap-2 py-1">
+        <a href={`https://wa.me/${numero.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer"
+          className={`w-7 h-7 rounded-full flex-none flex items-center justify-center ${ativo ? 'bg-[#25D366]' : 'bg-slate-600'}`} title="Abrir no WhatsApp">
+          {ativo ? (
+            <svg className="h-3.5 w-3.5 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" /></svg>
+          ) : <Phone className="h-3.5 w-3.5 text-white" />}
+        </a>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1">
+            <a href={`https://wa.me/${numero.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer"
+              className={`font-semibold text-sm hover:underline ${ativo ? 'text-green-400' : 'text-slate-200'}`}>{formatarTelefone(numero)}</a>
+            {qual === 2 && <button onClick={abrirEdicaoTel2} title="Editar número" className="text-slate-500 hover:text-blue-400"><Pencil className="h-2.5 w-2.5" /></button>}
+          </div>
+          <div className="text-[10px] text-slate-500">{apelidoTel(qual)}</div>
+        </div>
+        <button onClick={trocarTelefones} disabled={salvandoTelefone || (qual === 1 && !tutorN.telefone2)}
+          className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold flex-none transition-colors ${ativo ? 'bg-green-600 text-white' : 'bg-slate-700 text-slate-400 hover:bg-green-900/40 hover:text-green-400'}`}
+          title={ativo ? 'Este é o mais ativo' : 'Tornar este o mais ativo'}>
+          {ativo ? 'Mais ativo' : 'Tornar ativo'}
+        </button>
+        {qual === 2 && (
+          <button onClick={removerTelefone2} disabled={salvandoTelefone} title="Remover telefone 2" className="text-slate-500 hover:text-red-400 flex-none"><Trash2 className="h-3.5 w-3.5" /></button>
+        )}
+      </div>
+    )
+  }
+  const STATUS_OUTRO: Record<string, { rot: string; cor: string }> = {
+    preventivo: { rot: 'Preventivo', cor: '#eab308' }, ativo: { rot: 'Ativo', cor: '#ef4444' }, pinda: { rot: 'Matriz', cor: '#f97316' },
+    retorno: { rot: 'Entrega', cor: '#a855f7' }, pendente: { rot: 'Pendente', cor: '#d97706' }, finalizado: { rot: 'Finalizado', cor: '#94a3b8' },
+  }
+  // Ordem: em andamento/PV primeiro; depois o mais recente.
+  const outrosOrdenados = [...outrosContratos].sort((a, b) => {
+    const fa = a.status === 'finalizado' ? 1 : 0, fb = b.status === 'finalizado' ? 1 : 0
+    if (fa !== fb) return fa - fb
+    return (b.data_acolhimento || b.data_contrato || '').localeCompare(a.data_acolhimento || a.data_contrato || '')
+  })
+  const dataCurta = (iso: string | null) => {
+    if (!iso) return ''
+    const d = new Date(iso.length <= 10 ? `${iso}T12:00:00` : iso)
+    return isNaN(d.getTime()) ? '' : `${String(d.getDate()).padStart(2, '0')}/${['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][d.getMonth()]}/${d.getFullYear()}`
+  }
+  const primeiroNomeTutor = (tutorN.nome || '').trim().split(/\s+/)[0] || 'tutor'
+  const cardTutorNovo = (
+    <div className="bg-slate-800 rounded-xl shadow-md p-5 border border-slate-700">
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <p className="text-xl font-bold text-slate-100">{tutorN.nome}</p>
+        {contrato.tutor && hasModule('func_tutores') && (
+          <Link href={`/tutores/${contrato.tutor.id}`} className="text-xs text-purple-400 hover:underline inline-flex items-center gap-1">Ver cadastro <ExternalLink className="h-3 w-3" /></Link>
+        )}
+        {botaoRecontratacao && <span className="ml-auto hidden md:block">{botaoRecontratacao}</span>}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
+        <div className="min-w-0">
+          <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Contato</div>
+          {tutorN.telefone && linhaTel(1, tutorN.telefone)}
+          {tutorN.telefone2 ? linhaTel(2, tutorN.telefone2) : (
+            <button onClick={() => setTelefone2Modal(true)} className="flex items-center gap-2 text-xs text-blue-400 hover:underline py-1"><Phone className="h-3 w-3" />+ Adicionar telefone 2</button>
+          )}
+          {tutorN.email && <div className="flex items-center gap-2 py-1 text-sm text-slate-400"><Mail className="h-4 w-4" /><span className="truncate">{tutorN.email}</span></div>}
+          {tutorN.cpf && (
+            <div className="flex items-center gap-2 py-1 text-sm">
+              <span className="text-[10px] uppercase tracking-wider text-slate-500 w-8">CPF</span>
+              <span className="text-slate-300 tabular-nums">{tutorN.cpf}</span>
+              <button onClick={async () => { await copyToClipboard(tutorN.cpf || ''); setCpfCopiado(true); setTimeout(() => setCpfCopiado(false), 1500) }}
+                className={cpfCopiado ? 'text-green-400' : 'text-slate-500 hover:text-slate-300'} title={cpfCopiado ? 'Copiado!' : 'Copiar CPF'}>
+                {cpfCopiado ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              </button>
+            </div>
+          )}
+        </div>
+        <div className="min-w-0 border-t border-slate-700 pt-3 md:border-t-0 md:pt-0 md:border-l md:pl-5">
+          <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Endereço</div>
+          {tutorN.endereco || tutorN.cep ? (
+            <div className="flex gap-3 items-start">
+              <div className="flex-1 min-w-0 text-sm">
+                {tutorN.endereco && <div className="text-slate-200 font-medium">{tutorN.endereco}{tutorN.numero ? `, ${tutorN.numero}` : ''}{tutorN.complemento ? ` · ${tutorN.complemento}` : ''}</div>}
+                {(tutorN.bairro || tutorN.cidade) && <div className="text-slate-400">{[tutorN.bairro, tutorN.cidade, tutorN.estado].filter(Boolean).join(' - ')}</div>}
+                {tutorN.cep && <div className="text-slate-500 text-xs">CEP {tutorN.cep}</div>}
+              </div>
+              <a href={`https://waze.com/ul?q=${encodeURIComponent(enderecoBusca)}&navigate=yes`} target="_blank" rel="noopener noreferrer" title="Abrir no Waze"
+                className="w-9 h-9 rounded-xl overflow-hidden flex-none shadow hover:scale-105 transition-transform">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/waze.png" alt="Waze" className="w-full h-full object-cover" />
+              </a>
+              <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(enderecoBusca)}`} target="_blank" rel="noopener noreferrer" title="Abrir no Google Maps"
+                className="w-9 h-9 rounded-xl overflow-hidden flex-none shadow hover:scale-105 transition-transform">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/gmaps.png" alt="Google Maps" className="w-full h-full object-cover" />
+              </a>
+            </div>
+          ) : <div className="text-sm text-slate-500">Sem endereço</div>}
+        </div>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">Outros contratos de {primeiroNomeTutor}{outrosContratos.length > 0 ? ` (${outrosContratos.length})` : ''}</div>
+        {outrosContratos.length === 0 ? (
+          <div className="text-sm text-slate-500">Primeiro contrato deste tutor.</div>
+        ) : (
+          <div className={`grid grid-cols-1 gap-1.5 md:gap-2 ${outrosContratos.length > 2 ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
+            {outrosOrdenados.map(o => {
+              const st = STATUS_OUTRO[o.status] || { rot: o.status, cor: '#94a3b8' }
+              const un = allUnidades.find(u => u.id === o.unidade_id)?.codigo
+              const tipo = o.tipo_plano === 'preventivo' && o.status === 'preventivo' ? 'PV' : o.tipo_cremacao === 'individual' ? 'IND' : 'COL'
+              return (
+                <Link key={o.id} href={`/contratos/${o.id}`} className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-1.5 md:py-2 hover:bg-slate-700/40 min-w-0">
+                  <span className="font-semibold text-slate-200 truncate">{o.pet_nome || '—'}</span>
+                  {o.pet_genero && <span style={{ color: o.pet_genero === 'macho' ? '#3b82f6' : '#ec4899' }}>{o.pet_genero === 'macho' ? '♂' : '♀'}</span>}
+                  <span className={`text-[10px] font-bold px-1.5 rounded ${tipo === 'PV' ? 'bg-yellow-900/40 text-yellow-300' : tipo === 'IND' ? 'bg-green-900/40 text-green-300' : 'bg-purple-900/40 text-purple-300'}`}>{tipo}</span>
+                  {un && <span className="text-[10px] font-bold px-1 rounded bg-slate-700 text-slate-300">{un}</span>}
+                  <span className="text-xs text-slate-500 whitespace-nowrap truncate">{dataCurta(o.status === 'preventivo' ? o.data_contrato : (o.data_acolhimento || o.data_contrato))}</span>
+                  <span className="ml-auto text-[11px] font-semibold whitespace-nowrap" style={{ color: st.cor }}>{st.rot}</span>
+                  <span className="text-slate-500">›</span>
+                </Link>
+              )
+            })}
+          </div>
+        )}
+      </div>
+      {botaoRecontratacao && <div className="md:hidden flex justify-end mt-3">{botaoRecontratacao}</div>}
+    </div>
+  )
+
+  // ── Produtos (item 8, opção "A" — lista fina) ────────────────────────────────
+  const COR_TIPO_PROD: Record<string, string> = { urna: '#f59e0b', acessorio: '#a855f7', incluso: '#22c55e' }
+  const ROT_TIPO_PROD: Record<string, string> = { urna: 'Urna', acessorio: 'Acessório', incluso: 'Incluso' }
+  const produtosOrdenados = [...contratoProdutos].sort((a, b) => {
+    const ordem = { urna: 0, acessorio: 1 } as Record<string, number>
+    const ta = ordem[a.produto.tipo] ?? 3, tb = ordem[b.produto.tipo] ?? 3
+    if (ta !== tb) return ta - tb
+    return (b.valor || b.produto.preco || 0) - (a.valor || a.produto.preco || 0)
+  })
+  const totalProdutos = contratoProdutos.reduce((s, cp) => s + (cp.valor || 0) - (cp.desconto || 0), 0)
+  const fotoProduto = (cp: ContratoProduto) => (
+    <span className="w-10 h-10 rounded-lg bg-slate-700 border border-slate-600 overflow-hidden flex-none">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={cp.produto.imagem_url || `/estoque/${cp.produto.codigo}.png`} alt={cp.produto.nome} className="w-full h-full object-cover"
+        onError={(e) => {
+          const target = e.target as HTMLImageElement
+          const atual = target.src
+          if (cp.produto.imagem_url && atual.includes(cp.produto.imagem_url)) target.src = `/estoque/${cp.produto.codigo}.png`
+          else if (atual.endsWith('.png')) target.src = `/estoque/${cp.produto.codigo}.jpg`
+          else target.style.display = 'none'
+        }} />
+    </span>
+  )
+  const valorProduto = (cp: ContratoProduto) => (cp.valor && cp.valor > 0) ? (
+    cp.desconto && cp.desconto > 0 ? (
+      <span className="text-right leading-tight tabular-nums">
+        <span className="block text-[11px] text-slate-500 line-through">{dinheiro(cp.valor)}</span>
+        <span className="font-bold text-green-400">{dinheiro(cp.valor - cp.desconto)}</span>
+      </span>
+    ) : <span className="font-bold text-green-400 tabular-nums">{dinheiro(cp.valor)}</span>
+  ) : cp.desconto && cp.desconto > 0 ? <span className="text-sm text-red-500 tabular-nums">-{dinheiro(cp.desconto)}</span>
+    : <span className="text-[11px] text-slate-500">incluso</span>
+  const acoesProduto = (cp: ContratoProduto) => (
+    <span className="flex items-center flex-none text-slate-400">
+      <button onClick={() => { iniciarEdicao(cp); setEditValorTxt(cp.valor ? n2(cp.valor) : ''); setEditDescTxt(cp.desconto ? n2(cp.desconto) : '') }}
+        className="p-1 hover:text-blue-400" title="Editar"><Pencil className="h-4 w-4" /></button>
+      <button onClick={() => removerProduto(cp.id)} className="p-1 hover:text-red-400" title="Remover"><Trash2 className="h-4 w-4" /></button>
+    </span>
+  )
+  const campoMoeda = (rotulo: string, valor: string, setValor: (v: string) => void, desconto?: boolean) => (
+    <label className="block min-w-0">
+      <span className={`text-xs block mb-1 ${desconto ? 'text-amber-400' : 'text-slate-400'}`}>{rotulo}</span>
+      <span className="flex items-center rounded-md bg-slate-900 border border-slate-600 focus-within:border-blue-500 px-2.5">
+        <span className={`text-sm flex-none ${desconto ? 'text-amber-400' : 'text-slate-500'}`}>{desconto ? '− R$' : 'R$'}</span>
+        <input type="text" inputMode="decimal" value={valor} placeholder="0,00" onChange={e => setValor(e.target.value)}
+          onBlur={() => setValor(valor.trim() ? n2(parseMoeda(valor)) : '')}
+          className={`w-full bg-transparent py-1.5 pl-2 text-[15px] font-semibold text-right tabular-nums focus:outline-none ${desconto ? 'text-amber-300' : 'text-slate-100'}`} />
+      </span>
+    </label>
+  )
+  const cardProdutosNovo = (
+    <div className="bg-slate-800 rounded-xl shadow-md p-5 border border-slate-700">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-purple-900/40 flex items-center justify-center"><ShoppingCart className="h-4 w-4 text-purple-400" /></div>
+          <h2 className="font-semibold text-slate-200">Produtos</h2>
+          {contratoProdutos.length > 0 && <span className="text-sm text-slate-400">({contratoProdutos.length})</span>}
+        </div>
+        {isVisible(T, 'btn_add_produto') && (
+          <button onClick={abrirAddProdutoModal} disabled={!canEdit(T, 'btn_add_produto')}
+            className="flex items-center gap-1 px-3 py-1.5 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50">
+            <Plus className="h-4 w-4" />Adicionar
+          </button>
+        )}
+      </div>
+      {carregandoProdutos ? (
+        <div className="text-center py-4 text-slate-400">Carregando produtos...</div>
+      ) : contratoProdutos.length === 0 ? (
+        <div className="text-center py-4 text-slate-400">Nenhum produto vinculado</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 md:gap-x-8 items-start">
+            {produtosOrdenados.map(cp => {
+              const cor = COR_TIPO_PROD[cp.produto.tipo] || '#94a3b8'
+              const filete = { boxShadow: `inset 3px 0 0 ${cor}`, paddingLeft: 10 }
+              if (editandoProduto === cp.id) {
+                const fica = parseMoeda(editValorTxt) - parseMoeda(editDescTxt)
+                return (
+                  <div key={cp.id} className="py-2.5 pr-1 border-b border-slate-700/60 bg-slate-700/20 rounded-r-lg" style={filete}>
+                    <div className="flex items-center gap-3 mb-2.5">
+                      {fotoProduto(cp)}
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-slate-200 truncate">{cp.produto.nome}</div>
+                        <div className="text-[11px]" style={{ color: cor }}>{ROT_TIPO_PROD[cp.produto.tipo] || cp.produto.tipo} · editando</div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      {campoMoeda('Valor', editValorTxt, setEditValorTxt)}
+                      {campoMoeda('Desconto', editDescTxt, setEditDescTxt, true)}
+                    </div>
+                    <div className="flex items-center justify-between mt-2 text-sm">
+                      <span className="text-slate-400">Fica</span>
+                      <span className="font-bold text-green-400 tabular-nums">R$ {n2(fica)}</span>
+                    </div>
+                    <div className="flex justify-end gap-2 mt-2">
+                      <button onClick={() => setEditandoProduto(null)} className="px-3 py-1 text-sm text-slate-400 hover:text-slate-200">Cancelar</button>
+                      <button onClick={() => salvarEdicao(cp.id, { valor: parseMoeda(editValorTxt), desconto: parseMoeda(editDescTxt) })} disabled={salvando}
+                        className="flex items-center gap-1 px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50">
+                        <Check className="h-3 w-3" />Salvar
+                      </button>
+                    </div>
+                  </div>
+                )
+              }
+              const foto = cp.produto.precisa_foto ? (
+                <button onClick={() => toggleFotoRecebida(cp)} className="flex-none hover:scale-110 transition-transform align-middle"
+                  title={cp.foto_recebida ? 'Foto recebida - clique para desmarcar' : 'Clique para marcar foto como recebida'}>
+                  <span className={`text-base ${cp.foto_recebida ? '' : 'opacity-30'}`}>📷</span>
+                </button>
+              ) : null
+              return (
+                <div key={cp.id} className="flex items-start md:items-center gap-3 py-2 border-b border-slate-700/60" style={filete}>
+                  {fotoProduto(cp)}
+                  <div className="flex-1 min-w-0">
+                    {contrato.status === 'preventivo' && !cp.produto.estoque_infinito && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-200 text-yellow-800 font-semibold"
+                        title="Reserva de preventivo: segura 1 unidade no estoque da unidade até o PV ser acionado">PV · segura estoque</span>
+                    )}
+                    <div className="text-sm font-semibold text-slate-200 leading-snug md:truncate">{cp.produto.nome}{foto && <span className="ml-1.5">{foto}</span>}</div>
+                    <div className="flex items-center gap-3 mt-0.5">
+                      <span className="text-[11px]" style={{ color: cor }}>{ROT_TIPO_PROD[cp.produto.tipo] || cp.produto.tipo}</span>
+                      <span className="ml-auto flex items-center gap-3 md:hidden">{valorProduto(cp)}{acoesProduto(cp)}</span>
+                    </div>
+                  </div>
+                  <span className="hidden md:flex items-center gap-3">{valorProduto(cp)}{acoesProduto(cp)}</span>
+                </div>
+              )
+            })}
+          </div>
+          <div className="flex justify-end pt-2 text-sm text-slate-400">Total <b className="text-slate-200 ml-2 tabular-nums">{dinheiro(totalProdutos)}</b></div>
+        </>
+      )}
+    </div>
+  )
+
+  // ── Cremação (item 14): unidades veem a esteira do pipeline, sempre aberta; a Matriz segue no GCTracking
+  const ehMatrizAqui = currentUnit?.is_matriz === true
+  const cardCremacaoNovo = ehMatrizAqui ? (
+    <GCTracking contratoId={contrato.id} tipoCremacao={contrato.tipo_cremacao} observacoesContrato={contrato.observacoes} />
+  ) : (
+    <div className="bg-slate-800 rounded-xl shadow-md p-5 border border-slate-700">
+      <div className="flex items-center gap-2 mb-3"><Heart className="h-4 w-4 text-orange-400" /><span className="font-semibold text-slate-200">Cremação</span></div>
+      <div className="pl-esteira-grande">
+        <EsteiraGC
+          gc={contrato.contrato_gc ? {
+            etapa: contrato.contrato_gc.etapa, contato_status: contrato.contrato_gc.contato_status,
+            contato_tutor_em: contrato.contrato_gc.contato_tutor_em, data_agendamento: contrato.contrato_gc.data_agendamento,
+            data_recebimento: contrato.contrato_gc.data_recebimento, data_cremacao: contrato.contrato_gc.data_cremacao,
+            data_disponivel: contrato.contrato_gc.data_disponivel,
+          } : { etapa: null, contato_status: null }}
+          dataIda={contrato.data_leva_pinda || null}
+          sempreAberta
+        />
+      </div>
+    </div>
+  )
+
+  // ── Abas (item 16 + 18): sempre as 6; a que não se aplica fica apagada ─────
+  const etapaGCAba = contrato.contrato_gc?.etapa || 'provisionado'
+  const corEtapaGCAba = ({ provisionado: '#64748b', recebido: '#3b82f6', cremado: '#eab308', disponivel: '#22c55e' } as Record<string, string>)[etapaGCAba] || '#64748b'
+  const AGRUPA_TAREFA = new Set(['molde_patinha', 'carimbo', 'pelo_extra', 'pelinho'])
+  const tarefasEmAndamento = new Set(tarefasContrato.filter(t => t.status !== 'concluida')
+    .map(t => AGRUPA_TAREFA.has(t.tipo) ? `${t.tipo}|${t.atribuido_a}` : t.id)).size
+  const abasContrato: AbaDef[] = [
+    { id: 'tutor', rotulo: 'Tutor', icone: User, cor: '#3b82f6' },
+    { id: 'fin', rotulo: 'Financeiro', icone: DollarSign, cor: '#10b981', apagada: !isVisible(T, 'obj_financeiro'), dicaApagada: 'Sem permissão',
+      sinal: fin.saldo > 0.01
+        ? <span className="pl-aba-cnt" style={{ color: '#f87171' }}>{Math.round(fin.saldo).toLocaleString('pt-BR')}</span>
+        : Math.abs(fin.saldo) < 0.01 && fin.total > 0 ? <span style={{ color: '#22c55e', fontWeight: 700 }}>✓</span> : null },
+    { id: 'prod', rotulo: 'Produtos', icone: ShoppingCart, cor: '#a855f7', apagada: !isVisible(T, 'obj_produtos'), dicaApagada: 'Sem permissão',
+      sinal: contratoProdutos.length > 0 ? <span className="pl-aba-cnt">{contratoProdutos.length}</span> : null },
+    { id: 'tar', rotulo: 'Tarefas', icone: ListChecks, cor: '#22d3ee', apagada: !temOperacionalContrato, dicaApagada: 'Unidade sem o módulo Operacional',
+      sinal: tarefasEmAndamento > 0 ? <span className="pl-aba-cnt" style={{ color: '#fbbf24' }}>{tarefasEmAndamento}</span>
+        : tarefasContrato.length > 0 ? <span style={{ color: '#22c55e', fontWeight: 700 }}>✓</span> : null },
+    { id: 'crem', rotulo: 'Cremação', icone: Heart, cor: '#f97316',
+      apagada: !(hasModule('func_gc') && ['pinda', 'retorno', 'pendente', 'finalizado'].includes(contrato.status)), dicaApagada: 'O pet ainda não foi para a Matriz',
+      sinal: <span className="pl-aba-dot" style={{ background: corEtapaGCAba }} /> },
+    { id: 'ind', rotulo: 'Indicação', icone: Stethoscope, cor: '#14b8a6', apagada: !fichaComoConheceu?.includes('Veterinário'), dicaApagada: 'A ficha não veio de indicação de veterinário' },
+  ]
+  const abaEfetiva = abasContrato.some(a => a.id === abaContrato && !a.apagada) ? abaContrato : 'tutor'
+
+  // ‹ Anterior · Próximo › (PLAYBOOK_CONTRATO_ID §3): vizinhos do MESMO status, na ordem da tela do
+  // pipeline (gravada lá, no clique). Sem lista = sem botões. replace (não push): o Voltar devolve ao pipeline.
+  const vizinhos = cardNovo ? vizinhosDe(lerVizinhosGravados(), contrato.id, contrato.status) : null
+  const botaoVizinho = (lado: 'anterior' | 'proximo') => {
+    const alvo = lado === 'anterior' ? vizinhos?.anterior : vizinhos?.proximo
+    const nome = lado === 'anterior' ? vizinhos?.nomeAnterior : vizinhos?.nomeProximo
+    return (
+      <button
+        type="button"
+        disabled={!alvo}
+        onClick={() => { if (alvo) router.replace(`/contratos/${alvo}`) }}
+        title={alvo ? (nome ? `${lado === 'anterior' ? 'Anterior' : 'Próximo'}: ${nome}` : undefined) : 'Não há outro pet neste status'}
+        className={`inline-flex items-center gap-1 px-2.5 h-7 rounded-lg text-xs font-semibold border transition-colors ${
+          alvo ? 'text-slate-300 bg-slate-800 border-slate-700 hover:bg-slate-700' : 'text-slate-600 bg-slate-800/40 border-slate-800 cursor-not-allowed'
+        }`}
+      >
+        {lado === 'anterior'
+          ? <>‹ <span className="hidden sm:inline">Registro</span> Anterior</>
+          : <>Próximo <span className="hidden sm:inline">Registro</span> ›</>}
+      </button>
+    )
+  }
+
   // ---- Card principal no padrão novo (docs/PLAYBOOK_CONTRATO_ID.md, itens 9–17) ----
   // Lacre · Nome · IND/COL numa peça só (.pl-tri.titulo, a mesma do card do pipeline). O lacre
   // continua sendo o botão do "Alterar Lacre?"; sem lacre, o "+ Lacre" vem antes da peça.
@@ -2637,8 +3294,8 @@ ${petNome}`
 
   return (
     <div className="max-w-4xl mx-auto pb-8">
-      {/* Header com botão voltar */}
-      <div className="mb-4">
+      {/* Header com botão voltar — no novo, com ‹ Anterior · Próximo › no fim da linha */}
+      <div className={cardNovo ? 'mb-3 flex items-center gap-2' : 'mb-4'}>
         <button
           onClick={() => router.back()}
           className="inline-flex items-center gap-2 text-slate-400 hover:text-slate-300 transition-colors"
@@ -2646,10 +3303,16 @@ ${petNome}`
           <ArrowLeft className="h-4 w-4" />
           <span className="text-sm">Voltar</span>
         </button>
+        {vizinhos && (
+          <div className="ml-auto flex items-center gap-1.5">
+            {botaoVizinho('anterior')}
+            {botaoVizinho('proximo')}
+          </div>
+        )}
       </div>
 
       {/* Hero Card - Pet + Info Principal */}
-      <div className={`rounded-xl overflow-hidden mb-6 bg-[var(--surface-0)] border border-[var(--surface-200)] shadow-md ${cardNovo ? 'relative' : ''}`}>
+      <div className={`rounded-xl overflow-hidden bg-[var(--surface-0)] border border-[var(--surface-200)] shadow-md ${cardNovo ? 'relative mb-1.5' : 'mb-6'}`}>
         {/* Status accent strip */}
         <div className="h-1.5" style={{ background: statusConfig.strip }} />
 
@@ -3134,6 +3797,25 @@ ${petNome}`
       </div>
 
       {/* Grid de Cards */}
+      {cardNovo ? (
+        <>
+          <AbasContrato abas={abasContrato} ativa={abaEfetiva} onTrocar={trocarAba} />
+          <div className="pl-aba-corpo">
+            {abaEfetiva === 'tutor' && cardTutorNovo}
+            {abaEfetiva === 'fin' && cardFinanceiroNovo}
+            {abaEfetiva === 'prod' && cardProdutosNovo}
+            {abaEfetiva === 'tar' && <TarefasAba tarefas={tarefasContrato} carregando={carregandoTarefasContrato} />}
+            {abaEfetiva === 'crem' && cardCremacaoNovo}
+            {abaEfetiva === 'ind' && (
+              <IndicacaoCard contrato={contrato} onUpdate={(updated) => setContrato(prev => prev ? { ...prev, ...updated } : prev)} />
+            )}
+          </div>
+          <div className="grid grid-cols-1 gap-4 mt-4">
+            <ObservacoesCard contratoId={contrato.id} observacoesFicha={contrato.observacoes} novo />
+            <HistoricoCard contratoId={contrato.id} />
+          </div>
+        </>
+      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
         {/* Card Tutor */}
@@ -4066,6 +4748,7 @@ ${petNome}`
         {/* Histórico de alterações */}
         <HistoricoCard contratoId={contrato.id} />
       </div>
+      )}
 
 
       {/* Modal Adicionar Produto */}

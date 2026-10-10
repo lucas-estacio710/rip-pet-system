@@ -85,7 +85,7 @@ export default function RecontratacaoButton({ tutorId, tela, telefone, className
         title="Gerar link pré-preenchido pro tutor cadastrar um novo pet"
       >
         <Send className="h-3.5 w-3.5" />
-        {gerando ? 'Gerando…' : 'Enviar nova contratação'}
+        {gerando ? 'Gerando…' : 'Recontratação'}
       </button>
 
       {/* Popup de escolha do tipo — antes de gerar o link */}

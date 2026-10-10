@@ -136,6 +136,65 @@
 }
 [data-theme="white"] .pl-etapas-ind { box-shadow: none; }
 
+/* ============================================================================
+   Abas dos cards de baixo do /contratos/[id] (docs/PLAYBOOK_CONTRATO_ID.md, item 16) — mesma
+   linguagem do .pl-etapa: sem caixa, linha fina embaixo, a ativa acende na cor dela (--c) com o
+   sublinhado de 3px que brilha. Faixa das abas + card da aba = um bloco só (.pl-aba-corpo).
+   ============================================================================ */
+.pl-abas {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  background: var(--surface-0);
+  border: 1px solid var(--surface-200);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  padding: 0 8px;
+}
+.pl-aba {
+  grid-column: span 2; /* celular: 3 + 3 */
+  position: relative;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  min-width: 0;
+  padding: 8px 2px 9px;
+  background: none; border: 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+  color: #64748b;
+  font-size: 12px; font-weight: 600; white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.25s;
+  -webkit-tap-highlight-color: transparent;
+}
+@media (min-width: 768px) {
+  .pl-aba { grid-column: span 1; font-size: 13px; gap: 6px; } /* desktop: as 6 numa linha */
+}
+.pl-aba-ic { width: 15px; height: 15px; flex: none; opacity: 0.75; transition: opacity 0.25s, transform 0.3s; }
+.pl-aba::after {
+  content: ''; position: absolute; left: 14px; right: 14px; bottom: -1px; height: 3px;
+  border-radius: 3px 3px 0 0; background: var(--c); box-shadow: 0 0 10px var(--c);
+  transform: scaleX(0); transition: transform 0.32s cubic-bezier(0.3, 1.25, 0.5, 1);
+}
+.pl-aba:hover:not(:disabled):not(.on) { color: #94a3b8; }
+.pl-aba.on { color: color-mix(in srgb, var(--c) 55%, #fff); }
+.pl-aba.on .pl-aba-ic { opacity: 1; transform: translateY(-1px); }
+.pl-aba.on::after { transform: scaleX(1); }
+.pl-aba:disabled { opacity: 0.35; cursor: default; }
+.pl-aba-cnt { font-size: 11px; font-weight: 600; color: #64748b; font-variant-numeric: tabular-nums; }
+.pl-aba.on .pl-aba-cnt { color: inherit; opacity: 0.8; }
+.pl-aba-dot { width: 6px; height: 6px; border-radius: 999px; flex: none; }
+[data-theme="white"] .pl-aba { border-bottom-color: var(--surface-200); }
+[data-theme="white"] .pl-aba.on { color: color-mix(in srgb, var(--c) 78%, #000); }
+[data-theme="white"] .pl-aba::after { box-shadow: none; }
+/* Financeiro (item 5): linhas verticais finas entre as colunas de números; nada quebra de linha */
+.pl-tab-fin td, .pl-tab-fin th { white-space: nowrap; }
+.pl-tab-fin th + th, .pl-tab-fin td + td { border-left: 1px solid rgba(100, 116, 139, 0.35); padding-left: 6px; padding-right: 6px; }
+.pl-tab-fin th:last-child, .pl-tab-fin td:last-child { padding-right: 0; }
+.pl-tab-fin td:first-child { padding-right: 8px; }
+/* o card da aba emenda na faixa: sem borda nem cantos em cima */
+.pl-aba-corpo > * { border-top-left-radius: 0 !important; border-top-right-radius: 0 !important; border-top-width: 0 !important; }
+@media (prefers-reduced-motion: reduce) {
+  .pl-aba, .pl-aba-ic, .pl-aba::after { transition: none; }
+}
+
 /* Menu "Organizar" (celular): ancorado no botão, com setinha. */
 .pl-org {
   position: absolute;
@@ -601,3 +660,15 @@
   background: color-mix(in srgb, var(--gc) 20%, transparent); border: 1.5px solid var(--gc); color: var(--gc);
 }
 [data-theme="white"] .pl-gcbox { color: color-mix(in srgb, var(--gc) 70%, #000); }
+/* Esteira no card "Cremação" do detalhe do contrato: escala de card (PLAYBOOK_CONTRATO_ID item 14). */
+.pl-esteira-grande .pl-esteira { padding: 10px 10px 8px; }
+.pl-esteira-grande .pl-est-tit { width: 64px; font-size: 10px; }
+.pl-esteira-grande .pl-est-dot { width: 16px; height: 16px; }
+.pl-esteira-grande .pl-est-rot { font-size: 11.5px; }
+.pl-esteira-grande .pl-est-dt { font-size: 10.5px; }
+@media (max-width: 767px) {
+  .pl-esteira-grande .pl-est-tit { width: 44px; font-size: 9px; }
+  .pl-esteira-grande .pl-est-dot { width: 13px; height: 13px; }
+  .pl-esteira-grande .pl-est-rot { font-size: 10px; }
+  .pl-esteira-grande .pl-est-dt { font-size: 9.5px; }
+}
