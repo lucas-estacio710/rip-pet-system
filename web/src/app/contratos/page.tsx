@@ -529,6 +529,10 @@ function ContratosContent() {
   // Default: agrupado por encaminhamento (mantém comportamento histórico). URL ?encam=false desliga.
   const [agruparSupinda, setAgruparSupinda] = useState(searchParams.get('encam') !== 'false')
   const [agruparBairro, setAgruparBairro] = useState(searchParams.get('bairro') === 'true')
+  // Com texto na busca (fluxo novo), NÃO agrupa por encaminhamento — 10/10/2026, pedido do Lucas:
+  // buscar "Elizangela" mostrava 2 viagens com uma Elizangela dentro de cada, e não dava pra ver de
+  // relance que achou. É MOMENTÂNEO: a escolha do agrupamento não muda; apagou a busca, volta.
+  const agruparSupindaAgora = agruparSupinda && !(encPipeline && !!buscaDebounced.trim())
   // Visão "Ícones" do placar de pendências (10/10/2026): preferência de quem olha, guardada no
   // aparelho. Lida depois de montar — no servidor não há localStorage.
   const [pendIcones, setPendIcones] = useState(false)
@@ -1299,7 +1303,7 @@ function ContratosContent() {
     const ascending = ordemAsc
     // Agrupar por encaminhamento: toggle do user, mas preventivo nunca agrupa (não tem supinda)
     // e unidades com cb_cremacao_local também não (não há encaminhamento — todos seriam "sem").
-    const agruparPorSupinda = agruparSupinda && statusFiltro !== 'preventivo' && !fluxoLocal
+    const agruparPorSupinda = agruparSupindaAgora && statusFiltro !== 'preventivo' && !fluxoLocal
 
     // 🔴 CARGA TOTAL DA ETAPA — a trava que faz o placar do card ser verdade.
     //
@@ -1480,7 +1484,7 @@ function ContratosContent() {
     // Usar mesma ordenação da listagem
     const campoOrdem = ordenacao === 'nome' ? 'pet_nome' : 'data_acolhimento'
     const ascending = ordemAsc
-    const agruparPorSupinda = agruparSupinda && statusFiltro !== 'preventivo' && !fluxoLocal
+    const agruparPorSupinda = agruparSupindaAgora && statusFiltro !== 'preventivo' && !fluxoLocal
 
     // Mesmo padrão da listagem: SELECT leve + enriquecimento paralelo
     const SELECT_BUSCA = 'id, codigo, unidade_id, pet_nome, pet_especie, pet_raca, pet_cor, pet_peso, pet_genero, tutor_id, tutor:tutores(id, nome, telefone, endereco, numero, complemento, bairro, cidade, cep), tutor_nome, tutor_telefone, tutor_cidade, tutor_bairro, tutor_cep, tutor_endereco, local_coleta, clinica_coleta, remocao_endereco, remocao_bairro, remocao_cidade, tipo_cremacao, tipo_plano, status, data_contrato, data_acolhimento, numero_lacre, aguardando_acolhimento, fonte_conhecimento_id, fonte_conhecimento_ids, fonte_outro_especificar, seguradora, certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4, certificado_nome_5, certificado_nome_6, certificado_nome_7, certificado_confirmado, valor_plano, desconto_plano, desconto_plano_unificado, valor_acessorios, desconto_acessorios, desconto_acessorios_ajuste, pagamentos(tipo, valor), supinda_id, supinda:supindas!fk_contrato_supinda(id, numero, data, responsavel, status, quantidade_pets, peso_total), supinda_direcao, protocolo_data, data_entrega, data_leva_pinda, contato_id, estabelecimento_indicacao_id, indicacao_clinica, indicacao_contato'
@@ -4724,7 +4728,8 @@ ${petNome}`
           onAgruparEnc={v => { setAgruparSupinda(v); setPagina(0) }}
           // Item 4 dos ajustes finos: Finalizado também agrupa por viagem no fluxo novo, então tem o
           // botão também. UMA opção só pras duas etapas (decisão do Lucas, 09/10).
-          mostrarAgruparEnc={encPipeline && (statusFiltro === 'ativo' || statusFiltro === 'finalizado')}
+          // Some enquanto há busca: ali o agrupamento está desligado de propósito (ver agruparSupindaAgora).
+          mostrarAgruparEnc={encPipeline && (statusFiltro === 'ativo' || statusFiltro === 'finalizado') && !buscaDebounced.trim()}
           agruparCidade={agruparCidade}
           onAgruparCidade={setAgruparCidade}
           agruparBairro={agruparBairro}
@@ -5105,7 +5110,7 @@ ${petNome}`
             // etapa alguns dias depois — o pet cuja entrega ficou com ponta solta —, e quem
             // abre a aba está indo ao mesmo endereço resolver a mesma coisa.
             const ehListaDeRota = encPipeline && (statusFiltro === 'retorno' || statusFiltro === 'pendente')
-            const deveAgruparSupinda = agruparSupinda && statusFiltro !== 'preventivo' && !fluxoLocal
+            const deveAgruparSupinda = agruparSupindaAgora && statusFiltro !== 'preventivo' && !fluxoLocal
               && !(encPipeline && statusFiltro === 'pinda') && !ehListaDeRota
 
             // Ativação de Preventivo em andamento (mig 138) sempre primeiro, seja qual for a
