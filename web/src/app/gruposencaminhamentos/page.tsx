@@ -79,7 +79,7 @@ import { nomeParaAgenda, nomeDoContatoAtivo } from '@/lib/nome-agenda'
 import { linkChatDireto } from '@/lib/whatsapp-msg'
 import { fmtTelefone, type FichaContratoData } from '@/components/fichas/FichaRemocao'
 import FichaRemocaoDoc, { DOC_W, DOC_MIN_H } from '@/components/fichas/FichaRemocaoDoc'
-import { baixarFichaPng, baixarFichaPdf, nomeDeArquivo } from '@/lib/ficha-download'
+import { baixarFichaPng, baixarFichaPdf, nomeDeArquivo, preCarregarDownload } from '@/lib/ficha-download'
 
 // Mesmas cores de unidade da /encaminhamentos — o badge do calendário tem que ser
 // reconhecível entre as duas telas durante a convivência dos dois fluxos.
@@ -964,11 +964,18 @@ function LightboxFicha({ ficha, escala, onFechar }: {
 
   const nomeBase = nomeDeArquivo('ficha', ficha.petNome, ficha.lacre)
 
+  // Abriu a ficha → já baixa o código do gerador, pro toque em PDF/PNG não esperar a rede.
+  useEffect(() => { preCarregarDownload() }, [])
+
   async function baixar(formato: 'png' | 'pdf') {
     const el = capturaRef.current
     if (!el || baixando) return
     setBaixando(formato)
     setErro(null)
+    // Deixa o "Gerando…" ser PINTADO antes do trabalho pesado: a geração ocupa a thread
+    // principal e, sem estes dois quadros, o aviso só apareceria quando já tivesse acabado —
+    // a "tela parada, morta" que o Lucas descreveu.
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
     try {
       if (formato === 'png') await baixarFichaPng(el, nomeBase)
       else await baixarFichaPdf(el, nomeBase)
@@ -1029,6 +1036,12 @@ function LightboxFicha({ ficha, escala, onFechar }: {
         </button>
       </div>
 
+      {baixando && (
+        <p className="mt-2 text-sm text-white/90 flex items-center gap-2" role="status">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Gerando o {baixando.toUpperCase()}…
+        </p>
+      )}
       {erro && <p className="mt-2 text-xs text-red-300">{erro}</p>}
      </div>
 
@@ -1044,7 +1057,11 @@ function LightboxFicha({ ficha, escala, onFechar }: {
         aria-hidden="true"
         style={{ position: 'fixed', top: 0, left: 0, visibility: 'hidden', pointerEvents: 'none' }}
       >
-        <div ref={capturaRef} style={{ width: DOC_W }}>
+        {/* 🔴 `padding` branco em volta é OBRIGATÓRIO: no modo foreignObject o html2canvas
+            pinta o conteúdo alguns px deslocado pra direita e pra baixo, e o que passa da
+            borda do canvas some — a borda preta da direita e a de baixo saíam cortadas
+            (10/10/2026, reproduzido numa tela de 390px). A margem absorve o deslocamento. */}
+        <div ref={capturaRef} style={{ width: DOC_W, padding: 12, background: '#fff' }}>
           <FichaRemocaoDoc contrato={ficha.ficha} />
         </div>
       </div>

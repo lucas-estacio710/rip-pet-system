@@ -2,6 +2,7 @@
 
 import { forwardRef } from 'react'
 import { type FichaContratoData, fmtTelefone } from './FichaRemocao'
+import MarcaRipPet from './MarcaRipPet'
 
 /**
  * Ficha de Remoção — versão DOCUMENTO (HTML + CSS puro, sem imagem de fundo).
@@ -48,14 +49,10 @@ const LINHAS_TUTOR_MAX = 7
 const TINTA = '#111827'        // preto do impresso
 const PREENCHIDO = '#1d4ed8'   // azul do que foi preenchido (mesma escolha do irmão)
 
-// Fonte da MARCA (só do "R.I.P PET" do cabeçalho — o corpo da folha é Arial, como no impresso).
-// O Lucas informou que a do logo é Arial Rounded, e ela está instalada na máquina dele
-// (conferido em 15/09/2026: `Arial Rounded MT Bold` na lista de fontes do Windows).
-// ⚠️ **Não é fonte web** — vem com o Microsoft Office, não com o Windows. Onde não existir, a
-// cadeia cai em Arial e o cabeçalho fica reto em vez de arredondado; a ficha não quebra. Se um
-// dia precisar ser igual em qualquer máquina, aí sim tem que empacotar um .woff2 em
-// `public/fonts/` (custo: mais um download, o que esta tela evita de propósito).
-const FONTE_MARCA = '"Arial Rounded MT Bold", "Arial Rounded MT", "Helvetica Rounded", Arial, sans-serif'
+// A MARCA do cabeçalho é desenho, não texto: `MarcaRipPet` (Arial Rounded virada traço). Até
+// 10/10/2026 era `fontFamily: "Arial Rounded MT Bold"` — fonte do Office, ausente no celular, que
+// caía em Arial reta; e nem fonte web chegaria ao PDF/PNG (ver o cabeçalho de `MarcaRipPet.tsx`).
+// O corpo da folha segue em Arial, como no impresso.
 
 const S = {
   folha: {
@@ -73,10 +70,6 @@ const S = {
   },
   // ---- cabeçalho ----
   topo: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 6 },
-  // `fontWeight: 700` e não 800: a Arial Rounded só tem uma face, e peso alto faz o browser
-  // sintetizar negrito em cima (faux bold), engrossando e sujando o contorno arredondado.
-  marcaNome: { fontFamily: FONTE_MARCA, fontSize: 18, fontWeight: 700, letterSpacing: 0.3, lineHeight: 1 },
-  marcaSub: { fontFamily: FONTE_MARCA, fontSize: 7, fontWeight: 400, letterSpacing: 1.5, textTransform: 'uppercase' as const, color: '#4b5563', marginTop: 2 },
   autLabel: { fontSize: 7.5, fontWeight: 700, textAlign: 'right' as const, lineHeight: 1.25 },
   autValor: { fontSize: 7, fontFamily: 'Consolas, Menlo, monospace', color: PREENCHIDO, textAlign: 'right' as const, wordBreak: 'break-all' as const },
   faixa: {
@@ -187,10 +180,7 @@ const FichaRemocaoDoc = forwardRef<HTMLDivElement, { contrato: FichaContratoData
       <div ref={ref} style={S.folha}>
         {/* ---- Cabeçalho: marca + código interno ---- */}
         <div style={S.topo}>
-          <div>
-            <div style={S.marcaNome}>R.I.P PET</div>
-            <div style={S.marcaSub}>Crematório de animais</div>
-          </div>
+          <MarcaRipPet cor={TINTA} />
           <div style={{ maxWidth: 190 }}>
             <div style={S.autLabel}>Código interno de autenticação:</div>
             <div style={S.autValor}>{contrato.id || contrato.codigo}</div>

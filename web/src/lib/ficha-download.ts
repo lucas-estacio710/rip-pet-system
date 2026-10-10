@@ -40,6 +40,16 @@ function dispararDownload(blob: Blob, nome: string) {
 }
 
 /**
+ * Baixa o código do html2canvas e do jsPDF ANTES do clique — chamar quando a ficha ampliada
+ * abre. Sem isso, o primeiro toque em "PDF" no celular espera ~500 KB de JS pela rede sem
+ * nenhum retorno visual. O `import()` é cacheado pelo bundler: chamar de novo não baixa nada.
+ */
+export function preCarregarDownload(): void {
+  void import('html2canvas').catch(() => {})
+  void import('jspdf').catch(() => {})
+}
+
+/**
  * `escala: 3` deixa ~1260px de largura numa ficha de 420 — imprime nítido em A4.
  *
  * 🔴 **`foreignObjectRendering: true` é OBRIGATÓRIO aqui, não é otimização.** O rasterizador
@@ -58,7 +68,8 @@ function dispararDownload(blob: Blob, nome: string) {
  * coordenada calibrada.
  *
  * Das 3 pegadinhas documentadas do foreignObject, duas **não se aplicam** ao `FichaRemocaoDoc`:
- * ele não tem imagem nenhuma (nada pra virar data URI) e é 100% estilo inline (nada de
+ * ele não tem imagem nenhuma (nada pra virar data URI — a marca é `<svg>` inline, que o
+ * foreignObject pinta nativo) e é 100% estilo inline (nada de
  * `<style>` que o SVG descartaria). A terceira **se aplica** e está tratada:
  *  - o cloner grava altura/largura COMPUTADAS inline, e a métrica de texto no SVG muda
  *    sub-pixel → o texto quebra uma linha a mais e encavala no bloco seguinte. Antídoto: o
@@ -76,6 +87,13 @@ function dispararDownload(blob: Blob, nome: string) {
  * ⚠️ O nó de captura fica com `visibility: hidden` na página (senão aparece por cima do
  * lightbox) e o `onclone` o torna visível **só no clone** — `copyStyles` grava o `hidden`
  * computado em cada descendente, por isso a volta é no elemento E em todos os filhos.
+ *
+ * 🔴 **`ignoreElements` é o que separa ~0,1 s de ~20 s no celular** (10/10/2026). Sem ele o
+ * html2canvas CLONA A PÁGINA INTEIRA num iframe e, com `copyStyles`, chama
+ * `getComputedStyle` em cada elemento — a conversa aberta tem dezenas de fichas em miniatura,
+ * milhares de nós. Medido com 40 fichas na página (1.892 elementos): **2.020 ms → 127 ms** no
+ * desktop, mesmo arquivo pixel a pixel. Celular é 5–10× mais lento: eram os "20 segundos pra um
+ * PNG de 200 KB". O filtro mantém só os ancestrais do alvo (o caminho até ele) e o próprio alvo.
  */
 async function paraCanvas(el: HTMLElement, escala = 3): Promise<HTMLCanvasElement> {
   const { default: html2canvas } = await import('html2canvas')
@@ -86,6 +104,7 @@ async function paraCanvas(el: HTMLElement, escala = 3): Promise<HTMLCanvasElemen
     foreignObjectRendering: true,
     scrollX: 0,
     scrollY: 0,
+    ignoreElements: n => !(n.contains(el) || el.contains(n)),
     onclone: (doc, clonado) => {
       // Visível no clone, MENOS o que é `hidden` de propósito no próprio layout (o
       // `FichaRemocaoDoc` esconde o rótulo "Tutor(es):" dos tutores 2+). Clone e original têm a
