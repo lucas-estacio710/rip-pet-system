@@ -12,6 +12,8 @@ import { useUnit } from '@/contexts/UnitContext'
 import { computePagamento, TAG_STATE_STYLES, type ContratoTagData } from '@/lib/contrato-tags'
 import { separarPrimeiroNome } from '@/lib/nome-tutor'
 import AtivarModal from '@/components/contratos/modals/AtivarModal'
+import CardPreventivoNovo from '@/components/preventivos/CardPreventivoNovo'
+import { useCardNovo } from '@/hooks/useCardNovo'
 
 // ============================================
 // Types
@@ -126,6 +128,8 @@ const FONTE_ICONS: Record<string, { icon?: string; img?: string; style: React.CS
 }
 
 
+const WA_PATH = 'M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z'
+
 // ============================================
 // Page
 // ============================================
@@ -135,6 +139,8 @@ export default function PreventivosPage() {
   // Escopo por unidade (RLS não filtra — padrão frontend do app; auditoria 2026/96)
   const { currentUnit, isLoading: unitLoading } = useUnit()
   const { isVisible } = useFieldPermission()
+  // Card no padrão novo (item 6 dos ajustes finos) — mesma chave do pipeline redesenhado.
+  const { cardNovo } = useCardNovo()
 
   const [contratos, setContratos] = useState<Contrato[]>([])
   const [loading, setLoading] = useState(true)
@@ -330,6 +336,48 @@ export default function PreventivosPage() {
             const pagTag = computePagamento(contrato as unknown as ContratoTagData)
             const pagStyle = TAG_STATE_STYLES[pagTag.state]
             const fonteNome = contrato.fonte_conhecimento?.nome
+
+            if (cardNovo) {
+              const verPag = isVisible('tela_preventivos', 'btn_farol_pagamento') && (pagTag.state === 'completed' || pagTag.state === 'alert')
+              const fi = fonteNome ? FONTE_ICONS[fonteNome] : undefined
+              const wa = (tam: string, icone: string) => telefone ? (
+                <a href={`https://wa.me/55${telefone.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()} title={formatarTelefone(telefone)}
+                  className={`flex-shrink-0 flex items-center justify-center ${tam} bg-[#25D366] text-white rounded-full hover:bg-[#128C7E] transition-colors`}>
+                  <svg className={icone} viewBox="0 0 24 24" fill="currentColor"><path d={WA_PATH} /></svg>
+                </a>
+              ) : null
+              return (
+                <CardPreventivoNovo
+                  key={contrato.id}
+                  dataContrato={contrato.data_contrato}
+                  petNome={contrato.pet_nome}
+                  petGenero={contrato.pet_genero}
+                  individual={contrato.tipo_cremacao === 'individual'}
+                  especie={contrato.pet_especie}
+                  peso={contrato.pet_peso}
+                  tutorNome={tutorNome}
+                  raca={contrato.pet_raca}
+                  cor={contrato.pet_cor}
+                  cidade={contrato.tutor_cidade}
+                  urna={urna}
+                  seguradora={contrato.seguradora}
+                  fonte={fonteNome ? {
+                    nome: fonteNome,
+                    titulo: contrato.seguradora ? `${fonteNome}: ${contrato.seguradora}` : (fonteNome === 'Outro' && contrato.fonte_outro_especificar ? `Outro: ${contrato.fonte_outro_especificar}` : fonteNome),
+                    icon: fi?.icon, img: fi?.img, style: fi?.style || FONTE_STYLE,
+                  } : null}
+                  pagamento={verPag ? {
+                    concluido: pagTag.state === 'completed', emoji: pagTag.emoji, sublabel: pagTag.sublabel, tooltip: pagTag.tooltip,
+                    bg: pagStyle.bg, color: pagStyle.color, borderColor: pagStyle.borderColor,
+                  } : null}
+                  whatsapp={wa('w-9 h-9', 'h-5 w-5')}
+                  whatsappPequeno={wa('w-5 h-5', 'h-3 w-3')}
+                  onAtivar={() => abrirAtivarModal(contrato)}
+                  onAbrir={() => router.push(`/contratos/${contrato.id}`)}
+                />
+              )
+            }
 
             return (
               <div
