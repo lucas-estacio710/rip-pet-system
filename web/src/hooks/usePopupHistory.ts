@@ -80,8 +80,10 @@ export function usePopupHistory() {
       if (ignorarRef.current > 0) { ignorarRef.current -= 1; return }
       if (nivelRef.current === 0) return
       const st = (e.state ?? null) as EntradaPopup | null
-      if (st && st.tok === tokRef.current && typeof st.pf === 'number' && st.pf < nivelRef.current) {
-        setNivel(st.pf)
+      if (st && st.tok === tokRef.current && typeof st.pf === 'number' && st.pf <= nivelRef.current) {
+        // Caiu numa entrada NOSSA: no mesmo nível = quem fechou foi um popup aberto por cima
+        // deste (ex.: foto ampliada sobre a tarefa) — continua aberto. Abaixo = volta um nível.
+        if (st.pf < nivelRef.current) setNivel(st.pf)
       } else {
         setNivel(0)
       }
@@ -100,4 +102,29 @@ export function usePopupHistory() {
     voltar,
     fechar,
   }
+}
+
+/**
+ * Versão "liga e esquece" pra popup que vive num estado simples (`aberto`): abrir empilha uma
+ * entrada no histórico; o botão voltar do celular chama `fechar` (em vez de sair da tela); fechar
+ * pelo código (X, salvar) tira a entrada. 10/10/2026 — auditoria de popups no celular (/tarefas).
+ */
+export function useVoltarFecha(aberto: boolean, fechar: () => void) {
+  const h = usePopupHistory()
+  const fecharRef = useRef(fechar)
+  useEffect(() => { fecharRef.current = fechar })
+  const anterior = useRef(false)
+  // Só depois que a entrada existe (nível > 0) um nível 0 significa "apertou voltar".
+  const ativo = useRef(false)
+
+  useEffect(() => {
+    if (aberto && !anterior.current) h.abrir()
+    if (!aberto && anterior.current && ativo.current) { ativo.current = false; h.fechar() }
+    anterior.current = aberto
+  }, [aberto]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (h.nivel > 0) { ativo.current = true; return }
+    if (ativo.current && anterior.current) { ativo.current = false; fecharRef.current() }
+  }, [h.nivel])
 }

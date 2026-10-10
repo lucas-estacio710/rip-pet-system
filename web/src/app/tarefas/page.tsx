@@ -19,6 +19,7 @@ import { useState, useEffect, useCallback, useRef, createContext, useContext } f
 import { HandHeart, PackageCheck, PawPrint, Fingerprint, Scissors, Feather, MapPin, Navigation, FileDown, Check, Loader2, ClipboardList, UserPlus, Plus, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { atribuiveis } from '@/lib/cache-pessoas'
+import { useVoltarFecha } from '@/hooks/usePopupHistory'
 import { useUnit } from '@/contexts/UnitContext'
 import { useToast } from '@/components/ui/Toast'
 import { criarContratoDeFicha, ContratoValidationError } from '@/lib/criar-contrato-de-ficha'
@@ -1894,6 +1895,15 @@ export default function TarefasPage() {
 
   // Fecha o modal de detalhe/conclusão — se era um rascunho do "Feito" (autoatribuído, ainda
   // não confirmado), apaga a tarefa de volta em vez de deixar pendente sobrando.
+  // Voltar do celular fecha o popup em vez de sair da tela (auditoria 10/10/2026 — antes
+  // descartava lacre, foto e colaborador e ainda tirava a pessoa do /tarefas).
+  useVoltarFecha(!!atribuirModalItem, () => setAtribuirModalItem(null))
+  useVoltarFecha(!!tarefaAberta, () => { fecharModalTarefa() })
+  useVoltarFecha(!!tarefaRecibo, () => setTarefaRecibo(null))
+  // Toque no fundo NÃO fecha se já há algo preenchido (foto/lacre) — um toque acidental ao rolar
+  // apagava a foto-prova. O X e o "voltar" continuam fechando.
+  const temRascunhoTarefa = !!fotoProva || !!lacreRemocao.trim()
+
   async function fecharModalTarefa() {
     if (tarefaAbertaRascunho && tarefaAberta) {
       await supabase.from('tarefas_operacionais').delete().in('id', tarefaAberta.ids)
@@ -2474,7 +2484,7 @@ export default function TarefasPage() {
           }}
         />
       ) : tarefaAberta && (
-        <div className="fixed inset-0 z-50 bg-black/60 overflow-y-auto overscroll-contain flex items-start justify-center p-4" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }} onClick={() => !concluindoRemocao && !concluindoSimples && fecharModalTarefa()}>
+        <div className="fixed inset-0 z-50 bg-black/60 overflow-y-auto overscroll-contain flex items-start justify-center p-4" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }} onClick={() => !concluindoRemocao && !concluindoSimples && !temRascunhoTarefa && fecharModalTarefa()}>
           <div className="w-full sm:max-w-md my-auto rounded-2xl p-4 space-y-4 bg-[var(--surface-0)]" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h2 className="text-base font-bold text-[var(--surface-800)] flex items-center gap-2">

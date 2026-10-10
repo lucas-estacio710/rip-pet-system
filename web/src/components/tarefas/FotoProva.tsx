@@ -12,6 +12,7 @@
 // ============================================================================
 
 import { useRef, useState, useEffect } from 'react'
+import { useVoltarFecha } from '@/hooks/usePopupHistory'
 import { Camera, X, Loader2, Check, Maximize2 } from 'lucide-react'
 import { comprimirImagem, ImagemInvalidaError, type FotoComprimida } from '@/lib/comprimir-imagem'
 
@@ -33,6 +34,8 @@ export default function FotoProva({
 }) {
   // Foto ampliada: a conferência continua a um toque, só deixou de custar 224px fixos.
   const [ampliada, setAmpliada] = useState(false)
+  // Voltar do celular fecha só a foto, não a tarefa inteira (auditoria 10/10/2026).
+  useVoltarFecha(ampliada, () => setAmpliada(false))
   const inputRef = useRef<HTMLInputElement>(null)
   const [processando, setProcessando] = useState(false)
   const [erro, setErro] = useState('')

@@ -323,7 +323,8 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
     <div
       className="fixed inset-0 bg-black/60 overflow-y-auto overscroll-contain flex items-start justify-center z-[60] p-4"
       style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
-      onClick={onClose}
+      // Toque no fundo não fecha salvando nem com rascunho (foto/lacre) — auditoria 10/10/2026.
+      onClick={() => { if (!salvando && !fotoProva && !lacre.trim()) onClose() }}
     >
       <div
         className="bg-[var(--surface-0)] rounded-xl shadow-xl w-full max-w-sm my-auto"
