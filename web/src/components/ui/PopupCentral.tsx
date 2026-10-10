@@ -8,6 +8,10 @@
  * - overlay `fixed inset-0` (a classe é o sinal pro MobileBottomNav sumir) · `flex p-3`
  * - card `m-auto` (não `items-center`: quando não cabe, não sai pela borda)
  * - altura pela viewport VISÍVEL (`--vvh` via visualViewport — encolhe com o teclado), nunca `vh`
+ * - o OVERLAY também ocupa só a área visível (`top: --vvt`, `height: --vvh`) — 10/10/2026, teclado
+ *   no certificado: com o overlay na altura cheia o `m-auto` centrava o card numa área que incluía
+ *   a faixa atrás do teclado (e no iOS o `offsetTop` deslocava mais), e o rodapé sumia atrás dele.
+ *   As classes `fixed inset-0` ficam (são o sinal pro MobileBottomNav); o inline sobrescreve.
  * - corpo `flex-1 min-h-0 overflow-y-auto` (sem o min-h-0 o flex não deixa rolar e o rodapé
  *   é empurrado pra fora) · rodapé fora do scroller, com safe-area
  * - foco vai pro CONTAINER (Esc fecha), nunca pra um campo — teclado subindo cobre a tela
@@ -47,7 +51,10 @@ export default function PopupCentral({ aberto, onFechar, titulo, children, rodap
     const vv = window.visualViewport
     const ov = overlayRef.current
     if (!vv || !ov) return
-    const aplicar = () => ov.style.setProperty('--vvh', `${vv.height}px`)
+    const aplicar = () => {
+      ov.style.setProperty('--vvh', `${vv.height}px`)
+      ov.style.setProperty('--vvt', `${vv.offsetTop}px`)
+    }
     aplicar()
     vv.addEventListener('resize', aplicar)
     vv.addEventListener('scroll', aplicar)
@@ -68,7 +75,7 @@ export default function PopupCentral({ aberto, onFechar, titulo, children, rodap
     <div
       ref={overlayRef}
       className="fixed inset-0 z-50 flex p-3 overscroll-contain pl-overlay-in"
-      style={{ background: 'rgba(0, 0, 0, 0.5)' }}
+      style={{ background: 'rgba(0, 0, 0, 0.5)', top: 'var(--vvt, 0px)', bottom: 'auto', height: 'var(--vvh, 100dvh)' }}
       onClick={e => { if (fecharNoFundo && e.target === e.currentTarget) onFechar() }}
     >
       <div
