@@ -174,8 +174,7 @@ export default function TarefasAba({ tarefas, carregando }: { tarefas: TarefaDoC
                       ? <>Estava com <b className="text-slate-300 font-medium">{quem || '—'}</b>{g.atribuido_em ? ` desde ${dataHora(g.atribuido_em)}` : ''} — não chegou a ser feita</>
                       : pendente
                       ? <>{porQuem ? `${porQuem} atribuiu a ` : 'Atribuída a '}<b className="text-slate-300 font-medium">{quem || '—'}</b>{g.atribuido_em ? ` · ${dataHora(g.atribuido_em)}` : ''}</>
-                      : <>Concluída por <b className="text-slate-300 font-medium">{quem || '—'}</b>{executou ? <> · 🚗 executado por <b className="text-slate-300 font-medium">{executou}</b></> : null}{g.concluido_em ? ` · ${dataHora(g.concluido_em)}` : ''}
-                          {porQuem && g.atribuido_em && <span className="text-slate-600"> · atribuída por {porQuem} em {dataHora(g.atribuido_em)}</span>}</>}
+                      : <>Concluída por <b className="text-slate-300 font-medium">{quem || '—'}</b>{executou ? <> · 🚗 executado por <b className="text-slate-300 font-medium">{executou}</b></> : null}{g.concluido_em ? ` · ${dataHora(g.concluido_em)}` : ''}</>}
                   </div>
                   {g.item_excluido_em && (
                     <div className="mt-1.5 text-xs text-red-300 bg-red-900/20 border-l-2 border-red-500/70 px-2 py-1 rounded-r">
