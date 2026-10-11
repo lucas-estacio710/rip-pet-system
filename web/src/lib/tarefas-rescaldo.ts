@@ -122,7 +122,8 @@ export async function trocarModeloDoItem(
     .update((novoValor !== null ? { produto_id: p.para.id, valor: novoValor } : { produto_id: p.para.id }) as never).eq('id', p.cpId)
   if (error) throw new Error('Não consegui trocar o modelo: ' + error.message)
   if (p.unidadeId) {
-    const rpc = sb.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ error: { message: string } | null }>
+    // .bind: solto, o rpc perde o `this` e o supabase-js quebra em `this.rest` (bug do ⇄, 11/10).
+    const rpc = sb.rpc.bind(sb) as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ error: { message: string } | null }>
     for (const [produtoId, delta] of [[p.de.id, 1], [p.para.id, -1]] as const) {
       const { error: e } = await rpc('ajustar_estoque_unidade', { p_produto_id: produtoId, p_unidade_id: p.unidadeId, p_delta: delta })
       // O modelo já foi trocado; estoque errado não desfaz a troca (mesma regra do lib/urna.ts).
