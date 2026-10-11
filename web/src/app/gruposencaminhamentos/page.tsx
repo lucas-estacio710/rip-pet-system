@@ -1150,10 +1150,15 @@ function BotaoCopiarNome({ nome }: { nome: string }) {
  *    de extensões (imagem, áudio, vídeo, pdf, txt…), e .vcf não está nela.
  *  - `intent:` com `action=INSERT` (abrir "Novo contato"): o Chrome só abre activity com
  *    categoria BROWSABLE, e a tela de novo contato não tem — o toque não faz nada, nunca.
- * ⚠️ Se o download parar de sair depois de vários seguidos, é a trava "Downloads automáticos" do
- * Chrome (pede permissão a partir do 2º download do site; recusada ou perdida ao trocar de
- * janela, bloqueia em silêncio). Resolve-se nas Configurações do site, não no código.
+ * 🔴 **O link do arquivo NÃO é revogado em 1 s** (11/10/2026). No app instalado do Android o
+ * download é entregue ao sistema DEPOIS do clique, e trocando de janela isso atrasa: o link já
+ * revogado fazia o download falhar e o botão "travava" até reiniciar o app (sintoma do Lucas;
+ * mesmo caso em github.com/HallelujahHomeChurch/hhc-web/pull/187). Agora o link anterior só é
+ * revogado quando o próximo é criado — um .vcf tem ~150 bytes, não pesa.
+ * ⚠️ Se mesmo assim o download parar de sair depois de vários seguidos, olhar a trava
+ * "Downloads automáticos" nas Configurações do site do Chrome.
  */
+let urlVcardAnterior: string | null = null
 function vcardDoContato(nome: string, telefone: string): string {
   const dig = telefone.replace(/\D/g, '')
   const tel = dig.length === 10 || dig.length === 11 ? `+55${dig}` : dig.startsWith('55') ? `+${dig}` : dig
@@ -1167,14 +1172,15 @@ function BotaoSalvarContato({ nome, telefone }: { nome: string; telefone: string
       onClick={() => {
         const nomeArquivo = `${nome.replace(/[\\/:*?"<>|]/g, '')}.vcf`
         const blob = new Blob([vcardDoContato(nome, telefone)], { type: 'text/vcard;charset=utf-8' })
+        if (urlVcardAnterior) URL.revokeObjectURL(urlVcardAnterior)
         const url = URL.createObjectURL(blob)
+        urlVcardAnterior = url
         const a = document.createElement('a')
         a.href = url
         a.download = nomeArquivo
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)
-        setTimeout(() => URL.revokeObjectURL(url), 1000) // no mesmo tick pode cancelar o download no celular
       }}
       title="Salvar na agenda do celular"
       className="flex flex-1 items-center justify-center gap-1.5 min-h-11 py-2 border-l text-xs font-semibold hover:bg-black/5 transition-colors"
