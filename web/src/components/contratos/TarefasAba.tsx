@@ -15,7 +15,6 @@
  * - Ordem: em andamento primeiro; depois as concluídas, a mais recente primeiro.
  */
 import { useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
 import { HandHeart, PackageCheck, PawPrint, Fingerprint, Scissors, Feather, ClipboardList, ListChecks, ImageIcon, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { listarFotosDasTarefas, urlAssinadaFoto } from '@/lib/foto-tarefa'
@@ -119,9 +118,6 @@ export default function TarefasAba({ tarefas, carregando }: { tarefas: TarefaDoC
         {grupos.length > 0 && (nPend > 0
           ? <span className="text-xs bg-amber-900/30 text-amber-400 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">{nPend} em andamento</span>
           : <span className="text-xs bg-emerald-900/30 text-emerald-400 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">tudo concluído</span>)}
-        <Link href="/tarefas" className="ml-auto text-xs text-purple-400 hover:underline whitespace-nowrap">
-          <span className="sm:hidden">/tarefas ↗</span><span className="hidden sm:inline">Abrir no /tarefas ↗</span>
-        </Link>
       </div>
 
       {carregando ? (
