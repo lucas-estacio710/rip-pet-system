@@ -20,6 +20,7 @@ import { Wallet, Receipt, ArrowLeftRight, BarChart3, Landmark, Banknote, Shield,
 import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
 import EmptyState from '@/components/ui/EmptyState'
+import Modal from '@/components/ui/Modal'
 import LancamentosTab from '@/components/financeiro/LancamentosTab'
 import RepasseTab from '@/components/financeiro/RepasseTab'
 import DRETab from '@/components/financeiro/DRETab'
@@ -62,6 +63,9 @@ export default function FinanceiroPage() {
   // dinheiro agora" não segue o mês das abas. A aba 'caixa' continua existindo
   // por dentro só para a Movimentação entre contas do + Lançar.
   const [contasAberto, setContasAberto] = useState(false)
+  // CONFIGURAÇÕES (11/10/2026, pedido do Lucas): a engrenagem abre as Contas num
+  // popup por cima, em vez de trocar a tela por baixo das abas — não é uma aba do mês.
+  const [configAberto, setConfigAberto] = useState(false)
   const [contaImportar, setContaImportar] = useState<string | null>(null)
   // PAGUEI (Visão do mês → conta fixa): a despesa abre já preenchida.
   const [despesaInicial, setDespesaInicial] = useState<{ contaFixaId: string; nome: string; categoriaId: string | null; valor: number; fornecedor: string | null } | null>(null)
@@ -120,8 +124,8 @@ export default function FinanceiroPage() {
 
         <div className="flex items-center gap-2 ml-auto">
         {temAba('contas') && (
-          <button onClick={() => setActive('contas')} aria-label="Contas e configurações" title="Contas"
-                  className={`h-9 w-9 rounded-[10px] border flex items-center justify-center ${activeTab?.key === 'contas' ? 'border-[var(--brand-500)] text-[var(--brand-500)]' : 'border-[var(--surface-300)] text-[var(--surface-600)] hover:bg-[var(--surface-100)]'}`}>
+          <button onClick={() => setConfigAberto(true)} aria-label="Configurações" title="Configurações"
+                  className={`h-9 w-9 rounded-[10px] border flex items-center justify-center ${configAberto ? 'border-[var(--brand-500)] text-[var(--brand-500)]' : 'border-[var(--surface-300)] text-[var(--surface-600)] hover:bg-[var(--surface-100)]'}`}>
             <Settings className="h-4 w-4" />
           </button>
         )}
@@ -206,6 +210,10 @@ export default function FinanceiroPage() {
           description="Nenhuma aba do financeiro está visível para o seu perfil."
         />
       )}
+
+      <Modal isOpen={configAberto} onClose={() => setConfigAberto(false)} title="Configurações" size="wide">
+        <ContasTab somenteLeitura={!canEdit(TELA, 'btn_contas_editar')} />
+      </Modal>
 
       <ContasFaturasModal
         aberto={contasAberto}

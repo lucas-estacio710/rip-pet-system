@@ -20,6 +20,7 @@ export type ContaFixa = {
   id: string; unidade_id: string; nome: string; fornecedor_nome: string | null; categoria_id: string | null
   valor: number; valor_varia: boolean; regra: RegraVencimento['regra']; dia: number | null; ajuste: RegraVencimento['ajuste']
   conta_pagamento_id: string | null; repasse: boolean; ativo: boolean
+  created_at?: string
 }
 type Cat = { id: string; nome: string; parent_id: string | null; termos: string[] | null }
 type ContaRow = { id: string; nome: string; produto: string | null; tipo: string | null }

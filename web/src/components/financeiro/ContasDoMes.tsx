@@ -11,7 +11,11 @@
 //   · CalendarioContasModal — o mês em grade: data riscada quando cai em fim de
 //                       semana/feriado e a conta no dia em que paga de verdade.
 //
-// PAGA = existe despesa com conta_fixa_id e competência no mês do vencimento.
+// PAGA = existe despesa com conta_fixa_id e competência no mês do vencimento — ou,
+// sem o vínculo, uma despesa da MESMA categoria no mês, quando só essa conta fixa
+// usa a categoria (11/10/2026: a água de setembro lançada antes da conta existir
+// aparecia "atrasada"). Antes do mês em que a conta foi cadastrada, ela só aparece
+// se estiver paga: não se cobra atraso de um mês em que o calendário não existia.
 // Repasse (repasse=true): paga se houve pagamento de repasse (fin_movimentos com
 // repasse_id) no mês; o valor é o que falta do(s) repasse(s) em aberto.
 
@@ -36,7 +40,7 @@ const mesMais = (ano: number, mes0: number, k: number) => ({ ano: ano + Math.flo
 /** Contas fixas + o que foi pago (−2 a +2 meses) + o repasse em aberto. */
 export function useContasFixas(sb: SupabaseClient, uid: string | undefined) {
   const [contas, setContas] = useState<ContaFixa[]>([])
-  const [pagos, setPagos] = useState<Map<string, { valor: number; data: string }>>(new Map())
+  const [pagos, setPagos] = useState<Map<string, { valor: number; data: string; porCategoria?: boolean }>>(new Map())
   const [repasseAberto, setRepasseAberto] = useState(0)
   const [pronto, setPronto] = useState(false)
 
@@ -48,7 +52,7 @@ export function useContasFixas(sb: SupabaseClient, uid: string | undefined) {
     if (error) { setContas([]); setPronto(true); return }   // sem a mig 160: o bloco mostra o convite
     const lista = (cf as ContaFixa[] | null) || []
     const ids = lista.map(c => c.id)
-    const mapa = new Map<string, { valor: number; data: string }>()
+    const mapa = new Map<string, { valor: number; data: string; porCategoria?: boolean }>()
     if (ids.length) {
       const { data: ls } = await sb.from('fin_lancamentos').select('conta_fixa_id, valor, data_competencia, data_caixa')
         .in('conta_fixa_id', ids).neq('status', 'rejeitado').gte('data_competencia', ini)
@@ -56,6 +60,22 @@ export function useContasFixas(sb: SupabaseClient, uid: string | undefined) {
         const k = `${l.conta_fixa_id}|${l.data_competencia.slice(0, 7)}`
         const atual = mapa.get(k)
         mapa.set(k, { valor: c2((atual?.valor || 0) + Number(l.valor)), data: (l.data_caixa || l.data_competencia).slice(0, 10) })
+      }
+      // Sem vínculo (lançada antes da conta fixa, ou pelo + Lançar): vale a
+      // categoria — só quando uma única conta fixa usa aquela categoria.
+      const porCat = new Map<string, string[]>()
+      for (const c of lista) if (c.categoria_id && !c.repasse) porCat.set(c.categoria_id, [...(porCat.get(c.categoria_id) || []), c.id])
+      const unicas = [...porCat].filter(([, v]) => v.length === 1)
+      if (unicas.length) {
+        const dono = new Map(unicas.map(([cat, v]) => [cat, v[0]]))
+        const { data: lc } = await sb.from('fin_lancamentos').select('categoria_id, valor, data_competencia, data_caixa')
+          .in('categoria_id', [...dono.keys()]).is('conta_fixa_id', null).neq('status', 'rejeitado').gte('data_competencia', ini)
+        for (const l of (lc as { categoria_id: string; valor: number; data_competencia: string; data_caixa: string | null }[] | null) || []) {
+          const k = `${dono.get(l.categoria_id)}|${l.data_competencia.slice(0, 7)}`
+          if (mapa.has(k) && !mapa.get(k)!.porCategoria) continue   // o vínculo explícito manda
+          const atual = mapa.get(k)
+          mapa.set(k, { valor: c2((atual?.valor || 0) + Number(l.valor)), data: (l.data_caixa || l.data_competencia).slice(0, 10), porCategoria: true })
+        }
       }
     }
     // Repasse: pagamento (inteiro ou parte) num mês = a conta do repasse daquele mês está paga.
@@ -90,7 +110,10 @@ export function useContasFixas(sb: SupabaseClient, uid: string | undefined) {
     return contas.map(conta => {
       const venc = vencimentoNoMes(conta, ano, mes0)
       if (!venc) return null
-      const pago = pagos.get(`${conta.id}|${chaveMes}`) || null
+      const pg = pagos.get(`${conta.id}|${chaveMes}`)
+      const pago = pg ? { valor: pg.valor, data: pg.data } : null
+      // antes do mês do cadastro, só aparece se estiver paga
+      if (!pago && conta.created_at && chaveMes < conta.created_at.slice(0, 7)) return null
       const valor = conta.repasse ? (pago ? pago.valor : repasseAberto) : Number(conta.valor) || 0
       // Repasse sem nada em aberto e sem pagamento no mês: não há o que pagar.
       if (conta.repasse && !pago && repasseAberto <= 0) return null
