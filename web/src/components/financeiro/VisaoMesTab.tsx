@@ -332,24 +332,41 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
     <div className="space-y-4 max-w-[1200px]">
       {carregando && <Loader2 className="h-4 w-4 animate-spin text-[var(--surface-400)]" />}
 
-      {/* HOJE — só no mês corrente: tenho dinheiro pra pagar o que vence? */}
+      {/* HOJE — a COMISSÃO DE FRENTE (Lucas, 11/10: "é o abre-alas"). Só no mês
+          corrente. Um bloco largo, com respiro: o disponível em destaque e, ao
+          lado, o que vence até domingo e o que já passou da data — com os nomes. */}
       {emCurso && (
-        <div className="grid grid-cols-1 md:grid-cols-[1.3fr_1fr_1fr] gap-3">
-          <div className="card p-4">
-            <span className="block text-xs text-[var(--surface-500)]">Disponível agora pra pagar</span>
-            <span className="text-mono text-2xl tabular-nums text-[var(--surface-900)]">{saldos ? fmtBRL(saldos.disponivel) : '…'}</span>
-            {saldos && saldos.guardado > 0.005 && <span className="block text-xs text-[var(--surface-500)]">guardado: {fmtBRL(saldos.guardado)} (fora do disponível)</span>}
-            {onContasFaturas && <button onClick={onContasFaturas} className={`${link} mt-1.5 block`}>Contas e Faturas ›</button>}
-          </div>
-          <div className="card p-4">
-            <span className="block text-xs text-[var(--surface-500)]">Vence até domingo</span>
-            <span className={`text-mono text-xl tabular-nums ${semana.length ? 'text-amber-500' : 'text-[var(--surface-900)]'}`}>{fmtBRL(semana.reduce((a, x) => a + x.valor, 0))}</span>
-            <span className="block text-xs text-[var(--surface-500)]">{semana.length ? `${semana.length} conta${semana.length === 1 ? '' : 's'} · a primeira ${curto(semana[0].venc.data)}` : 'nada até domingo'}</span>
-          </div>
-          <div className="card p-4" style={atrasadas.length ? { boxShadow: 'inset 0 0 0 1px rgba(239,68,68,.5)' } : undefined}>
-            <span className="block text-xs text-[var(--surface-500)]">Atrasado</span>
-            <span className={`text-mono text-xl tabular-nums ${atrasadas.length ? 'text-red-400' : 'text-emerald-500'}`}>{atrasadas.length ? fmtBRL(atrasadas.reduce((a, x) => a + x.valor, 0)) : '✓ nada'}</span>
-            <span className="block text-xs text-[var(--surface-500)]">{atrasadas.length ? atrasadas.map(x => x.conta.nome.split(' · ')[0]).join(', ') : 'nenhuma conta passou da data'}</span>
+        <div className="card p-5 sm:p-7">
+          <div className="grid grid-cols-1 md:grid-cols-[1.5fr_1fr_1fr] gap-6 md:gap-0 md:divide-x md:divide-[var(--surface-200)]">
+            <div className="md:pr-8 flex flex-col gap-1.5">
+              <span className="text-sm text-[var(--surface-500)]">Disponível agora pra pagar</span>
+              <span className="text-mono text-4xl sm:text-5xl tabular-nums tracking-tight text-[var(--surface-900)]">{saldos ? fmtBRL(saldos.disponivel) : '…'}</span>
+              {saldos && saldos.guardado > 0.005 && (
+                <span className="text-[13px] text-[var(--surface-500)]">+ {fmtBRL(saldos.guardado)} guardados (fora do disponível)</span>
+              )}
+              {onContasFaturas && <button onClick={onContasFaturas} className={`${link} mt-2`}>Contas e Faturas ›</button>}
+            </div>
+            <div className="md:px-8 flex flex-col gap-1.5">
+              <span className="text-sm text-[var(--surface-500)]">Vence até domingo</span>
+              <span className={`text-mono text-2xl sm:text-3xl tabular-nums ${semana.length ? 'text-amber-500' : 'text-[var(--surface-900)]'}`}>{fmtBRL(semana.reduce((a, x) => a + x.valor, 0))}</span>
+              {semana.length ? semana.slice(0, 4).map(x => (
+                <span key={x.conta.id} className="text-[13px] text-[var(--surface-600)] flex justify-between gap-3">
+                  <span className="truncate">{curto(x.venc.data)} · {x.conta.nome}</span>
+                  <span className="text-mono tabular-nums shrink-0">{num(x.valor)}</span>
+                </span>
+              )) : <span className="text-[13px] text-[var(--surface-500)]">nada até domingo</span>}
+              {semana.length > 4 && <span className="text-[12px] text-[var(--surface-500)]">+ {semana.length - 4} contas</span>}
+            </div>
+            <div className="md:pl-8 flex flex-col gap-1.5">
+              <span className="text-sm text-[var(--surface-500)]">Atrasado</span>
+              <span className={`text-mono text-2xl sm:text-3xl tabular-nums ${atrasadas.length ? 'text-red-400' : 'text-emerald-500'}`}>{atrasadas.length ? fmtBRL(atrasadas.reduce((a, x) => a + x.valor, 0)) : '✓ nada'}</span>
+              {atrasadas.length ? atrasadas.slice(0, 4).map(x => (
+                <span key={x.conta.id} className="text-[13px] text-red-400 flex justify-between gap-3">
+                  <span className="truncate">venceu {curto(x.venc.data)} · {x.conta.nome}</span>
+                  <span className="text-mono tabular-nums shrink-0">{num(x.valor)}</span>
+                </span>
+              )) : <span className="text-[13px] text-[var(--surface-500)]">nenhuma conta passou da data</span>}
+            </div>
           </div>
         </div>
       )}
