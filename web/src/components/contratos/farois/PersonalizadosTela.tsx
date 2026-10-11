@@ -14,11 +14,13 @@
  *   ⚡ "Atribuir os N pendentes a…" com 2+ sem dono. "+ Adicionar personalizado" grudado no
  *   rodapé (sticky dentro do popup — o corpo do PopupCentral é quem rola).
  * - ✕ na foto pede confirmação, dizendo o que se perde (tarefa, foto-prova, nota).
+ * - ⇄ na foto troca o MODELO por outro do mesmo tipo ("à definir" → Castanho): mesma linha, a
+ *   tarefa, a foto-prova, o feito e a OBS continuam (`trocarModeloDoItem`).
  */
 import { useMemo, useState } from 'react'
 import { Search, ChevronLeft, Plus } from 'lucide-react'
 import type { FotoComprimida } from '@/lib/comprimir-imagem'
-import { atribuirProdutos, desatribuirProduto, concluirProduto, salvarObsProduto, type TipoRescaldo } from '@/lib/tarefas-rescaldo'
+import { atribuirProdutos, desatribuirProduto, concluirProduto, salvarObsProduto, trocarModeloDoItem, type TipoRescaldo } from '@/lib/tarefas-rescaldo'
 import { useGestorTarefas } from '@/hooks/useGestorTarefas'
 import GestorItemTarefa, { SeletorPessoa } from '@/components/contratos/farois/GestorItemTarefa'
 import PainelConclusao from '@/components/contratos/farois/PainelConclusao'
@@ -67,6 +69,7 @@ export default function PersonalizadosTela(p: Props) {
   const g = useGestorTarefas({ cpIds: p.itens.map(i => i.id), chave, temOperacional: p.temOperacional, unidadeId: p.unidadeId, atorNome: p.atorNome })
   const [ocupado, setOcupado] = useState(false)
   const [catalogoAberto, setCatalogoAberto] = useState(false)
+  const [trocando, setTrocando] = useState<ItemPersonalizado | null>(null)
   const [busca, setBusca] = useState('')
   const [concluindo, setConcluindo] = useState<string | null>(null)
   const [foto, setFoto] = useState<FotoComprimida | null>(null)
@@ -142,17 +145,33 @@ export default function PersonalizadosTela(p: Props) {
     agir(async () => { if (!(await p.onRemover(i.id, i.produtoId))) throw new Error(`Não consegui tirar ${i.nome}.`) })
   }
 
+  function trocarPor(prod: ProdutoCatalogo) {
+    const i = trocando
+    if (!i) return
+    const tipo = i.rescaldoTipo || 'outro'
+    agir(() => trocarModeloDoItem(g.supabase, {
+      cpId: i.id, de: { id: i.produtoId, nome: i.nome, rescaldo_tipo: tipo }, para: { id: prod.id, nome: prod.nome, rescaldo_tipo: tipo },
+      contratoId: p.contratoId, unidadeId: p.unidadeId, petNome: p.petNome, ator: g.ator, onde: 'pelo pipeline',
+    }))
+    setTrocando(null)
+    setBusca('')
+  }
+
   const catalogoFiltrado = useMemo(() => {
     const t = busca.trim().toLowerCase()
-    return p.catalogo.filter(c => !t || c.nome.toLowerCase().includes(t) || c.codigo.toLowerCase().includes(t))
-  }, [p.catalogo, busca])
+    return p.catalogo.filter(c => {
+      // Na troca: só modelos do MESMO tipo de personalizado (o que mantém a tarefa), menos o atual.
+      if (trocando && ((c.rescaldo_tipo || 'outro') !== (trocando.rescaldoTipo || 'outro') || c.id === trocando.produtoId || c.codigo === '0002')) return false
+      return !t || c.nome.toLowerCase().includes(t) || c.codigo.toLowerCase().includes(t)
+    })
+  }, [p.catalogo, busca, trocando])
 
-  // ---------- Catálogo ----------
-  if (catalogoAberto) {
+  // ---------- Catálogo (adicionar, ou ⇄ trocar o modelo) ----------
+  if (catalogoAberto || trocando) {
     return (
       <div className="space-y-3">
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => { setCatalogoAberto(false); setBusca('') }} className="inline-flex items-center gap-0.5 text-[13px] font-bold flex-none" style={{ color: '#7c3aed' }}>
+          <button type="button" onClick={() => { setCatalogoAberto(false); setTrocando(null); setBusca('') }} className="inline-flex items-center gap-0.5 text-[13px] font-bold flex-none" style={{ color: '#7c3aed' }}>
             <ChevronLeft className="h-4 w-4" />Voltar aos itens
           </button>
           <div className="relative flex-1 min-w-0">
@@ -162,6 +181,11 @@ export default function PersonalizadosTela(p: Props) {
               style={{ borderColor: 'var(--surface-200)', background: 'var(--surface-50)', color: 'var(--surface-800)', fontSize: 16 }} />
           </div>
         </div>
+        {trocando && (
+          <p className="text-[12.5px] leading-snug" style={{ color: 'var(--surface-600)' }}>
+            Trocar <b>{trocando.nome}</b> por: <span style={{ color: 'var(--surface-400)' }}>a tarefa, a foto e o feito continuam; o valor fica o mesmo.</span>
+          </p>
+        )}
         {['molde_patinha', 'carimbo', 'pelo_extra', 'outro'].map(tipo => {
           const lista = catalogoFiltrado.filter(c => (c.rescaldo_tipo || 'outro') === tipo)
           if (lista.length === 0) return null
@@ -170,7 +194,7 @@ export default function PersonalizadosTela(p: Props) {
               <p className="text-[11px] font-bold uppercase tracking-wider mb-1.5" style={{ color: 'var(--surface-400)' }}>{ROTULO_CATALOGO[tipo]}</p>
               <div className="grid grid-cols-4 gap-2">
                 {lista.map(c => (
-                  <button key={c.id} type="button" disabled={ocupado} onClick={() => escolher(c)}
+                  <button key={c.id} type="button" disabled={ocupado} onClick={() => (trocando ? trocarPor(c) : escolher(c))}
                     className="flex flex-col items-center gap-1 p-1 rounded-lg border text-center" style={{ borderColor: 'var(--surface-200)' }}>
                     <span className="w-full aspect-square rounded-md bg-white flex items-center justify-center overflow-hidden">
                       {c.imagem_url ? <img src={c.imagem_url} alt="" className="w-full h-full" style={{ objectFit: 'contain' }} /> : <span className="text-xl">💎</span>}
@@ -256,6 +280,7 @@ export default function PersonalizadosTela(p: Props) {
                   })}
                   onSalvarObs={texto => agir(() => salvarObsProduto(g.supabase, { cpId: i.id, obs: texto, nomeProduto: i.nome, petNome: p.petNome, ator: g.ator }))}
                   onRemover={() => remover(i)}
+                  onTrocar={() => { setTrocando(i); setBusca('') }}
                   painelConclusao={concluindo === i.id ? (
                     <PainelConclusao
                       foto={foto} onFoto={setFoto} anotacao={anotacao} onAnotacao={setAnotacao}

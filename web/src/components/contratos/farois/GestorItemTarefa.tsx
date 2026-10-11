@@ -4,7 +4,7 @@
  * Uma linha de produto com a sua tarefa — o "gestor por item" do popup de pendências
  * (item 27 de docs/REDESENHO_CARDS_PIPELINE.md), usado por Pelinho (2.8) e Personalizados (2.10).
  *
- *   [foto ✕]  Nome do produto                 [📝 OBS] [✓]
+ *   [⇄foto ✕] Nome do produto                 [📝 OBS] [✓]
  *             👤− Juliana - 4h   |   Atribuir a… ▾   |   ✓ Juliana · 08/10 📷
  *             (nota em âmbar, quando há)
  *
@@ -14,7 +14,7 @@
  * por cima do botão (font-size 16px — o iOS não dá zoom).
  */
 import { useState, type ReactNode } from 'react'
-import { Check, UserMinus, Camera, X } from 'lucide-react'
+import { Check, UserMinus, Camera, X, ArrowLeftRight } from 'lucide-react'
 import { formatarIdade } from '@/lib/atribuir-tarefa'
 import type { TarefaDoProduto } from '@/lib/tarefas-rescaldo'
 
@@ -57,6 +57,8 @@ type Props = {
   onAlternarSimples: () => void
   onSalvarObs: (texto: string | null) => void
   onRemover?: () => void
+  /** ⇄ no canto superior esquerdo da foto: troca o modelo mantendo tarefa/foto/feito (trocarModeloDoItem). */
+  onTrocar?: () => void
   /** Painel de conclusão (foto + anotação), quando este item está sendo concluído. */
   painelConclusao?: ReactNode
   /** Ainda não se sabe se o item tem dono (item 7): mostra "carregando…", nunca "Atribuir a…". */
@@ -100,6 +102,13 @@ export default function GestorItemTarefa(p: Props) {
           {p.imagemUrl
             ? <img src={p.imagemUrl} alt="" className="w-full h-full rounded-lg" style={{ objectFit: 'contain' }} />
             : <span className="text-xl">{p.emoji || '📦'}</span>}
+          {p.onTrocar && (
+            <button type="button" onClick={p.onTrocar} disabled={p.ocupado} aria-label={`Trocar o modelo de ${p.titulo}`} title="Trocar modelo"
+              className="absolute -top-1.5 -left-1.5 w-[17px] h-[17px] rounded-full flex items-center justify-center text-white"
+              style={{ background: '#7c3aed' }}>
+              <ArrowLeftRight className="h-2.5 w-2.5" />
+            </button>
+          )}
           {p.onRemover && (
             <button type="button" onClick={p.onRemover} disabled={p.ocupado} aria-label={`Remover ${p.titulo}`}
               className="absolute -top-1.5 -right-1.5 w-[17px] h-[17px] rounded-full flex items-center justify-center text-white"

@@ -6,7 +6,7 @@ import FichaRemocao from '@/components/fichas/FichaRemocao'
 import { captureElementAsBlob, fichaFilename, gerarFichaPDFA4Duplicada, nomeFicha } from '@/lib/ficha-generator'
 import EditarFichaModal from '@/components/contratos/modals/EditarFichaModal'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, User, Phone, Mail, MapPin, DollarSign, FileText, X, Search, Plus, Pencil, Trash2, Check, Copy, Package, AlertTriangle, Star, Download, Share2, Receipt, Award, Clock, CheckCheck, CalendarClock, SearchCheck, Flame, CheckCircle2, ShoppingCart, ListChecks, Heart, Stethoscope, ExternalLink } from 'lucide-react'
+import { ArrowLeft, User, Phone, Mail, MapPin, DollarSign, FileText, X, Search, Plus, Pencil, Trash2, Check, Copy, Package, AlertTriangle, Star, Download, Share2, Receipt, Award, Clock, CheckCheck, CalendarClock, SearchCheck, Flame, CheckCircle2, ShoppingCart, ListChecks, Heart, Stethoscope, ExternalLink, ArrowLeftRight } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { copyToClipboard } from '@/lib/clipboard'
 import Link from 'next/link'
@@ -47,6 +47,7 @@ import ProdutosFilterBar from '@/components/ui/ProdutosFilterBar'
 import AbasContrato, { type AbaDef } from '@/components/contratos/AbasContrato'
 import TarefasAba, { SELECT_TAREFAS_DO_CONTRATO, type TarefaDoContrato } from '@/components/contratos/TarefasAba'
 import EsteiraGC from '@/components/contratos/pipeline/EsteiraGC'
+import { trocarModeloDoItem } from '@/lib/tarefas-rescaldo'
 import { lerVizinhosGravados, vizinhosDe } from '@/lib/vizinhos-contrato'
 
 function PixIcon({ className = "h-5 w-5" }: { className?: string }) {
@@ -335,6 +336,9 @@ export default function ContratoDetalhe() {
   const [filtroProdutoTipo, setFiltroProdutoTipo] = useState<string>('')
   const [filtroProdutoCategoria, setFiltroProdutoCategoria] = useState<string>('')
   const [editandoProduto, setEditandoProduto] = useState<string | null>(null)
+  // ⇄ Trocar modelo, dentro do lápis (padrão novo): modelos do mesmo tipo do item em edição.
+  const [modelosTroca, setModelosTroca] = useState<{ id: string; codigo: string; nome: string; imagem_url: string | null }[] | null>(null)
+  const [trocandoModelo, setTrocandoModelo] = useState(false)
   const [editForm, setEditForm] = useState({ valor: '' as number | '', desconto: '' as number | '' })
   // Modal de confirmação ao adicionar produto
   const [produtoParaAdicionar, setProdutoParaAdicionar] = useState<Produto | null>(null)
@@ -3031,7 +3035,7 @@ ${petNome}`
     : <span className="text-[11px] text-slate-500">incluso</span>
   const acoesProduto = (cp: ContratoProduto) => (
     <span className="flex items-center flex-none text-slate-400">
-      <button onClick={() => { iniciarEdicao(cp); setEditValorTxt(cp.valor ? n2(cp.valor) : ''); setEditDescTxt(cp.desconto ? n2(cp.desconto) : '') }}
+      <button onClick={() => { iniciarEdicao(cp); setModelosTroca(null); setEditValorTxt(cp.valor ? n2(cp.valor) : ''); setEditDescTxt(cp.desconto ? n2(cp.desconto) : '') }}
         className="p-1 hover:text-blue-400" title="Editar"><Pencil className="h-4 w-4" /></button>
       <button onClick={() => removerProduto(cp.id)} className="p-1 hover:text-red-400" title="Remover"><Trash2 className="h-4 w-4" /></button>
     </span>
@@ -3047,6 +3051,35 @@ ${petNome}`
       </span>
     </label>
   )
+  const abrirTrocaModelo = async (cp: ContratoProduto) => {
+    setModelosTroca([])
+    let q = supabase.from('produtos').select('id, codigo, nome, imagem_url')
+      .eq('ativo', true).eq('tipo', cp.produto.tipo).neq('id', cp.produto.id).order('nome')
+    q = cp.produto.rescaldo_tipo ? q.eq('rescaldo_tipo', cp.produto.rescaldo_tipo) : q.is('rescaldo_tipo', null)
+    const { data } = await q
+    setModelosTroca(((data || []) as { id: string; codigo: string; nome: string; imagem_url: string | null }[]).filter(m => m.codigo !== '0002'))
+  }
+  const trocarModelo = async (cp: ContratoProduto, para: { id: string; nome: string }) => {
+    if (trocandoModelo) return
+    setTrocandoModelo(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      await trocarModeloDoItem(supabase, {
+        cpId: cp.id,
+        de: { id: cp.produto.id, nome: cp.produto.nome, rescaldo_tipo: cp.produto.rescaldo_tipo },
+        para: { id: para.id, nome: para.nome, rescaldo_tipo: cp.produto.rescaldo_tipo },
+        contratoId: contrato.id, unidadeId: contrato.unidade_id || null, petNome: contrato.pet_nome || 'pet',
+        ator: { userId: user?.id || null, nome: userName || 'Alguém' }, onde: 'pelo detalhe',
+      })
+      setModelosTroca(null)
+      setEditandoProduto(null)
+      await carregarProdutosContrato()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao trocar o modelo')
+    } finally {
+      setTrocandoModelo(false)
+    }
+  }
   const cardProdutosNovo = (
     <div className="bg-slate-800 rounded-xl shadow-md p-5 border border-slate-700">
       <div className="flex items-center justify-between mb-3">
@@ -3083,6 +3116,35 @@ ${petNome}`
                         <div className="text-[11px]" style={{ color: cor }}>{ROT_TIPO_PROD[cp.produto.tipo] || cp.produto.tipo} · editando</div>
                       </div>
                     </div>
+                    {modelosTroca === null ? (
+                      <button type="button" onClick={() => abrirTrocaModelo(cp)}
+                        className="mb-2.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold text-purple-300 bg-purple-900/30 hover:bg-purple-900/50">
+                        <ArrowLeftRight className="h-3.5 w-3.5" />Trocar modelo
+                      </button>
+                    ) : (
+                      <div className="mb-2.5 rounded-lg border border-purple-800/60 p-2">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-xs text-slate-400">Trocar por: <span className="text-slate-500">tarefa, foto e feito continuam; o valor fica o mesmo.</span></span>
+                          <button type="button" onClick={() => setModelosTroca(null)} className="p-0.5 text-slate-500 hover:text-slate-300" title="Fechar"><X className="h-3.5 w-3.5" /></button>
+                        </div>
+                        {modelosTroca.length === 0 ? (
+                          <p className="text-xs text-slate-500 py-1">Nenhum outro modelo do mesmo tipo.</p>
+                        ) : (
+                          <div className="max-h-56 overflow-y-auto space-y-1">
+                            {modelosTroca.map(m => (
+                              <button key={m.id} type="button" disabled={trocandoModelo} onClick={() => trocarModelo(cp, m)}
+                                className="w-full flex items-center gap-2 px-1.5 py-1 rounded-md text-left hover:bg-slate-700/60 disabled:opacity-50">
+                                <span className="w-8 h-8 rounded-md bg-slate-700 overflow-hidden flex-none">
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img src={m.imagem_url || `/estoque/${m.codigo}.png`} alt="" className="w-full h-full object-cover" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                                </span>
+                                <span className="text-sm text-slate-200 leading-tight">{m.nome}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <div className="grid grid-cols-2 gap-3">
                       {campoMoeda('Valor', editValorTxt, setEditValorTxt)}
                       {campoMoeda('Desconto', editDescTxt, setEditDescTxt, true)}

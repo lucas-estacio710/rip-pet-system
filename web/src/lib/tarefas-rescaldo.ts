@@ -16,6 +16,7 @@ import type { createClient } from '@/lib/supabase/client'
 import type { FotoComprimida } from '@/lib/comprimir-imagem'
 import { enviarFotoTarefa } from '@/lib/foto-tarefa'
 import { concluirTarefasOperacionais, reabrirTarefasOperacionais, registrarObservacaoContrato } from '@/lib/atribuir-tarefa'
+import { trocaPreservaLinha } from '@/lib/urna'
 
 type Supabase = ReturnType<typeof createClient>
 
@@ -94,6 +95,53 @@ export async function atribuirProdutos(
       body: JSON.stringify({ userId: ctx.atribuidoA, title: '📋 Nova tarefa pra você', body: `${rotulo} — ${ctx.petNome}`, url: '/tarefas' }),
     })
   } catch { /* push é best-effort */ }
+}
+
+export type ModeloDoItem = { id: string; nome: string; rescaldo_tipo: string | null }
+
+/**
+ * ⇄ Troca o MODELO de um item por outro do MESMO tipo de personalizado — "Porta-Retrato (à
+ * definir)" → "Castanho", ou produto lançado errado. UPDATE na MESMA linha de contrato_produtos:
+ * a tarefa, a foto-prova, o "feito" e a OBS ficam (apagar + inserir levaria tudo pelo CASCADE da
+ * mig 116 e nasceria tarefa nova — o que obrigava o gerente a "concluir" de mentira).
+ * Valor e desconto ficam os da linha: é o preço combinado; se mudou, edita no lápis.
+ * Estoque: devolve 1 do antigo e baixa 1 do novo, na unidade DO CONTRATO.
+ */
+export async function trocarModeloDoItem(
+  sb: Supabase,
+  p: { cpId: string; de: ModeloDoItem; para: ModeloDoItem; contratoId: string; unidadeId: string | null; petNome: string; ator: Ator; onde: string },
+): Promise<void> {
+  if (!trocaPreservaLinha(p.de.rescaldo_tipo, p.para.rescaldo_tipo)) {
+    throw new Error('Só dá pra trocar por um modelo do mesmo tipo de personalizado.')
+  }
+  if (p.de.id === p.para.id) return
+  const { error } = await sb.from('contrato_produtos').update({ produto_id: p.para.id } as never).eq('id', p.cpId)
+  if (error) throw new Error('Não consegui trocar o modelo: ' + error.message)
+  if (p.unidadeId) {
+    const rpc = sb.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ error: { message: string } | null }>
+    for (const [produtoId, delta] of [[p.de.id, 1], [p.para.id, -1]] as const) {
+      const { error: e } = await rpc('ajustar_estoque_unidade', { p_produto_id: produtoId, p_unidade_id: p.unidadeId, p_delta: delta })
+      // O modelo já foi trocado; estoque errado não desfaz a troca (mesma regra do lib/urna.ts).
+      if (e) console.error('[trocarModeloDoItem] estoque não ajustado:', e.message)
+    }
+  }
+  await sb.from('historico_alteracoes').insert({
+    entidade: 'contrato_produto',
+    entidade_id: p.cpId,
+    entidade_nome: `${p.para.nome} — ${p.petNome}`,
+    campo: 'produto_id',
+    campo_label: 'Modelo do item',
+    valor_anterior: p.de.nome,
+    valor_novo: p.para.nome,
+    tipo: 'alteracao',
+    alterado_por: p.ator.userId,
+  } as never)
+  await registrarObservacaoContrato(sb, {
+    contratoId: p.contratoId,
+    unidadeId: p.unidadeId,
+    descricao: `${p.ator.nome} trocou ${p.de.nome} por ${p.para.nome} (${p.onde}).`,
+    criadoPor: p.ator.nome,
+  })
 }
 
 /** Tira a pessoa da tarefa (só se ainda pendente) — o item volta a "Atribuir a…". */
