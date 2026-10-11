@@ -1141,39 +1141,30 @@ function BotaoCopiarNome({ nome }: { nome: string }) {
 }
 
 /**
- * "Salvar contato": abre a agenda com o nome de agenda e o telefone já preenchidos.
- * Não existe API do navegador pra GRAVAR na agenda; cada sistema tem seu caminho.
- *  - **Android: intent "Novo contato"** (`intent:` com `action=INSERT`, extras `name`/`phone`).
- *    Até 10/10/2026 era download do .vcf, e o Lucas viu o botão parar de funcionar depois de
- *    trocar muito de janela, só voltando ao reiniciar o app — tudo indica a trava do Chrome pra
- *    downloads seguidos do mesmo site ("baixar vários arquivos"). O intent não é download.
- *    ⚠️ `navigator.share` com o .vcf NÃO serve: o Chrome Android só compartilha arquivos de uma
- *    lista fixa de extensões (imagem, áudio, vídeo, pdf, txt…) e .vcf não está nela.
- *  - **iPhone e o resto: download do .vcf.** No iPhone o Safari abre direto "Criar contato".
+ * "Salvar contato": baixa um cartão de contato (.vcf) com o nome de agenda e o telefone. No
+ * iPhone o Safari abre direto "Criar contato"; no Android o arquivo cai nos downloads e a agenda
+ * importa ao tocar nele. Não existe API do navegador pra GRAVAR na agenda.
+ *
+ * 🔴 Dois caminhos testados no Android em 10–11/10/2026 que NÃO servem — não tentar de novo:
+ *  - `navigator.share` com o .vcf: o Chrome Android só compartilha arquivos de uma lista fixa
+ *    de extensões (imagem, áudio, vídeo, pdf, txt…), e .vcf não está nela.
+ *  - `intent:` com `action=INSERT` (abrir "Novo contato"): o Chrome só abre activity com
+ *    categoria BROWSABLE, e a tela de novo contato não tem — o toque não faz nada, nunca.
+ * ⚠️ Se o download parar de sair depois de vários seguidos, é a trava "Downloads automáticos" do
+ * Chrome (pede permissão a partir do 2º download do site; recusada ou perdida ao trocar de
+ * janela, bloqueia em silêncio). Resolve-se nas Configurações do site, não no código.
  */
 function vcardDoContato(nome: string, telefone: string): string {
-  const esc = (t: string) => t.replace(/([\\,;])/g, '\\$1')
-  return ['BEGIN:VCARD', 'VERSION:3.0', `FN:${esc(nome)}`, `N:${esc(nome)};;;;`, `TEL;TYPE=CELL:${telInternacional(telefone)}`, 'END:VCARD', ''].join('\r\n')
-}
-
-function telInternacional(telefone: string): string {
   const dig = telefone.replace(/\D/g, '')
-  return dig.length === 10 || dig.length === 11 ? `+55${dig}` : dig.startsWith('55') ? `+${dig}` : dig
-}
-
-function intentNovoContato(nome: string, telefone: string): string {
-  const e = encodeURIComponent
-  return `intent:#Intent;action=android.intent.action.INSERT;type=vnd.android.cursor.dir/contact;S.name=${e(nome)};S.phone=${e(telInternacional(telefone))};end`
+  const tel = dig.length === 10 || dig.length === 11 ? `+55${dig}` : dig.startsWith('55') ? `+${dig}` : dig
+  const esc = (t: string) => t.replace(/([\\,;])/g, '\\$1')
+  return ['BEGIN:VCARD', 'VERSION:3.0', `FN:${esc(nome)}`, `N:${esc(nome)};;;;`, `TEL;TYPE=CELL:${tel}`, 'END:VCARD', ''].join('\r\n')
 }
 
 function BotaoSalvarContato({ nome, telefone }: { nome: string; telefone: string }) {
   return (
     <button
       onClick={() => {
-        if (/Android/i.test(navigator.userAgent)) {
-          window.location.href = intentNovoContato(nome, telefone)
-          return
-        }
         const nomeArquivo = `${nome.replace(/[\\/:*?"<>|]/g, '')}.vcf`
         const blob = new Blob([vcardDoContato(nome, telefone)], { type: 'text/vcard;charset=utf-8' })
         const url = URL.createObjectURL(blob)
