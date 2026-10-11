@@ -640,12 +640,24 @@ export default function ContratoDetalhe() {
     if (!cardNovo || !contrato?.id) return
     let vivo = true
     setCarregandoTarefasContrato(true)
-    supabase.from('tarefas_operacionais').select(SELECT_TAREFAS_DO_CONTRATO).eq('contrato_id', contrato.id)
-      .then(({ data }) => {
-        if (!vivo) return
-        setTarefasContrato((data || []) as TarefaDoContrato[])
-        setCarregandoTarefasContrato(false)
-      })
+    // A tarefa de rescaldo NÃO aponta pro contrato (contrato_id nulo): aponta pro ITEM em
+    // contrato_produto_id. E há remoção que só aponta pra ficha. Busca pelas três pontas.
+    const contratoId = contrato.id
+    ;(async () => {
+      const [{ data: itens }, { data: fichas }] = await Promise.all([
+        supabase.from('contrato_produtos').select('id').eq('contrato_id', contratoId),
+        supabase.from('fichas').select('id').eq('contrato_id', contratoId),
+      ])
+      const filtros = [`contrato_id.eq.${contratoId}`]
+      const idsItens = ((itens || []) as { id: string }[]).map(i => i.id)
+      const idsFichas = ((fichas || []) as { id: string }[]).map(f => f.id)
+      if (idsItens.length) filtros.push(`contrato_produto_id.in.(${idsItens.join(',')})`)
+      if (idsFichas.length) filtros.push(`ficha_id.in.(${idsFichas.join(',')})`)
+      const { data } = await supabase.from('tarefas_operacionais').select(SELECT_TAREFAS_DO_CONTRATO).or(filtros.join(','))
+      if (!vivo) return
+      setTarefasContrato((data || []) as TarefaDoContrato[])
+      setCarregandoTarefasContrato(false)
+    })()
     supabase.from('fichas').select('como_conheceu').eq('contrato_id', contrato.id).limit(1)
       .then(({ data }) => { if (vivo) setFichaComoConheceu(((data || []) as { como_conheceu: string[] | null }[])[0]?.como_conheceu || null) })
     if (contrato.tutor_id) {
