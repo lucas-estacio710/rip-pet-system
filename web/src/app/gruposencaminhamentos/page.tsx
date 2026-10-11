@@ -1141,40 +1141,41 @@ function BotaoCopiarNome({ nome }: { nome: string }) {
 }
 
 /**
- * "Salvar contato": um cartão de contato (.vcf) com o nome de agenda e o telefone.
- * Não existe API do navegador pra GRAVAR na agenda — o .vcf é o caminho.
- *  - **Android: menu Compartilhar** (`navigator.share` com o arquivo) → "Contatos". Até
- *    10/10/2026 era download, e o Lucas viu o botão parar de funcionar depois de trocar muito de
- *    janela, só voltando ao reiniciar o app: o Chrome trava downloads seguidos do mesmo site
- *    atrás do pedido "baixar vários arquivos", que no app instalado some ao trocar de janela.
- *    Compartilhar não passa por essa trava.
- *  - **iPhone e o resto: download.** No iPhone o Safari abre direto a tela "Criar contato".
+ * "Salvar contato": abre a agenda com o nome de agenda e o telefone já preenchidos.
+ * Não existe API do navegador pra GRAVAR na agenda; cada sistema tem seu caminho.
+ *  - **Android: intent "Novo contato"** (`intent:` com `action=INSERT`, extras `name`/`phone`).
+ *    Até 10/10/2026 era download do .vcf, e o Lucas viu o botão parar de funcionar depois de
+ *    trocar muito de janela, só voltando ao reiniciar o app — tudo indica a trava do Chrome pra
+ *    downloads seguidos do mesmo site ("baixar vários arquivos"). O intent não é download.
+ *    ⚠️ `navigator.share` com o .vcf NÃO serve: o Chrome Android só compartilha arquivos de uma
+ *    lista fixa de extensões (imagem, áudio, vídeo, pdf, txt…) e .vcf não está nela.
+ *  - **iPhone e o resto: download do .vcf.** No iPhone o Safari abre direto "Criar contato".
  */
 function vcardDoContato(nome: string, telefone: string): string {
-  const dig = telefone.replace(/\D/g, '')
-  const tel = dig.length === 10 || dig.length === 11 ? `+55${dig}` : dig.startsWith('55') ? `+${dig}` : dig
   const esc = (t: string) => t.replace(/([\\,;])/g, '\\$1')
-  return ['BEGIN:VCARD', 'VERSION:3.0', `FN:${esc(nome)}`, `N:${esc(nome)};;;;`, `TEL;TYPE=CELL:${tel}`, 'END:VCARD', ''].join('\r\n')
+  return ['BEGIN:VCARD', 'VERSION:3.0', `FN:${esc(nome)}`, `N:${esc(nome)};;;;`, `TEL;TYPE=CELL:${telInternacional(telefone)}`, 'END:VCARD', ''].join('\r\n')
+}
+
+function telInternacional(telefone: string): string {
+  const dig = telefone.replace(/\D/g, '')
+  return dig.length === 10 || dig.length === 11 ? `+55${dig}` : dig.startsWith('55') ? `+${dig}` : dig
+}
+
+function intentNovoContato(nome: string, telefone: string): string {
+  const e = encodeURIComponent
+  return `intent:#Intent;action=android.intent.action.INSERT;type=vnd.android.cursor.dir/contact;S.name=${e(nome)};S.phone=${e(telInternacional(telefone))};end`
 }
 
 function BotaoSalvarContato({ nome, telefone }: { nome: string; telefone: string }) {
   return (
     <button
-      onClick={async () => {
+      onClick={() => {
+        if (/Android/i.test(navigator.userAgent)) {
+          window.location.href = intentNovoContato(nome, telefone)
+          return
+        }
         const nomeArquivo = `${nome.replace(/[\\/:*?"<>|]/g, '')}.vcf`
         const blob = new Blob([vcardDoContato(nome, telefone)], { type: 'text/vcard;charset=utf-8' })
-        if (/Android/i.test(navigator.userAgent)) {
-          const arquivo = new File([blob], nomeArquivo, { type: 'text/vcard' })
-          if (navigator.canShare?.({ files: [arquivo] })) {
-            try {
-              await navigator.share({ files: [arquivo] })
-              return
-            } catch (e) {
-              // Fechou o menu sem escolher: não insiste com download
-              if ((e as Error)?.name === 'AbortError') return
-            }
-          }
-        }
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
