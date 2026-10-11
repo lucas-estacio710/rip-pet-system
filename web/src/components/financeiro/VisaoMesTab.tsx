@@ -366,6 +366,7 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
                   <span className="text-mono tabular-nums shrink-0">{num(x.valor)}</span>
                 </span>
               )) : <span className="text-[13px] text-[var(--surface-500)]">nenhuma conta passou da data</span>}
+              {atrasadas.length > 4 && <span className="text-[12px] text-red-400">+ {atrasadas.length - 4} contas</span>}
             </div>
           </div>
         </div>
