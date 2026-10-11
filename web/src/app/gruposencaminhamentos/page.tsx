@@ -1141,10 +1141,14 @@ function BotaoCopiarNome({ nome }: { nome: string }) {
 }
 
 /**
- * "Salvar contato": baixa um cartão de contato (.vcf) com o nome de agenda e o telefone.
- * Não existe API do navegador pra GRAVAR na agenda — o .vcf é o caminho: no iPhone o Safari
- * abre direto a tela "Criar contato"; no Android o arquivo cai nos downloads e, ao tocar nele,
- * a agenda oferece importar.
+ * "Salvar contato": um cartão de contato (.vcf) com o nome de agenda e o telefone.
+ * Não existe API do navegador pra GRAVAR na agenda — o .vcf é o caminho.
+ *  - **Android: menu Compartilhar** (`navigator.share` com o arquivo) → "Contatos". Até
+ *    10/10/2026 era download, e o Lucas viu o botão parar de funcionar depois de trocar muito de
+ *    janela, só voltando ao reiniciar o app: o Chrome trava downloads seguidos do mesmo site
+ *    atrás do pedido "baixar vários arquivos", que no app instalado some ao trocar de janela.
+ *    Compartilhar não passa por essa trava.
+ *  - **iPhone e o resto: download.** No iPhone o Safari abre direto a tela "Criar contato".
  */
 function vcardDoContato(nome: string, telefone: string): string {
   const dig = telefone.replace(/\D/g, '')
@@ -1156,12 +1160,25 @@ function vcardDoContato(nome: string, telefone: string): string {
 function BotaoSalvarContato({ nome, telefone }: { nome: string; telefone: string }) {
   return (
     <button
-      onClick={() => {
+      onClick={async () => {
+        const nomeArquivo = `${nome.replace(/[\\/:*?"<>|]/g, '')}.vcf`
         const blob = new Blob([vcardDoContato(nome, telefone)], { type: 'text/vcard;charset=utf-8' })
+        if (/Android/i.test(navigator.userAgent)) {
+          const arquivo = new File([blob], nomeArquivo, { type: 'text/vcard' })
+          if (navigator.canShare?.({ files: [arquivo] })) {
+            try {
+              await navigator.share({ files: [arquivo] })
+              return
+            } catch (e) {
+              // Fechou o menu sem escolher: não insiste com download
+              if ((e as Error)?.name === 'AbortError') return
+            }
+          }
+        }
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `${nome.replace(/[\\/:*?"<>|]/g, '')}.vcf`
+        a.download = nomeArquivo
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)
