@@ -41,6 +41,8 @@ type Resumo = {
   desp_administrativa: number; desp_comercial: number; desp_financeira: number
   outras_despesas: number; investimentos: number
   margem_bruta: number; resultado: number
+  /** mig 162: retirada de sócios — distribuição do lucro, FORA do resultado */
+  distribuicao?: number
 }
 type LinhaConta = { grupo_dre: string; conta_nome: string; valor: number; entra_no_resultado: boolean; sinal: number }
 
@@ -129,17 +131,17 @@ export default function DRETab({ mes }: { mes: string }) {
   })
 
   const linhas: Linha[] = [
-    L('Receita de contratos', resumo.receita_bruta, antes.receita_bruta, 'conta', { grupo: 'receita_bruta' }),
+    L('Receita de serviços', resumo.receita_bruta, antes.receita_bruta, 'conta', { grupo: 'receita_bruta' }),
     L('Deduções', resumo.deducoes, antes.deducoes, 'conta', { grupo: 'deducoes', negativo: true }),
     L('Receita líquida', c.receitaLiquida, cA.receitaLiquida, 'subtotal'),
-    L('Custo do serviço', resumo.custo_servico, antes.custo_servico, 'conta', { grupo: 'custo_servico', negativo: true }),
+    L('Custo dos serviços prestados', resumo.custo_servico, antes.custo_servico, 'conta', { grupo: 'custo_servico', negativo: true }),
     L('Lucro bruto', c.lucroBruto, cA.lucroBruto, 'subtotal'),
     L('Pessoal', resumo.desp_pessoal, antes.desp_pessoal, 'conta', { grupo: 'despesa_pessoal', negativo: true }),
     L('Operacional', resumo.desp_operacional, antes.desp_operacional, 'conta', { grupo: 'despesa_operacional', negativo: true }),
     L('Administrativa', resumo.desp_administrativa, antes.desp_administrativa, 'conta', { grupo: 'despesa_administrativa', negativo: true }),
     L('Comercial', resumo.desp_comercial, antes.desp_comercial, 'conta', { grupo: 'despesa_comercial', negativo: true }),
     L('Resultado operacional', c.resultadoOper, cA.resultadoOper, 'subtotal'),
-    L('Financeira', resumo.desp_financeira, antes.desp_financeira, 'conta', { grupo: 'despesa_financeira', negativo: true }),
+    L('Despesas financeiras', resumo.desp_financeira, antes.desp_financeira, 'conta', { grupo: 'despesa_financeira', negativo: true }),
     ...(resumo.outras_receitas || antes.outras_receitas
       ? [L('Outras receitas', resumo.outras_receitas, antes.outras_receitas, 'conta', { grupo: 'outras_receitas' })] : []),
     ...(resumo.outras_despesas || antes.outras_despesas
@@ -148,7 +150,8 @@ export default function DRETab({ mes }: { mes: string }) {
   ]
 
   const contasDo = (g: string) => contas.filter(x => x.grupo_dre === g && x.entra_no_resultado)
-  const capex = contas.filter(x => !x.entra_no_resultado)
+  const capex = contas.filter(x => !x.entra_no_resultado && x.grupo_dre !== 'distribuicao')
+  const retirada = Number(resumo.distribuicao) || 0
   const vazio = !carregando && !resumo.receita_bruta && !resumo.resultado && !resumo.investimentos
 
   /** Δ% vs mês anterior, já com a cor certa pro tipo de linha. */
@@ -324,6 +327,27 @@ export default function DRETab({ mes }: { mes: string }) {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* RETIRADA DE SÓCIOS (mig 162) — não é despesa: é distribuição do lucro.
+              O custo do sócio que trabalha é o pró-labore, que está em Pessoal. */}
+          {retirada > 0 && (
+            <div className="card p-3">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-[var(--surface-700)]">(−) Retirada de sócios</span>
+                <span className="ml-auto text-mono text-sm text-[var(--surface-700)] tabular-nums">−{num(retirada)}</span>
+              </div>
+              <div className="flex items-center gap-2 mt-1 pt-1 border-t border-[var(--surface-200)]">
+                <span className="text-sm font-semibold text-[var(--surface-800)]">= Depois das retiradas</span>
+                <span className={`ml-auto text-mono text-sm font-semibold tabular-nums ${resumo.resultado - retirada >= 0 ? 'text-emerald-500' : 'text-red-400'}`}>
+                  {resumo.resultado - retirada < 0 ? '−' : ''}{num(Math.abs(resumo.resultado - retirada))}
+                </span>
+              </div>
+              <p className="text-xs text-[var(--surface-500)] mt-1">
+                Retirada é distribuição do lucro, não custo da operação — por isso fica abaixo do resultado.
+                O pró-labore (o salário do sócio que trabalha) continua em Pessoal.
+              </p>
             </div>
           )}
 

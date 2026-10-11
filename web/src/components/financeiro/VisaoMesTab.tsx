@@ -37,6 +37,7 @@ type Resumo = {
   custo_servico: number; desp_operacional: number; desp_pessoal: number
   desp_administrativa: number; desp_comercial: number; desp_financeira: number
   outras_despesas: number; resultado: number
+  distribuicao?: number   // mig 162: retirada de sócios, fora do resultado
 }
 type ContaRow = { id: string; nome: string; tipo: string; produto: string | null; caixa_desde: string | null; mostrar_no_caixa: boolean | null }
 type CardConta = {
@@ -278,6 +279,9 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
           ))}
         </div>
       </>)}
+      {Number(resumo?.distribuicao) > 0 && (
+        <p className="text-xs text-[var(--surface-500)] mt-2.5">Retiradas dos sócios: {fmtBRL(Number(resumo?.distribuicao))} — fora do resultado (é distribuição do lucro).</p>
+      )}
       <button onClick={() => onIr('dre')} className={`${link} mt-2.5`}>Ver o resultado linha a linha ›</button>
     </div>
   )
