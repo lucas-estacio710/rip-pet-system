@@ -637,7 +637,7 @@ export default function ContratoDetalhe() {
   const { cardNovo, pronto: cardNovoPronto } = useCardNovo()
   // Abas dos cards de baixo (PLAYBOOK_CONTRATO_ID item 16): a aba sobrevive ao ‹ Anterior / Próximo ›.
   const [abaContrato, setAbaContrato] = useState<string>(() => {
-    try { return sessionStorage.getItem('contrato:aba') || 'tutor' } catch { return 'tutor' }
+    try { return sessionStorage.getItem('contrato:aba') || 'prod' } catch { return 'prod' }
   })
   const trocarAba = (id: string) => {
     setAbaContrato(id)
@@ -3438,23 +3438,24 @@ ${petNome}`
   const AGRUPA_TAREFA = new Set(['molde_patinha', 'carimbo', 'pelo_extra', 'pelinho'])
   const tarefasEmAndamento = new Set(tarefasContrato.filter(t => t.status === 'pendente')
     .map(t => AGRUPA_TAREFA.has(t.tipo) ? `${t.tipo}|${t.atribuido_a}` : t.id)).size
+  // Ordem do Lucas (10/10/2026): Produtos · Financeiro · Tutor · Tarefas · Indicação · Cremação.
   const abasContrato: AbaDef[] = [
-    { id: 'tutor', rotulo: 'Tutor', icone: User, cor: '#3b82f6' },
+    { id: 'prod', rotulo: 'Produtos', icone: ShoppingCart, cor: '#a855f7', apagada: !isVisible(T, 'obj_produtos'), dicaApagada: 'Sem permissão',
+      sinal: contratoProdutos.length > 0 ? <span className="pl-aba-cnt">{contratoProdutos.length}</span> : null },
     { id: 'fin', rotulo: 'Financeiro', icone: DollarSign, cor: '#10b981', apagada: !isVisible(T, 'obj_financeiro'), dicaApagada: 'Sem permissão',
       sinal: fin.saldo > 0.01
         ? <span className="pl-aba-cnt" style={{ color: '#f87171' }}>{Math.round(fin.saldo).toLocaleString('pt-BR')}</span>
         : Math.abs(fin.saldo) < 0.01 && fin.total > 0 ? <span style={{ color: '#22c55e', fontWeight: 700 }}>✓</span> : null },
-    { id: 'prod', rotulo: 'Produtos', icone: ShoppingCart, cor: '#a855f7', apagada: !isVisible(T, 'obj_produtos'), dicaApagada: 'Sem permissão',
-      sinal: contratoProdutos.length > 0 ? <span className="pl-aba-cnt">{contratoProdutos.length}</span> : null },
+    { id: 'tutor', rotulo: 'Tutor', icone: User, cor: '#3b82f6' },
     { id: 'tar', rotulo: 'Tarefas', icone: ListChecks, cor: '#22d3ee', apagada: !temOperacionalContrato, dicaApagada: 'Unidade sem o módulo Operacional',
       sinal: tarefasEmAndamento > 0 ? <span className="pl-aba-cnt" style={{ color: '#fbbf24' }}>{tarefasEmAndamento}</span>
         : tarefasContrato.length > 0 ? <span style={{ color: '#22c55e', fontWeight: 700 }}>✓</span> : null },
+    { id: 'ind', rotulo: 'Indicação', icone: Stethoscope, cor: '#14b8a6', apagada: !fichaComoConheceu?.includes('Veterinário'), dicaApagada: 'A ficha não veio de indicação de veterinário' },
     { id: 'crem', rotulo: 'Cremação', icone: Heart, cor: '#f97316',
       apagada: !(hasModule('func_gc') && ['pinda', 'retorno', 'pendente', 'finalizado'].includes(contrato.status)), dicaApagada: 'O pet ainda não foi para a Matriz',
       sinal: <span className="pl-aba-dot" style={{ background: corEtapaGCAba }} /> },
-    { id: 'ind', rotulo: 'Indicação', icone: Stethoscope, cor: '#14b8a6', apagada: !fichaComoConheceu?.includes('Veterinário'), dicaApagada: 'A ficha não veio de indicação de veterinário' },
   ]
-  const abaEfetiva = abasContrato.some(a => a.id === abaContrato && !a.apagada) ? abaContrato : 'tutor'
+  const abaEfetiva = abasContrato.some(a => a.id === abaContrato && !a.apagada) ? abaContrato : (abasContrato.find(a => !a.apagada)?.id || 'tutor')
 
   // ‹ Anterior · Próximo › (PLAYBOOK_CONTRATO_ID §3): vizinhos do MESMO status, na ordem da tela do
   // pipeline (gravada lá, no clique). Sem lista = sem botões. replace (não push): o Voltar devolve ao pipeline.
