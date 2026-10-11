@@ -72,6 +72,7 @@ type Conta = {
   saidas: string[]
   preferencial_recebimento: boolean
   mostrar_no_caixa: boolean   // aparece na grade/total da aba Caixa (mig 146)
+  reserva?: boolean           // guardada (aplicação): fora do "disponível pra pagar" (mig 160)
   entradasUso: number   // pagamentos que caíram nela
   saidasUso: number     // lançamentos pagos por ela
 }
@@ -105,10 +106,13 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
   const carregar = useCallback(async () => {
     if (!currentUnit?.id) return
     setCarregando(true)
-    const { data } = await supabase
-      .from('contas').select('id, nome, tipo, ativo, legado, instituicao, produto, unidades_extras, entradas, saidas, preferencial_recebimento, mostrar_no_caixa')
-      .eq('unidade_id', currentUnit.id)
-      .order('ativo', { ascending: false }).order('nome')
+    const COLS = 'id, nome, tipo, ativo, legado, instituicao, produto, unidades_extras, entradas, saidas, preferencial_recebimento, mostrar_no_caixa'
+    // `reserva` é da mig 160: sem ela a consulta volta sem a coluna (a tela segue igual).
+    const buscar = (cols: string) => supabase.from('contas').select(cols)
+      .eq('unidade_id', currentUnit.id).order('ativo', { ascending: false }).order('nome')
+    let r = await buscar(`${COLS}, reserva`)
+    if (r.error) r = await buscar(COLS)
+    const data = r.data
     const base = ((data as unknown as Omit<Conta, 'entradasUso' | 'saidasUso'>[]) || [])
 
     // `head: true` traz só o count — `pagamentos` tem quase 4 mil linhas.
@@ -519,6 +523,26 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
                           {c.mostrar_no_caixa ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
                           {c.mostrar_no_caixa ? 'Aparece no Caixa' : 'Fora do Caixa'}
                         </button>
+
+                        {/* GUARDADA (mig 160): aplicação/investimento. O saldo aparece,
+                            mas não entra no "disponível pra pagar" nem na previsão
+                            dos próximos 30 dias da Visão do mês. */}
+                        {c.reserva !== undefined && c.produto !== 'maquininha' && c.tipo !== 'cartao' && (
+                          <button
+                            onClick={() => void patch(c, { reserva: !c.reserva })}
+                            title={c.reserva
+                              ? 'Conta guardada: fica fora do "disponível pra pagar" e da previsão. Clique para voltar a contar.'
+                              : 'Marque se é dinheiro guardado (aplicação, investimento) — sai do "disponível pra pagar".'}
+                            className="text-[11px] px-2 py-1 rounded-full border transition-colors"
+                            style={{
+                              background: c.reserva ? 'rgba(139,92,246,0.16)' : 'transparent',
+                              borderColor: c.reserva ? '#8b5cf6' : 'var(--surface-300)',
+                              color: c.reserva ? '#a78bfa' : 'var(--surface-500)',
+                            }}
+                          >
+                            {c.reserva ? 'Guardada' : 'Conta no disponível'}
+                          </button>
+                        )}
                       </div>
 
                       {/* O PRODUTO define tudo: tipo, o que recebe, o que paga.

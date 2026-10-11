@@ -122,7 +122,7 @@ function IconeCat({ nome, className }: { nome?: string | null; className?: strin
  *   cria, edita nem exclui. Era a única aba do financeiro que ignorava isso —
  *   Repasse, Caixa e Contas já recebiam a prop, e Lançamentos não (13/09/2026).
  */
-export default function LancamentosTab({ mes, somenteLeitura = false, comando = null, onComandoFeito, contaImportar = null }: {
+export default function LancamentosTab({ mes, somenteLeitura = false, comando = null, onComandoFeito, contaImportar = null, despesaInicial = null }: {
   /** O mês do Financeiro — um só, escolhido acima das abas (09/10/2026). */
   mes: string
   somenteLeitura?: boolean
@@ -130,6 +130,8 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
   comando?: AcaoLancar | null
   /** Com o comando 'importar': a conta em que o Importar já abre. */
   contaImportar?: string | null
+  /** Com o comando 'despesa': o "Paguei" de uma conta fixa (mig 160) — a despesa já preenchida. */
+  despesaInicial?: { contaFixaId: string; nome: string; categoriaId: string | null; valor: number; fornecedor: string | null } | null
   onComandoFeito?: () => void
 }) {
   const supabaseTipado = createClient()
@@ -160,7 +162,17 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
     if (comando === 'recebiveis') { setFaixa('receitas'); return }
     setFaixa('despesas')
     if (comando === 'importar') setColarAberto(true)
-    else if (comando === 'despesa') setAberto(true)
+    else if (comando === 'despesa') {
+      // PAGUEI (Visão do mês): categoria, fornecedor e valor da conta fixa. A data
+      // e a conta de saída ficam com quem lança — nada escolhido por palpite.
+      if (despesaInicial) {
+        limpar()
+        setCatId(despesaInicial.categoriaId || ''); setFornecedor(despesaInicial.fornecedor || '')
+        setValor(despesaInicial.valor ? numeroParaDigitos(despesaInicial.valor) : '')
+        setContaFixa({ id: despesaInicial.contaFixaId, nome: despesaInicial.nome })
+      }
+      setAberto(true)
+    }
     else if (comando === 'quitacao') { setEspeciaisInicial(null); setEspeciaisAberto(true) }
     onComandoFeito?.()
   }, [comando]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -184,6 +196,8 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
   // corrigir obrigaria a excluir e relancar do zero.
   const [aberto, setAberto] = useState(false)
   const [editandoId, setEditandoId] = useState<string | null>(null)
+  // A conta fixa que este lançamento paga (Paguei da Visão do mês, mig 160).
+  const [contaFixa, setContaFixa] = useState<{ id: string; nome: string } | null>(null)
   const [catId, setCatId] = useState('')
   const [busca, setBusca] = useState('')
   // Drill-down em colunas: escolhe a categoria → abre as subcategorias → abre os tipos
@@ -550,6 +564,7 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
   const faturasPossiveis = faturas.filter(f => (f.venc >= data && !f.paga) || f.venc === dataCaixa)
 
   function limpar() {
+    setContaFixa(null)
     setCatId(''); setValor(''); setData(hojeISO()); setPartes([])
     setFornecedor(''); setDescricao(''); setDuravel(null)
     setRateado(false); setMeses('12')
@@ -694,6 +709,8 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
           aprovado_por: user?.id || null,
           aprovado_por_nome: userName || null,
           aprovado_em: new Date().toISOString(),
+          // só com o Paguei: sem a mig 160 a coluna não existe e o insert normal segue igual
+          ...(contaFixa ? { conta_fixa_id: contaFixa.id } : {}),
         }
 
         if (partes.length) {
@@ -997,7 +1014,7 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
       <Modal
         isOpen={aberto}
         onClose={limpar}
-        title={editandoId ? 'Editar lançamento' : 'Novo lançamento'}
+        title={editandoId ? 'Editar lançamento' : contaFixa ? `Paguei · ${contaFixa.nome}` : 'Novo lançamento'}
         footer={
           <div className="flex justify-end gap-2">
             <button onClick={limpar} className="btn-secondary text-sm">Cancelar</button>

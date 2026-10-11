@@ -28,6 +28,7 @@ import CaixaTab from '@/components/financeiro/CaixaTab'
 import VisaoMesTab from '@/components/financeiro/VisaoMesTab'
 import SeletorMes, { mesDeHoje } from '@/components/financeiro/SeletorMes'
 import ContasFaturasModal from '@/components/financeiro/ContasFaturasModal'
+import type { ContaNoMes } from '@/components/financeiro/ContasDoMes'
 import { ITENS_LANCAR, type AcaoLancar } from '@/lib/lancar'
 
 const TELA = 'tela_financeiro'
@@ -62,6 +63,8 @@ export default function FinanceiroPage() {
   // por dentro só para a Movimentação entre contas do + Lançar.
   const [contasAberto, setContasAberto] = useState(false)
   const [contaImportar, setContaImportar] = useState<string | null>(null)
+  // PAGUEI (Visão do mês → conta fixa): a despesa abre já preenchida.
+  const [despesaInicial, setDespesaInicial] = useState<{ contaFixaId: string; nome: string; categoriaId: string | null; valor: number; fornecedor: string | null } | null>(null)
   const activeTab = visibleTabs.find(t => t.key === active) ?? visibleTabs[0] ?? null
 
   // + LANÇAR (lib/lancar.ts). Cada item só aparece pra quem pode lançar aquilo —
@@ -82,10 +85,20 @@ export default function FinanceiroPage() {
   const lancar = useCallback((acao: AcaoLancar) => {
     setMenuLancar(false)
     setContaImportar(null)
+    setDespesaInicial(null)
     setActive(acao === 'movimentacao' ? 'caixa' : 'lancamentos')
     setComando(acao)
   }, [])
   const irPara = useCallback((aba: string) => setActive(aba), [])
+  // Repasse é Quitação (não despesa); o resto é despesa preenchida pela conta fixa.
+  const paguei = useCallback((x: ContaNoMes) => {
+    setMenuLancar(false); setContaImportar(null)
+    if (x.conta.repasse) { setDespesaInicial(null); setActive('lancamentos'); setComando('quitacao'); return }
+    setDespesaInicial({ contaFixaId: x.conta.id, nome: `${x.conta.nome} de ${x.venc.data.slice(5, 7)}/${x.venc.data.slice(0, 4)}`,
+                        categoriaId: x.conta.categoria_id, valor: x.valor, fornecedor: x.conta.fornecedor_nome })
+    setActive('lancamentos'); setComando('despesa')
+  }, [])
+  const abrirContasFaturas = useCallback(() => setContasAberto(true), [])
   const comandoPara = (aba: string) =>
     comando && (aba === 'caixa' ? comando === 'movimentacao' : comando !== 'movimentacao') ? comando : null
 
@@ -163,7 +176,8 @@ export default function FinanceiroPage() {
       {activeTab?.key === 'visao' ? (
         <VisaoMesTab mes={mes}
           verResultado={temAba('dre')} verCaixa={temAba('caixa')} verRepasse={temAba('repasse')} verLancamentos={temAba('lancamentos')}
-          onIr={irPara} onLancar={itensLancar.length ? lancar : undefined} />
+          onIr={irPara} onLancar={itensLancar.length ? lancar : undefined}
+          onPaguei={pode.despesa ? paguei : undefined} onContasFaturas={temAba('caixa') ? abrirContasFaturas : undefined} />
       ) : activeTab?.key === 'lancamentos' ? (
         // ⚠️ Era a ÚNICA aba do financeiro que não recebia `somenteLeitura`
         // (achado em 13/09/2026): Repasse, Caixa e Contas respeitavam o FLS e
@@ -175,7 +189,7 @@ export default function FinanceiroPage() {
         // leitura" tem de significar que nada nela se edita, senão `read` vira
         // uma etiqueta sem consequência.
         <LancamentosTab mes={mes} somenteLeitura={!canEdit(TELA, 'btn_lancamento_editar') || !canEdit(TELA, TELA)}
-          comando={comandoPara('lancamentos')} onComandoFeito={() => setComando(null)} contaImportar={contaImportar} />
+          comando={comandoPara('lancamentos')} onComandoFeito={() => setComando(null)} contaImportar={contaImportar} despesaInicial={despesaInicial} />
       ) : activeTab?.key === 'repasse' ? (
         <RepasseTab mes={mes} somenteLeitura={repasseSomenteLeitura} />
       ) : activeTab?.key === 'caixa' ? (

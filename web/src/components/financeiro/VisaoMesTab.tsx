@@ -19,7 +19,7 @@
 // Cada ato respeita a aba de onde vem: sem a DRE visível, somem 1 e 2; sem o
 // Caixa, some o 3; sem o Repasse, o "pagar repasse" sai da lista.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { Loader2 } from 'lucide-react'
@@ -28,6 +28,9 @@ import { fmtBRL, fmtData, limitesDoMes, hojeISO } from '@/lib/financeiro'
 import { mesParaData } from '@/lib/repasse'
 import ExtratoContaModal from './ExtratoContaModal'
 import type { AcaoLancar } from '@/lib/lancar'
+import { useContasFixas, ContasDoMesWidget, CalendarioContasModal, curto, type ContaNoMes } from './ContasDoMes'
+import ContaFixaModal, { type ContaFixa } from './ContaFixaModal'
+import ProximosDias from './ProximosDias'
 
 type Resumo = {
   receita_bruta: number; outras_receitas: number; deducoes: number
@@ -67,7 +70,7 @@ const GRUPOS: { campo: keyof Resumo; nome: string; cor: string }[] = [
   { campo: 'outras_despesas', nome: 'Outros', cor: '#94a3b8' },
 ]
 
-export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, verLancamentos, onIr, onLancar }: {
+export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, verLancamentos, onIr, onLancar, onPaguei, onContasFaturas }: {
   mes: string
   verResultado: boolean
   verCaixa: boolean
@@ -75,8 +78,11 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
   verLancamentos: boolean
   onIr: (aba: string) => void
   onLancar?: (acao: AcaoLancar) => void
+  /** Paguei de uma conta fixa: abre a despesa preenchida (ou a Quitação, no repasse). */
+  onPaguei?: (x: ContaNoMes) => void
+  onContasFaturas?: () => void
 }) {
-  const supabase = createClient() as unknown as SupabaseClient
+  const supabase = useMemo(() => createClient() as unknown as SupabaseClient, [])
   const { currentUnit } = useUnit()
   const [carregando, setCarregando] = useState(false)
   const [resumo, setResumo] = useState<Resumo | null>(null)
@@ -84,6 +90,18 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
   const [cards, setCards] = useState<CardConta[]>([])
   const [pend, setPend] = useState<Pendencia[]>([])
   const [extratoDe, setExtratoDe] = useState<ContaRow | null>(null)
+  // CONTAS DO MÊS (mig 160) e o "disponível" de hoje.
+  const fixas = useContasFixas(supabase, currentUnit?.id)
+  const [saldos, setSaldos] = useState<{ disponivel: number; guardado: number } | null>(null)
+  const [contaEditando, setContaEditando] = useState<ContaFixa | null | 'nova'>(null)
+  const [calendarioAberto, setCalendarioAberto] = useState(false)
+  const [celular, setCelular] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const f = () => setCelular(mq.matches)
+    f(); mq.addEventListener('change', f)
+    return () => mq.removeEventListener('change', f)
+  }, [])
 
   const carregar = useCallback(async () => {
     if (!currentUnit?.id) return
@@ -110,6 +128,22 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
         .eq('unidade_devedora', uid).eq('status', 'emitida'),
     ])
     setResumo((r.data as Resumo | null) || null)
+    {
+      // Disponível = contas que pagam (corrente, pagamento, dinheiro), sem maquininha
+      // nem cartão; as marcadas como reserva (mig 160) ficam como "guardado".
+      const { data: sd } = await supabase.from('vw_caixa_saldo').select('conta_id, tipo, produto, saldo, legado, mostrar_no_caixa')
+        .or(`unidade_id.eq.${uid},unidades_extras.cs.{${uid}}`)
+      let reservas = new Set<string>()
+      const { data: rv, error: erv } = await supabase.from('contas').select('id').eq('reserva', true)
+      if (!erv) reservas = new Set(((rv as { id: string }[] | null) || []).map(x => x.id))
+      let disp = 0, guard = 0
+      for (const x of (sd as { conta_id: string; tipo: string; produto: string | null; saldo: number; legado: boolean; mostrar_no_caixa: boolean | null }[] | null) || []) {
+        if (x.legado || x.mostrar_no_caixa === false || x.produto === 'maquininha' || x.tipo === 'cartao' || x.produto === 'cartao_credito') continue
+        if (reservas.has(x.conta_id)) guard += Number(x.saldo) || 0
+        else disp += Number(x.saldo) || 0
+      }
+      setSaldos({ disponivel: c2(disp), guardado: c2(guard) })
+    }
     setQtdDespesas((ql as { count: number | null }).count || 0)
 
     // ── ato 3: cada conta que aparece no Caixa (sem maquininha) ──
@@ -157,7 +191,7 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
       const { data: pgs } = await supabase.from('fin_movimentos').select('repasse_id, valor').in('repasse_id', reps.map(r => r.id))
       for (const p of (pgs as { repasse_id: string; valor: number }[] | null) || []) pagoDe.set(p.repasse_id, (pagoDe.get(p.repasse_id) || 0) + Number(p.valor))
     }
-    for (const rep of reps) {
+    for (const rep of fixas.contas.some(c => c.repasse) ? [] : reps) {
       const jaPago = c2(pagoDe.get(rep.id) || 0)
       lista.push({
         chave: `rep-${rep.id}`, titulo: `Pagar o repasse de ${rotulo(rep.mes_referencia.slice(0, 7))} à Matriz`,
@@ -186,7 +220,7 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
     }
     setPend(lista)
     setCarregando(false)
-  }, [supabase, currentUnit?.id, mes, verResultado, verCaixa, verRepasse, verLancamentos, onIr, onLancar])
+  }, [supabase, currentUnit?.id, mes, verResultado, verCaixa, verRepasse, verLancamentos, onIr, onLancar, fixas.contas])
 
   useEffect(() => { void carregar() }, [carregar])
 
@@ -204,134 +238,140 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
   const titulo = 'text-[11px] font-semibold tracking-[.14em] uppercase text-[var(--surface-500)]'
   const link = 'text-[13px] text-[var(--brand-500)] hover:underline text-left'
 
-  return (
-    <div className="space-y-7 max-w-[1120px]">
-      {carregando && <Loader2 className="h-4 w-4 animate-spin text-[var(--surface-400)]" />}
+  // ── as contas do mês e o "hoje" ──
+  const [anoN, mesN] = [Number(mes.slice(0, 4)), Number(mes.slice(5, 7)) - 1]
+  const itensMes = fixas.doMes(anoN, mesN)
+  const hojeS = hojeISO()
+  const atrasadas = itensMes.filter(x => x.situacao === 'atrasada')
+  const fimSemana = (() => { const d = new Date(`${hojeS}T12:00:00`); d.setDate(d.getDate() + (7 - d.getDay()) % 7); return d.toISOString().slice(0, 10) })()
+  const semana = itensMes.filter(x => x.situacao !== 'pago' && x.venc.data >= hojeS && x.venc.data <= fimSemana)
+  const podeLancar = !!onPaguei
+  const pagar = (x: ContaNoMes) => onPaguei?.(x)
 
-      {/* 1 · COMO FOI O MÊS */}
-      {verResultado && (
-        <section className="space-y-3">
-          <p className={titulo}>1 · {emCurso ? 'Como está o mês' : 'Como foi o mês'}</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="card p-5 flex flex-col gap-1">
-              <span className="text-sm text-[var(--surface-600)]">{emCurso ? 'Entrou até agora' : 'Entrou'}</span>
-              <span className="text-mono text-2xl tabular-nums text-[var(--surface-900)]">{fmtBRL(entrou)}</span>
-              <span className="text-[13px] text-[var(--surface-500)]">cremações, urnas e acessórios vendidos</span>
-              <button onClick={() => onIr('dre')} className={`${link} mt-1.5`}>{emCurso ? 'Ver de onde vem →' : 'Ver de onde veio →'}</button>
-            </div>
-            <div className="card p-5 flex flex-col gap-1">
-              <span className="text-sm text-[var(--surface-600)]">{emCurso ? 'Custou até agora' : 'Custou'}</span>
-              <span className="text-mono text-2xl tabular-nums text-[var(--surface-900)]">{fmtBRL(custou)}</span>
-              <span className="text-[13px] text-[var(--surface-500)]">cremações, impostos e as {qtdDespesas} despesas</span>
-              {verLancamentos && <button onClick={() => onIr('lancamentos')} className={`${link} mt-1.5`}>Ver as {qtdDespesas} despesas →</button>}
-            </div>
-            <div className="card p-5 flex flex-col gap-1" style={{ boxShadow: `inset 0 0 0 1px ${sobrou >= 0 ? 'rgba(16,185,129,.45)' : 'rgba(245,158,11,.5)'}` }}>
-              <span className="text-sm text-[var(--surface-600)]">{emCurso ? (sobrou >= 0 ? 'Está sobrando' : 'Está faltando') : (sobrou >= 0 ? 'Sobrou' : 'Faltou')}</span>
-              <span className={`text-mono text-2xl tabular-nums ${sobrou >= 0 ? 'text-emerald-500' : 'text-amber-500'}`}>{fmtBRL(Math.abs(sobrou))}</span>
-              <span className="text-[13px] text-[var(--surface-500)]">
-                {entrou > 0 ? `${Math.round((sobrou / entrou) * 100)}% do que entrou` : 'sem receita no mês'}
-              </span>
-              <button onClick={() => onIr('dre')} className={`${link} mt-1.5`}>Ver o resultado linha a linha →</button>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* 2 · PARA ONDE FOI */}
-      {verResultado && grupos.length > 0 && (
-        <section className="space-y-3">
-          <p className={titulo}>2 · {emCurso ? 'Para onde está indo' : 'Para onde foi'}</p>
-          <div className="card p-5 space-y-4">
-            <div className="flex h-3.5 rounded-full overflow-hidden gap-0.5">
-              {grupos.map(g => <span key={g.campo} style={{ flex: g.valor, background: g.cor }} title={`${g.nome}: ${fmtBRL(g.valor)}`} />)}
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2.5">
-              {grupos.map(g => (
-                <button key={g.campo} onClick={() => onIr('dre')} className="flex items-center gap-2.5 text-left hover:opacity-80">
-                  <span className="h-2.5 w-2.5 rounded-[3px] shrink-0" style={{ background: g.cor }} />
-                  <span className="flex-1 text-sm text-[var(--surface-700)]">{g.nome}</span>
-                  <span className="text-[11px] text-[var(--surface-400)] tabular-nums">{somaGrupos ? Math.round((g.valor / somaGrupos) * 100) : 0}%</span>
-                  <span className="text-mono text-sm tabular-nums text-[var(--surface-800)] w-24 text-right">{num(g.valor)}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* 3 · ESTÁ BATENDO COM O BANCO? */}
-      {verCaixa && cards.length > 0 && (
-        <section className="space-y-3">
-          <p className={titulo}>3 · Está batendo com o banco?</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {cards.map(k => {
-              const dif = k.banco && k.sistema !== null ? c2(k.banco.saldo - k.sistema) : null
-              const bate = dif !== null && Math.abs(dif) < 0.005
-              const estado = !k.banco ? { cor: 'var(--surface-400)', txt: 'sem extrato importado' }
-                : bate ? { cor: '#10b981', txt: k.cartao ? 'fatura conferida' : 'batendo' }
-                : { cor: '#f59e0b', txt: `diferença de ${fmtBRL(Math.abs(dif!))}` }
-              return (
-                <div key={k.conta.id} className="card p-5 flex flex-col gap-3.5">
-                  <div className="flex items-center gap-2.5">
-                    <span className="text-[15px] font-semibold text-[var(--surface-900)]">{k.conta.nome}</span>
-                    <span className="ml-auto inline-flex items-center gap-1.5 text-[13px]" style={{ color: estado.cor }}>
-                      <span className="h-2 w-2 rounded-full" style={{ background: estado.cor }} />{estado.txt}
-                    </span>
-                  </div>
-                  {k.banco ? (
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="flex flex-col"><span className="text-xs text-[var(--surface-500)]">{k.cartao ? `Fatura ${fmtData(k.banco.data)}` : `No banco em ${fmtData(k.banco.data)}`}</span><span className="text-mono tabular-nums text-[var(--surface-800)]">{num(k.banco.saldo)}</span></div>
-                      <div className="flex flex-col"><span className="text-xs text-[var(--surface-500)]">{k.cartao ? 'Compras lançadas' : 'No sistema'}</span><span className="text-mono tabular-nums text-[var(--surface-800)]">{num(k.sistema ?? 0)}</span></div>
-                      <div className="flex flex-col"><span className="text-xs text-[var(--surface-500)]">Diferença</span><span className={`text-mono tabular-nums ${bate ? 'text-emerald-500' : 'text-amber-500'}`}>{num(dif ?? 0)}</span></div>
-                    </div>
-                  ) : (
-                    <p className="text-[13px] text-[var(--surface-500)]">
-                      Cole o {k.cartao ? 'texto da fatura' : 'extrato'} no Importar: o saldo que o banco mostra fica guardado e a conferência aparece aqui.
-                      {k.conferidoAte && <> Conferido até {fmtData(k.conferidoAte)}.</>}
-                    </p>
-                  )}
-                  <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-[var(--surface-200)]">
-                    {onLancar && (
-                      <button onClick={() => onLancar('importar')} className="text-[13px] font-semibold px-3 py-1.5 rounded-[10px] border border-[var(--surface-300)] text-[var(--surface-800)] hover:bg-[var(--surface-100)]">
-                        {k.cartao ? 'Importar a fatura' : 'Importar extrato'}
-                      </button>
-                    )}
-                    {onLancar && (
-                      <button onClick={() => onLancar('despesa')} className="text-[13px] font-semibold px-3 py-1.5 rounded-[10px] border border-[var(--surface-300)] text-[var(--surface-800)] hover:bg-[var(--surface-100)]">
-                        {k.cartao ? '+ Compra no cartão' : '+ Despesa'}
-                      </button>
-                    )}
-                    <button onClick={() => setExtratoDe(k.conta)} className={`${link} ml-auto`}>Ver o extrato →</button>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </section>
-      )}
-
-      {/* 4 · O QUE FALTA */}
-      <section className="space-y-3">
-        <p className={titulo}>4 · O que falta</p>
-        <div className="card px-5 py-1.5">
-          {!pend.length ? (
-            <p className="py-3.5 text-sm text-emerald-500">✓ Nada pendente por aqui.</p>
-          ) : pend.map((p, i) => (
-            <div key={p.chave} className={`flex flex-wrap items-center gap-3.5 py-3.5 ${i < pend.length - 1 ? 'border-b border-[var(--surface-200)]' : ''}`}>
-              <span className="h-2 w-2 rounded-full shrink-0" style={{ background: p.atencao ? '#f59e0b' : 'var(--surface-400)' }} />
-              <span className="flex-1 min-w-[200px] flex flex-col">
-                <span className="text-[15px] text-[var(--surface-800)]">{p.titulo}</span>
-                <span className="text-[13px] text-[var(--surface-500)]">{p.detalhe}</span>
-              </span>
-              {p.valor !== undefined && <span className="text-mono tabular-nums text-[var(--surface-800)]">{num(p.valor)}</span>}
-              <button onClick={p.onClick}
-                      className={`text-sm font-semibold px-3.5 py-2 rounded-[10px] border ${p.atencao ? 'border-[var(--brand-500)] text-[var(--brand-500)] hover:bg-[var(--brand-500)] hover:text-white' : 'border-[var(--surface-300)] text-[var(--surface-800)] hover:bg-[var(--surface-100)]'}`}>
-                {p.acao}
-              </button>
-            </div>
+  const blocoMes = verResultado && (
+    <div className="card p-4">
+      <p className={titulo}>{emCurso ? 'Como está o mês' : 'Como foi o mês'}</p>
+      <div className="grid grid-cols-3 gap-3 my-3">
+        <button onClick={() => onIr('dre')} className="text-left">
+          <span className="block text-xs text-[var(--surface-500)]">{emCurso ? 'Entrou até agora' : 'Entrou'}</span>
+          <span className="text-mono text-xl tabular-nums text-[var(--surface-900)]">{fmtBRL(entrou)}</span>
+        </button>
+        <button onClick={() => (verLancamentos ? onIr('lancamentos') : onIr('dre'))} className="text-left">
+          <span className="block text-xs text-[var(--surface-500)]">{emCurso ? 'Custou até agora' : 'Custou'}</span>
+          <span className="text-mono text-xl tabular-nums text-[var(--surface-900)]">{fmtBRL(custou)}</span>
+          <span className="block text-[11px] text-[var(--surface-500)]">{qtdDespesas} despesas</span>
+        </button>
+        <button onClick={() => onIr('dre')} className="text-left">
+          <span className="block text-xs text-[var(--surface-500)]">{emCurso ? (sobrou >= 0 ? 'Está sobrando' : 'Está faltando') : (sobrou >= 0 ? 'Sobrou' : 'Faltou')}</span>
+          <span className={`text-mono text-xl tabular-nums ${sobrou >= 0 ? 'text-emerald-500' : 'text-amber-500'}`}>{fmtBRL(Math.abs(sobrou))}</span>
+        </button>
+      </div>
+      {grupos.length > 0 && (<>
+        <div className="flex h-2.5 rounded-full overflow-hidden gap-0.5">
+          {grupos.map(g => <span key={g.campo} style={{ flex: g.valor, background: g.cor }} title={`${g.nome}: ${fmtBRL(g.valor)}`} />)}
+        </div>
+        <div className="flex flex-wrap gap-x-3.5 gap-y-1 mt-2">
+          {grupos.map(g => (
+            <span key={g.campo} className="text-xs text-[var(--surface-500)]">
+              <span className="inline-block h-2 w-2 rounded-[2px] mr-1" style={{ background: g.cor }} />{g.nome} <span className="text-mono text-[var(--surface-700)]">{num(g.valor)}</span> · {somaGrupos ? Math.round((g.valor / somaGrupos) * 100) : 0}%
+            </span>
           ))}
         </div>
-      </section>
+      </>)}
+      <button onClick={() => onIr('dre')} className={`${link} mt-2.5`}>Ver o resultado linha a linha ›</button>
+    </div>
+  )
+
+  const precisa = [
+    ...atrasadas.map(x => ({ chave: `atr-${x.conta.id}`, titulo: `${x.conta.nome} venceu ${curto(x.venc.data)}`, detalhe: 'ainda sem pagamento', valor: x.valor, acao: x.conta.repasse ? 'Pagar' : 'Paguei', atencao: true, onClick: () => pagar(x) })),
+    ...pend,
+  ]
+  const blocoPrecisa = (
+    <div className="card px-4 py-3">
+      <p className={titulo}>Precisa de você</p>
+      {!precisa.length ? <p className="py-2.5 text-sm text-emerald-500">✓ Nada pendente por aqui.</p> : precisa.map((p, i) => (
+        <div key={p.chave} className={`flex flex-wrap items-center gap-3 py-2.5 ${i < precisa.length - 1 ? 'border-b border-[var(--surface-200)]' : ''}`}>
+          <span className="h-2 w-2 rounded-full shrink-0" style={{ background: p.atencao ? '#f59e0b' : 'var(--surface-400)' }} />
+          <span className="flex-1 min-w-[160px] flex flex-col">
+            <span className="text-sm text-[var(--surface-800)]">{p.titulo}</span>
+            <span className="text-xs text-[var(--surface-500)]">{p.detalhe}</span>
+          </span>
+          {p.valor !== undefined && <span className="text-mono text-sm tabular-nums text-[var(--surface-800)]">{num(p.valor)}</span>}
+          {(podeLancar || !p.chave.startsWith('atr-')) && (
+            <button onClick={p.onClick} className="text-[13px] font-semibold px-3 py-1.5 rounded-[10px] border border-[var(--surface-300)] text-[var(--surface-800)] hover:bg-[var(--surface-100)]">{p.acao}</button>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+
+  const blocoBanco = verCaixa && cards.length > 0 && (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className={`${titulo} mr-1`}>Está batendo com o banco?</span>
+      {cards.filter(k => !k.cartao).map(k => {
+        const dif = k.banco && k.sistema !== null ? c2(k.banco.saldo - k.sistema) : null
+        const bate = dif !== null && Math.abs(dif) < 0.005
+        return (
+          <button key={k.conta.id} onClick={() => setExtratoDe(k.conta)} className="card px-3 py-1.5 text-[12.5px] inline-flex items-center gap-2 hover:bg-[var(--surface-100)]">
+            <b className="font-semibold text-[var(--surface-800)]">{k.conta.nome}</b>
+            {!k.banco ? <span className="text-[var(--surface-500)]">{k.conferidoAte ? `conferido até ${fmtData(k.conferidoAte)}` : '• nunca conferido'}</span>
+              : bate ? <span className="text-emerald-500">✓ banco {fmtData(k.banco.data)}</span>
+              : <span className="text-amber-500">• diferença de {fmtBRL(Math.abs(dif!))}</span>}
+          </button>
+        )
+      })}
+      {onContasFaturas && <button onClick={onContasFaturas} className={link}>Contas e Faturas ›</button>}
+    </div>
+  )
+
+  return (
+    <div className="space-y-4 max-w-[1200px]">
+      {carregando && <Loader2 className="h-4 w-4 animate-spin text-[var(--surface-400)]" />}
+
+      {/* HOJE — só no mês corrente: tenho dinheiro pra pagar o que vence? */}
+      {emCurso && (
+        <div className="grid grid-cols-1 md:grid-cols-[1.3fr_1fr_1fr] gap-3">
+          <div className="card p-4">
+            <span className="block text-xs text-[var(--surface-500)]">Disponível agora pra pagar</span>
+            <span className="text-mono text-2xl tabular-nums text-[var(--surface-900)]">{saldos ? fmtBRL(saldos.disponivel) : '…'}</span>
+            {saldos && saldos.guardado > 0.005 && <span className="block text-xs text-[var(--surface-500)]">guardado: {fmtBRL(saldos.guardado)} (fora do disponível)</span>}
+            {onContasFaturas && <button onClick={onContasFaturas} className={`${link} mt-1.5 block`}>Contas e Faturas ›</button>}
+          </div>
+          <div className="card p-4">
+            <span className="block text-xs text-[var(--surface-500)]">Vence até domingo</span>
+            <span className={`text-mono text-xl tabular-nums ${semana.length ? 'text-amber-500' : 'text-[var(--surface-900)]'}`}>{fmtBRL(semana.reduce((a, x) => a + x.valor, 0))}</span>
+            <span className="block text-xs text-[var(--surface-500)]">{semana.length ? `${semana.length} conta${semana.length === 1 ? '' : 's'} · a primeira ${curto(semana[0].venc.data)}` : 'nada até domingo'}</span>
+          </div>
+          <div className="card p-4" style={atrasadas.length ? { boxShadow: 'inset 0 0 0 1px rgba(239,68,68,.5)' } : undefined}>
+            <span className="block text-xs text-[var(--surface-500)]">Atrasado</span>
+            <span className={`text-mono text-xl tabular-nums ${atrasadas.length ? 'text-red-400' : 'text-emerald-500'}`}>{atrasadas.length ? fmtBRL(atrasadas.reduce((a, x) => a + x.valor, 0)) : '✓ nada'}</span>
+            <span className="block text-xs text-[var(--surface-500)]">{atrasadas.length ? atrasadas.map(x => x.conta.nome.split(' · ')[0]).join(', ') : 'nenhuma conta passou da data'}</span>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-[1.65fr_1fr] gap-4 items-start">
+        <div className="space-y-4 min-w-0">
+          {emCurso && saldos && verCaixa && (
+            <ProximosDias sb={supabase} uid={currentUnit?.id} disponivel={saldos.disponivel} doMes={fixas.doMes} atrasadas={atrasadas} celular={celular} />
+          )}
+          {blocoMes}
+        </div>
+        <div className="space-y-4 min-w-0">
+          <ContasDoMesWidget itens={itensMes} pronto={fixas.pronto} temContas={fixas.contas.length > 0} podeLancar={podeLancar}
+            onPaguei={pagar} onVerCalendario={() => setCalendarioAberto(true)} onNova={() => setContaEditando('nova')} />
+          {blocoPrecisa}
+        </div>
+      </div>
+
+      {blocoBanco}
+
+      <CalendarioContasModal aberto={calendarioAberto} onClose={() => setCalendarioAberto(false)} mesInicial={mes}
+        doMes={fixas.doMes} podeLancar={podeLancar}
+        onPaguei={x => { setCalendarioAberto(false); pagar(x) }}
+        onEditar={c => setContaEditando(c)} onNova={() => setContaEditando('nova')} />
+      <ContaFixaModal aberto={contaEditando !== null} conta={contaEditando === 'nova' ? null : contaEditando}
+        onClose={() => setContaEditando(null)} onSalvou={() => void fixas.carregar()} />
 
       <ExtratoContaModal
         conta={extratoDe ? { conta_id: extratoDe.id, nome: extratoDe.nome, tipo: extratoDe.tipo, caixa_desde: extratoDe.caixa_desde } : null}
