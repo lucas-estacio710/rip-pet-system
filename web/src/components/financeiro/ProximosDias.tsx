@@ -1,7 +1,9 @@
 'use client'
 
-// PRÓXIMOS 30 DIAS — a previsão de caixa da Visão do mês (10/10/2026; desenho
-// fechado na bancada, padrões do Xero e do Float).
+// AINDA NESTE MÊS — a previsão de caixa da Visão do mês (10/10/2026; desenho
+// fechado na bancada, padrões do Xero e do Float). Até 11/10/2026 era uma janela
+// de 30 dias ("Próximos 30 dias"); o Lucas escolheu na bancada de textos que ela
+// vá de AMANHÃ ATÉ O ÚLTIMO DIA DO MÊS — no último dia do mês não há o que prever.
 //
 //   disponível hoje + parcelas da maquininha (esteira, lib/recebiveis) −
 //   contas fixas em aberto (lib/vencimentos) − faturas de cartão em aberto
@@ -79,23 +81,26 @@ export default function ProximosDias({ sb, uid, disponivel, doMes, atrasadas, ce
     if (!receb) return null
     const hoje = new Date()
     const dias: string[] = []
-    for (let i = 1; i <= 30; i++) { const d = new Date(hoje); d.setDate(d.getDate() + i); dias.push(isoDe(d)) }
+    const ultimo = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate()
+    for (let i = hoje.getDate() + 1; i <= ultimo; i++) dias.push(isoDe(new Date(hoje.getFullYear(), hoje.getMonth(), i)))
+    if (!dias.length) return { pts: [], minimo: { v: disponivel, d: '' }, entra: 0, sai: 0, fim: isoDe(hoje) }
+    const fimJ = dias[dias.length - 1]
     const saidas = new Map<string, { v: number; nomes: string[] }>()
     const add = (d: string, v: number, nome: string) => { const x = saidas.get(d) || { v: 0, nomes: [] }; saidas.set(d, { v: x.v + v, nomes: [...x.nomes, nome] }) }
     // vencida que não foi paga ainda vai sair — amanhã. O repasse entra UMA vez:
     // o valor dele é o que está em aberto, e ele se repete todo mês na regra.
     let repasseContado = false
     for (const x of atrasadas) { add(dias[0], x.valor, `${x.conta.nome} (vencida)`); if (x.conta.repasse) repasseContado = true }
-    // contas fixas em aberto deste mês e do próximo, dentro da janela
+    // contas fixas em aberto dentro da janela
     const meses = [...new Set(dias.map(d => d.slice(0, 7)))]
     for (const mm of meses) {
       for (const x of doMes(Number(mm.slice(0, 4)), Number(mm.slice(5, 7)) - 1)) {
-        if (x.situacao === 'pago' || x.venc.data < dias[0] || x.venc.data > dias[29]) continue
+        if (x.situacao === 'pago' || x.venc.data < dias[0] || x.venc.data > fimJ) continue
         if (x.conta.repasse) { if (repasseContado) continue; repasseContado = true }
         add(x.venc.data, x.valor, x.conta.nome)
       }
     }
-    for (const [d, v] of faturas) if (d >= dias[0] && d <= dias[29]) add(d, v, 'fatura do cartão')
+    for (const [d, v] of faturas) if (d >= dias[0] && d <= fimJ) add(d, v, 'fatura do cartão')
     let saldo = disponivel
     let minimo = { v: disponivel, d: '' }
     const pts = dias.map(d => {
@@ -104,13 +109,15 @@ export default function ProximosDias({ sb, uid, disponivel, doMes, atrasadas, ce
       if (saldo < minimo.v) minimo = { v: saldo, d }
       return { d, ent, sai, saldo, nomes: saidas.get(d)?.nomes || [] }
     })
-    return { pts, minimo, entra: pts.reduce((a, p) => a + p.ent, 0), sai: pts.reduce((a, p) => a + p.sai, 0), fim: pts[29].d }
+    return { pts, minimo, entra: pts.reduce((a, p) => a + p.ent, 0), sai: pts.reduce((a, p) => a + p.sai, 0), fim: fimJ }
   }, [receb, faturas, doMes, atrasadas, disponivel])
 
-  if (!serie) return <div className="card p-4"><span className="text-[11px] font-semibold tracking-[.14em] uppercase text-[var(--surface-500)]">Próximos 30 dias</span><p className="text-sm text-[var(--surface-500)] py-6">calculando…</p></div>
+  if (!serie) return <div className="card p-4"><span className="text-[11px] font-semibold tracking-[.14em] uppercase text-[var(--surface-500)]">Ainda neste mês</span><p className="text-sm text-[var(--surface-500)] py-6">calculando…</p></div>
+  if (!serie.pts.length) return <div className="card p-4"><span className="text-[11px] font-semibold tracking-[.14em] uppercase text-[var(--surface-500)]">Ainda neste mês</span><p className="text-sm text-[var(--surface-500)] py-3">Hoje é o último dia do mês — não há mais o que prever.</p></div>
 
   const W = celular ? 340 : 700, H = 190, meio = 110
-  const bw = W / 30
+  const N = serie.pts.length
+  const bw = W / N
   const maxBar = Math.max(1, ...serie.pts.map(p => Math.max(p.ent, p.sai)))
   const vals = serie.pts.map(p => p.saldo)
   const maxS = Math.max(disponivel, ...vals), minS = Math.min(0, ...vals)
@@ -118,19 +125,19 @@ export default function ProximosDias({ sb, uid, disponivel, doMes, atrasadas, ce
   const linha = serie.pts.map((p, i) => `${i ? 'L' : 'M'}${(i + 0.5) * bw},${y(p.saldo)}`).join(' ')
   const iMin = serie.pts.findIndex(p => p.d === serie.minimo.d)
   const baixo = serie.minimo.d && serie.minimo.v < SALDO_MINIMO
-  const final = serie.pts[29].saldo
+  const final = serie.pts[N - 1].saldo
 
   return (
     <div className="card p-4">
       <div className="flex flex-wrap items-baseline gap-2">
-        <span className="text-[11px] font-semibold tracking-[.14em] uppercase text-[var(--surface-500)]">Próximos 30 dias</span>
-        <span className="text-xs text-[var(--surface-500)]">previsão — não é saldo</span>
+        <span className="text-[11px] font-semibold tracking-[.14em] uppercase text-[var(--surface-500)]">Ainda neste mês</span>
+        <span className="text-xs text-[var(--surface-500)]">estimativa</span>
       </div>
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 mt-2.5 text-sm">
-        <span><span className="text-xs text-[var(--surface-500)]">hoje</span> <span className="text-mono">{num(disponivel)}</span></span>
-        <span className="text-emerald-500">+ <span className="text-mono">{num(serie.entra)}</span> <span className="text-xs text-[var(--surface-500)]">maquininha</span></span>
-        <span className="text-red-400">− <span className="text-mono">{num(serie.sai)}</span> <span className="text-xs text-[var(--surface-500)]">contas e faturas</span></span>
-        <span>= <span className="text-mono text-lg">{num(final)}</span> <span className="text-xs text-[var(--surface-500)]">em {curto(serie.fim)}</span></span>
+        <span><span className="text-xs text-[var(--surface-500)]">saldo hoje</span> <span className="text-mono">{num(disponivel)}</span></span>
+        <span className="text-emerald-500">+ <span className="text-mono">{num(serie.entra)}</span> <span className="text-xs text-[var(--surface-500)]">a receber</span></span>
+        <span className="text-red-400">− <span className="text-mono">{num(serie.sai)}</span> <span className="text-xs text-[var(--surface-500)]">a pagar</span></span>
+        <span>= <span className="text-mono text-lg">{num(final)}</span> <span className="text-xs text-[var(--surface-500)]">até {curto(serie.fim)}</span></span>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" className="block mt-1.5" role="img" aria-label="Entradas, saídas e saldo previsto nos próximos 30 dias">
         <line x1={0} x2={W} y1={meio} y2={meio} stroke="var(--surface-200)" />
@@ -146,9 +153,9 @@ export default function ProximosDias({ sb, uid, disponivel, doMes, atrasadas, ce
       </svg>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-[13px] mt-1">
         {serie.minimo.d
-          ? <span className={baixo ? 'text-amber-500' : 'text-[var(--surface-700)]'}>Menor saldo: <span className="text-mono">R$ {num(serie.minimo.v)}</span> em {curto(serie.minimo.d)}{baixo ? ` — abaixo do mínimo de R$ ${num(SALDO_MINIMO)}` : ''}</span>
-          : <span className="text-[var(--surface-700)]">O saldo não cai abaixo do de hoje nos próximos 30 dias.</span>}
-        <span className="text-xs text-[var(--surface-500)]">verde = parcelas da maquininha · vermelho = contas fixas e faturas · tracejado = saldo previsto</span>
+          ? <span className={baixo ? 'text-amber-500' : 'text-[var(--surface-700)]'}>Mínimo previsto: <span className="text-mono">R$ {num(serie.minimo.v)}</span> em {curto(serie.minimo.d)}</span>
+          : <span className="text-[var(--surface-700)]">O saldo não cai abaixo do de hoje até o fim do mês.</span>}
+        <span className="text-xs text-[var(--surface-500)]"><span className="text-emerald-500">▮</span> entra · <span className="text-red-400">▮</span> sai · ┄ saldo previsto</span>
       </div>
     </div>
   )

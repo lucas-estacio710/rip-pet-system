@@ -5,7 +5,7 @@
 //
 //   · useContasFixas  — carrega as contas fixas, quais já foram pagas e o valor
 //                       do repasse em aberto. Usado pelo widget, pelo calendário
-//                       e pelos "Próximos 30 dias".
+//                       e pelo "Ainda neste mês" (ProximosDias).
 //   · ContasDoMesWidget — o bloco compacto: barra pago/total, as próximas (vencidas
 //                       → hoje → adiante) com o Paguei, "Ver calendário".
 //   · CalendarioContasModal — o mês em grade: data riscada quando cai em fim de
@@ -119,20 +119,20 @@ export function ContasDoMesWidget({ itens, pronto, temContas, podeLancar, onPagu
     <div className="card p-4 flex flex-col">
       <div className="flex items-baseline gap-2">
         <span className="text-[11px] font-semibold tracking-[.14em] uppercase text-[var(--surface-500)]">Contas do mês</span>
-        {temContas && <button onClick={onVerCalendario} className="ml-auto text-[13px] text-[var(--brand-500)] hover:underline">Ver calendário ›</button>}
+        {temContas && <button onClick={onVerCalendario} className="ml-auto text-[13px] text-[var(--brand-500)] hover:underline">Calendário de contas ›</button>}
       </div>
       {!pronto ? <p className="text-sm text-[var(--surface-500)] py-3">carregando…</p> : !temContas ? (
         <div className="py-3 space-y-2">
           <p className="text-sm text-[var(--surface-600)]">Cadastre as contas que se repetem — aluguel, água, DAS, salário — e elas aparecem aqui no dia em que vencem de verdade, já contando fim de semana e feriado.</p>
-          {podeLancar && <button onClick={onNova} className="btn-primary text-sm">+ Conta fixa</button>}
+          {podeLancar && <button onClick={onNova} className="btn-primary text-sm">+ Adicionar conta recorrente</button>}
         </div>
       ) : (<>
         <div className="mt-2.5 h-2 rounded-full bg-[var(--surface-100)] overflow-hidden"><div className="h-full bg-emerald-500" style={{ width: `${total ? Math.min(100, (pagoV / total) * 100) : 0}%` }} /></div>
-        <p className="text-xs text-[var(--surface-500)] mt-1">R$ {num(pagoV)} pagos de R$ {num(total)} · {pagas.length} de {itens.length} contas</p>
+        <p className="text-xs text-[var(--surface-500)] mt-1">{pagas.length} de {itens.length} contas pagas · R$ {num(pagoV)} de R$ {num(total)}</p>
         {abertas.slice(0, 5).map(x => (
           <div key={x.conta.id} className="grid grid-cols-[80px_1fr_auto_auto] gap-2 items-center py-2 border-b border-[var(--surface-100)]">
             <span className={`text-xs font-semibold ${COR[x.situacao]}`}>
-              {x.venc.data === hoje ? 'Hoje' : x.situacao === 'atrasada' ? `Venceu ${x.venc.data.slice(8, 10)}/${x.venc.data.slice(5, 7)}` : curto(x.venc.data)}
+              {x.venc.data === hoje ? 'Hoje ·' : x.situacao === 'atrasada' ? `${x.venc.data.slice(8, 10)}/${x.venc.data.slice(5, 7)} ⚠` : curto(x.venc.data)}
             </span>
             <span className="flex flex-col min-w-0">
               <span className="text-[13.5px] text-[var(--surface-800)] truncate">{x.conta.nome}</span>
@@ -141,14 +141,14 @@ export function ContasDoMesWidget({ itens, pronto, temContas, podeLancar, onPagu
             <span className="text-mono text-[13px] tabular-nums text-[var(--surface-800)]">{x.conta.valor_varia && !x.conta.repasse ? '~' : ''}{num(x.valor)}</span>
             {podeLancar ? (
               <button onClick={() => onPaguei(x)} className="text-[13px] font-semibold px-2.5 py-1 rounded-[10px] border border-[var(--brand-500)]/60 text-[var(--brand-500)] hover:bg-[var(--brand-500)] hover:text-white">
-                {x.conta.repasse ? 'Pagar' : 'Paguei'}
+                {x.conta.repasse ? 'Pagar' : 'Lançar'}
               </button>
             ) : <span />}
           </div>
         ))}
         {!abertas.length && <p className="text-sm text-emerald-500 py-2.5">✓ Tudo pago neste mês</p>}
         {abertas.length > 5 && <button onClick={onVerCalendario} className="text-[13px] text-[var(--brand-500)] hover:underline mt-2 text-left">+ {abertas.length - 5} no calendário</button>}
-        {podeLancar && <button onClick={onNova} className="text-[13px] text-[var(--brand-500)] hover:underline mt-2 text-left">+ Conta fixa</button>}
+        {podeLancar && <button onClick={onNova} className="text-[13px] text-[var(--brand-500)] hover:underline mt-2 text-left">+ Adicionar conta recorrente</button>}
       </>)}
     </div>
   )
@@ -210,7 +210,7 @@ export function CalendarioContasModal({ aberto, onClose, mesInicial, doMes, pode
           <button onClick={() => andar(-1)} className="h-8 w-8 rounded-full border border-[var(--surface-300)] flex items-center justify-center" aria-label="Mês anterior"><ChevronLeft className="h-4 w-4" /></button>
           <span className="text-lg font-bold capitalize text-[var(--surface-900)]">{MESES[mes0]} de {ano}</span>
           <button onClick={() => andar(1)} className="h-8 w-8 rounded-full border border-[var(--surface-300)] flex items-center justify-center" aria-label="Próximo mês"><ChevronRight className="h-4 w-4" /></button>
-          {podeLancar && <button onClick={onNova} className="btn-secondary text-sm ml-auto">+ Conta fixa</button>}
+          {podeLancar && <button onClick={onNova} className="btn-secondary text-sm ml-auto">+ Adicionar conta recorrente</button>}
         </div>
         <div className="grid grid-cols-7 gap-1.5 text-[11px] uppercase tracking-wider text-[var(--surface-400)] px-1">{SEM.map(s => <span key={s}>{s}</span>)}</div>
         <div className="grid grid-cols-7 gap-1.5">{celulas}</div>

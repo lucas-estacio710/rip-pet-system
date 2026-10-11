@@ -58,6 +58,11 @@ const somaMes = (m: string, d: number) => {
 }
 const c2 = (n: number) => Math.round(n * 100) / 100
 const num = (v: number) => Math.abs(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+// O BALANÇO DO MÊS abrevia a partir de 10 mil (Lucas, 11/10: "apertado com centavos" → R$ 40,5k).
+// O valor cheio fica no `title` de cada número.
+const k1 = (v: number) => (Math.abs(v) / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+const numK = (v: number) => (Math.abs(v) >= 10000 ? `${k1(v)}k` : num(v))
+const brlK = (v: number) => (Math.abs(v) >= 10000 ? `R$ ${k1(v)}k` : fmtBRL(Math.abs(v)))
 
 /** Os grupos da DRE que são custo, com o nome que o gerente reconhece. */
 const GRUPOS: { campo: keyof Resumo; nome: string; cor: string }[] = [
@@ -195,9 +200,9 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
     for (const rep of fixas.contas.some(c => c.repasse) ? [] : reps) {
       const jaPago = c2(pagoDe.get(rep.id) || 0)
       lista.push({
-        chave: `rep-${rep.id}`, titulo: `Pagar o repasse de ${rotulo(rep.mes_referencia.slice(0, 7))} à Matriz`,
-        detalhe: `${rep.status === 'aberto' ? 'a Matriz ainda pode mexer' : 'salvo pela Matriz'} · ${rep.qtd_pets} cremações${jaPago ? ` · já pago ${fmtBRL(jaPago)}` : ''}`,
-        valor: c2(Number(rep.total_liquido) - jaPago), acao: jaPago ? 'Pagar o resto' : 'Pagar', atencao: true,
+        chave: `rep-${rep.id}`, titulo: `Quitar o repasse de ${rotulo(rep.mes_referencia.slice(0, 7))}`,
+        detalhe: `${rep.status === 'aberto' ? 'a Matriz ainda pode mexer' : 'fechado pela Matriz'} · ${rep.qtd_pets} pets${jaPago ? ` · pago ${fmtBRL(jaPago)}` : ''}`,
+        valor: c2(Number(rep.total_liquido) - jaPago), acao: jaPago ? 'Quitar' : 'Pagar', atencao: true,
         onClick: () => onLancar?.('quitacao'),
       })
     }
@@ -213,7 +218,7 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
       if (k.cartao) continue
       if (!k.conferidoAte || k.conferidoAte < corte) {
         lista.push({
-          chave: `imp-${k.conta.id}`, titulo: `Importar o extrato de ${k.conta.nome}`,
+          chave: `imp-${k.conta.id}`, titulo: `Atualizar ${k.conta.nome}`,
           detalhe: k.conferidoAte ? `conferido até ${fmtData(k.conferidoAte)}` : 'nenhuma linha conferida ainda',
           acao: 'Importar', atencao: false, onClick: () => onLancar?.('importar'),
         })
@@ -251,20 +256,20 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
 
   const blocoMes = verResultado && (
     <div className="card p-4">
-      <p className={titulo}>{emCurso ? 'Como está o mês' : 'Como foi o mês'}</p>
+      <p className={titulo}>Balanço do mês</p>
       <div className="grid grid-cols-3 gap-3 my-3">
         <button onClick={() => onIr('dre')} className="text-left">
-          <span className="block text-xs text-[var(--surface-500)]">{emCurso ? 'Entrou até agora' : 'Entrou'}</span>
-          <span className="text-mono text-xl tabular-nums text-[var(--surface-900)]">{fmtBRL(entrou)}</span>
+          <span className="block text-xs text-[var(--surface-500)]">Receita</span>
+          <span className="text-mono text-xl tabular-nums text-[var(--surface-900)]" title={fmtBRL(entrou)}>{brlK(entrou)}</span>
         </button>
         <button onClick={() => (verLancamentos ? onIr('lancamentos') : onIr('dre'))} className="text-left">
-          <span className="block text-xs text-[var(--surface-500)]">{emCurso ? 'Custou até agora' : 'Custou'}</span>
-          <span className="text-mono text-xl tabular-nums text-[var(--surface-900)]">{fmtBRL(custou)}</span>
-          <span className="block text-[11px] text-[var(--surface-500)]">{qtdDespesas} despesas</span>
+          <span className="block text-xs text-[var(--surface-500)]">Custos</span>
+          <span className="text-mono text-xl tabular-nums text-[var(--surface-900)]" title={fmtBRL(custou)}>{brlK(custou)}</span>
+          <span className="block text-[11px] text-[var(--surface-500)]">em {qtdDespesas} {qtdDespesas === 1 ? 'saída' : 'saídas'}</span>
         </button>
         <button onClick={() => onIr('dre')} className="text-left">
-          <span className="block text-xs text-[var(--surface-500)]">{emCurso ? (sobrou >= 0 ? 'Está sobrando' : 'Está faltando') : (sobrou >= 0 ? 'Sobrou' : 'Faltou')}</span>
-          <span className={`text-mono text-xl tabular-nums ${sobrou >= 0 ? 'text-emerald-500' : 'text-amber-500'}`}>{fmtBRL(Math.abs(sobrou))}</span>
+          <span className="block text-xs text-[var(--surface-500)]">Resultado</span>
+          <span className={`text-mono text-xl tabular-nums ${sobrou >= 0 ? 'text-emerald-500' : 'text-amber-500'}`} title={fmtBRL(sobrou)}>{sobrou < 0 ? '−' : ''}{brlK(sobrou)}</span>
         </button>
       </div>
       {grupos.length > 0 && (<>
@@ -274,26 +279,26 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
         <div className="flex flex-wrap gap-x-3.5 gap-y-1 mt-2">
           {grupos.map(g => (
             <span key={g.campo} className="text-xs text-[var(--surface-500)]">
-              <span className="inline-block h-2 w-2 rounded-[2px] mr-1" style={{ background: g.cor }} />{g.nome} <span className="text-mono text-[var(--surface-700)]">{num(g.valor)}</span> · {somaGrupos ? Math.round((g.valor / somaGrupos) * 100) : 0}%
+              <span className="inline-block h-2 w-2 rounded-[2px] mr-1" style={{ background: g.cor }} />{g.nome} <span className="text-mono text-[var(--surface-700)]" title={fmtBRL(g.valor)}>{numK(g.valor)}</span> · {somaGrupos ? Math.round((g.valor / somaGrupos) * 100) : 0}%
             </span>
           ))}
         </div>
       </>)}
       {Number(resumo?.distribuicao) > 0 && (
-        <p className="text-xs text-[var(--surface-500)] mt-2.5">Retiradas dos sócios: {fmtBRL(Number(resumo?.distribuicao))} — fora do resultado (é distribuição do lucro).</p>
+        <p className="text-xs text-[var(--surface-500)] mt-2.5">Retiradas: {brlK(Number(resumo?.distribuicao))}, à parte do resultado.</p>
       )}
-      <button onClick={() => onIr('dre')} className={`${link} mt-2.5`}>Ver o resultado linha a linha ›</button>
+      <button onClick={() => onIr('dre')} className={`${link} mt-2.5`}>Ver a DRE ›</button>
     </div>
   )
 
   const precisa = [
-    ...atrasadas.map(x => ({ chave: `atr-${x.conta.id}`, titulo: `${x.conta.nome} venceu ${curto(x.venc.data)}`, detalhe: 'ainda sem pagamento', valor: x.valor, acao: x.conta.repasse ? 'Pagar' : 'Paguei', atencao: true, onClick: () => pagar(x) })),
+    ...atrasadas.map(x => ({ chave: `atr-${x.conta.id}`, titulo: `${x.conta.nome} venceu ${curto(x.venc.data)}`, detalhe: 'falta lançar o pagamento', valor: x.valor, acao: x.conta.repasse ? 'Pagar' : 'Lançar', atencao: true, onClick: () => pagar(x) })),
     ...pend,
   ]
   const blocoPrecisa = (
     <div className="card px-4 py-3">
       <p className={titulo}>Precisa de você</p>
-      {!precisa.length ? <p className="py-2.5 text-sm text-emerald-500">✓ Nada pendente por aqui.</p> : precisa.map((p, i) => (
+      {!precisa.length ? <p className="py-2.5 text-sm text-emerald-500">✓ Sem pendências.</p> : precisa.map((p, i) => (
         <div key={p.chave} className={`flex flex-wrap items-center gap-3 py-2.5 ${i < precisa.length - 1 ? 'border-b border-[var(--surface-200)]' : ''}`}>
           <span className="h-2 w-2 rounded-full shrink-0" style={{ background: p.atencao ? '#f59e0b' : 'var(--surface-400)' }} />
           <span className="flex-1 min-w-[160px] flex flex-col">
@@ -311,20 +316,20 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
 
   const blocoBanco = verCaixa && cards.length > 0 && (
     <div className="flex flex-wrap items-center gap-2">
-      <span className={`${titulo} mr-1`}>Está batendo com o banco?</span>
+      <span className={`${titulo} mr-1`}>Sistema × banco</span>
       {cards.filter(k => !k.cartao).map(k => {
         const dif = k.banco && k.sistema !== null ? c2(k.banco.saldo - k.sistema) : null
         const bate = dif !== null && Math.abs(dif) < 0.005
         return (
           <button key={k.conta.id} onClick={() => setExtratoDe(k.conta)} className="card px-3 py-1.5 text-[12.5px] inline-flex items-center gap-2 hover:bg-[var(--surface-100)]">
             <b className="font-semibold text-[var(--surface-800)]">{k.conta.nome}</b>
-            {!k.banco ? <span className="text-[var(--surface-500)]">{k.conferidoAte ? `conferido até ${fmtData(k.conferidoAte)}` : '• nunca conferido'}</span>
-              : bate ? <span className="text-emerald-500">✓ banco {fmtData(k.banco.data)}</span>
-              : <span className="text-amber-500">• diferença de {fmtBRL(Math.abs(dif!))}</span>}
+            {!k.banco ? <span className="text-[var(--surface-500)]">{k.conferidoAte ? `conferido até ${fmtData(k.conferidoAte)}` : '• sem extrato'}</span>
+              : bate ? <span className="text-emerald-500">✓ conferido {fmtData(k.banco.data)}</span>
+              : <span className="text-amber-500">• banco ≠ sistema ({fmtBRL(Math.abs(dif!))})</span>}
           </button>
         )
       })}
-      {onContasFaturas && <button onClick={onContasFaturas} className={link}>Contas e Faturas ›</button>}
+      {onContasFaturas && <button onClick={onContasFaturas} className={link}>Ver saldo das contas ›</button>}
     </div>
   )
 
@@ -339,15 +344,15 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
         <div className="card p-5 sm:p-7">
           <div className="grid grid-cols-1 md:grid-cols-[1.5fr_1fr_1fr] gap-6 md:gap-0 md:divide-x md:divide-[var(--surface-200)]">
             <div className="md:pr-8 flex flex-col gap-1.5">
-              <span className="text-sm text-[var(--surface-500)]">Disponível agora pra pagar</span>
+              <span className="text-sm text-[var(--surface-500)]">Saldo das Contas</span>
               <span className="text-mono text-4xl sm:text-5xl tabular-nums tracking-tight text-[var(--surface-900)]">{saldos ? fmtBRL(saldos.disponivel) : '…'}</span>
               {saldos && saldos.guardado > 0.005 && (
-                <span className="text-[13px] text-[var(--surface-500)]">+ {fmtBRL(saldos.guardado)} guardados (fora do disponível)</span>
+                <span className="text-[13px] text-[var(--surface-500)]">fora isso, {fmtBRL(saldos.guardado)} investidos</span>
               )}
-              {onContasFaturas && <button onClick={onContasFaturas} className={`${link} mt-2`}>Contas e Faturas ›</button>}
+              {onContasFaturas && <button onClick={onContasFaturas} className={`${link} mt-2`}>Ver saldo das contas ›</button>}
             </div>
             <div className="md:px-8 flex flex-col gap-1.5">
-              <span className="text-sm text-[var(--surface-500)]">Vence até domingo</span>
+              <span className="text-sm text-[var(--surface-500)]">Esta semana</span>
               <span className={`text-mono text-2xl sm:text-3xl tabular-nums ${semana.length ? 'text-amber-500' : 'text-[var(--surface-900)]'}`}>{fmtBRL(semana.reduce((a, x) => a + x.valor, 0))}</span>
               {semana.length ? semana.slice(0, 4).map(x => (
                 <span key={x.conta.id} className="text-[13px] text-[var(--surface-600)] flex justify-between gap-3">
@@ -355,7 +360,7 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
                   <span className="text-mono tabular-nums shrink-0">{num(x.valor)}</span>
                 </span>
               )) : <span className="text-[13px] text-[var(--surface-500)]">nada até domingo</span>}
-              {semana.length > 4 && <span className="text-[12px] text-[var(--surface-500)]">+ {semana.length - 4} contas</span>}
+              {semana.length > 4 && <button onClick={() => setCalendarioAberto(true)} className={`${link} text-[12px]`}>{semana.length === 5 ? 'ver a outra ›' : `ver as outras ${semana.length - 4} ›`}</button>}
             </div>
             <div className="md:pl-8 flex flex-col gap-1.5">
               <span className="text-sm text-[var(--surface-500)]">Atrasado</span>
@@ -374,10 +379,11 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
 
       <div className="grid grid-cols-1 lg:grid-cols-[1.65fr_1fr] gap-4 items-start">
         <div className="space-y-4 min-w-0">
+          {/* ordem de importância (Lucas, 11/10): saldo das contas → balanço do mês → ainda neste mês */}
+          {blocoMes}
           {emCurso && saldos && verCaixa && (
             <ProximosDias sb={supabase} uid={currentUnit?.id} disponivel={saldos.disponivel} doMes={fixas.doMes} atrasadas={atrasadas} celular={celular} />
           )}
-          {blocoMes}
         </div>
         <div className="space-y-4 min-w-0">
           <ContasDoMesWidget itens={itensMes} pronto={fixas.pronto} temContas={fixas.contas.length > 0} podeLancar={podeLancar}
