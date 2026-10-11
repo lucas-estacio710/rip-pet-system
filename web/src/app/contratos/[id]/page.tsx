@@ -3220,7 +3220,7 @@ ${petNome}`
   const etapaGCAba = contrato.contrato_gc?.etapa || 'provisionado'
   const corEtapaGCAba = ({ provisionado: '#64748b', recebido: '#3b82f6', cremado: '#eab308', disponivel: '#22c55e' } as Record<string, string>)[etapaGCAba] || '#64748b'
   const AGRUPA_TAREFA = new Set(['molde_patinha', 'carimbo', 'pelo_extra', 'pelinho'])
-  const tarefasEmAndamento = new Set(tarefasContrato.filter(t => t.status !== 'concluida')
+  const tarefasEmAndamento = new Set(tarefasContrato.filter(t => t.status === 'pendente')
     .map(t => AGRUPA_TAREFA.has(t.tipo) ? `${t.tipo}|${t.atribuido_a}` : t.id)).size
   const abasContrato: AbaDef[] = [
     { id: 'tutor', rotulo: 'Tutor', icone: User, cor: '#3b82f6' },

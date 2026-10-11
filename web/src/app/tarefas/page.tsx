@@ -1580,6 +1580,11 @@ export default function TarefasPage() {
     // `aguardando_acolhimento`, fora do escopo desta função (que só sabe desfazer entrega e
     // rescaldo).
     if (tarefa.tipo === 'remocao' || tarefa.tipo === 'ativacao_pv') return
+    // Mig 161: o produto do rescaldo foi excluído do contrato — reabrir criaria uma pendente sem item.
+    if (tarefa.tipo !== 'entrega' && tarefa.contratoProdutoIds.length === 0) {
+      toast('O item desta tarefa foi excluído do contrato — não dá pra desfazer.', 'error')
+      return
+    }
     const rotulo = tarefa.quantidade > 1 ? `${TIPO_INFO[tarefa.tipo].label} (×${tarefa.quantidade})` : TIPO_INFO[tarefa.tipo].label
     if (!confirm(`Desfazer a conclusão de "${rotulo}" — ${tarefa.petNome}?`)) return
     setDesfazendoId(tarefa.id)

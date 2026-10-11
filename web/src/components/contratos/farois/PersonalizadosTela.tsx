@@ -96,8 +96,9 @@ export default function PersonalizadosTela(p: Props) {
   function oQueSePerde(i: ItemPersonalizado): string[] {
     const t = g.tarefas[i.id]
     const s: string[] = []
-    if (i.feito || t?.status === 'concluida') s.push('já foi feito — a foto-prova será apagada')
-    else if (t) s.push(`está com ${g.nomes[t.atribuido_a] || 'alguém'} — sai da fila`)
+    // Mig 161: a tarefa não é mais apagada com o item — fica na aba Tarefas do contrato, com alerta.
+    if (i.feito || t?.status === 'concluida') s.push('já foi feito — a tarefa e a foto ficam registradas na aba Tarefas do contrato')
+    else if (t) s.push(`está com ${g.nomes[t.atribuido_a] || 'alguém'} — a tarefa é cancelada e sai da fila`)
     if (i.observacao?.trim()) s.push('a observação some')
     return s
   }
