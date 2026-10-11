@@ -69,7 +69,7 @@ export function useContasFixas(sb: SupabaseClient, uid: string | undefined) {
       if (unicas.length) {
         const dono = new Map(unicas.map(([cat, v]) => [cat, v[0]]))
         const { data: lc } = await sb.from('fin_lancamentos').select('categoria_id, valor, data_competencia, data_caixa')
-          .in('categoria_id', [...dono.keys()]).is('conta_fixa_id', null).neq('status', 'rejeitado').gte('data_competencia', ini)
+          .in('categoria_id', [...dono.keys()]).eq('unidade_id', uid).is('conta_fixa_id', null).neq('status', 'rejeitado').gte('data_competencia', ini)
         for (const l of (lc as { categoria_id: string; valor: number; data_competencia: string; data_caixa: string | null }[] | null) || []) {
           const k = `${dono.get(l.categoria_id)}|${l.data_competencia.slice(0, 7)}`
           if (mapa.has(k) && !mapa.get(k)!.porCategoria) continue   // o vínculo explícito manda
