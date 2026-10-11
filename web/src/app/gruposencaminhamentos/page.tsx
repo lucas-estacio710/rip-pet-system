@@ -69,7 +69,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import {
   ChevronLeft, ChevronRight, ArrowLeft, Users, MessageCircle, X,
-  Phone, FileText, CheckCheck, Info, Download, Loader2, Copy, Check, UserPlus,
+  Phone, FileText, CheckCheck, Info, Download, Loader2, Copy, Check, UserPlus, Share2,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
@@ -79,7 +79,10 @@ import { nomeParaAgenda, nomeDoContatoAtivo } from '@/lib/nome-agenda'
 import { linkChatDireto } from '@/lib/whatsapp-msg'
 import { fmtTelefone, type FichaContratoData } from '@/components/fichas/FichaRemocao'
 import FichaRemocaoDoc, { DOC_W, DOC_MIN_H } from '@/components/fichas/FichaRemocaoDoc'
-import { baixarFichaPng, baixarFichaPdf, nomeDeArquivo, preCarregarDownload } from '@/lib/ficha-download'
+import {
+  baixarFichaPng, baixarFichaPdf, nomeDeArquivo, preCarregarDownload,
+  podeCompartilharPng, arquivoPngDaFicha, compartilharArquivo,
+} from '@/lib/ficha-download'
 
 // Mesmas cores de unidade da /encaminhamentos — o badge do calendário tem que ser
 // reconhecível entre as duas telas durante a convivência dos dois fluxos.
@@ -902,6 +905,7 @@ export default function GruposEncaminhamentosPage() {
       {/* ===== Lightbox da ficha ampliada (com baixar PDF/PNG) ===== */}
       {fichaAmpliada && (
         <LightboxFicha
+          key={fichaAmpliada.contratoId} // outra ficha = componente novo (não reaproveita a imagem pronta do Compartilhar)
           ficha={fichaAmpliada}
           escala={escalaZoom}
           onFechar={() => setFichaAmpliada(null)}
@@ -959,13 +963,42 @@ function LightboxFicha({ ficha, escala, onFechar }: {
   // visível daria um arquivo em tamanho de projeto com o conteúdo desalinhado. Mesmo padrão que
   // o `lib/impressao-unificada.ts` já usa pra imprimir ficha em lote.
   const capturaRef = useRef<HTMLDivElement>(null)
-  const [baixando, setBaixando] = useState<'png' | 'pdf' | null>(null)
+  const [baixando, setBaixando] = useState<'png' | 'pdf' | 'compartilhar' | null>(null)
   const [erro, setErro] = useState<string | null>(null)
+  // Compartilhar (11/10/2026): o PNG direto no menu do celular, pra jogar no grupo do WhatsApp.
+  // `pronto` guarda o arquivo já gerado: se a geração demorar além da janela do toque, o 2º
+  // toque compartilha na hora.
+  const [podeCompartilhar, setPodeCompartilhar] = useState(false)
+  const [pronto, setPronto] = useState<File | null>(null)
+  const [aviso, setAviso] = useState<string | null>(null)
 
   const nomeBase = nomeDeArquivo('ficha', ficha.petNome, ficha.lacre)
 
   // Abriu a ficha → já baixa o código do gerador, pro toque em PDF/PNG não esperar a rede.
-  useEffect(() => { preCarregarDownload() }, [])
+  useEffect(() => { preCarregarDownload(); setPodeCompartilhar(podeCompartilharPng()) }, [])
+
+  async function compartilhar() {
+    const el = capturaRef.current
+    if (!el || baixando) return
+    setErro(null); setAviso(null)
+    try {
+      let arquivo = pronto
+      if (!arquivo) {
+        setBaixando('compartilhar')
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
+        arquivo = await arquivoPngDaFicha(el, nomeBase)
+        setPronto(arquivo)
+        setBaixando(null)
+      }
+      const r = await compartilharArquivo(arquivo)
+      if (r === 'sem-toque') setAviso('Imagem pronta. Toque em Compartilhar de novo.')
+    } catch (e) {
+      console.error('Erro ao compartilhar a ficha:', e)
+      setErro('Não deu pra compartilhar. Use o PNG.')
+    } finally {
+      setBaixando(null)
+    }
+  }
 
   async function baixar(formato: 'png' | 'pdf') {
     const el = capturaRef.current
@@ -1034,14 +1067,26 @@ function LightboxFicha({ ficha, escala, onFechar }: {
           {baixando === 'png' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
           PNG
         </button>
+        {podeCompartilhar && (
+          <button
+            onClick={compartilhar}
+            disabled={baixando !== null}
+            title="Mandar a imagem da ficha direto (WhatsApp, grupo…)"
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-50 text-white text-sm font-medium transition-colors"
+          >
+            {baixando === 'compartilhar' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Share2 className="h-4 w-4" />}
+            Compartilhar
+          </button>
+        )}
       </div>
 
       {baixando && (
         <p className="mt-2 text-sm text-white/90 flex items-center gap-2" role="status">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Gerando o {baixando.toUpperCase()}…
+          {baixando === 'compartilhar' ? 'Preparando a imagem…' : `Gerando o ${baixando.toUpperCase()}…`}
         </p>
       )}
+      {aviso && <p className="mt-2 text-sm text-white/90" role="status">{aviso}</p>}
       {erro && <p className="mt-2 text-xs text-red-300">{erro}</p>}
      </div>
 

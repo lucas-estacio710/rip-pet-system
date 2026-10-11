@@ -210,12 +210,51 @@ async function canvasDaFicha(el: HTMLElement, escala = 3): Promise<HTMLCanvasEle
   return paraCanvasReserva(el, escala)
 }
 
-export async function baixarFichaPng(el: HTMLElement, nomeBase: string): Promise<void> {
+async function pngDaFicha(el: HTMLElement): Promise<Blob> {
   const canvas = await canvasDaFicha(el)
-  const blob = await new Promise<Blob>((resolve, reject) => {
+  return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(b => (b ? resolve(b) : reject(new Error('Falha ao gerar o PNG da ficha'))), 'image/png')
   })
-  dispararDownload(blob, `${nomeBase}.png`)
+}
+
+export async function baixarFichaPng(el: HTMLElement, nomeBase: string): Promise<void> {
+  dispararDownload(await pngDaFicha(el), `${nomeBase}.png`)
+}
+
+/**
+ * O aparelho abre o menu "Compartilhar" com arquivo PNG? (Android e iPhone sim; no computador
+ * depende do sistema.) PNG está na lista de tipos que o Chrome aceita compartilhar — .vcf não
+ * está, ver o "Salvar contato" da /gruposencaminhamentos.
+ */
+export function podeCompartilharPng(): boolean {
+  try {
+    return typeof navigator !== 'undefined' && !!navigator.canShare?.({ files: [new File([''], 'x.png', { type: 'image/png' })] })
+  } catch {
+    return false
+  }
+}
+
+/** Gera o PNG da ficha como arquivo pronto pra `navigator.share`. */
+export async function arquivoPngDaFicha(el: HTMLElement, nomeBase: string): Promise<File> {
+  return new File([await pngDaFicha(el)], `${nomeBase}.png`, { type: 'image/png' })
+}
+
+/**
+ * Abre o menu Compartilhar com o PNG (pra mandar direto no grupo do WhatsApp).
+ * Devolve `'ok'`, `'cancelado'` (fechou o menu) ou `'sem-toque'`: o navegador só abre o menu
+ * até ~5 s depois do toque, e gerar a imagem num celular lento pode passar disso — quem chama
+ * guarda o arquivo e pede um segundo toque, que aí é instantâneo.
+ */
+export async function compartilharArquivo(arquivo: File): Promise<'ok' | 'cancelado' | 'sem-toque'> {
+  try {
+    await navigator.share({ files: [arquivo] })
+    return 'ok'
+  } catch (e) {
+    const nome = (e as Error)?.name
+    if (nome === 'AbortError') return 'cancelado'
+    if (nome === 'NotAllowedError') return 'sem-toque'
+    throw e
+  }
 }
 
 export async function baixarFichaPdf(el: HTMLElement, nomeBase: string): Promise<void> {
