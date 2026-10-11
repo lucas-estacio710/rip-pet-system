@@ -69,7 +69,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import {
   ChevronLeft, ChevronRight, ArrowLeft, Users, MessageCircle, X,
-  Phone, FileText, CheckCheck, Info, Download, Loader2,
+  Phone, FileText, CheckCheck, Info, Download, Loader2, Copy, Check, UserPlus,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
@@ -1111,6 +1111,66 @@ function BotaoContatoRealizado({ contratoId, onMarcar }: {
   )
 }
 
+// Copiar o nome de agenda (o mesmo do "copiar nome para agenda" do detalhe do contrato).
+// O ✓ fica 1,5 s no lugar do ícone: esta tela não tem toast e o toque precisa de retorno.
+function BotaoCopiarNome({ nome }: { nome: string }) {
+  const [copiado, setCopiado] = useState(false)
+  return (
+    <button
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(nome)
+          setCopiado(true)
+          setTimeout(() => setCopiado(false), 1500)
+        } catch { /* sem permissão de área de transferência: nada a fazer */ }
+      }}
+      title="Copiar o nome para a agenda"
+      aria-label="Copiar o nome para a agenda"
+      className="shrink-0 h-11 w-11 -mr-1.5 flex items-center justify-center rounded-full hover:bg-black/5 transition-colors"
+      style={{ color: copiado ? 'var(--zap-acao)' : 'var(--zap-balao-meta)' }}
+    >
+      {copiado ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+    </button>
+  )
+}
+
+/**
+ * "Salvar contato": baixa um cartão de contato (.vcf) com o nome de agenda e o telefone.
+ * Não existe API do navegador pra GRAVAR na agenda — o .vcf é o caminho: no iPhone o Safari
+ * abre direto a tela "Criar contato"; no Android o arquivo cai nos downloads e, ao tocar nele,
+ * a agenda oferece importar.
+ */
+function vcardDoContato(nome: string, telefone: string): string {
+  const dig = telefone.replace(/\D/g, '')
+  const tel = dig.length === 10 || dig.length === 11 ? `+55${dig}` : dig.startsWith('55') ? `+${dig}` : dig
+  const esc = (t: string) => t.replace(/([\\,;])/g, '\\$1')
+  return ['BEGIN:VCARD', 'VERSION:3.0', `FN:${esc(nome)}`, `N:${esc(nome)};;;;`, `TEL;TYPE=CELL:${tel}`, 'END:VCARD', ''].join('\r\n')
+}
+
+function BotaoSalvarContato({ nome, telefone }: { nome: string; telefone: string }) {
+  return (
+    <button
+      onClick={() => {
+        const blob = new Blob([vcardDoContato(nome, telefone)], { type: 'text/vcard;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${nome.replace(/[\\/:*?"<>|]/g, '')}.vcf`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        setTimeout(() => URL.revokeObjectURL(url), 1000) // no mesmo tick pode cancelar o download no celular
+      }}
+      title="Salvar na agenda do celular"
+      className="flex flex-1 items-center justify-center gap-1.5 min-h-11 py-2 border-l text-xs font-semibold hover:bg-black/5 transition-colors"
+      style={{ borderColor: 'var(--zap-balao-borda)', color: 'var(--zap-acao)' }}
+    >
+      <UserPlus className="h-4 w-4" />
+      Salvar contato
+    </button>
+  )
+}
+
 // ============================================
 // Observações de uma ficha (a "mensagem" da unidade)
 // ============================================
@@ -1508,6 +1568,7 @@ function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, podeM
                           <span className="font-mono">{fmtTelefone(f.telefone) || 'sem telefone'}</span>
                         </span>
                       </span>
+                      {f.nomeAgenda && <BotaoCopiarNome nome={f.nomeAgenda} />}
                     </div>
                     {/* Pé do card de contato: Conversar | Contato Realizado.
                         🔴 `min-h-11` (44px) e não `py-2`: medido em 23/09/2026, o botão saía com
@@ -1536,6 +1597,7 @@ function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, podeM
                           Sem telefone
                         </span>
                       )}
+                      {f.telefone && f.nomeAgenda && <BotaoSalvarContato nome={f.nomeAgenda} telefone={f.telefone} />}
                       {podeMarcarContato && !f.contatoStatus && (
                         <BotaoContatoRealizado contratoId={f.contratoId} onMarcar={onMarcarContato} />
                       )}
