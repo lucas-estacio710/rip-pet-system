@@ -104,18 +104,22 @@ export type ModeloDoItem = { id: string; nome: string; rescaldo_tipo: string | n
  * definir)" → "Castanho", ou produto lançado errado. UPDATE na MESMA linha de contrato_produtos:
  * a tarefa, a foto-prova, o "feito" e a OBS ficam (apagar + inserir levaria tudo pelo CASCADE da
  * mig 116 e nasceria tarefa nova — o que obrigava o gerente a "concluir" de mentira).
- * Valor e desconto ficam os da linha: é o preço combinado; se mudou, edita no lápis.
+ * Valor: passa a ser o PREÇO DO NOVO MODELO quando informado (`valor`) — "Molde de Patinha" (R$ 50)
+ * → Porta-Retrato (R$ 150) é upgrade; "à definir" → cor escolhida custa o mesmo. O desconto da
+ * linha fica. Negociado diferente? Ajusta no lápis depois.
  * Estoque: devolve 1 do antigo e baixa 1 do novo, na unidade DO CONTRATO.
  */
 export async function trocarModeloDoItem(
   sb: Supabase,
-  p: { cpId: string; de: ModeloDoItem; para: ModeloDoItem; contratoId: string; unidadeId: string | null; petNome: string; ator: Ator; onde: string },
+  p: { cpId: string; de: ModeloDoItem; para: ModeloDoItem; valor?: number | null; contratoId: string; unidadeId: string | null; petNome: string; ator: Ator; onde: string },
 ): Promise<void> {
   if (!trocaPreservaLinha(p.de.rescaldo_tipo, p.para.rescaldo_tipo)) {
     throw new Error('Só dá pra trocar por um modelo do mesmo tipo de personalizado.')
   }
   if (p.de.id === p.para.id) return
-  const { error } = await sb.from('contrato_produtos').update({ produto_id: p.para.id } as never).eq('id', p.cpId)
+  const novoValor = typeof p.valor === 'number' ? p.valor : null
+  const { error } = await sb.from('contrato_produtos')
+    .update((novoValor !== null ? { produto_id: p.para.id, valor: novoValor } : { produto_id: p.para.id }) as never).eq('id', p.cpId)
   if (error) throw new Error('Não consegui trocar o modelo: ' + error.message)
   if (p.unidadeId) {
     const rpc = sb.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ error: { message: string } | null }>
@@ -139,7 +143,7 @@ export async function trocarModeloDoItem(
   await registrarObservacaoContrato(sb, {
     contratoId: p.contratoId,
     unidadeId: p.unidadeId,
-    descricao: `${p.ator.nome} trocou ${p.de.nome} por ${p.para.nome} (${p.onde}).`,
+    descricao: `${p.ator.nome} trocou ${p.de.nome} por ${p.para.nome}${novoValor !== null ? ` — valor R$ ${novoValor.toFixed(2).replace('.', ',')}` : ''} (${p.onde}).`,
     criadoPor: p.ator.nome,
   })
 }

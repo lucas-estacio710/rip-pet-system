@@ -151,7 +151,7 @@ export default function PersonalizadosTela(p: Props) {
     if (!i) return
     const tipo = i.rescaldoTipo || 'outro'
     agir(() => trocarModeloDoItem(g.supabase, {
-      cpId: i.id, de: { id: i.produtoId, nome: i.nome, rescaldo_tipo: tipo }, para: { id: prod.id, nome: prod.nome, rescaldo_tipo: tipo },
+      cpId: i.id, de: { id: i.produtoId, nome: i.nome, rescaldo_tipo: tipo }, para: { id: prod.id, nome: prod.nome, rescaldo_tipo: tipo }, valor: prod.preco,
       contratoId: p.contratoId, unidadeId: p.unidadeId, petNome: p.petNome, ator: g.ator, onde: 'pelo pipeline',
     }))
     setTrocando(null)
@@ -184,7 +184,7 @@ export default function PersonalizadosTela(p: Props) {
         </div>
         {trocando && (
           <p className="text-[12.5px] leading-snug" style={{ color: 'var(--surface-600)' }}>
-            Trocar <b>{trocando.nome}</b> por: <span style={{ color: 'var(--surface-400)' }}>a tarefa, a foto e o feito continuam; o valor fica o mesmo.</span>
+            Trocar <b>{trocando.nome}</b> por: <span style={{ color: 'var(--surface-400)' }}>a tarefa, a foto e o feito continuam; o valor passa a ser o do novo modelo.</span>
           </p>
         )}
         {['molde_patinha', 'carimbo', 'pelo_extra', 'outro'].map(tipo => {
@@ -201,6 +201,7 @@ export default function PersonalizadosTela(p: Props) {
                       {c.imagem_url ? <img src={c.imagem_url} alt="" className="w-full h-full" style={{ objectFit: 'contain' }} /> : <span className="text-xl">💎</span>}
                     </span>
                     <span className="text-[10.5px] leading-tight line-clamp-2" style={{ color: 'var(--surface-700)' }}>{c.nome}</span>
+                    {trocando && c.preco != null && <span className="text-[10px] font-semibold tabular-nums" style={{ color: 'var(--surface-500)' }}>R$ {c.preco.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>}
                   </button>
                 ))}
               </div>

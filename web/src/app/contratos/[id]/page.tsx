@@ -337,7 +337,7 @@ export default function ContratoDetalhe() {
   const [filtroProdutoCategoria, setFiltroProdutoCategoria] = useState<string>('')
   const [editandoProduto, setEditandoProduto] = useState<string | null>(null)
   // ⇄ Trocar modelo, dentro do lápis (padrão novo): modelos do mesmo tipo do item em edição.
-  const [modelosTroca, setModelosTroca] = useState<{ id: string; codigo: string; nome: string; imagem_url: string | null }[] | null>(null)
+  const [modelosTroca, setModelosTroca] = useState<{ id: string; codigo: string; nome: string; imagem_url: string | null; preco: number | null }[] | null>(null)
   const [trocandoModelo, setTrocandoModelo] = useState(false)
   const [editForm, setEditForm] = useState({ valor: '' as number | '', desconto: '' as number | '' })
   // Modal de confirmação ao adicionar produto
@@ -3053,13 +3053,15 @@ ${petNome}`
   )
   const abrirTrocaModelo = async (cp: ContratoProduto) => {
     setModelosTroca([])
-    let q = supabase.from('produtos').select('id, codigo, nome, imagem_url')
-      .eq('ativo', true).eq('tipo', cp.produto.tipo).neq('id', cp.produto.id).order('nome')
-    q = cp.produto.rescaldo_tipo ? q.eq('rescaldo_tipo', cp.produto.rescaldo_tipo) : q.is('rescaldo_tipo', null)
+    // Com personalizado: o que manda é o tipo dele (Molde de Patinha ↔ Porta-Retrato ↔ Urna
+    // Porta-Retrato, todos molde). Sem personalizado: mesmo tipo de produto (urna ↔ urna).
+    let q = supabase.from('produtos').select('id, codigo, nome, imagem_url, preco')
+      .eq('ativo', true).neq('id', cp.produto.id).order('nome')
+    q = cp.produto.rescaldo_tipo ? q.eq('rescaldo_tipo', cp.produto.rescaldo_tipo) : q.is('rescaldo_tipo', null).eq('tipo', cp.produto.tipo)
     const { data } = await q
-    setModelosTroca(((data || []) as { id: string; codigo: string; nome: string; imagem_url: string | null }[]).filter(m => m.codigo !== '0002'))
+    setModelosTroca(((data || []) as { id: string; codigo: string; nome: string; imagem_url: string | null; preco: number | null }[]).filter(m => m.codigo !== '0002'))
   }
-  const trocarModelo = async (cp: ContratoProduto, para: { id: string; nome: string }) => {
+  const trocarModelo = async (cp: ContratoProduto, para: { id: string; nome: string; preco: number | null }) => {
     if (trocandoModelo) return
     setTrocandoModelo(true)
     try {
@@ -3067,7 +3069,7 @@ ${petNome}`
       await trocarModeloDoItem(supabase, {
         cpId: cp.id,
         de: { id: cp.produto.id, nome: cp.produto.nome, rescaldo_tipo: cp.produto.rescaldo_tipo },
-        para: { id: para.id, nome: para.nome, rescaldo_tipo: cp.produto.rescaldo_tipo },
+        para: { id: para.id, nome: para.nome, rescaldo_tipo: cp.produto.rescaldo_tipo }, valor: para.preco,
         contratoId: contrato.id, unidadeId: contrato.unidade_id || null, petNome: contrato.pet_nome || 'pet',
         ator: { userId: user?.id || null, nome: userName || 'Alguém' }, onde: 'pelo detalhe',
       })
@@ -3124,7 +3126,7 @@ ${petNome}`
                     ) : (
                       <div className="mb-2.5 rounded-lg border border-purple-800/60 p-2">
                         <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-xs text-slate-400">Trocar por: <span className="text-slate-500">tarefa, foto e feito continuam; o valor fica o mesmo.</span></span>
+                          <span className="text-xs text-slate-400">Trocar por: <span className="text-slate-500">tarefa, foto e feito continuam; o valor passa a ser o do novo modelo.</span></span>
                           <button type="button" onClick={() => setModelosTroca(null)} className="p-0.5 text-slate-500 hover:text-slate-300" title="Fechar"><X className="h-3.5 w-3.5" /></button>
                         </div>
                         {modelosTroca.length === 0 ? (
@@ -3138,7 +3140,8 @@ ${petNome}`
                                   {/* eslint-disable-next-line @next/next/no-img-element */}
                                   <img src={m.imagem_url || `/estoque/${m.codigo}.png`} alt="" className="w-full h-full object-cover" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
                                 </span>
-                                <span className="text-sm text-slate-200 leading-tight">{m.nome}</span>
+                                <span className="flex-1 text-sm text-slate-200 leading-tight">{m.nome}</span>
+                                {m.preco != null && <span className="text-xs text-slate-400 tabular-nums flex-none">{dinheiro(m.preco)}</span>}
                               </button>
                             ))}
                           </div>
