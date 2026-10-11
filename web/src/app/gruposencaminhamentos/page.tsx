@@ -1058,10 +1058,16 @@ function LightboxFicha({ ficha, escala, onFechar }: {
       >
         {/* `padding` branco = margem do arquivo baixado. `textSizeAdjust: 100%` desliga o
             "aumento automático de texto" do Chrome Android, que age em bloco mais largo que a
-            tela (este tem 444px) e mudaria a altura medida pro tamanho da imagem. */}
+            tela (este tem 444px) e mudaria a altura medida pro tamanho da imagem.
+            🔴 `width: DOC_W + 24` com `boxSizing` EXPLÍCITO (10/10/2026): era `width: DOC_W` +
+            padding 12, e o preflight do Tailwind (border-box) deixava o nó com 420px — a imagem
+            nascia com 420 e a folha de 420 começava em 12, então os 12px da direita (borda e fim
+            do código de autenticação) ficavam fora. Corte reproduzido em Chromium de desktop
+            também. O `boxSizing` inline garante a mesma medida na página e dentro do SVG, onde
+            o preflight não chega. */}
         <div
           ref={capturaRef}
-          style={{ width: DOC_W, padding: 12, background: '#fff', WebkitTextSizeAdjust: '100%', textSizeAdjust: '100%' }}
+          style={{ width: DOC_W + 24, boxSizing: 'border-box', padding: 12, background: '#fff', WebkitTextSizeAdjust: '100%', textSizeAdjust: '100%' }}
         >
           <FichaRemocaoDoc contrato={ficha.ficha} />
         </div>
