@@ -48,6 +48,14 @@ import AbasContrato, { type AbaDef } from '@/components/contratos/AbasContrato'
 import TarefasAba, { SELECT_TAREFAS_DO_CONTRATO, type TarefaDoContrato } from '@/components/contratos/TarefasAba'
 import EsteiraGC from '@/components/contratos/pipeline/EsteiraGC'
 import { trocarModeloDoItem } from '@/lib/tarefas-rescaldo'
+import FarolPopup from '@/components/contratos/farois/FarolPopup'
+import UrnaTela from '@/components/contratos/farois/UrnaTela'
+import PagamentoTela from '@/components/contratos/farois/PagamentoTela'
+import PersonalizadosTela from '@/components/contratos/farois/PersonalizadosTela'
+import PelinhoTela from '@/components/contratos/farois/PelinhoTela'
+import FotoTela from '@/components/contratos/farois/FotoTela'
+import { computeAllTags } from '@/lib/contrato-tags'
+import { useVoltarFecha } from '@/hooks/usePopupHistory'
 import { lerVizinhosGravados, vizinhosDe } from '@/lib/vizinhos-contrato'
 
 function PixIcon({ className = "h-5 w-5" }: { className?: string }) {
@@ -128,6 +136,7 @@ type ContratoProduto = {
   foto_recebida: boolean
   foto_url: string | null
   rescaldo_feito: boolean
+  observacao?: string | null
   produto: Produto
 }
 
@@ -339,6 +348,10 @@ export default function ContratoDetalhe() {
   // ⇄ Trocar modelo, dentro do lápis (padrão novo): modelos do mesmo tipo do item em edição.
   const [modelosTroca, setModelosTroca] = useState<{ id: string; codigo: string; nome: string; imagem_url: string | null; preco: number | null }[] | null>(null)
   const [trocandoModelo, setTrocandoModelo] = useState(false)
+  // Faróis do padrão novo: o MESMO popup do pipeline (FarolPopup + telas de farois/), aberto já
+  // na tela do farol tocado. `tela: null` = a lista de pendências ("‹ Pendências").
+  const [farolDet, setFarolDet] = useState<{ tela: string | null } | null>(null)
+  useVoltarFecha(!!farolDet, () => setFarolDet(null))
   const [editForm, setEditForm] = useState({ valor: '' as number | '', desconto: '' as number | '' })
   // Modal de confirmação ao adicionar produto
   const [produtoParaAdicionar, setProdutoParaAdicionar] = useState<Produto | null>(null)
@@ -1085,6 +1098,7 @@ export default function ContratoDetalhe() {
         foto_recebida,
         foto_url,
         rescaldo_feito,
+        observacao,
         produto:produtos(id, codigo, nome, nome_retorno, tipo, preco, estoque_atual, imagem_url, estoque_infinito, precisa_foto, rescaldo_tipo)
       `)
       .eq('contrato_id', params.id)
@@ -3082,6 +3096,205 @@ ${petNome}`
       setTrocandoModelo(false)
     }
   }
+  // ── Faróis no padrão novo (pedido do Lucas, 10/10/2026): mesmas telas do pipeline ──
+  const TELAS_FAROL_DET = new Set(['urna', 'pagamento', 'rescaldo', 'pelinho', 'foto', 'indicacao', 'certificado'])
+  const abrirFarolDet = (id: string) => {
+    if (id === 'rescaldo' && produtosRescaldo.length === 0) void carregarProdutosRescaldo()
+    setFarolDet({ tela: id })
+  }
+  const recarregarDoFarol = async () => { await Promise.all([carregarProdutosContrato(), recarregarValoresContrato()]) }
+  const unidadeDoContrato = contrato.unidade_id || undefined
+  // Mesmo caminho do pipeline (inserirRescaldoNo / apagarRescaldoDe): estoque na unidade DO CONTRATO.
+  const inserirRescaldoDet = async (prod: { id: string; codigo: string; preco: number | null }): Promise<boolean> => {
+    const { error } = await supabase.from('contrato_produtos')
+      .insert({ contrato_id: contrato.id, produto_id: prod.id, quantidade: 1, valor: prod.preco || 0, rescaldo_feito: false } as never)
+    if (error) return false
+    await ajustarEstoquePorCodigo(prod.codigo, -1, unidadeDoContrato)
+    return true
+  }
+  const apagarRescaldoDet = async (cpId: string, produtoId: string): Promise<boolean> => {
+    const { error } = await supabase.from('contrato_produtos').delete().eq('id', cpId)
+    if (error) return false
+    await ajustarEstoque(produtoId, 1, undefined, unidadeDoContrato)
+    return true
+  }
+  const gravarFotoDet = async (cpId: string, recebida: boolean): Promise<boolean> => {
+    const { error } = await supabase.from('contrato_produtos').update({ foto_recebida: recebida } as never).eq('id', cpId)
+    if (error) { alert('Erro ao salvar a foto: ' + error.message); return false }
+    setContratoProdutos(prev => prev.map(cp => cp.id === cpId ? { ...cp, foto_recebida: recebida } : cp))
+    return true
+  }
+  const contratoParaFarois = {
+    ...contrato,
+    temOperacional: temOperacionalContrato,
+    contrato_produtos: contratoProdutos.map(cp => ({
+      foto_recebida: cp.foto_recebida,
+      rescaldo_feito: cp.rescaldo_feito,
+      produto: cp.produto ? {
+        codigo: cp.produto.codigo,
+        tipo: cp.produto.tipo,
+        precisa_foto: cp.produto.precisa_foto ?? false,
+        rescaldo_tipo: cp.produto.rescaldo_tipo ?? null,
+      } : null,
+    })),
+    pagamentos: pagamentos.map(p => ({ tipo: p.tipo, valor: p.valor })),
+    indicacaoFonteId,
+  }
+  const voltarListaFarol = () => setFarolDet({ tela: null })
+  const telaFarolDet = (id: string | null): { emoji: string; titulo: string; conteudo: React.ReactNode } | null => {
+    const nenhum = contratoProdutos.find(cp => cp.produto?.codigo === '0002')
+    const temOp = temOperacionalContrato
+    const podeSemFoto = isSuperAdmin || currentRole === 'gerente'
+    if (id === 'urna') return {
+      emoji: '⚱️', titulo: 'Urna',
+      conteudo: (
+        <UrnaTela
+          contratoId={contrato.id}
+          unidadeId={contrato.unidade_id || null}
+          petNome={contrato.pet_nome || ''}
+          urnasAtuais={contratoProdutos.filter(cp => cp.produto?.tipo === 'urna').map(cp => ({
+            id: cp.id, produtoId: cp.produto.id, nome: cp.produto.nome, codigo: cp.produto.codigo,
+            imagemUrl: cp.produto.imagem_url ?? null, rescaldoTipo: cp.produto.rescaldo_tipo ?? null, feito: !!cp.rescaldo_feito,
+          }))}
+          temNenhumPersonalizado={!!nenhum}
+          onApagarNenhumPersonalizado={() => nenhum ? apagarRescaldoDet(nenhum.id, nenhum.produto.id) : Promise.resolve(true)}
+          onMudou={recarregarDoFarol}
+          onVoltar={voltarListaFarol}
+        />
+      ),
+    }
+    if (id === 'pagamento') return {
+      emoji: '💵', titulo: 'Pagamento',
+      conteudo: (
+        <PagamentoTela
+          contrato={{ ...contrato, pagamentos: pagamentos.map(p => ({ tipo: p.tipo, valor: p.valor })) }}
+          unidadeLogadaId={currentUnit?.id ?? null}
+          nomeUnidadeDoContrato={allUnidades.find(u => u.id === contrato.unidade_id)?.nome ?? null}
+          temFinanceiro={hasModule('tela_financeiro')}
+          // P-09: a chave btn_plano_fechado_pipeline é SÓ do pipeline; no detalhe o "Plano fechado" sempre existiu.
+          podePlanoFechado
+          atorNome={userName || 'Alguém'}
+          onCancelar={voltarListaFarol}
+          onRegistrado={r => {
+            setContrato(prev => prev ? { ...prev, ...r.contrato } as typeof prev : prev)
+            void carregarPagamentos()
+            voltarListaFarol()
+          }}
+        />
+      ),
+    }
+    if (id === 'rescaldo') return {
+      emoji: '💎', titulo: 'Personalizados',
+      conteudo: (
+        <PersonalizadosTela
+          contratoId={contrato.id}
+          unidadeId={contrato.unidade_id || ''}
+          petNome={contrato.pet_nome || ''}
+          itens={contratoProdutos
+            .filter(cp => cp.produto?.rescaldo_tipo && cp.produto.rescaldo_tipo !== 'pelinho')
+            .map(cp => ({
+              id: cp.id, produtoId: cp.produto.id, nome: cp.produto.nome, imagemUrl: cp.produto.imagem_url ?? null,
+              rescaldoTipo: cp.produto.rescaldo_tipo || 'outro', feito: !!cp.rescaldo_feito, observacao: cp.observacao ?? null,
+            }))}
+          nenhum={nenhum ? { id: nenhum.id, produtoId: nenhum.produto.id } : null}
+          catalogo={produtosRescaldo}
+          temOperacional={temOp}
+          podeConcluirSemFoto={podeSemFoto}
+          exigeFotoPorTipo={exigeFotoPorTipo}
+          atorNome={userName || 'Alguém'}
+          onAdicionar={inserirRescaldoDet}
+          onRemover={apagarRescaldoDet}
+          onAdicionarNenhum={async () => {
+            const { data: prod } = await supabase.from('produtos').select('id, codigo, preco').eq('codigo', '0002').single()
+            if (!prod || !(await inserirRescaldoDet(prod as { id: string; codigo: string; preco: number | null }))) throw new Error('Não consegui marcar "Nenhum personalizado".')
+          }}
+          onMudou={recarregarDoFarol}
+        />
+      ),
+    }
+    if (id === 'pelinho') return {
+      emoji: '🫙', titulo: 'Pelinho',
+      conteudo: (
+        <PelinhoTela
+          contratoId={contrato.id}
+          unidadeId={contrato.unidade_id || ''}
+          petNome={contrato.pet_nome || ''}
+          linhas={contratoProdutos.filter(cp => cp.produto?.rescaldo_tipo === 'pelinho')
+            .map(cp => ({ id: cp.id, feito: !!cp.rescaldo_feito, observacao: cp.observacao ?? null }))}
+          temOperacional={temOp}
+          podeConcluirSemFoto={podeSemFoto}
+          exigeFoto={exigeFotoPorTipo.pelinho === true}
+          atorNome={userName || 'Alguém'}
+          onMudou={recarregarDoFarol}
+        />
+      ),
+    }
+    if (id === 'foto') return {
+      emoji: '📷', titulo: 'Fotos dos produtos',
+      conteudo: (
+        <FotoTela
+          produtos={contratoProdutos.filter(cp => cp.produto?.precisa_foto === true)
+            .map(cp => ({ id: cp.id, nome: cp.produto.nome, imagemUrl: cp.produto.imagem_url ?? null, recebida: !!cp.foto_recebida }))}
+          onMarcar={gravarFotoDet}
+          onOk={voltarListaFarol}
+        />
+      ),
+    }
+    if (id === 'indicacao') return {
+      emoji: '🩺', titulo: 'Indicação',
+      conteudo: (
+        <IndicacaoModal
+          embutido
+          contrato={contrato}
+          onClose={voltarListaFarol}
+          onSuccess={(updated) => { setContrato(prev => prev ? { ...prev, ...updated } : prev); voltarListaFarol() }}
+        />
+      ),
+    }
+    if (id === 'certificado') return {
+      emoji: '📜', titulo: 'Confirmar Certificado',
+      conteudo: (
+        <CertificadoModal
+          embutido
+          isOpen
+          contrato={contrato}
+          onClose={voltarListaFarol}
+          onSuccess={(updated) => {
+            const { contrato_gc: _ignorado, ...rest } = updated
+            void _ignorado
+            setContrato(prev => prev ? { ...prev, ...rest } : prev)
+          }}
+        />
+      ),
+    }
+    return null
+  }
+  const farolPopupDet = farolDet && (
+    <FarolPopup
+      aberto
+      onFechar={() => setFarolDet(null)}
+      animar={false}
+      tags={computeAllTags(contratoParaFarois).filter(t => t.id !== 'protocolo')}
+      onFarol={id => {
+        if (TELAS_FAROL_DET.has(id)) { abrirFarolDet(id); return }
+        setFarolDet(null)
+      }}
+      onVoltar={voltarListaFarol}
+      tela={telaFarolDet(farolDet.tela)}
+      pet={{
+        lacre: contrato.numero_lacre != null ? String(contrato.numero_lacre) : null,
+        nome: contrato.pet_nome,
+        genero: contrato.pet_genero,
+        individual: contrato.tipo_cremacao === 'individual',
+        especie: contrato.pet_especie,
+        peso: contrato.pet_peso,
+        raca: contrato.pet_raca,
+        cor: contrato.pet_cor,
+        seguradora: (contrato as { seguradora?: string | null }).seguradora ?? null,
+      }}
+    />
+  )
+
   const cardProdutosNovo = (
     <div className="bg-slate-800 rounded-xl shadow-md p-5 border border-slate-700">
       <div className="flex items-center justify-between mb-3">
@@ -3743,29 +3956,15 @@ ${petNome}`
           {/* Row 3: Tags — no novo: placar + pendentes; código + Alterar dados à direita no desktop */}
           <div className={cardNovo ? 'mb-3 flex flex-wrap items-center gap-2' : 'mb-3'}>
             <InteractiveTags
-              contrato={{
-                ...contrato,
-                temOperacional: temOperacionalContrato,
-                contrato_produtos: contratoProdutos.map(cp => ({
-                  foto_recebida: cp.foto_recebida,
-                  rescaldo_feito: cp.rescaldo_feito,
-                  produto: cp.produto ? {
-                    codigo: cp.produto.codigo,
-                    tipo: cp.produto.tipo,
-                    precisa_foto: cp.produto.precisa_foto ?? false,
-                    rescaldo_tipo: cp.produto.rescaldo_tipo ?? null,
-                  } : null,
-                })),
-                pagamentos: pagamentos.map(p => ({ tipo: p.tipo, valor: p.valor })),
-                indicacaoFonteId,
-              }}
+              contrato={contratoParaFarois}
               handlers={{
-                pelinho: () => setPelinhoModalOpen(true),
-                urna: () => abrirAddProdutoModalComFiltro('urna'),
-                certificado: () => setCertificadoModalOpen(true),
-                foto: () => setFotoModal(true),
-                pagamento: () => abrirMegaPagamento(0, 0),
-                indicacao: () => setIndicacaoModalOpen(true),
+                // Padrão novo: as telas do popup do pipeline (farolPopupDet). Antigo: os modais de sempre.
+                pelinho: cardNovo ? () => abrirFarolDet('pelinho') : () => setPelinhoModalOpen(true),
+                urna: cardNovo ? () => abrirFarolDet('urna') : () => abrirAddProdutoModalComFiltro('urna'),
+                certificado: cardNovo ? () => abrirFarolDet('certificado') : () => setCertificadoModalOpen(true),
+                foto: cardNovo ? () => abrirFarolDet('foto') : () => setFotoModal(true),
+                pagamento: cardNovo ? () => abrirFarolDet('pagamento') : () => abrirMegaPagamento(0, 0),
+                indicacao: cardNovo ? () => abrirFarolDet('indicacao') : () => setIndicacaoModalOpen(true),
                 protocolo: () => {
                   if (contrato.protocolo_data) {
                     setProtocoloEdit(normalizarProtocoloData(contrato.protocolo_data))
@@ -3778,7 +3977,7 @@ ${petNome}`
                     setProtocoloEdit(montarProtocoloData(contrato, cpProdutos, financeiro))
                   }
                 },
-                rescaldo: () => setRescaldoModal(true),
+                rescaldo: cardNovo ? () => abrirFarolDet('rescaldo') : () => setRescaldoModal(true),
               }}
               layout={cardNovo ? 'detail-novo' : 'detail'}
               stopPropagation={false}
@@ -6315,6 +6514,7 @@ ${petNome}`
               setContrato(prev => prev ? { ...prev, status: updated.status, data_entrega: updated.data_entrega } : prev)
             }}
           />
+          {farolPopupDet}
           <PelinhoModal
             isOpen={pelinhoModalOpen}
             onClose={() => setPelinhoModalOpen(false)}
