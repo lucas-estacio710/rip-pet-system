@@ -337,6 +337,9 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
     <div className="space-y-4 max-w-[1200px]">
       {carregando && <Loader2 className="h-4 w-4 animate-spin text-[var(--surface-400)]" />}
 
+      {/* ordem de importância (Lucas, 11/10): balanço do mês → saldo das contas → ainda neste mês */}
+      {blocoMes}
+
       {/* HOJE — a COMISSÃO DE FRENTE (Lucas, 11/10: "é o abre-alas"). Só no mês
           corrente. Um bloco largo, com respiro: o disponível em destaque e, ao
           lado, o que vence até domingo e o que já passou da data — com os nomes. */}
@@ -379,8 +382,6 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
 
       <div className="grid grid-cols-1 lg:grid-cols-[1.65fr_1fr] gap-4 items-start">
         <div className="space-y-4 min-w-0">
-          {/* ordem de importância (Lucas, 11/10): saldo das contas → balanço do mês → ainda neste mês */}
-          {blocoMes}
           {emCurso && saldos && verCaixa && (
             <ProximosDias sb={supabase} uid={currentUnit?.id} disponivel={saldos.disponivel} doMes={fixas.doMes} atrasadas={atrasadas} celular={celular} />
           )}
