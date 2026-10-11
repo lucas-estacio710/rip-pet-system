@@ -953,6 +953,27 @@ function FichaEscalada({ ficha, escala }: { ficha: FichaContratoData; escala: nu
 // ============================================
 // Lightbox: a ficha inteira + baixar PDF/PNG
 // ============================================
+/**
+ * Legenda que vai junto com a imagem no Compartilhar (11/10/2026, pedido do Lucas). Para mudar
+ * o texto, mude SÓ este modelo. Variáveis: {lacre} {pet} {tipo} (IND/COL). Os pedaços são
+ * separados por " · ", e o pedaço cuja variável vier vazia some (sem lacre → "RINGO · COL").
+ * ⚠️ Só chega como legenda no Android; no iPhone a imagem vai sem texto (ver
+ * `compartilharArquivo` em lib/ficha-download.ts).
+ */
+const LEGENDA_COMPARTILHAR = 'Lacre {lacre} · {pet} · {tipo}'
+
+function legendaDaFicha(f: FichaMsg): string {
+  const vars: Record<string, string> = {
+    lacre: f.lacre || '',
+    pet: f.petNome || '',
+    tipo: f.tipoCremacao === 'individual' ? 'IND' : f.tipoCremacao === 'coletiva' ? 'COL' : '',
+  }
+  return LEGENDA_COMPARTILHAR.split(' · ')
+    .filter(pedaco => [...pedaco.matchAll(/\{(\w+)\}/g)].every(m => vars[m[1]]))
+    .map(pedaco => pedaco.replace(/\{(\w+)\}/g, (_, k: string) => vars[k]))
+    .join(' · ')
+}
+
 function LightboxFicha({ ficha, escala, onFechar }: {
   ficha: FichaMsg
   escala: number
@@ -990,7 +1011,7 @@ function LightboxFicha({ ficha, escala, onFechar }: {
         setPronto(arquivo)
         setBaixando(null)
       }
-      const r = await compartilharArquivo(arquivo)
+      const r = await compartilharArquivo(arquivo, legendaDaFicha(ficha))
       if (r === 'sem-toque') setAviso('Imagem pronta. Toque em Compartilhar de novo.')
     } catch (e) {
       console.error('Erro ao compartilhar a ficha:', e)

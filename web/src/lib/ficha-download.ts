@@ -245,9 +245,13 @@ export async function arquivoPngDaFicha(el: HTMLElement, nomeBase: string): Prom
  * até ~5 s depois do toque, e gerar a imagem num celular lento pode passar disso — quem chama
  * guarda o arquivo e pede um segundo toque, que aí é instantâneo.
  */
-export async function compartilharArquivo(arquivo: File): Promise<'ok' | 'cancelado' | 'sem-toque'> {
+export async function compartilharArquivo(arquivo: File, legenda?: string): Promise<'ok' | 'cancelado' | 'sem-toque'> {
+  // Legenda: no Android o WhatsApp usa o `text` como legenda da imagem. No iPhone/iPad NÃO vai —
+  // o Safari descarta os ARQUIVOS quando recebe texto junto (bugs.webkit.org 251500), e a imagem
+  // é o que importa. iPad se apresenta como Mac; o toque denuncia.
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && 'ontouchend' in document)
   try {
-    await navigator.share({ files: [arquivo] })
+    await navigator.share(legenda && !ios ? { files: [arquivo], text: legenda } : { files: [arquivo] })
     return 'ok'
   } catch (e) {
     const nome = (e as Error)?.name
