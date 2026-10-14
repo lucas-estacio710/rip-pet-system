@@ -10,6 +10,7 @@
 // provisoriamente" que existia antes) — decisão de produto pra parar de ter pet sem lacre
 // no pipeline.
 
+import { erroDataAcolhimento } from './data-acolhimento'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { enderecoDeRemocao, type LocalColeta } from '@/lib/endereco-remocao'
 
@@ -133,6 +134,7 @@ export async function criarContratoDeFicha(
     if (!funcionarioId && !responsavelUserId) faltam.push('Responsável')
     if (!aguardarAcolhimento) {
       if (!dataHoraAcolhimento) faltam.push('Data/Hora')
+      else if (erroDataAcolhimento(dataHoraAcolhimento)) faltam.push(erroDataAcolhimento(dataHoraAcolhimento)!)
       if (!lacreOk) faltam.push('Lacre')
     }
   }

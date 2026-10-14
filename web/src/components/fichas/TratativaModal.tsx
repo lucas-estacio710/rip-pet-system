@@ -1,5 +1,6 @@
 'use client'
 
+import { erroDataAcolhimento, limitesDataAcolhimento } from '@/lib/data-acolhimento'
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { User, PawPrint, Flame, Search, Check, Plus, Pencil, Loader2, Building2, UserCheck, MessageCircle, Phone, AlertTriangle } from 'lucide-react'
@@ -932,7 +933,9 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
   const telefoneOk = (telefoneConfirmado && !!telefone1Nome.trim()) || (mostrarTelefone2 && !!telefone2.trim() && !!telefone2Nome.trim())
   const localOk = semLocal || !!localColeta
   const responsavelOk = semResponsavel || (!!funcionarioId || !!responsavelUserId)
-  const dataHoraOk = semDataHora || !!dataHoraAcolhimento
+  // TRAVA (14/10/2026): no máximo 1 mês atrás e nunca no futuro — lib/data-acolhimento
+  const erroDataHora = semDataHora ? null : erroDataAcolhimento(dataHoraAcolhimento)
+  const dataHoraOk = semDataHora || (!!dataHoraAcolhimento && !erroDataHora)
   const lacreOk = semLacre || !!lacre.trim()
   const valorOk = !!valorPlano.trim()
   const fonteOk = !!(ficha?.como_conheceu && ficha.como_conheceu.length > 0)
@@ -955,7 +958,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
     ? (telefoneOk && valorOk && fonteOk)  // PV: pet vivo, sem acolhimento
     : temOperacional
     ? (telefoneOk && !!localColeta && !!responsavelUserId && valorOk && fonteOk)
-    : (telefoneOk && !!localColeta && (!!funcionarioId || !!responsavelUserId) && !!dataHoraAcolhimento && lacreOk && valorOk && fonteOk)
+    : (telefoneOk && !!localColeta && (!!funcionarioId || !!responsavelUserId) && !!dataHoraAcolhimento && !erroDataHora && lacreOk && valorOk && fonteOk)
 
   const footer = somenteLeitura ? (
     /* Modo somente leitura (recebidas) — Cancelar, Fechar e Processar */
@@ -1019,6 +1022,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         if (!isPreventivo && !localColeta) faltam.push('Local de Acolhimento')
         if (!isPreventivo && !funcionarioId && !responsavelUserId) faltam.push('Responsável')
         if (!isPreventivo && !temOperacional && !dataHoraAcolhimento) faltam.push('Data/Hora')
+        else if (!isPreventivo && !temOperacional && erroDataHora) faltam.push('Data/Hora válida')
         if (!valorPlano.trim()) faltam.push('Valor do Plano')
         if (!fonteOk) faltam.push('Como nos conheceu')
         const labelBtn = isPreventivo ? 'Criar Contrato' : 'Iniciar Fluxo'
@@ -1567,7 +1571,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               {semDataHora && !temOperacional && (
                 <div>
                   <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Data e Hora do Acolhimento</label>
-                  <input type="datetime-local" step="1800" value={dataHoraAcolhimento} onChange={e => setDataHoraAcolhimento(e.target.value)} className="input text-sm" />
+                  <input type="datetime-local" step="1800" {...limitesDataAcolhimento()} value={dataHoraAcolhimento} onChange={e => setDataHoraAcolhimento(e.target.value)} className="input text-sm" />
+                  {erroDataHora && <p className="text-[11px] text-red-400 mt-1">{erroDataHora}</p>}
                 </div>
               )}
 
@@ -1581,6 +1586,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               <button
                 onClick={async () => {
                   if (!ficha) return
+                  if (dataHoraAcolhimento && erroDataHora) { toast(erroDataHora, 'error'); return }
                   setSalvando(true)
                   try {
                     // Montar op_dados atualizado com campos preenchidos
@@ -2034,7 +2040,10 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                 {semDataHora ? (
                   <div className="px-3 py-2 rounded-lg bg-amber-900/10 border border-amber-500/30 text-xs text-amber-400">A definir</div>
                 ) : (
-                  <input type="datetime-local" step="1800" value={dataHoraAcolhimento} onChange={e => { setDataHoraAcolhimento(e.target.value); if (e.target.value) setSemDataHora(false) }} className="input text-sm" />
+                  <>
+                  <input type="datetime-local" step="1800" {...limitesDataAcolhimento()} value={dataHoraAcolhimento} onChange={e => { setDataHoraAcolhimento(e.target.value); if (e.target.value) setSemDataHora(false) }} className="input text-sm" />
+                  {erroDataHora && <p className="text-[11px] text-red-400 mt-1">{erroDataHora}</p>}
+                  </>
                 )}
               </div>
 

@@ -1,5 +1,6 @@
 'use client'
 
+import { erroDataAcolhimento, limitesDataAcolhimento } from '@/lib/data-acolhimento'
 import { useState, useEffect } from 'react'
 import { X, MapPin, Navigation, FileDown, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -158,7 +159,8 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
 
   if (!isOpen) return null
 
-  const podeConcluir = !!lacre.trim() && (modoData === 'agora' || (modoData === 'outra' && !!dataHoraManual)) && (!isPosicao || !!executadoPorFuncionarioId)
+  const erroDataManual = modoData === 'outra' ? erroDataAcolhimento(dataHoraManual) : null
+  const podeConcluir = !!lacre.trim() && (modoData === 'agora' || (modoData === 'outra' && !!dataHoraManual && !erroDataManual)) && (!isPosicao || !!executadoPorFuncionarioId)
     && (!exigeFotoAqui || !!fotoProva || podeDispensarFoto)
 
   // Onde buscar o pet — mesma lógica da remoção normal (`tarefas/page.tsx`), adaptada pros
@@ -397,7 +399,10 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
                 <button type="button" onClick={() => setModoData('outra')} className={`px-2 py-0.5 rounded text-[11px] transition-colors ${modoData === 'outra' ? 'bg-[var(--surface-0)] text-emerald-500 font-medium' : 'text-[var(--surface-400)]'}`}>Outra</button>
               </div>
               {modoData === 'outra' && (
-                <input type="datetime-local" step="1800" value={dataHoraManual} onChange={e => setDataHoraManual(e.target.value)} className="input text-sm w-full" />
+                <>
+                <input type="datetime-local" step="1800" {...limitesDataAcolhimento()} value={dataHoraManual} onChange={e => setDataHoraManual(e.target.value)} className="input text-sm w-full" />
+                {erroDataManual && <p className="text-[11px] text-red-400 mt-1">{erroDataManual}</p>}
+                </>
               )}
             </div>
 

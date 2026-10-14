@@ -1,5 +1,6 @@
 'use client'
 
+import { erroDataAcolhimento, limitesDataAcolhimento } from '@/lib/data-acolhimento'
 import { useState, useRef, useEffect } from 'react'
 import { Search, Check, Plus, Phone, AlertTriangle, MessageCircle } from 'lucide-react'
 
@@ -527,7 +528,10 @@ export default function AcolhimentoForm({
         {value.semDataHora ? (
           <div className="px-3 py-2 rounded-lg bg-amber-900/10 border border-amber-500/30 text-xs text-amber-400">A definir</div>
         ) : (
-          <input type="datetime-local" step="1800" value={value.dataHoraAcolhimento} onChange={e => set({ dataHoraAcolhimento: e.target.value, ...(e.target.value ? { semDataHora: false } : {}) })} className="input text-sm" />
+          <>
+          <input type="datetime-local" step="1800" {...limitesDataAcolhimento()} value={value.dataHoraAcolhimento} onChange={e => set({ dataHoraAcolhimento: e.target.value, ...(e.target.value ? { semDataHora: false } : {}) })} className="input text-sm" />
+          {erroDataAcolhimento(value.dataHoraAcolhimento) && <p className="text-[11px] text-red-400 mt-1">{erroDataAcolhimento(value.dataHoraAcolhimento)}</p>}
+          </>
         )}
       </div>
 

@@ -15,6 +15,7 @@
 // (criarContratoDeFicha, responsavelEhOperacional=true).
 // ============================================================================
 
+import { erroDataAcolhimento, limitesDataAcolhimento } from '@/lib/data-acolhimento'
 import { useState, useEffect, useCallback, useRef, createContext, useContext } from 'react'
 import { HandHeart, PackageCheck, PawPrint, Fingerprint, Scissors, Feather, MapPin, Navigation, FileDown, Check, Loader2, ClipboardList, UserPlus, Plus, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -1198,6 +1199,7 @@ export default function TarefasPage() {
     // Nada pré-marcado: escolher é obrigatório. Ver AgoraOutraToggle.
     if (!modoDataRemocao) { setErroRemocao('Escolha quando aconteceu o acolhimento: Agora ou outra data/hora'); return }
     if (modoDataRemocao === 'outra' && !dataHoraRemocaoManual) { setErroRemocao('Informe a data/hora da remoção'); return }
+    if (modoDataRemocao === 'outra') { const e = erroDataAcolhimento(dataHoraRemocaoManual); if (e) { setErroRemocao(e); return } }
     if (isPosicao && !executadoPorFuncionarioId) { setErroRemocao('Informe quem executou'); return }
     setConcluindoRemocao(true)
     setErroRemocao(null)
@@ -2624,7 +2626,10 @@ export default function TarefasPage() {
                       <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Quando aconteceu o acolhimento? <span className="text-red-400">*</span></label>
                       <AgoraOutraToggle modo={modoDataRemocao} setModo={setModoDataRemocao} outraLabel="Escolher Data/Hora" />
                       {modoDataRemocao === 'outra' && (
-                        <input type="datetime-local" step="1800" value={dataHoraRemocaoManual} onChange={e => setDataHoraRemocaoManual(e.target.value)} className="input w-full mt-1.5" />
+                        <>
+                        <input type="datetime-local" step="1800" {...limitesDataAcolhimento()} value={dataHoraRemocaoManual} onChange={e => setDataHoraRemocaoManual(e.target.value)} className="input w-full mt-1.5" />
+                        {erroDataAcolhimento(dataHoraRemocaoManual) && <p className="text-[11px] text-red-400 mt-1">{erroDataAcolhimento(dataHoraRemocaoManual)}</p>}
+                        </>
                       )}
                     </div>
                     <div>

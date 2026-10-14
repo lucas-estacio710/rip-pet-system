@@ -1,5 +1,6 @@
 'use client'
 
+import { erroDataAcolhimento } from '@/lib/data-acolhimento'
 import { useEffect, useState } from 'react'
 import { X, Save, Loader2, ClipboardList, AlertTriangle, Lock } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -77,6 +78,7 @@ export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClos
   // ===== Form: só editáveis no modo sensível =====
   const [lacre, setLacre] = useState('')
   const [dataAcolhimento, setDataAcolhimento] = useState('') // datetime-local
+  const [dataAcolhimentoOriginal, setDataAcolhimentoOriginal] = useState('')
   const [petNome, setPetNome] = useState('')
   const [petEspecie, setPetEspecie] = useState('')
   const [petRaca, setPetRaca] = useState('')
@@ -116,8 +118,9 @@ export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClos
       if (co?.data_acolhimento) {
         const d = new Date(co.data_acolhimento)
         const pad = (n: number) => String(n).padStart(2, '0')
-        setDataAcolhimento(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`)
-      } else setDataAcolhimento('')
+        const v = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+        setDataAcolhimento(v); setDataAcolhimentoOriginal(v)
+      } else { setDataAcolhimento(''); setDataAcolhimentoOriginal('') }
       setPetNome(co?.pet_nome || '')
       setPetEspecie(co?.pet_especie || '')
       setPetRaca(co?.pet_raca || '')
@@ -166,6 +169,11 @@ export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClos
       // Campos sensíveis — só sobrescrevem se o modo estiver ativo E o usuário tiver permissão
       if (modoSensivel && podeEditarSensivel) {
         upd.numero_lacre = lacre.trim() || null
+        // TRAVA (14/10/2026): corrigir um contrato antigo pode voltar meses, mas ano absurdo/futuro não
+        if (dataAcolhimento !== dataAcolhimentoOriginal) {
+          const e = erroDataAcolhimento(dataAcolhimento, { semLimiteAtras: true })
+          if (e) throw new Error(e)
+        }
         upd.data_acolhimento = dataAcolhimento ? new Date(dataAcolhimento).toISOString() : null
         upd.pet_nome = petNome.trim() || null
         upd.pet_especie = petEspecie || null
@@ -297,6 +305,7 @@ export default function EditarFichaModal({ isOpen, contratoId, unidadeId, onClos
                   <div>
                     <label className="text-caption text-[var(--shell-text-muted)] block mb-1">Data/hora Acolhimento</label>
                     <input type="datetime-local" value={dataAcolhimento} onChange={(e) => setDataAcolhimento(e.target.value)} className="input w-full" />
+                    {dataAcolhimento !== dataAcolhimentoOriginal && erroDataAcolhimento(dataAcolhimento, { semLimiteAtras: true }) && <p className="text-[11px] text-red-400 mt-1">{erroDataAcolhimento(dataAcolhimento, { semLimiteAtras: true })}</p>}
                   </div>
                 </div>
 

@@ -1,5 +1,6 @@
 'use client'
 
+import { erroDataAcolhimento } from '@/lib/data-acolhimento'
 import { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -181,6 +182,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
   // fora do caminho de atribuição (unidade sem cb_operacional, comportamento de hoje intacto).
   const podeAtivar = localOk && (!!acolhimento.funcionarioId || !!acolhimento.responsavelUserId)
     && (temOperacional || !!acolhimento.dataHoraAcolhimento)
+    && (acolhimento.semDataHora || !erroDataAcolhimento(acolhimento.dataHoraAcolhimento))
 
   async function salvarAtivacao() {
     const a = acolhimento
@@ -195,6 +197,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
     }
     if (!a.funcionarioId && !a.responsavelUserId) faltando.push('Responsável pelo acolhimento')
     if (!temOperacional && !a.dataHoraAcolhimento) faltando.push('Data e hora do acolhimento')
+    else if (!a.semDataHora && erroDataAcolhimento(a.dataHoraAcolhimento)) faltando.push(erroDataAcolhimento(a.dataHoraAcolhimento)!)
 
     if (faltando.length) {
       alert('Preencha os campos obrigatórios da ativação:\n\n• ' + faltando.join('\n• '))
