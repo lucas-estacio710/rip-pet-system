@@ -17,7 +17,7 @@
 
 import { erroDataAcolhimento, limitesDataAcolhimento } from '@/lib/data-acolhimento'
 import { useState, useEffect, useCallback, useRef, createContext, useContext } from 'react'
-import { HandHeart, PackageCheck, PawPrint, Fingerprint, Scissors, Feather, MapPin, Navigation, FileDown, Check, Loader2, ClipboardList, UserPlus, Plus, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { HandHeart, PackageCheck, PawPrint, Fingerprint, Scissors, Feather, MapPin, Navigation, FileDown, Check, CheckCheck, Loader2, ClipboardList, UserPlus, Plus, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { atribuiveis } from '@/lib/cache-pessoas'
 import { useVoltarFecha } from '@/hooks/usePopupHistory'
@@ -32,6 +32,7 @@ import type { FotoComprimida } from '@/lib/comprimir-imagem'
 import { concluirTarefasOperacionais, reabrirTarefasOperacionais, registrarObservacaoContrato, formatarIdade } from '@/lib/atribuir-tarefa'
 import { lerObsEntrega, formatarPrevisao } from '@/lib/obs-entrega'
 import { enderecoParaNavegar, linksNavegacao } from '@/lib/card-pet'
+import { COLUNAS_ENDERECO_CLINICA, textoEnderecoClinica, linksDestino, type EnderecoClinica } from '@/lib/endereco-clinica'
 import { carregarExigeFoto, enviarFotoTarefa, listarFotosDasTarefas, urlAssinadaFoto, type ExigeFotoPorTipo } from '@/lib/foto-tarefa'
 
 // `entrega_pendente` NÃO é um tipo real de `tarefas_operacionais.tipo` (a constraint do banco
@@ -714,13 +715,18 @@ function AgoraOutraToggle({ modo, setModo, outraLabel = 'Outra' }: { modo: 'agor
 // por baixo, largura de cada aba seguindo o texto em vez de terços/metades forçados; assim a
 // versão de 3 fases e a de 2 fases não têm a mesma cara. Opção "B" escolhida pelo Lucas entre
 // 5 tratamentos apresentados num artifact comparativo (01/09/2026).
+// `pequena` (14/10/2026, bancada do /tarefas): a aba vira um link discreto no canto direito —
+// é como Finalizadas entra, pra dar a ênfase a Para Atribuir e Em Andamento, que é onde se trabalha.
 function UnderlineTabs<T extends string>({ tabs, value, onChange }: {
-  tabs: { key: T; label: string; count: number }[]
+  tabs: { key: T; label: string; count: number; pequena?: boolean }[]
   value: T
   onChange: (key: T) => void
 }) {
   const btnRefs = useRef<Record<string, HTMLButtonElement | null>>({})
   const [thumb, setThumb] = useState({ left: 0, width: 0 })
+  const principais = tabs.filter(t => !t.pequena)
+  const pequenas = tabs.filter(t => t.pequena)
+  const naPequena = pequenas.some(t => t.key === value)
 
   useEffect(() => {
     const btn = btnRefs.current[value]
@@ -729,11 +735,13 @@ function UnderlineTabs<T extends string>({ tabs, value, onChange }: {
 
   return (
     <div className="relative flex gap-5 border-b border-[var(--surface-200)] px-0.5">
-      <div
-        className="absolute bottom-[-1px] h-0.5 rounded-full bg-[var(--brand-600)] transition-all duration-300 ease-out"
-        style={{ left: thumb.left, width: thumb.width }}
-      />
-      {tabs.map(tab => (
+      {!naPequena && (
+        <div
+          className="absolute bottom-[-1px] h-0.5 rounded-full bg-[var(--brand-600)] transition-all duration-300 ease-out"
+          style={{ left: thumb.left, width: thumb.width }}
+        />
+      )}
+      {principais.map(tab => (
         <button
           key={tab.key}
           ref={el => { btnRefs.current[tab.key] = el }}
@@ -747,6 +755,21 @@ function UnderlineTabs<T extends string>({ tabs, value, onChange }: {
           </span>
         </button>
       ))}
+      {pequenas.length > 0 && (
+        <div className="ml-auto flex items-center gap-1 self-center pb-2">
+          {pequenas.map(tab => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => onChange(tab.key)}
+              className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap transition-colors ${value === tab.key ? 'bg-[var(--brand-50)] text-[var(--brand-700)]' : 'text-[var(--surface-400)] hover:text-[var(--surface-600)]'}`}
+            >
+              <CheckCheck className="h-3.5 w-3.5" />
+              {tab.label} · {tab.count}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -840,6 +863,22 @@ export default function TarefasPage() {
   const [produtosPorId, setProdutosPorId] = useState<Record<string, ContratoProdutoResumo>>({})
   const [loadingMinhas, setLoadingMinhas] = useState(true)
   const [tarefaAberta, setTarefaAberta] = useState<TarefaGrupo | null>(null)
+
+  // Endereço da clínica CADASTRADA da remoção aberta (14/10/2026): o Waze/Maps recebia o NOME
+  // da clínica e "CV Martins Fontes" virava a livraria. Busca só ao abrir o popup, 1x por clínica.
+  const [clinicaPorId, setClinicaPorId] = useState<Record<string, EnderecoClinica | null>>({})
+  const clinicasPedidas = useRef(new Set<string>())
+  useEffect(() => {
+    const ficha = tarefaAberta?.tipo === 'remocao' && tarefaAberta.ficha_id ? fichasPorId[tarefaAberta.ficha_id] : null
+    const estabId = ficha ? ((ficha.op_dados || {}) as Record<string, unknown>).estabId : null
+    if (typeof estabId !== 'string' || !estabId || clinicasPedidas.current.has(estabId)) return
+    clinicasPedidas.current.add(estabId)
+    supabase.from('estabelecimentos').select(COLUNAS_ENDERECO_CLINICA).eq('id', estabId).maybeSingle()
+      .then(({ data, error }) => {
+        if (error) console.error('[tarefas] endereço da clínica:', error.message)
+        setClinicaPorId(m => ({ ...m, [estabId]: (data as EnderecoClinica | null) ?? null }))
+      })
+  }, [tarefaAberta, fichasPorId, supabase])
 
   // ── Resolve pet/tutor/contrato de um lote de tarefas_operacionais (compartilhado entre
   // "Minhas Tarefas", "Em andamento" e "Concluídas recentemente") ─────────────────────
@@ -1960,7 +1999,7 @@ export default function TarefasPage() {
             onChange={setSubAbaMinhas}
             tabs={[
               { key: 'em_andamento', label: 'Em Andamento', count: minhasTarefas.length },
-              { key: 'finalizadas', label: 'Finalizadas últ. 2d.', count: minhasConcluidas.length },
+              { key: 'finalizadas', label: 'Finalizadas 2d', count: minhasConcluidas.length, pequena: true },
             ]}
           />
 
@@ -2170,7 +2209,7 @@ export default function TarefasPage() {
             tabs={[
               { key: 'pra_atribuir', label: 'Para Atribuir', count: totalPraAtribuir },
               { key: 'em_andamento', label: 'Em Andamento', count: emAndamento.length },
-              { key: 'finalizadas', label: 'Finalizadas últ. 2d.', count: concluidasRecentes.length },
+              { key: 'finalizadas', label: 'Finalizadas 2d', count: concluidasRecentes.length, pequena: true },
             ]}
           />
 
@@ -2544,6 +2583,7 @@ export default function TarefasPage() {
 
               let localLabel = 'Residência'
               let enderecoNavegavel = enderecoResidencia
+              let coordenada: [number | null, number | null] = [null, null]
               let semTraslado = false
 
               if (op.semLocal) {
@@ -2552,6 +2592,13 @@ export default function TarefasPage() {
               } else if (opLocalColeta === 'clinica') {
                 localLabel = 'Clínica / Hospital'
                 enderecoNavegavel = (temPadronizacaoClinicas ? (op.estabNome as string) : (op.clinicaTextoLivre as string)) || ficha.localizacao_outra || ''
+                // Clínica do cadastro: navega pro endereço/coordenada dela, não pelo nome.
+                const cad = temPadronizacaoClinicas && typeof op.estabId === 'string' ? clinicaPorId[op.estabId] : null
+                if (cad) {
+                  localLabel = `Clínica / Hospital · ${cad.nome}`
+                  enderecoNavegavel = textoEnderecoClinica(cad) || enderecoNavegavel
+                  coordenada = [cad.latitude, cad.longitude]
+                }
               } else if (opLocalColeta === 'outro') {
                 localLabel = 'Outro endereço'
                 enderecoNavegavel = (op.enderecoOutro as string) || ficha.localizacao_outra || ''
@@ -2573,8 +2620,9 @@ export default function TarefasPage() {
                 }
               }
 
-              const wazeUrl = enderecoNavegavel ? `https://waze.com/ul?q=${encodeURIComponent(enderecoNavegavel)}&navigate=yes` : null
-              const gmapsUrl = enderecoNavegavel ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(enderecoNavegavel)}` : null
+              const destino = enderecoNavegavel ? linksDestino(enderecoNavegavel, coordenada[0], coordenada[1]) : null
+              const wazeUrl = destino?.waze ?? null
+              const gmapsUrl = destino?.maps ?? null
 
               return (
                 <div className="space-y-3">

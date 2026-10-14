@@ -10,6 +10,7 @@ import FotoProva from '@/components/tarefas/FotoProva'
 import type { FotoComprimida } from '@/lib/comprimir-imagem'
 import { carregarExigeFoto, enviarFotoTarefa } from '@/lib/foto-tarefa'
 import { concluirTarefasOperacionais, reabrirTarefasOperacionais } from '@/lib/atribuir-tarefa'
+import { textoEnderecoClinica, linksDestino, type EnderecoClinica } from '@/lib/endereco-clinica'
 
 // ============================================================================
 // AtivacaoPVModal — conclusão da tarefa "Ativar Preventivo" (mig 138).
@@ -69,7 +70,7 @@ type InfoAcolhimento = {
   pet_peso: number | null
   local_coleta: string | null
   clinica_coleta: string | null
-  estab: { nome: string } | null
+  estab: EnderecoClinica | null
   // `contratos` NÃO tem tutor_numero/tutor_complemento/tutor_estado como colunas próprias
   // (achado testando: 42703, coluna não existe) — `tutor_endereco` já vem com número e
   // complemento embutidos no texto (ex: "Avenida X, 342 - casa 02").
@@ -151,7 +152,7 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
     }
 
     supabase.from('contratos')
-      .select('pet_especie, pet_raca, pet_cor, pet_peso, local_coleta, clinica_coleta, estab:estabelecimentos!estabelecimento_id(nome), tutor_endereco, tutor_bairro, tutor_cidade, tutor_telefone, tutor_telefone_nome')
+      .select('pet_especie, pet_raca, pet_cor, pet_peso, local_coleta, clinica_coleta, estab:estabelecimentos!estabelecimento_id(nome, endereco, bairro, cidade, estado, latitude, longitude), tutor_endereco, tutor_bairro, tutor_cidade, tutor_telefone, tutor_telefone_nome')
       .eq('id', contrato.id)
       .maybeSingle()
       .then(({ data }) => setInfo((data as unknown as InfoAcolhimento | null) || null))
@@ -168,6 +169,7 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
   const petDetalhe = info ? [info.pet_especie, info.pet_raca, info.pet_cor, info.pet_peso ? `${info.pet_peso}kg` : null].filter(Boolean).join(' · ') : ''
   let localLabel = ''
   let enderecoNavegavel = ''
+  let coordenada: [number | null, number | null] = [null, null]
   let semTraslado = false
   if (info) {
     const enderecoResidencia = info.tutor_endereco
@@ -175,7 +177,10 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
       : ''
     if (info.local_coleta === 'Clínica') {
       localLabel = 'Clínica / Hospital'
-      enderecoNavegavel = info.estab?.nome || info.clinica_coleta || ''
+      // Clínica do cadastro: endereço/coordenada dela, não o nome (14/10/2026 — "CV Martins
+      // Fontes" virava a livraria no Waze). Ver lib/endereco-clinica.ts.
+      enderecoNavegavel = (info.estab && textoEnderecoClinica(info.estab)) || info.estab?.nome || info.clinica_coleta || ''
+      if (info.estab) coordenada = [info.estab.latitude, info.estab.longitude]
     } else if (info.local_coleta === 'Outro') {
       localLabel = 'Outro endereço'
       enderecoNavegavel = info.clinica_coleta || ''
@@ -187,8 +192,9 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
       enderecoNavegavel = enderecoResidencia
     }
   }
-  const wazeUrl = enderecoNavegavel ? `https://waze.com/ul?q=${encodeURIComponent(enderecoNavegavel)}&navigate=yes` : null
-  const gmapsUrl = enderecoNavegavel ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(enderecoNavegavel)}` : null
+  const destino = enderecoNavegavel ? linksDestino(enderecoNavegavel, coordenada[0], coordenada[1]) : null
+  const wazeUrl = destino?.waze ?? null
+  const gmapsUrl = destino?.maps ?? null
 
   async function gerarPdf() {
     setGerandoPdf(true)
