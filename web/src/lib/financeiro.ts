@@ -208,12 +208,8 @@ export const PRODUTOS: {
     tipo: 'corrente',
     entradas: ['pix', 'dinheiro'], saidas: ['pix', 'boleto', 'transferencia', 'debito'],
   },
-  {
-    v: 'conta_pagamento', label: 'Conta de pagamento',
-    desc: 'Tipo Nubank PJ ou PicPay: pix entra e sai, boleto sai.',
-    tipo: 'corrente',
-    entradas: ['pix'], saidas: ['pix', 'boleto'],
-  },
+  // 'Conta de pagamento' saiu em 14/10/2026 (Lucas: "só confunde") — Nubank PJ, PicPay
+  // etc. são conta corrente. O valor segue no tipo só por compatibilidade (nenhuma conta usa).
   {
     v: 'maquininha', label: 'Maquininha',
     desc: 'Recebe crédito e débito. O dinheiro cai depois, já sem a taxa.',

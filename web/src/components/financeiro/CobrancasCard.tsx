@@ -84,10 +84,35 @@ export default function CobrancasCard({ onMudou }: { onMudou?: () => void }) {
     setAReceber((entrada.data as unknown as CobrancaCompleta[]) || [])
     setEmitidas((saida.data as unknown as CobrancaCompleta[]) || [])
     setSaldos((saldo.data as unknown as SaldoComUnidade[]) || [])
+    // CONTA COMPARTILHADA (14/10/2026): Matriz e Pinda usam a MESMA conta corrente — entre
+    // elas a dívida se baixa no papel, sem dinheiro andando. Quem divide conta com quem:
+    const { data: cs } = await supabase.from('contas').select('unidade_id, unidades_extras, produto, tipo')
+      .or(`unidade_id.eq.${currentUnit.id},unidades_extras.cs.{${currentUnit.id}}`).eq('ativo', true)
+    const viz = new Set<string>()
+    for (const c of (cs as { unidade_id: string; unidades_extras: string[] | null; produto: string | null; tipo: string | null }[] | null) || []) {
+      if (c.produto === 'maquininha' || c.tipo === 'cartao' || c.produto === 'cartao_credito') continue
+      for (const u of [c.unidade_id, ...(c.unidades_extras || [])]) if (u && u !== currentUnit.id) viz.add(u)
+    }
+    setDividemConta(viz)
     setCarregando(false)
   }, [supabase, currentUnit?.id])
 
   useEffect(() => { void carregar() }, [carregar])
+
+  const [dividemConta, setDividemConta] = useState<Set<string>>(new Set())
+  const [baixando, setBaixando] = useState<string | null>(null)
+  /** Baixa no papel: as cobranças ACEITAS entre as duas viram liquidadas. Nenhum dinheiro anda. */
+  async function darBaixa(contraparte: string) {
+    if (!currentUnit?.id) return
+    if (baixando !== contraparte) { setBaixando(contraparte); return }   // 1º clique pede confirmação
+    const par = `and(unidade_credora.eq.${currentUnit.id},unidade_devedora.eq.${contraparte}),and(unidade_credora.eq.${contraparte},unidade_devedora.eq.${currentUnit.id})`
+    const { error } = await supabase.from('fin_cobrancas').update({ status: 'liquidada' })
+      .eq('status', 'aceita').is('repasse_id', null).or(par)
+    setBaixando(null)
+    if (error) return toast(error.message, 'error')
+    toast('Baixa feita — mesma conta corrente, nenhum dinheiro saiu ou entrou', 'success')
+    void carregar(); onMudou?.()
+  }
 
   /** Reconhece a cobrança — e é aqui que o custo entra na DRE de quem aceita. */
   async function aceitar(c: CobrancaCompleta) {
@@ -168,6 +193,14 @@ export default function CobrancasCard({ onMudou }: { onMudou?: () => void }) {
                            transform: aFavor ? undefined : 'rotate(180deg)' }}
                 />
                 <span style={{ color: aFavor ? '#10b981' : '#f59e0b' }}>{fraseDoSaldo(s)}</span>
+                {dividemConta.has(s.contraparte_id) && (
+                  <button onClick={() => void darBaixa(s.contraparte_id)}
+                          title="As duas unidades usam a mesma conta corrente: a dívida se baixa no papel, sem dinheiro andando"
+                          className={`ml-1 px-2 py-0.5 rounded-md border text-[11px] font-semibold ${baixando === s.contraparte_id ? 'bg-amber-500 text-white border-amber-500' : 'border-current'}`}
+                          style={{ color: baixando === s.contraparte_id ? undefined : (aFavor ? '#10b981' : '#f59e0b') }}>
+                    {baixando === s.contraparte_id ? 'Confirmar baixa (mesma conta, sem dinheiro)' : 'Dar baixa'}
+                  </button>
+                )}
               </div>
             )
           })}

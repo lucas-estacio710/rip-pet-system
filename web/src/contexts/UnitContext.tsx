@@ -19,6 +19,9 @@ export type Unidade = {
   endereco: string | null
   cep: string | null       // CEP da unidade (mig 102) — base da ordenação por proximidade no pipeline
   is_matriz: boolean
+  // Marco zero do financeiro (mig 167): antes deste mês a DRE e o Livro-Caixa não valem.
+  // Opcional: vem do select('*') e fica undefined se a migration ainda não rodou.
+  financeiro_desde?: string | null
   modulos_ativos: string[]
   ativa: boolean
 }

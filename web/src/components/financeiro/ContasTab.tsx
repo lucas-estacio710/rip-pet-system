@@ -23,6 +23,9 @@
 //
 // Escopo por unidade: `contas.unidade_id`. Cada unidade cadastra as suas.
 
+import { createPortal } from 'react-dom'
+import Modal from '@/components/ui/Modal'
+import { CORES_CONTA, ehCorConta, avisarCoresMudaram, type CorConta } from '@/lib/cor-conta'
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -73,6 +76,7 @@ type Conta = {
   preferencial_recebimento: boolean
   mostrar_no_caixa: boolean   // aparece na grade/total da aba Caixa (mig 146)
   reserva?: boolean           // guardada (aplicação): fora do "disponível pra pagar" (mig 160)
+  cor?: string | null         // a cor da conta, em todo lugar (mig 163)
   entradasUso: number   // pagamentos que caíram nela
   saidasUso: number     // lançamentos pagos por ela
 }
@@ -101,6 +105,9 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
   const [lado, setLado] = useState<'entradas' | 'saidas' | null>(null)
   // Taxas do adquirente (mig 134) — carregadas só quando uma maquininha abre.
   const [taxas, setTaxas] = useState<TaxaConta[]>([])
+  // NOVA CONTA num popup próprio (14/10/2026: o campo "Instituição" solto no topo não
+  // dizia que era pra criar conta). Portal: o Modal de fora tem transform e prenderia este.
+  const [novaAberta, setNovaAberta] = useState(false)
   const [bandeiraVista, setBandeiraVista] = useState<string>('')   // '' = a genérica
 
   const carregar = useCallback(async () => {
@@ -110,7 +117,9 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
     // `reserva` é da mig 160: sem ela a consulta volta sem a coluna (a tela segue igual).
     const buscar = (cols: string) => supabase.from('contas').select(cols)
       .eq('unidade_id', currentUnit.id).order('ativo', { ascending: false }).order('nome')
-    let r = await buscar(`${COLS}, reserva`)
+    // `cor` é da mig 163: sem ela, tenta sem a coluna (e sem a 160, sem `reserva`).
+    let r = await buscar(`${COLS}, reserva, cor`)
+    if (r.error) r = await buscar(`${COLS}, reserva`)
     if (r.error) r = await buscar(COLS)
     const data = r.data
     const base = ((data as unknown as Omit<Conta, 'entradasUso' | 'saidasUso'>[]) || [])
@@ -185,7 +194,8 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
     const antes = contas
     setContas(cs => cs.map(x => (x.id === c.id ? { ...x, ...campos } : x)))
     const { error } = await supabase.from('contas').update(campos).eq('id', c.id)
-    if (error) { setContas(antes); toast(error.message, 'error') }
+    if (error) { setContas(antes); toast(error.message, 'error'); return }
+    if ('cor' in campos) avisarCoresMudaram()   // as outras telas repintam
   }
 
   function alternar(c: Conta, lista: 'entradas' | 'saidas', metodo: string) {
@@ -231,7 +241,7 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
     const { error } = await supabase.from('contas').insert(novas)
     setSalvando(false)
     if (error) return toast(error.message, 'error')
-    setInst(''); setQtd({})
+    setInst(''); setQtd({}); setNovaAberta(false)
     toast(novas.length === 1 ? 'Conta criada' : `${novas.length} contas criadas`, 'success')
     void carregar()
   }
@@ -310,18 +320,28 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
   const ativas = contas.filter(c => c.ativo).length
 
   return (
-    <div className="animate-fade-in space-y-3 max-w-2xl">
+    <div className="animate-fade-in space-y-3">
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-xs text-[var(--surface-500)]">
           {currentUnit?.nome} · {ativas} ativa{ativas === 1 ? '' : 's'}
         </span>
         {carregando && <Loader2 className="h-4 w-4 animate-spin text-[var(--surface-400)]" />}
+        {!somenteLeitura && (
+          <button onClick={() => setNovaAberta(true)} className="btn-primary text-sm ml-auto"><Plus className="h-4 w-4" /> Nova conta</button>
+        )}
       </div>
 
-      {!somenteLeitura && (
-        <div className="card p-3 space-y-3">
+      {novaAberta && typeof document !== 'undefined' && createPortal(
+        <Modal isOpen={novaAberta} onClose={() => setNovaAberta(false)} title="Nova conta" size="md">
+          <div className="space-y-4">
+            <p className="text-sm text-[var(--surface-600)]">
+              Cadastre de onde o dinheiro da unidade entra e sai: a conta do banco, a maquininha, o cartão
+              da empresa, o dinheiro do caixa. Primeiro diga <b>em qual banco ou empresa</b>; depois marque
+              <b> o que vocês têm lá</b> — pode ser mais de uma coisa (ex.: no Inter, conta corrente + cartão).
+            </p>
+            <div className="space-y-3">
           <div>
-            <label className="text-xs text-[var(--surface-500)] block mb-1">Instituição</label>
+            <label className="text-sm font-semibold text-[var(--surface-800)] block mb-1">1. Em qual banco ou empresa?</label>
             <input
               list="instituicoes"
               value={inst}
@@ -338,7 +358,7 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
             <>
               <div>
                 <p className="text-xs text-[var(--surface-500)] mb-1.5">
-                  O que vocês têm {inst.trim() ? `no ${inst.trim()}` : 'aqui'}?
+                  2. O que vocês têm {inst.trim() ? `no ${inst.trim()}` : 'aqui'}?
                 </p>
                 <div className="space-y-1">
                   {PRODUTOS.map(pr => {
@@ -387,7 +407,10 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
               </button>
             </>
           )}
-        </div>
+            </div>
+          </div>
+        </Modal>,
+        document.body,
       )}
 
       <div className="card divide-y divide-[var(--surface-200)]">
@@ -450,10 +473,12 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
                     </div>
                   ) : (
                     <p className="text-sm text-[var(--surface-800)] truncate flex items-center gap-1.5">
+                      {ehCorConta(c.cor) && <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: CORES_CONTA[c.cor].hex }} />}
                       {c.nome}
                       {c.preferencial_recebimento && (
                         <Star className="h-3 w-3 shrink-0" style={{ color: '#f59e0b', fill: '#f59e0b' }} />
                       )}
+                      {c.reserva && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--surface-100)] text-[var(--surface-500)] shrink-0" title="Fica fora do saldo disponível pra pagar e da previsão">sem liquidez</span>}
                       {!c.ativo && <span className="text-xs text-[var(--surface-400)]">· desativada</span>}
                       {!c.produto && !c.legado && (
                         <span
@@ -528,20 +553,29 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
                             mas não entra no "disponível pra pagar" nem na previsão
                             dos próximos 30 dias da Visão do mês. */}
                         {c.reserva !== undefined && c.produto !== 'maquininha' && c.tipo !== 'cartao' && (
-                          <button
-                            onClick={() => void patch(c, { reserva: !c.reserva })}
-                            title={c.reserva
-                              ? 'Conta guardada: fica fora do "disponível pra pagar" e da previsão. Clique para voltar a contar.'
-                              : 'Marque se é dinheiro guardado (aplicação, investimento) — sai do "disponível pra pagar".'}
-                            className="text-[11px] px-2 py-1 rounded-full border transition-colors"
-                            style={{
-                              background: c.reserva ? 'rgba(139,92,246,0.16)' : 'transparent',
-                              borderColor: c.reserva ? '#8b5cf6' : 'var(--surface-300)',
-                              color: c.reserva ? '#a78bfa' : 'var(--surface-500)',
-                            }}
-                          >
-                            {c.reserva ? 'Guardada' : 'Conta no disponível'}
-                          </button>
+                          // toggle de duas posições (14/10/2026): "Disponível" conta no saldo pra
+                          // pagar; "Sem liquidez" (aplicação) fica fora do disponível e da previsão
+                          <span className="inline-flex rounded-full border border-[var(--surface-300)] p-0.5 text-[11px]"
+                                title="Sem liquidez: dinheiro aplicado/investido — fica fora do saldo disponível pra pagar e da previsão">
+                            {([false, true] as const).map(v => (
+                              <button key={String(v)} onClick={() => { if (!!c.reserva !== v) void patch(c, { reserva: v }) }}
+                                      className={`px-2 py-0.5 rounded-full transition-colors ${!!c.reserva === v ? 'bg-[var(--brand-500)] text-white' : 'text-[var(--surface-500)] hover:text-[var(--surface-800)]'}`}>
+                                {v ? 'Sem liquidez' : 'Disponível'}
+                              </button>
+                            ))}
+                          </span>
+                        )}
+
+                        {/* COR (mig 163): aparece em todo lugar onde a conta aparece —
+                            nas droplists, como emoji. Clicar na escolhida tira a cor. */}
+                        {c.cor !== undefined && (
+                          <span className="inline-flex items-center gap-1 ml-1" title="Cor da conta — aparece em todo lugar">
+                            {(Object.keys(CORES_CONTA) as CorConta[]).map(k => (
+                              <button key={k} onClick={() => void patch(c, { cor: c.cor === k ? null : k })} title={CORES_CONTA[k].nome}
+                                      className="h-4 w-4 rounded-full border transition-transform hover:scale-110"
+                                      style={{ background: CORES_CONTA[k].hex, borderColor: c.cor === k ? 'var(--surface-900)' : 'transparent', boxShadow: c.cor === k ? '0 0 0 2px var(--surface-0), 0 0 0 3px var(--surface-900)' : undefined }} />
+                            ))}
+                          </span>
                         )}
                       </div>
 

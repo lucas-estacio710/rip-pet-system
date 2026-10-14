@@ -7,6 +7,7 @@
 // adia), nunca a data. A prévia mostra os próximos vencimentos já com os dias
 // riscados — fim de semana e feriado nacional (lib/vencimentos.ts).
 
+import { useCoresContas, rotuloConta, estiloConta } from '@/lib/cor-conta'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -31,15 +32,19 @@ const soDigitos = (t: string) => t.replace(/\D/g, '').replace(/^0+(?=\d)/, '').s
 const digNum = (d: string) => Number(d || '0') / 100
 const digTxt = (d: string) => (d ? digNum(d).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '')
 
-export default function ContaFixaModal({ aberto, conta, onClose, onSalvou }: {
+export default function ContaFixaModal({ aberto, conta, rascunho = null, onClose, onSalvou }: {
   aberto: boolean
   /** null = nova */
   conta: ContaFixa | null
+  /** Nova, já preenchida por uma sugestão do histórico (GerenciarContasModal). */
+  rascunho?: (Partial<ContaFixa> & { historico?: { mes: string; valor: number; dia: number }[]; diaVaria?: boolean }) | null
   onClose: () => void
-  onSalvou: () => void
+  /** Na criação, recebe o id da conta nova (pra quem quiser ligar algo a ela). */
+  onSalvou: (id?: string) => void
 }) {
   const supabase = useMemo(() => createClient() as unknown as SupabaseClient, [])
   const { toast } = useToast()
+  const cores = useCoresContas()
   const { currentUnit, userName } = useUnit()
   const [cats, setCats] = useState<Cat[]>([])
   const [contas, setContas] = useState<ContaRow[]>([])
@@ -72,14 +77,15 @@ export default function ContaFixaModal({ aberto, conta, onClose, onSalvou }: {
 
   // Abrir = carregar o rascunho (a conta ou uma nova).
   const [carregadoDe, setCarregadoDe] = useState<string | null>(null)
-  const chave = aberto ? (conta?.id || 'nova') : null
+  const chave = aberto ? (conta?.id || (rascunho ? `sug-${rascunho.categoria_id}` : 'nova')) : null
   if (chave !== carregadoDe) {
     setCarregadoDe(chave)
     if (chave) {
-      setNome(conta?.nome || ''); setFornecedor(conta?.fornecedor_nome || ''); setCatId(conta?.categoria_id || ''); setBuscaCat('')
-      setValor(conta?.valor ? String(Math.round(conta.valor * 100)) : ''); setVaria(conta?.valor_varia ?? false)
-      setRegra(conta?.regra || 'dia'); setDia(conta?.dia || 10); setAjuste(conta?.ajuste || 'depois')
-      setContaPag(conta?.conta_pagamento_id || ''); setRepasse(conta?.repasse ?? false); setExcluindo(false)
+      const b = conta || rascunho
+      setNome(b?.nome || ''); setFornecedor(b?.fornecedor_nome || ''); setCatId(b?.categoria_id || ''); setBuscaCat('')
+      setValor(b?.valor ? String(Math.round(b.valor * 100)) : ''); setVaria(b?.valor_varia ?? false)
+      setRegra(b?.regra || 'dia'); setDia(b?.dia || 10); setAjuste(b?.ajuste || 'depois')
+      setContaPag(b?.conta_pagamento_id || ''); setRepasse(b?.repasse ?? false); setExcluindo(false)
     }
   }
 
@@ -89,7 +95,8 @@ export default function ContaFixaModal({ aberto, conta, onClose, onSalvou }: {
     while (atual) { partes.unshift(atual.nome); atual = atual.parent_id ? cats.find(c => c.id === atual!.parent_id) : undefined }
     return partes.join(' › ')
   }
-  const folhas = cats.filter(c => !cats.some(f => f.parent_id === c.id))
+  // O repasse não se cadastra: já está no calendário de toda unidade (dia 20, botão Quitar).
+  const folhas = cats.filter(c => !cats.some(f => f.parent_id === c.id) && !/repasse/i.test(c.nome))
   const achados = buscaCat.trim().length >= 2 ? buscarCategorias(folhas, caminhoDe, buscaCat, 8) : []
   const hoje = new Date()
   const previa = proximosVencimentos({ regra, dia: regra === 'ultimo_util' ? null : dia, ajuste }, hoje.getFullYear(), hoje.getMonth(), 5)
@@ -97,20 +104,24 @@ export default function ContaFixaModal({ aberto, conta, onClose, onSalvou }: {
   async function salvar() {
     if (!currentUnit?.id) return
     if (!nome.trim()) return toast('Dê um nome à conta', 'error')
-    if (!repasse && !catId) return toast('Escolha a categoria (é a da despesa que o Paguei vai lançar)', 'error')
+    if (!repasse && !catId) return toast('Escolha a categoria (é a da despesa que o Lançar vai criar)', 'error')
     setSalvando(true)
     const campos = {
       unidade_id: currentUnit.id, nome: nome.trim(), fornecedor_nome: fornecedor.trim() || null,
       categoria_id: repasse ? null : catId, valor: digNum(valor), valor_varia: varia,
       regra, dia: regra === 'ultimo_util' ? null : dia, ajuste, conta_pagamento_id: contaPag || null, repasse,
     }
-    const { error } = conta
-      ? await supabase.from('fin_contas_fixas').update(campos).eq('id', conta.id)
-      : await supabase.from('fin_contas_fixas').insert({ ...campos, criado_por_nome: userName || null })
+    let novoId: string | undefined
+    let error: { message: string } | null = null
+    if (conta) ({ error } = await supabase.from('fin_contas_fixas').update(campos).eq('id', conta.id))
+    else {
+      const r = await supabase.from('fin_contas_fixas').insert({ ...campos, criado_por_nome: userName || null }).select('id').single()
+      error = r.error; novoId = (r.data as { id: string } | null)?.id
+    }
     setSalvando(false)
     if (error) return toast(error.message, 'error')
-    toast(conta ? 'Conta fixa atualizada' : 'Conta fixa guardada', 'success')
-    onSalvou(); onClose()
+    toast(conta ? 'Conta de acompanhamento atualizada' : 'Conta de acompanhamento guardada', 'success')
+    onSalvou(novoId); onClose()
   }
 
   async function excluir() {
@@ -132,7 +143,7 @@ export default function ContaFixaModal({ aberto, conta, onClose, onSalvou }: {
   )
 
   return (
-    <Modal isOpen={aberto} onClose={onClose} title={conta ? 'Editar conta fixa' : 'Conta fixa'} size="md"
+    <Modal isOpen={aberto} onClose={onClose} title={conta ? 'Editar conta de acompanhamento' : 'Nova conta de acompanhamento'} size="md"
       footer={
         <div className="flex items-center gap-2 w-full">
           {conta && (
@@ -141,19 +152,36 @@ export default function ContaFixaModal({ aberto, conta, onClose, onSalvou }: {
             </button>
           )}
           <button onClick={onClose} className="btn-secondary text-sm ml-auto">Cancelar</button>
-          <button onClick={() => void salvar()} disabled={salvando} className="btn-primary text-sm">Guardar conta fixa</button>
+          <button onClick={() => void salvar()} disabled={salvando} className="btn-primary text-sm">Guardar conta</button>
         </div>
       }>
       <div className="space-y-4 text-sm">
+        {!conta && rascunho?.historico && (
+          <div className="rounded-[12px] border border-[var(--brand-500)]/30 bg-[var(--brand-500)]/5 px-3 py-2.5 space-y-1">
+            <p className="text-[11px] font-semibold tracking-[.1em] uppercase text-[var(--surface-500)]">O que eu vi no histórico</p>
+            {rascunho.historico.map(h => (
+              <p key={h.mes} className="flex justify-between text-[13px] text-[var(--surface-700)]">
+                <span>{h.mes.slice(5, 7)}/{h.mes.slice(0, 4)} · pago dia {h.dia}</span>
+                <span className="text-mono tabular-nums">{h.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+              </p>
+            ))}
+            {rascunho.diaVaria && <p className="text-xs text-amber-500">⚠ o dia do pagamento variou — confira o vencimento no boleto</p>}
+            <p className="text-xs text-[var(--surface-500)]">Preenchido pelo histórico — confira e guarde.</p>
+          </div>
+        )}
         <div className="space-y-1.5">
           <p className="font-semibold text-[var(--surface-800)]">1. Que conta é?</p>
-          <input value={nome} onChange={e => setNome(e.target.value)} className="input w-full" aria-label="Nome da conta" />
-          <input value={fornecedor} onChange={e => setFornecedor(e.target.value)} className="input w-full" aria-label="Para quem paga" placeholder="" />
-          <p className="text-xs text-[var(--surface-500)]">nome e para quem paga (ex.: Aluguel · Inter Finco)</p>
-          <label className="flex items-center gap-2 text-xs text-[var(--surface-600)] cursor-pointer">
-            <input type="checkbox" checked={repasse} onChange={e => setRepasse(e.target.checked)} className="accent-[var(--brand-500)]" />
-            é o repasse à Matriz (o &quot;Pagar&quot; abre a Quitação; o valor vem do repasse em aberto)
-          </label>
+          {/* rótulo em cima de cada campo (Lucas, 14/10: "descrição, campo, campo, descrição") */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-[var(--surface-500)]">Nome</span>
+              <input value={nome} onChange={e => setNome(e.target.value)} className="input w-full" placeholder="ex.: Aluguel" />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-[var(--surface-500)]">Para quem paga</span>
+              <input value={fornecedor} onChange={e => setFornecedor(e.target.value)} className="input w-full" placeholder="ex.: Inter Finco" />
+            </label>
+          </div>
           {!repasse && (catId ? (
             <p className="text-xs text-[var(--surface-600)]">Categoria: <b>{caminhoDe(catId)}</b> <button className="text-[var(--brand-500)] hover:underline ml-1" onClick={() => setCatId('')}>trocar</button></p>
           ) : (
@@ -171,7 +199,7 @@ export default function ContaFixaModal({ aberto, conta, onClose, onSalvou }: {
           <p className="font-semibold text-[var(--surface-800)]">2. Quanto?</p>
           <div className="grid grid-cols-2 gap-2">
             {op(!varia, () => setVaria(false), 'Valor fixo')}
-            {op(varia, () => setVaria(true), 'Muda todo mês', 'água, luz, DAS — o Paguei pede o valor')}
+            {op(varia, () => setVaria(true), 'Muda todo mês', 'água, luz, DAS — o Lançar pede o valor')}
           </div>
           <input inputMode="numeric" value={digTxt(valor)} onChange={e => setValor(soDigitos(e.target.value))} className="input w-full text-mono" aria-label="Valor" placeholder="0,00" />
           <p className="text-xs text-[var(--surface-500)]">{varia ? 'um valor médio, só pra previsão' : repasse ? 'deixe em branco: vem do repasse em aberto' : 'o valor de todo mês'}</p>
@@ -208,7 +236,7 @@ export default function ContaFixaModal({ aberto, conta, onClose, onSalvou }: {
           <p className="font-semibold text-[var(--surface-800)]">{regra === 'dia' ? '5' : '4'}. De onde costuma sair? <span className="font-normal text-[var(--surface-500)]">(opcional)</span></p>
           <select value={contaPag} onChange={e => setContaPag(e.target.value)} className="input w-full" aria-label="Conta de onde costuma sair">
             <option value="">—</option>
-            {contas.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+            {contas.map(c => <option key={c.id} value={c.id}>{rotuloConta(cores, c.id, c.nome)}</option>)}
           </select>
           <p className="text-xs text-[var(--surface-500)]">vira um atalho no Paguei — nada vem marcado</p>
         </div>

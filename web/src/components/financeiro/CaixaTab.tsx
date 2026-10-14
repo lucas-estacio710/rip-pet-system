@@ -25,6 +25,7 @@
 // Somar maquininha no disponível superestima o caixa de quem vende no crédito,
 // que é o caso aqui. A liquidação é uma transferência `Maquininha → corrente`.
 
+import { useCoresContas, rotuloConta, estiloConta } from '@/lib/cor-conta'
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -83,9 +84,13 @@ function IconeConta({ tipo, produto }: { tipo: string; produto?: string | null }
 const ehMaquininha = (x: { produto?: string | null }) => x.produto === 'maquininha'
 const ehCartao = (x: { tipo: string }) => x.tipo === 'cartao'
 
-export default function CaixaTab({ mes, somenteLeitura = false, comando = null, onComandoFeito }: {
+export default function CaixaTab({ mes, somenteLeitura = false, comando = null, onComandoFeito, soModais = false, onIrDespesa }: {
   /** O mês do Financeiro — um só, escolhido acima das abas (09/10/2026). */
   mes: string
+  /** Livro-Caixa (14/10/2026): montada só com os popups (Movimentação entre contas). */
+  soModais?: boolean
+  /** A aba "Despesa" do popup de pré-lançamento (abre o dos Lançamentos). */
+  onIrDespesa?: () => void
   somenteLeitura?: boolean
   /** "+ Lançar › Movimentação entre contas" (lib/lancar.ts). */
   comando?: AcaoLancar | null
@@ -94,6 +99,7 @@ export default function CaixaTab({ mes, somenteLeitura = false, comando = null, 
   const supabaseTipado = createClient()
   const supabase = supabaseTipado as unknown as SupabaseClient
   const { toast } = useToast()
+  const cores = useCoresContas()
   const { currentUnit, userName } = useUnit()
 
   const [saldos, setSaldos] = useState<Saldo[]>([])
@@ -431,6 +437,7 @@ export default function CaixaTab({ mes, somenteLeitura = false, comando = null, 
 
   return (
     <div className="animate-fade-in space-y-3">
+      {!soModais && (<>
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-xs text-[var(--surface-500)]">
           disponível <span className="text-mono text-[var(--surface-800)]">{fmtBRL(totalDisponivel)}</span>
@@ -656,6 +663,8 @@ export default function CaixaTab({ mes, somenteLeitura = false, comando = null, 
         aparecem na DRE, porque não mudam o resultado.
       </p>
 
+      </>)}
+
       <ExtratoContaModal
         conta={extratoDe}
         mesInicial={mes}
@@ -667,7 +676,7 @@ export default function CaixaTab({ mes, somenteLeitura = false, comando = null, 
       <Modal
         isOpen={aberto}
         onClose={limpar}
-        title="Novo movimento"
+        title={onIrDespesa ? 'Pré-lançamento' : 'Novo movimento'}
         footer={
           <div className="flex justify-end gap-2">
             <button onClick={limpar} className="btn-secondary text-sm">Cancelar</button>
@@ -678,6 +687,17 @@ export default function CaixaTab({ mes, somenteLeitura = false, comando = null, 
         }
       >
         <div className="space-y-3">
+          {/* PRÉ-LANÇAMENTO = um popup com duas abas (14/10/2026): Despesa · Movimentação entre contas */}
+          {onIrDespesa && (
+            <div className="flex gap-5 border-b border-[var(--surface-200)] -mt-1">
+              {(['despesa', 'movimentacao'] as const).map(k => (
+                <button key={k} type="button" onClick={() => { if (k !== 'movimentacao') { limpar(); onIrDespesa!() } }}
+                        className={`text-sm py-2 border-b-2 -mb-px ${k === 'movimentacao' ? 'font-semibold text-[var(--surface-900)] border-[var(--brand-500)]' : 'text-[var(--surface-500)] border-transparent hover:text-[var(--surface-800)]'}`}>
+                  {k === 'despesa' ? 'Despesa' : 'Movimentação entre contas'}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="flex flex-wrap gap-1.5">
             {TIPOS.map(t => {
               const on = tipo === t.v
@@ -707,7 +727,7 @@ export default function CaixaTab({ mes, somenteLeitura = false, comando = null, 
               <select value={origem} onChange={e => setOrigem(e.target.value)} className="input text-sm w-full">
                 <option value="">Escolher…</option>
                 {(tipo === 'fatura_cartao' ? contasCorrente : operaveis).map(s => (
-                  <option key={s.conta_id} value={s.conta_id}>{s.nome}</option>
+                  <option key={s.conta_id} value={s.conta_id}>{rotuloConta(cores, s.conta_id, s.nome)}</option>
                 ))}
               </select>
             </div>
@@ -719,7 +739,7 @@ export default function CaixaTab({ mes, somenteLeitura = false, comando = null, 
                 <select value={destino} onChange={e => setDestino(e.target.value)} className="input text-sm w-full">
                   <option value="">Escolher…</option>
                   {(tipo === 'fatura_cartao' ? cartoes : operaveis).map(s => (
-                    <option key={s.conta_id} value={s.conta_id}>{s.nome}</option>
+                    <option key={s.conta_id} value={s.conta_id}>{rotuloConta(cores, s.conta_id, s.nome)}</option>
                   ))}
                 </select>
               </div>

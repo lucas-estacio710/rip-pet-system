@@ -17,6 +17,7 @@
 // aplicação lançada no dia errado não tinha onde ser corrigida). Despesa e
 // recebimento continuam se corrigindo nos lugares deles.
 
+import { useCoresContas, rotuloConta, estiloConta } from '@/lib/cor-conta'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -55,6 +56,7 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
 }) {
   const supabase = createClient() as unknown as SupabaseClient
   const { toast } = useToast()
+  const cores = useCoresContas()
   const podeEditar = !!onConferir || !!podeEditarProp
   const [mov, setMov] = useState<Mov | null>(null)
   const [excluindo, setExcluindo] = useState(false)   // 1º clique pede confirmação
@@ -63,6 +65,8 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
   const [mes, setMes] = useState(mesInicial)
   const [anterior, setAnterior] = useState(0)
   const [itens, setItens] = useState<Item[]>([])
+  // no celular a descrição nasce numa linha só; tocar abre o resto (14/10/2026)
+  const [abertos, setAbertos] = useState<Set<number>>(new Set())
   const [carregando, setCarregando] = useState(false)
 
   useEffect(() => { if (conta) setMes(mesInicial) }, [conta, mesInicial])
@@ -109,13 +113,21 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
       // ✓ conciliado (mig 153) — a conciliação é POR CONTA: a mesma transferência
       // pode estar conferida num caixa e não no outro.
       const idsMes = agrup.flatMap(it => it.ids)
-      const conc = new Set<string>()
+      const conc = new Map<string, string | null>()   // origem_id → texto do banco
       for (let k = 0; k < idsMes.length; k += 150) {
-        const { data } = await supabase.from('fin_conciliacoes').select('origem_id')
+        const { data } = await supabase.from('fin_conciliacoes').select('origem_id, texto_banco')
           .eq('conta_id', conta.conta_id).in('origem_id', idsMes.slice(k, k + 150))
-        for (const c of (data as { origem_id: string }[] | null) || []) conc.add(c.origem_id)
+        for (const c of (data as { origem_id: string; texto_banco: string | null }[] | null) || []) conc.set(c.origem_id, c.texto_banco)
       }
-      agrup.forEach(it => { it.conciliado = it.ids.some(id => conc.has(id)) })
+      // TEXTO DO BANCO PRIMEIRO (14/10/2026, Lucas): conciliado, a linha mostra o que o
+      // extrato do banco diz e depois o que foi lançado — "Pix enviado … · Sistema".
+      // O "conferido à mão no calendário" é marca nossa, não texto do banco.
+      agrup.forEach(it => {
+        it.conciliado = it.ids.some(id => conc.has(id))
+        const banco = it.ids.map(id => conc.get(id)).find(t => t && !t.startsWith('conferido à mão'))?.trim()
+        if (banco && !banco.toLowerCase().includes(it.descricao.toLowerCase())) it.descricao = `${banco} · ${it.descricao}`
+        else if (banco) it.descricao = banco
+      })
       // Saldo no fim de cada dia, na última linha do dia.
       let saldo = antes
       agrup.forEach((it, i) => {
@@ -123,7 +135,7 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
         if (agrup[i + 1]?.data !== it.data) it.saldoDia = saldo
       })
       if (cancelado) return
-      setAnterior(antes); setItens(agrup); setCarregando(false)
+      setAnterior(antes); setItens(agrup); setAbertos(new Set()); setCarregando(false)
     })()
     return () => { cancelado = true }
   }, [conta, mes, supabase, versao])
@@ -203,7 +215,7 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
     <Modal
       isOpen={!!conta}
       onClose={onClose}
-      title={conta ? `Extrato · ${conta.nome}` : 'Extrato'}
+      title={conta ? `Extrato · ${rotuloConta(cores, conta.conta_id, conta.nome)}` : 'Extrato'}
       size="lg"
       footer={
         <div className="flex items-center justify-between gap-2 w-full">
@@ -261,16 +273,23 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--surface-200)]">
-                {itens.map((it, i) => (
+                {/* ORDEM DECRESCENTE (14/10/2026, Lucas): o mais novo em cima, como no app do banco.
+                    O saldo do dia cai na 1ª linha de cada dia — era o item que fechava o dia. */}
+                {[...itens].reverse().map((it, i, lista) => (
                   <tr key={i}
                       onClick={podeEditar && it.origem === 'movimento' ? () => void abrirMov(it.ids[0]) : undefined}
                       title={podeEditar && it.origem === 'movimento' ? 'Corrigir ou excluir este movimento' : undefined}
                       className={`${it.saldoDia !== null ? '' : 'text-[var(--surface-600)]'} ${podeEditar && it.origem === 'movimento' ? 'cursor-pointer hover:bg-[var(--surface-100)]' : ''}`}>
                     <td className="py-1 pr-2 whitespace-nowrap text-[var(--surface-500)]">
-                      {itens[i - 1]?.data === it.data ? '' : fmtData(it.data)}
+                      {lista[i - 1]?.data === it.data ? '' : (<>
+                        <span className="sm:hidden">{it.data.slice(8, 10)}/{it.data.slice(5, 7)}</span>
+                        <span className="hidden sm:inline">{fmtData(it.data)}</span>
+                      </>)}
                     </td>
-                    <td className="py-1 pr-2 text-[var(--surface-700)]">
-                      {it.conciliado && <span className="mr-1 text-emerald-500" title="Conferido com o extrato do banco">✓</span>}
+                    <td className={`py-1 pr-2 text-[var(--surface-700)] max-sm:max-w-0 max-sm:w-full ${abertos.has(i) ? 'max-sm:whitespace-normal' : 'max-sm:truncate'}`}
+                        onClick={e => { if (window.innerWidth >= 640) return; e.stopPropagation(); setAbertos(a => { const b = new Set(a); if (b.has(i)) b.delete(i); else b.add(i); return b }) }}>
+                      {/* bolinha verde = conciliado (14/10/2026: no lugar do ✓, igual no Livro-Caixa) */}
+                      {it.conciliado && <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5 align-middle shrink-0" title="Conciliado com o banco/fatura" />}
                       {it.descricao}
                       {it.partes > 1 && (
                         <span className="ml-1 px-1 rounded-full text-[10px]" style={{ background: 'rgba(99,102,241,0.14)', color: '#818cf8' }}

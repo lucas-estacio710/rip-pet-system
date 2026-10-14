@@ -18,6 +18,7 @@
 // antigo pro mais novo, e paga quando paga. Cada pagamento aponta o mês/fatura
 // que quita (`fin_repasses.pago_movimento_id`, `fin_movimentos.fatura_vencimento`).
 
+import { useCoresContas, rotuloConta, estiloConta } from '@/lib/cor-conta'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -51,14 +52,17 @@ const paraDigitos = (n: number) => String(Math.round(Math.abs(n) * 100))
 /** Vindo do Colar do extrato: a linha do banco já diz o valor, a data e a conta. */
 export type QuitacaoInicial = { tipo: 'repasse' | 'fatura'; valor: number; data: string; contaId: string }
 
-export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou, inicial }: {
+export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou, inicial, abrirEm }: {
   aberto: boolean
   onClose: () => void
   onRegistrou: () => void
   inicial?: QuitacaoInicial | null
+  /** Abre direto num dos dois (o "Confirmar pagamento" da aba Repasse, 14/10/2026). */
+  abrirEm?: 'repasse' | 'fatura'
 }) {
   const supabase = createClient() as unknown as SupabaseClient
   const { toast } = useToast()
+  const cores = useCoresContas()
   const { currentUnit, userName } = useUnit()
 
   const [tela, setTela] = useState<Tela>('menu')
@@ -213,6 +217,14 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
     // certa, a da linha do banco (`inicial`).
     setValor(r ? paraDigitos(r.aPagar) : ''); setData('')
   }
+  // ABRIR DIRETO (sem valor vindo do banco): terminada a carga, cai no pagamento pedido.
+  useEffect(() => {
+    if (!aberto || !pronto || inicial || !abrirEm || inicialAplicado) return
+    setInicialAplicado(true)
+    if (abrirEm === 'repasse') abrirRepasse(); else abrirFatura()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aberto, pronto, inicial, abrirEm, inicialAplicado])
+
   function abrirFatura() {
     setTela('fatura')
     const c = cartoes.find(x => (faturasPorCartao[x.id] || []).length) || cartoes[0]
@@ -332,7 +344,7 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
     <div>
       <label className="text-xs text-[var(--surface-500)] block mb-1">Saiu da conta</label>
       <select value={origemId} onChange={e => setOrigemId(e.target.value)} className="input text-sm w-full">
-        {correntes.map(c => <option key={c.id} value={c.id}>{c.preferencial_recebimento ? '⭐ ' : ''}{c.nome}</option>)}
+        {correntes.map(c => <option key={c.id} value={c.id}>{c.preferencial_recebimento ? '⭐ ' : ''}{rotuloConta(cores, c.id, c.nome)}</option>)}
       </select>
     </div>
   )
@@ -433,7 +445,7 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
             <div>
               <label className="text-xs text-[var(--surface-500)] block mb-1">Entrou na conta da Matriz</label>
               <select value={destinoMatrizId} onChange={e => setDestinoMatrizId(e.target.value)} className="input text-sm w-full">
-                {contasMatriz.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                {contasMatriz.map(c => <option key={c.id} value={c.id}>{rotuloConta(cores, c.id, c.nome)}</option>)}
               </select>
             </div>
           </div>
@@ -473,7 +485,7 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
                         setFaturaVenc(f?.venc || ''); setValor(f ? paraDigitos(f.total) : '')
                       }}
                       className="input text-sm w-full">
-                {cartoes.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                {cartoes.map(c => <option key={c.id} value={c.id}>{rotuloConta(cores, c.id, c.nome)}</option>)}
               </select>
             </div>
             <div>

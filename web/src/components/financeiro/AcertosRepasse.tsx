@@ -31,6 +31,7 @@ import { fmtBRL, fmtData, colarValorBR } from '@/lib/financeiro'
 import { buscarCategorias } from '@/lib/busca-categoria'
 import { criarIndice, sugerir } from '@/lib/similaridade'
 import { reconhecerCobranca, ORIGEM_PERNA_COBRANCA } from '@/lib/reconhecer-cobranca'
+import TrilhaCustoModal from './TrilhaCustoModal'
 
 type Cat = {
   id: string; nome: string; parent_id: string | null; termos: string[] | null
@@ -80,11 +81,20 @@ export default function AcertosRepasse({
   // EDITAR (08/10/2026 — "não consigo editar os lançamentos dos acertos"): o
   // acerto clicado carrega no formulário; salvar regrava o acerto E as pernas.
   const [editando, setEditando] = useState<Acerto | null>(null)
+  const [trilhaId, setTrilhaId] = useState<string | null>(null)
   const [descricao, setDescricao] = useState('')
   const [catBusca, setCatBusca] = useState('')
   const [catId, setCatId] = useState('')
   const [valor, setValor] = useState('')
   const [data, setData] = useState(`${mes}-01`)
+  // QUEM CONSUMIU (14/10/2026): no acerto em que a UNIDADE cobra da Matriz (abate), o custo
+  // pode ser de outra(s) unidade(s) — a Matriz cobre a unidade no repasse e já repassa pra
+  // quem consumiu, na mesma hora: no repasse daquela unidade ou cobrando agora (avulsa).
+  // Pinda (sem repasse, conta corrente da Matriz) nasce reconhecida e baixada no papel.
+  type Destino = { unidade: string; valor: string; modo: 'repasse' | 'agora' }
+  const [outrasConsomem, setOutrasConsomem] = useState(false)
+  const [destinos, setDestinos] = useState<Destino[]>([])
+  const [unidadesDest, setUnidadesDest] = useState<{ id: string; nome: string; codigo: string; temRepasse: boolean; contaDaMatriz: boolean }[]>([])
 
   useEffect(() => { setData(`${mes}-01`) }, [mes])
 
@@ -121,6 +131,20 @@ export default function AcertosRepasse({
     setCats((ct as unknown as Cat[] | null) || [])
     setHistorico((hs as { descricao: string; categoria_id: string; data: string }[] | null) || [])
     if (mz) setMatrizNome((mz as { nome: string }).nome)
+    // as unidades que podem consumir: todas menos a Matriz e a do acerto. Quem tem repasse
+    // (sem cremação local) e quem usa a MESMA conta corrente da Matriz (Pinda).
+    const [{ data: us }, { data: contasMz }] = await Promise.all([
+      supabase.from('unidades').select('id, nome, codigo, modulos_ativos').eq('ativa', true).order('nome'),
+      supabase.from('contas').select('unidade_id, unidades_extras, produto, tipo').or(`unidade_id.eq.${matrizId},unidades_extras.cs.{${matrizId}}`).eq('ativo', true),
+    ])
+    const daMatriz = new Set<string>()
+    for (const c of (contasMz as { unidade_id: string; unidades_extras: string[] | null; produto: string | null; tipo: string | null }[] | null) || []) {
+      if (c.produto === 'maquininha' || c.tipo === 'cartao' || c.produto === 'cartao_credito') continue
+      for (const u of [c.unidade_id, ...(c.unidades_extras || [])]) if (u) daMatriz.add(u)
+    }
+    setUnidadesDest(((us as { id: string; nome: string; codigo: string; modulos_ativos: string[] | null }[] | null) || [])
+      .filter(u => u.id !== matrizId && u.id !== unidadeId)
+      .map(u => ({ id: u.id, nome: u.nome, codigo: u.codigo, temRepasse: !(u.modulos_ativos || []).includes('cb_cremacao_local'), contaDaMatriz: daMatriz.has(u.id) })))
     setCarregando(false)
   }, [supabase, matrizId, unidadeId, repasseId])
 
@@ -139,6 +163,12 @@ export default function AcertosRepasse({
     if (!descricao.trim()) return toast('Descreva o acerto', 'error')
     if (natureza === 'despesa' && !catId) return toast('Escolha a categoria — é ela que diz onde a despesa cai na DRE', 'error')
     if (!v) return toast('Informe o valor', 'error')
+    const repassa = outrasConsomem && !matrizCobra && natureza === 'despesa' && !editando
+    if (repassa) {
+      if (!destinos.length || destinos.some(d => !d.unidade)) return toast('Escolha a unidade de cada linha de "quem consumiu"', 'error')
+      if (destinos.some(d => emNumero(d.valor) <= 0)) return toast('Cada unidade precisa de um valor', 'error')
+      if (destinos.reduce((a, d) => a + emNumero(d.valor), 0) > v + 0.005) return toast('As unidades passam do valor do acerto', 'error')
+    }
     setSalvando(true)
     try {
       const credora = matrizCobra ? matrizId : unidadeId
@@ -154,7 +184,7 @@ export default function AcertosRepasse({
       const cat = natureza === 'despesa' ? porId.get(catId) : undefined
       // Já reconhecido: na despesa, as duas pernas na DRE nascem agora; no
       // recebimento de cliente, só o aceite (nenhuma perna — fora da DRE).
-      await reconhecerCobranca(supabase, {
+      const pernas = await reconhecerCobranca(supabase, {
         id: (nova as { id: string }).id, tipo: natureza === 'despesa' ? 'despesa_rateada' : 'recebimento_terceiro', valor: v, data,
         descricao: descricao.trim(), categoria_id: natureza === 'despesa' ? catId : null,
         unidade_credora: credora, unidade_devedora: devedora,
@@ -172,8 +202,34 @@ export default function AcertosRepasse({
           .update({ repasse_id: repasseId, status: 'liquidada' }).eq('id', (nova as { id: string }).id)
         if (e3) throw new Error(`Acerto lançado, mas não ficou preso ao repasse: ${e3.message}`)
       }
-      toast(`Acerto lançado — ${matrizCobra ? 'acresce' : 'abate'} ${fmtBRL(v)}`, 'success')
-      setDescricao(''); setCatBusca(''); setCatId(''); setValor('')
+      // A CORRENTE: a Matriz cobriu a unidade; agora repassa o custo pra quem consumiu.
+      // A cobrança nova sai da DESPESA que acabou de nascer na Matriz (lancamento_origem_id).
+      if (repassa) {
+        const cat = porId.get(catId)
+        for (const d of destinos) {
+          const alvo = unidadesDest.find(u => u.id === d.unidade)
+          const vd = emNumero(d.valor)
+          const { data: cb, error: ec } = await supabase.from('fin_cobrancas').insert({
+            unidade_credora: matrizId, unidade_devedora: d.unidade, tipo: 'despesa_rateada',
+            categoria_id: catId, valor: vd, data, descricao: descricao.trim(),
+            status: 'emitida', lancamento_origem_id: pernas.despesaId, criado_por_nome: userName || null,
+          }).select('id').single()
+          if (ec) throw new Error(`${alvo?.nome || 'Unidade'}: ${ec.message}`)
+          const cobId = (cb as { id: string }).id
+          // no repasse dela, ou a conta é a mesma da Matriz → já nasce reconhecida
+          if ((d.modo === 'repasse' && alvo?.temRepasse) || alvo?.contaDaMatriz) {
+            await reconhecerCobranca(supabase, {
+              id: cobId, tipo: 'despesa_rateada', valor: vd, data, descricao: descricao.trim(), categoria_id: catId,
+              unidade_credora: matrizId, unidade_devedora: d.unidade, credoraNome: matrizNome, devedoraCodigo: alvo?.codigo || null,
+              fin_categorias: cat ? { fin_conta_id: cat.fin_conta_id, fin_contas: cat.fin_contas } : null,
+            }, { userName: userName || null })
+            // mesma conta corrente: a dívida se baixa no papel, nenhum dinheiro anda
+            if (alvo?.contaDaMatriz && d.modo === 'agora') await supabase.from('fin_cobrancas').update({ status: 'liquidada' }).eq('id', cobId)
+          }
+        }
+      }
+      toast(`Acerto lançado — ${matrizCobra ? 'acresce' : 'abate'} ${fmtBRL(v)}${repassa ? ` · repassado a ${destinos.length} ${destinos.length > 1 ? 'unidades' : 'unidade'}` : ''}`, 'success')
+      setDescricao(''); setCatBusca(''); setCatId(''); setValor(''); setOutrasConsomem(false); setDestinos([])
       void carregar(); onMudou()
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Falha ao lançar o acerto', 'error')
@@ -381,6 +437,55 @@ export default function AcertosRepasse({
             )}
           </div>
 
+          {/* QUEM CONSUMIU — a corrente nasce aqui (só quando a UNIDADE cobra da Matriz) */}
+          {!matrizCobra && !editando && (
+            <div className="rounded-[var(--radius-md)] border border-[var(--surface-200)] p-2.5 space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold text-[var(--surface-700)]">Quem consumiu?</span>
+                {([[false, matrizNome], [true, 'Outra(s) unidade(s)']] as const).map(([vv, t]) => (
+                  <button key={String(vv)} type="button"
+                          onClick={() => { setOutrasConsomem(vv); if (vv && !destinos.length) setDestinos([{ unidade: '', valor: valor, modo: 'agora' }]) }}
+                          className={`text-[12px] px-2.5 py-1 rounded-full border ${outrasConsomem === vv ? 'border-[var(--brand-500)] bg-[var(--brand-500)]/10 font-semibold text-[var(--surface-900)]' : 'border-[var(--surface-300)] text-[var(--surface-600)]'}`}>{t}</button>
+                ))}
+              </div>
+              {outrasConsomem && (<>
+                {destinos.map((d, i) => {
+                  const alvo = unidadesDest.find(u => u.id === d.unidade)
+                  const muda = (pt: Partial<Destino>) => setDestinos(ds => ds.map((x, k) => (k === i ? { ...x, ...pt } : x)))
+                  const outras = destinos.reduce((a, x, k) => (k === i ? a : a + emNumero(x.valor)), 0)
+                  return (
+                    <div key={i} className="flex flex-wrap items-center gap-2">
+                      <select value={d.unidade} onChange={e => { const u = unidadesDest.find(x => x.id === e.target.value); muda({ unidade: e.target.value, modo: u && !u.temRepasse ? 'agora' : d.modo }) }} className="input text-sm flex-1 min-w-[140px]">
+                        <option value="">Unidade…</option>
+                        {unidadesDest.map(u => <option key={u.id} value={u.id} disabled={u.id !== d.unidade && destinos.some(x => x.unidade === u.id)}>{u.nome}</option>)}
+                      </select>
+                      <input inputMode="numeric" value={d.valor ? emTexto(d.valor) : ''} onChange={e => muda({ valor: soDigitos(e.target.value) })} placeholder="0,00" className="input text-sm text-mono text-right w-28" />
+                      <button type="button" title="Tudo o que falta" onClick={() => muda({ valor: String(Math.max(0, Math.round((emNumero(valor) - outras) * 100))) })}
+                              className="text-[11px] font-semibold px-2 py-1 rounded-md border border-[var(--surface-300)] text-[var(--surface-600)]">o resto</button>
+                      <span className="inline-flex rounded-full border border-[var(--surface-300)] p-0.5 text-[11px]">
+                        {(['repasse', 'agora'] as const).map(m => {
+                          const pode = m === 'agora' || !!alvo?.temRepasse
+                          return (
+                            <button key={m} type="button" disabled={!pode} onClick={() => muda({ modo: m })}
+                                    title={m === 'repasse' ? (pode ? 'Entra no repasse desta unidade (já reconhecido)' : 'Esta unidade não tem repasse') : (alvo?.contaDaMatriz ? 'Mesma conta corrente da Matriz: nasce reconhecida e baixada' : 'Cobrança avulsa: a unidade reconhece em Acertos entre unidades')}
+                                    className={`px-2 py-0.5 rounded-full ${d.modo === m ? 'bg-[var(--brand-500)] text-white' : 'text-[var(--surface-500)]'} disabled:opacity-30`}>
+                              {m === 'repasse' ? 'no repasse' : 'cobrar agora'}
+                            </button>
+                          )
+                        })}
+                      </span>
+                      {destinos.length > 1 && <button type="button" onClick={() => setDestinos(ds => ds.filter((_, k) => k !== i))} className="text-[var(--surface-400)] hover:text-red-400 px-1">✕</button>}
+                    </div>
+                  )
+                })}
+                <div className="flex items-center justify-between text-[11px]">
+                  <button type="button" onClick={() => setDestinos(ds => [...ds, { unidade: '', valor: String(Math.max(0, Math.round((emNumero(valor) - ds.reduce((a, x) => a + emNumero(x.valor), 0)) * 100))), modo: 'agora' }])}
+                          className="text-[var(--brand-500)] hover:underline">+ outra unidade</button>
+                  <span className="text-[var(--surface-500)]">fica com {matrizNome}: {fmtBRL(Math.max(0, emNumero(valor) - destinos.reduce((a, x) => a + emNumero(x.valor), 0)))}</span>
+                </div>
+              </>)}
+            </div>
+          )}
           </>)}
 
           <div className="flex items-center justify-end gap-2">
@@ -437,6 +542,10 @@ export default function AcertosRepasse({
                       aguardando a unidade
                     </span>
                   )}
+                  {(a.lancamento_aceite_id || a.lancamento_origem_id) && (
+                    <button onClick={e => { e.stopPropagation(); setTrilhaId(a.lancamento_aceite_id || a.lancamento_origem_id) }}
+                            title="Trilha do custo — com quem ficou" className="text-[11px] text-[var(--brand-500)] hover:underline shrink-0">trilha</button>
+                  )}
                   {!travado && (
                     <button onClick={e => { e.stopPropagation(); void apagar(a) }} title="Apagar (leva as duas pernas da DRE)"
                             className="text-[var(--surface-400)] hover:text-red-400 shrink-0">
@@ -449,6 +558,7 @@ export default function AcertosRepasse({
           </div>
         )}
       </div>
+      <TrilhaCustoModal lancamentoId={trilhaId} onClose={() => setTrilhaId(null)} />
     </div>
   )
 }

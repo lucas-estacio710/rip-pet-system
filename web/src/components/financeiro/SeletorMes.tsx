@@ -36,18 +36,18 @@ export default function SeletorMes({ mes, onMes }: { mes: string; onMes: (m: str
     return () => { document.removeEventListener('mousedown', fora); document.removeEventListener('keydown', esc) }
   }, [aberto])
 
-  const seta = 'h-9 w-9 shrink-0 rounded-full border border-[var(--surface-300)] flex items-center justify-center text-[var(--surface-600)] hover:bg-[var(--surface-100)]'
+  const seta = 'h-6 w-6 sm:h-9 sm:w-9 shrink-0 rounded-full border border-[var(--surface-300)] flex items-center justify-center text-[var(--surface-600)] hover:bg-[var(--surface-100)]'
   return (
-    <div className="flex items-center gap-2 sm:gap-3" ref={caixa}>
+    <div className="flex items-center gap-1 sm:gap-3" ref={caixa}>
       <button onClick={() => onMes(somaMes(mes, -1))} aria-label="Mês anterior" className={seta}><ChevronLeft className="h-4 w-4" /></button>
       <div className="relative">
         <button onClick={() => { if (!aberto) setAno(Number(mes.slice(0, 4))); setAberto(v => !v) }} aria-haspopup="dialog" aria-expanded={aberto}
                 className="flex items-center gap-1.5 rounded-[10px] px-1.5 -mx-1.5 hover:bg-[var(--surface-100)]">
-          <span className="text-[26px] sm:text-[32px] font-bold tracking-tight text-[var(--surface-900)] capitalize">{rotuloMesLongo(mes)}</span>
+          <span className="text-[15px] sm:text-[32px] font-bold whitespace-nowrap tracking-tight text-[var(--surface-900)] capitalize">{rotuloMesLongo(mes)}</span>
           <ChevronDown className={`h-5 w-5 text-[var(--surface-500)] transition-transform ${aberto ? 'rotate-180' : ''}`} />
         </button>
         {aberto && (
-          <div role="dialog" aria-label="Escolher o mês" className="absolute left-0 top-full mt-2 z-50 w-72 card p-3 shadow-xl">
+          <div role="dialog" aria-label="Escolher o mês" className="absolute right-0 sm:right-auto sm:left-0 top-full mt-2 z-50 w-72 card p-3 shadow-xl">
             <div className="flex items-center justify-between mb-2">
               <button onClick={() => setAno(a => a - 1)} aria-label="Ano anterior" className={seta}><ChevronLeft className="h-4 w-4" /></button>
               <span className="text-base font-semibold text-[var(--surface-800)] tabular-nums">{ano}</span>
@@ -78,6 +78,13 @@ export default function SeletorMes({ mes, onMes }: { mes: string; onMes: (m: str
         )}
       </div>
       <button onClick={() => onMes(somaMes(mes, 1))} aria-label="Próximo mês" className={seta}><ChevronRight className="h-4 w-4" /></button>
+      {/* atalho de volta (14/10/2026): fora do mês atual, um clique traz pra hoje */}
+      {mes !== hoje && (
+        <button onClick={() => onMes(hoje)} title="Voltar para o mês atual"
+                className="shrink-0 text-[11px] sm:text-[12px] font-semibold px-2 py-1 rounded-full border border-[var(--brand-500)]/50 text-[var(--brand-500)] hover:bg-[var(--brand-500)]/10">
+          Hoje
+        </button>
+      )}
     </div>
   )
 }

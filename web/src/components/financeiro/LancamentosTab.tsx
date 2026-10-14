@@ -10,6 +10,10 @@
 //
 // Tom profissional: "lançar" é o verbo que a equipe já usa. Nada de gamificação.
 
+import RepassarCustoModal, { type LancParaRepassar } from './RepassarCustoModal'
+import TrilhaCustoModal from './TrilhaCustoModal'
+import ContaFixaModal from './ContaFixaModal'
+import { useCoresContas, rotuloConta, estiloConta } from '@/lib/cor-conta'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -122,9 +126,17 @@ function IconeCat({ nome, className }: { nome?: string | null; className?: strin
  *   cria, edita nem exclui. Era a única aba do financeiro que ignorava isso —
  *   Repasse, Caixa e Contas já recebiam a prop, e Lançamentos não (13/09/2026).
  */
-export default function LancamentosTab({ mes, somenteLeitura = false, comando = null, onComandoFeito, contaImportar = null, despesaInicial = null }: {
+export default function LancamentosTab({ mes, somenteLeitura = false, comando = null, onComandoFeito, contaImportar = null, despesaInicial = null, soModais = false, editarId = null, onEditarFeito, onIrMovimentacao }: {
   /** O mês do Financeiro — um só, escolhido acima das abas (09/10/2026). */
   mes: string
+  /** Livro-Caixa (14/10/2026): a aba saiu; fica montada SÓ com os popups (despesa,
+   *  Importar, Quitação) pro "+" flutuante abrir sem trocar de tela. */
+  soModais?: boolean
+  /** Abre o "Editar lançamento" deste id (clique no cartão Lançamentos do Livro-Caixa). */
+  editarId?: string | null
+  onEditarFeito?: () => void
+  /** A aba "Movimentação entre contas" do popup de pré-lançamento (abre o do Caixa). */
+  onIrMovimentacao?: () => void
   somenteLeitura?: boolean
   /** Do "+ Lançar" da página (lib/lancar.ts): abre o formulário certo. */
   comando?: AcaoLancar | null
@@ -138,6 +150,7 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
   // Tabelas fin_* ainda não estão em types/database.ts
   const supabase = supabaseTipado as unknown as SupabaseClient
   const { toast } = useToast()
+  const cores = useCoresContas()
   const { currentUnit, userName } = useUnit()
   const { isVisible } = useFieldPermission()
 
@@ -258,7 +271,29 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
   const [recarregarCobrancas, setRecarregarCobrancas] = useState(0)
   // "é de outra unidade" e "cobre mais de um mês" vivem atrás deste toggle: são
   // casos raros que ocupavam o meio do modal, no caminho do olho.
-  const [maisOpcoes, setMaisOpcoes] = useState(false)
+  const [, setMaisOpcoes] = useState(false)
+  // TRANSFORMAR EM CONTA DE ACOMPANHAMENTO (14/10/2026): do lançamento aberto nasce a
+  // conta recorrente já preenchida — e este lançamento fica ligado a ela.
+  const [virarConta, setVirarConta] = useState(false)
+  // REPASSAR o custo de um lançamento já feito pra outra unidade (14/10/2026)
+  const [repassar, setRepassar] = useState<LancParaRepassar | null>(null)
+  // AS DIVISÕES DESTE LANÇAMENTO (14/10/2026): no Editar, mostra pra quem o custo foi
+  // repassado e em que pé está — desde a emissão, não só depois do reconhecimento.
+  const [cobDoLanc, setCobDoLanc] = useState<{ unidade: string; valor: number; status: string }[]>([])
+  const [trilhaId, setTrilhaId] = useState<string | null>(null)   // Trilha do custo (14/10/2026)
+  const [versaoDiv, setVersaoDiv] = useState(0)
+  useEffect(() => {
+    if (!editandoId) { setCobDoLanc([]); return }
+    let vivo = true
+    void supabase.from('fin_cobrancas').select('valor, status, unidade_devedora, unidades:unidade_devedora(nome)')
+      .eq('lancamento_origem_id', editandoId).neq('status', 'cancelada')
+      .then(({ data }) => {
+        if (!vivo) return
+        setCobDoLanc(((data as unknown as { valor: number; status: string; unidades: { nome: string } | null }[] | null) || [])
+          .map(c => ({ unidade: c.unidades?.nome || 'outra unidade', valor: Number(c.valor), status: c.status })))
+      })
+    return () => { vivo = false }
+  }, [editandoId, versaoDiv, supabase])
   // Fornecedores já usados nesta unidade — alimentam o autocomplete e a sugestão
   // de categoria. Digitar o nome à mão toda vez produz "Gifonni" e "Giffoni",
   // e aí nenhuma memória casa (caso real, 13/09/2026).
@@ -375,6 +410,11 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
         if (c.lancamento_origem_id && idsSis.includes(c.lancamento_origem_id))
           acerto.set(c.lancamento_origem_id, { papel: 'reembolso', outra: nomeU.get(c.unidade_devedora) || 'outra unidade' })
       }
+      // o elo novo do reembolso (mig 166); sem a migration, a consulta falha e nada muda
+      const { data: cr2, error: er2 } = await supabase.from('fin_cobrancas')
+        .select('unidade_devedora, lancamento_reembolso_id').in('lancamento_reembolso_id', idsSis)
+      if (!er2) for (const c of (cr2 as { unidade_devedora: string; lancamento_reembolso_id: string }[] | null) || [])
+        acerto.set(c.lancamento_reembolso_id, { papel: 'reembolso', outra: nomeU.get(c.unidade_devedora) || 'outra unidade' })
     }
     setAcertoDe(acerto)
 
@@ -577,6 +617,15 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
   }
 
   /** Abre o modal com o lançamento carregado. */
+  // EDITAR VINDO DO LIVRO-CAIXA: assim que a lista do mês tem o lançamento, abre.
+  useEffect(() => {
+    if (!editarId) return
+    const l = lancamentos.find(x => x.id === editarId)
+    if (!l) return
+    editar(l); onEditarFeito?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editarId, lancamentos])
+
   function editar(l: Lancamento) {
     if (somenteLeitura) return
     setEditandoId(l.id)
@@ -627,6 +676,22 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
     // Trava na FUNÇÃO, não só no botão: esconder o botão é aparência — a lição
     // que a /encaminhamentos aprendeu ao virar somente-leitura (FLOW §3.3).
     if (somenteLeitura) return toast('Sua unidade não pode lançar despesa', 'error')
+    // TRAVA DE QUEM JÁ FOI REPASSADO (14/10/2026): a cobrança guardou valor, data e
+    // categoria do momento em que foi emitida — mudar aqui desencontra os dois livros.
+    if (editandoId) {
+      const orig = lancamentos.find(x => x.id === editandoId)
+      const perna = orig?.origem === 'sistema'
+      const repassado = cobDoLanc.some(c => c.status !== 'recusada')
+      if (orig && (perna || repassado)) {
+        const mudou = Math.abs(Math.abs(digitosParaNumero(valor)) - Math.abs(Number(orig.valor))) > 0.005
+          || data !== (orig.data_competencia || '').slice(0, 10)
+          || catId !== (orig.categoria_id || '')
+          || (perna && fornecedor.trim() !== (orig.fornecedor_nome || ''))
+        if (mudou) return toast(perna
+          ? 'Este lançamento espelha uma cobrança entre unidades: só a observação muda aqui'
+          : 'Custo já repassado: valor, data e categoria ficam travados. Pra mudar, a unidade recusa a cobrança e repassa-se de novo', 'error')
+      }
+    }
     // Colar do extrato traz o sinal ("-255,88"). Numa tela de DESPESA, saída é
     // saída — recusar por causa do sinal (e ainda dizer "informe o valor", com o
     // valor preenchido) era mandar o operador procurar um erro que não existe.
@@ -820,6 +885,7 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
 
   return (
     <div className="animate-fade-in space-y-3">
+      {!soModais && (<>
       {/* ACERTOS ENTRE UNIDADES — fica no topo porque uma cobrança que ninguém
           vê não é cobrança. Recarrega quando um lançamento emite uma nova.
           Ocultar por FLS tira só a caixa de entrada: as cobranças continuam
@@ -940,7 +1006,7 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
                     <span className="inline-block mr-1.5 px-1.5 rounded-full align-middle"
                           style={{ background: 'rgba(245,158,11,0.14)', color: '#f59e0b' }}
                           title="Nasceu de um acerto entre unidades — não foi digitado aqui">
-                      {ac.papel === 'despesa' ? `lançado por ${ac.outra}` : `reembolso de ${ac.outra}`}
+                      {ac.papel === 'despesa' ? `lançado por ${ac.outra}` : `repassado a ${ac.outra}`}
                     </span>
                   )}
                   {conciliados.has(l.id) && (
@@ -948,7 +1014,7 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
                   )}
                   {fmtData(l.data_competencia)}
                   {l.conta_pagamento_id && nomeConta.get(l.conta_pagamento_id) && (
-                    <span className="text-[var(--surface-600)]"> · {nomeConta.get(l.conta_pagamento_id)}</span>
+                    <span className="text-[var(--surface-600)]"> · {rotuloConta(cores, l.conta_pagamento_id, nomeConta.get(l.conta_pagamento_id) || '')}</span>
                   )}
                   {l.descricao && ` · ${l.descricao}`}
                   {/* Em lançamento colado do extrato, a observação é o texto do
@@ -990,6 +1056,10 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
         </div>
       </div>
 
+      </>)}
+      {/* fim do que some com `soModais` (os popups abaixo ficam sempre montados) */}
+      </>)}
+
       <ColarExtratoModal
         aberto={colarAberto}
         onClose={() => setColarAberto(false)}
@@ -1014,7 +1084,7 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
       <Modal
         isOpen={aberto}
         onClose={limpar}
-        title={editandoId ? 'Editar lançamento' : contaFixa ? `Paguei · ${contaFixa.nome}` : 'Novo lançamento'}
+        title={editandoId ? 'Editar lançamento' : contaFixa ? `Paguei · ${contaFixa.nome}` : 'Pré-lançamento'}
         footer={
           <div className="flex justify-end gap-2">
             <button onClick={limpar} className="btn-secondary text-sm">Cancelar</button>
@@ -1027,6 +1097,17 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
         }
       >
         <div className="space-y-4">
+          {/* PRÉ-LANÇAMENTO = um popup com duas abas (14/10/2026): Despesa · Movimentação entre contas */}
+          {!editandoId && !contaFixa && onIrMovimentacao && (
+            <div className="flex gap-5 border-b border-[var(--surface-200)] -mt-1">
+              {(['despesa', 'movimentacao'] as const).map(k => (
+                <button key={k} type="button" onClick={() => { if (k !== 'despesa') { limpar(); onIrMovimentacao!() } }}
+                        className={`text-sm py-2 border-b-2 -mb-px ${k === 'despesa' ? 'font-semibold text-[var(--surface-900)] border-[var(--brand-500)]' : 'text-[var(--surface-500)] border-transparent hover:text-[var(--surface-800)]'}`}>
+                  {k === 'despesa' ? 'Despesa' : 'Movimentação entre contas'}
+                </button>
+              ))}
+            </div>
+          )}
           {/* ─────────────────────────────────────────────────────────────────
               A ORDEM DESTE MODAL É UMA ÁRVORE DE DECISÃO (13/09/2026).
               Antes, os seis campos apareciam de uma vez e quatro deles pediam
@@ -1143,7 +1224,7 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
                   <option value="">Escolher…</option>
                   {contasQuePagam.map(c => (
                     <option key={c.id} value={c.id}>
-                      {c.preferencial_recebimento ? '⭐ ' : ''}{c.nome}
+                      {c.preferencial_recebimento ? '⭐ ' : ''}{rotuloConta(cores, c.id, c.nome)}
                     </option>
                   ))}
                 </select>
@@ -1451,34 +1532,65 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
             />
           </div>
 
-          {/* ⌄ MAIS OPÇÕES — os dois casos raros saem do caminho do olho */}
-          <button
-            type="button"
-            onClick={() => setMaisOpcoes(v => !v)}
-            className="text-[11px] text-[var(--surface-400)] hover:text-[var(--surface-600)]"
-          >
-            {maisOpcoes ? '⌃ menos opções' : '⌄ é de outra unidade · cobre mais de um mês'}
-          </button>
+          {editandoId && (lancamentos.find(x => x.id === editandoId)?.origem === 'sistema' || cobDoLanc.some(c => c.status !== 'recusada')) && (
+            <p className="rounded-[10px] border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12px] text-[var(--surface-700)]">
+              🔒 {lancamentos.find(x => x.id === editandoId)?.origem === 'sistema'
+                ? <>Este lançamento <b>espelha uma cobrança entre unidades</b> — só a observação muda aqui.</>
+                : <><b>Valor, data e categoria travados</b>: o custo já foi repassado. Pra mudar, a unidade recusa a cobrança e repassa-se de novo.</>}
+              {' '}<button type="button" onClick={() => setTrilhaId(editandoId)} className="text-[var(--brand-500)] hover:underline whitespace-nowrap">Ver trilha do custo ›</button>
+            </p>
+          )}
+          {editandoId && cobDoLanc.length > 0 && (
+            <div className="rounded-[10px] border border-violet-500/30 bg-violet-500/5 px-3 py-2 space-y-1">
+              <p className="text-[12px] font-semibold text-[var(--surface-800)]">🏢 Custo repassado</p>
+              {cobDoLanc.map((d, i) => (
+                <p key={i} className="flex justify-between gap-2 text-[12.5px] text-[var(--surface-700)]">
+                  <span>{d.unidade} · <span className={d.status === 'recusada' ? 'text-red-400' : d.status === 'emitida' ? 'text-amber-500' : 'text-emerald-500'}>
+                    {({ emitida: 'esperando reconhecer', aceita: 'reconhecida', liquidada: 'reconhecida e baixada', recusada: 'recusada' } as Record<string, string>)[d.status] || d.status}</span></span>
+                  <span className="text-mono">{fmtBRL(d.valor)}</span>
+                </p>
+              ))}
+            </div>
+          )}
 
-          {maisOpcoes && (<>
+          {/* OS DOIS CASOS RAROS como chips (14/10/2026 — o "⌄ é de outra unidade · cobre
+              mais de um mês" era um link apagado que ninguém via): clicou, abre a parte dele. */}
+          <div className="flex flex-wrap gap-2">
+            {!editandoId && unidades.length > 0 && (
+              <button type="button" onClick={() => setDestinos(destinos.length ? [] : [{ unidadeId: '', valor: '', modo: 'repasse', repasseId: '' }])}
+                      className={`text-[12px] px-3 py-1.5 rounded-full border transition-colors ${destinos.length ? 'border-[var(--brand-500)] bg-[var(--brand-500)]/10 text-[var(--surface-900)] font-semibold' : 'border-[var(--surface-300)] text-[var(--surface-600)] hover:bg-[var(--surface-100)]'}`}>
+                🏢 Parte é de outra unidade
+              </button>
+            )}
+            <button type="button" onClick={() => setRateado(!rateado)}
+                    className={`text-[12px] px-3 py-1.5 rounded-full border transition-colors ${rateado ? 'border-[var(--brand-500)] bg-[var(--brand-500)]/10 text-[var(--surface-900)] font-semibold' : 'border-[var(--surface-300)] text-[var(--surface-600)] hover:bg-[var(--surface-100)]'}`}>
+              📅 Vale por mais de um mês
+            </button>
+            {editandoId && (
+              <button type="button" onClick={() => { const l = lancamentos.find(x => x.id === editandoId); if (l) setRepassar({ id: l.id, valor: Number(l.valor), categoria_id: l.categoria_id, descricao: l.descricao, fornecedor_nome: l.fornecedor_nome, data_competencia: l.data_competencia }) }}
+                      className="text-[12px] px-3 py-1.5 rounded-full border border-[var(--surface-300)] text-[var(--surface-600)] hover:bg-[var(--surface-100)]">
+                🏢 Repassar para outras unidades
+              </button>
+            )}
+            {editandoId && (
+              <button type="button" onClick={() => setVirarConta(true)}
+                      className="text-[12px] px-3 py-1.5 rounded-full border border-violet-500/50 text-violet-400 hover:bg-violet-500/10">
+                📌 Transformar em Conta de Acompanhamento
+              </button>
+            )}
+          </div>
+
+          {(<>
           {/* COMPRA EXTERNA — "esse gasto é de outra unidade".
               Só aparece no lançamento novo: mudar o destino de uma cobrança já
               emitida deixaria a outra ponta com um documento órfão. Para
               corrigir, exclui-se e lança de novo. */}
           {!editandoId && unidades.length > 0 && (
             <div>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox" checked={destinos.length > 0}
-                  onChange={e => setDestinos(e.target.checked
-                    ? [{ unidadeId: '', valor: '', modo: 'repasse', repasseId: '' }] : [])}
-                  className="h-4 w-4 accent-emerald-500"
-                />
-                <span className="text-xs text-[var(--surface-600)]">Comprei para outras unidades</span>
-              </label>
+              {destinos.length > 0 && <p className="text-xs font-semibold text-[var(--surface-700)]">Comprei para outras unidades</p>}
 
               {destinos.length > 0 && (
-                <div className="mt-2 pl-6 space-y-2">
+                <div className="mt-2 space-y-2">
                   {destinos.map((d, idx) => {
                     const doRepasse = d.unidadeId ? unidadeDoRepasse(d.unidadeId) : null
                     const opcoes = repassesAbertos.filter(r => r.unidade_id === doRepasse)
@@ -1511,6 +1623,11 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
                               className="w-full bg-transparent border-0 outline-none text-sm text-mono px-1.5 py-1.5 text-[var(--surface-800)]"
                             />
                           </div>
+                          {/* 100% (14/10/2026): a Matriz lança o custo que é TODO de Pinda — a conta
+                              corrente é a mesma, então lança-se pela Matriz e cobra-se o total */}
+                          <button type="button" title="Cobrar o valor inteiro desta unidade"
+                                  onClick={() => mudar({ valor: String(Math.max(0, Math.round((digitosParaNumero(valor) - (somaDestinos - digitosParaNumero(d.valor))) * 100))) })}
+                                  className="text-[11px] font-semibold px-1.5 py-1 rounded-md border border-[var(--surface-300)] text-[var(--surface-600)] hover:bg-[var(--surface-100)]">100%</button>
                           <button type="button" onClick={() => setDestinos(prev => prev.filter((_, k) => k !== idx))}
                             className="p-1 text-[var(--surface-400)] hover:text-red-400" title="Tirar esta unidade">
                             <X className="h-3.5 w-3.5" />
@@ -1565,17 +1682,10 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
 
           {/* Rateio: o gasto cobre mais de um mês? (seguro anual, anuidade…) */}
           <div>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox" checked={rateado}
-                onChange={e => setRateado(e.target.checked)}
-                className="h-4 w-4 accent-emerald-500"
-              />
-              <span className="text-xs text-[var(--surface-600)]">Cobre mais de um mês</span>
-            </label>
+            {rateado && <p className="text-xs font-semibold text-[var(--surface-700)]">Vale por quantos meses?</p>}
 
             {rateado && (
-              <div className="flex flex-wrap items-center gap-2 mt-2 pl-6">
+              <div className="flex flex-wrap items-center gap-2 mt-2">
                 <input
                   type="number" min={2} max={120} value={meses}
                   onChange={e => setMeses(e.target.value)}
@@ -1651,7 +1761,15 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
 
         </div>
       </Modal>
-      </>)}
+
+      {/* depois do modal do lançamento: abre POR CIMA dele */}
+      <TrilhaCustoModal lancamentoId={trilhaId} onClose={() => setTrilhaId(null)} />
+      <RepassarCustoModal lanc={repassar} onClose={() => setRepassar(null)} onFeito={() => { setRecarregarCobrancas(n => n + 1); setVersaoDiv(v => v + 1); void carregar() }} />
+      <ContaFixaModal aberto={virarConta} conta={null}
+        rascunho={virarConta ? { nome: catSelecionada?.nome || fornecedor || '', categoria_id: catId || null, fornecedor_nome: fornecedor || null,
+          valor: digitosParaNumero(valor), valor_varia: false, regra: 'dia', dia: Number(data.slice(8, 10)) || 10, ajuste: 'depois' } : null}
+        onClose={() => setVirarConta(false)}
+        onSalvou={id => { if (id && editandoId) void supabase.from('fin_lancamentos').update({ conta_fixa_id: id }).eq('id', editandoId).then(() => void carregar()) }} />
     </div>
   )
 }

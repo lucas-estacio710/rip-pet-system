@@ -6,6 +6,7 @@
 // valor final em contratos.custo_cremacao — que é pra isso que o campo existe.
 // Migration 104. Ver FLOW.md §4.
 
+import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -20,6 +21,7 @@ import { useUnit } from '@/contexts/UnitContext'
 import EmptyState from '@/components/ui/EmptyState'
 import UnderlineTabs from '@/components/ui/UnderlineTabs'
 import AcertosRepasse from './AcertosRepasse'
+import LancamentosEspeciaisModal from './LancamentosEspeciaisModal'
 import {
   calcularAbatimento, calcularValorFinal, totalAPagar,
   fmtBRL, fmtData, mesParaData, rotuloMes,
@@ -64,7 +66,13 @@ type RepasseSalvo = {
 }
 
 
-export default function RepasseTab({ mes, somenteLeitura = false }: { mes: string; somenteLeitura?: boolean }) {
+export default function RepasseTab({ mes, somenteLeitura = false, podeConfirmarPagamento = false, soDaUnidade = false }: {
+  mes: string; somenteLeitura?: boolean
+  /** No popup de quitar do Financeiro: só a unidade logada, mesmo pra Matriz/super admin. */
+  soDaUnidade?: boolean
+  /** A unidade (não a Matriz) confirma aqui que pagou o repasse — abre a Quitação no repasse (14/10/2026). */
+  podeConfirmarPagamento?: boolean
+}) {
   const supabaseTipado = createClient()
   // As tabelas fin_* (migrations 103/104) ainda não estão em types/database.ts,
   // então o client tipado infere `never`. Client destipado só para elas.
@@ -102,7 +110,13 @@ export default function RepasseTab({ mes, somenteLeitura = false }: { mes: strin
   const [matrizId, setMatrizId] = useState('')
 
   /** Só quem COBRA vê as outras. A unidade consulta a própria conta e mais nada. */
-  const podeVerTodas = isSuperAdmin || !!currentUnit?.is_matriz
+  const podeVerTodas = (isSuperAdmin || !!currentUnit?.is_matriz) && !soDaUnidade
+  const [confirmarAberto, setConfirmarAberto] = useState(false)
+  // A UNIDADE vê a mesma tela da Matriz, só que sem as abas (14/10/2026): já abre
+  // na própria conta — aba com uma unidade só não faz sentido.
+  useEffect(() => {
+    if (!podeVerTodas && unidadesPagantes.length === 1 && !unidadeId) setUnidadeId(unidadesPagantes[0].id)
+  }, [podeVerTodas, unidadesPagantes, unidadeId])
   const nomeUnidade = unidadesPagantes.find(u => u.id === unidadeId)?.nome || ''
   const codigoUnidade = unidadesPagantes.find(u => u.id === unidadeId)?.codigo || ''
   // As três abas do repasse (02/10/2026): Cremações · Acertos · Resumo.
@@ -543,17 +557,26 @@ export default function RepasseTab({ mes, somenteLeitura = false }: { mes: strin
     <div className="animate-fade-in space-y-2">
       {/* Cabeçalho: título + mês + consolidado, tudo numa linha */}
       <div className="flex flex-wrap items-center gap-3">
-        <span className="text-xs text-[var(--surface-500)]">
+        {/* o total de TODAS as unidades só faz sentido pra quem cobra; na unidade
+            repetia o número da própria linha, solto (14/10/2026) */}
+        {podeVerTodas && <span className="text-xs text-[var(--surface-500)]">
+          Todas as unidades:{' '}
           <span className="text-mono text-[var(--surface-700)]">
             {fmtBRL([...resumo.values()].reduce((s, r) => s + r.valor, 0))}
           </span>{' '}
           · {[...resumo.values()].reduce((s, r) => s + r.qtd, 0)} pets
-        </span>
+        </span>}
         {carregando && <Loader2 className="h-4 w-4 animate-spin text-[var(--surface-400)]" />}
       </div>
+      {/* portal: no Financeiro o repasse vive dentro de um popup (transform) */}
+      {confirmarAberto && typeof document !== 'undefined' && createPortal(
+        <LancamentosEspeciaisModal aberto={confirmarAberto} onClose={() => setConfirmarAberto(false)} abrirEm="repasse"
+          onRegistrou={() => { setConfirmarAberto(false); void carregarResumo() }} />,
+        document.body,
+      )}
 
-      {/* Abas tipo Chrome — uma por unidade, com o valor do repasse */}
-      <div className="flex items-end gap-1 overflow-x-auto pb-0.5">
+      {/* Abas tipo Chrome — uma por unidade, com o valor do repasse (só pra quem cobra) */}
+      <div className={`flex items-end gap-1 overflow-x-auto pb-0.5 ${podeVerTodas ? '' : 'hidden'}`}>
         {unidadesPagantes.map(u => {
           const isActive = unidadeId === u.id
           const cor = UNIT_COLORS[u.codigo] || '#6366f1'
@@ -669,6 +692,10 @@ export default function RepasseTab({ mes, somenteLeitura = false }: { mes: strin
             </span>
 
             <div className="ml-auto flex gap-2">
+              {/* só depois que a Matriz SALVOU (prévia não se paga) e enquanto falta pagar */}
+              {podeConfirmarPagamento && !currentUnit?.is_matriz && existente && existente.status !== 'pago' && existente.status !== 'cancelado' && (
+                <button onClick={() => setConfirmarAberto(true)} className="btn-primary text-xs py-1">Confirmar pagamento</button>
+              )}
               {!travado && (
                 <button onClick={() => setLoteAberto(true)} className="btn-secondary text-xs py-1">
                   <Layers className="h-3.5 w-3.5" /> Ajuste em lote
@@ -820,13 +847,15 @@ export default function RepasseTab({ mes, somenteLeitura = false }: { mes: strin
             <table className="w-full text-sm min-w-[720px]">
               <thead>
                 <tr className="text-xs text-[var(--surface-500)] border-b border-[var(--surface-200)]">
-                  <th className="text-left font-medium px-3 py-2">Acolhimento</th>
-                  <th className="text-left font-medium px-3 py-2">Lacre</th>
-                  <th className="text-left font-medium px-3 py-2">Pet</th>
-                  <th className="text-left font-medium px-3 py-2">Tipo</th>
-                  <th className="text-right font-medium px-3 py-2">Tabela</th>
+                  {/* colunas fixas encolhem até o conteúdo; a sobra vai pro Deflator,
+                      onde mora o "motivo" do desconto (14/10/2026) */}
+                  <th className="w-px whitespace-nowrap text-left font-medium px-3 py-2">Acolhimento</th>
+                  <th className="w-px whitespace-nowrap text-left font-medium px-3 py-2">Lacre</th>
+                  <th className="w-px whitespace-nowrap text-left font-medium px-3 py-2">Pet</th>
+                  <th className="w-px whitespace-nowrap text-left font-medium px-2 py-2">Tipo</th>
+                  <th className="w-px whitespace-nowrap text-right font-medium px-3 py-2">Tabela</th>
                   <th className="text-left font-medium px-3 py-2">Deflator</th>
-                  <th className="text-right font-medium px-3 py-2">Final</th>
+                  <th className="w-px whitespace-nowrap text-right font-medium px-3 py-2">Final</th>
                   <th className="w-8" />
                 </tr>
               </thead>
@@ -843,11 +872,11 @@ export default function RepasseTab({ mes, somenteLeitura = false }: { mes: strin
                   >
                     <td className="px-3 py-2 text-mono text-xs text-[var(--surface-600)]">{fmtData(it.data_acolhimento)}</td>
                     <td className="px-3 py-2 text-mono text-xs text-[var(--surface-700)]">{it.numero_lacre || '—'}</td>
-                    <td className="px-3 py-2">
-                      <p className="text-[var(--surface-800)]">{it.pet_nome || '—'}</p>
-                      <p className="text-xs text-[var(--surface-500)]">{it.tutor_nome || ''}</p>
+                    <td className="px-3 py-2 max-w-[200px]">
+                      <p className="text-[var(--surface-800)] truncate" title={it.pet_nome || ''}>{it.pet_nome || '—'}</p>
+                      <p className="text-xs text-[var(--surface-500)] truncate" title={it.tutor_nome || ''}>{it.tutor_nome || ''}</p>
                     </td>
-                    <td className="px-3 py-2 text-xs text-[var(--surface-600)]">
+                    <td className="px-2 py-2 text-xs text-[var(--surface-600)] whitespace-nowrap">
                       {it.tipo_cremacao === 'individual' ? 'Individual' : 'Coletiva'}
                     </td>
                     <td className="px-3 py-2 text-right text-mono text-[var(--surface-600)]">{fmtBRL(it.valor_base)}</td>
@@ -917,7 +946,7 @@ export default function RepasseTab({ mes, somenteLeitura = false }: { mes: strin
                             type="text" placeholder="motivo" value={it.deflator_motivo || ''}
                             onChange={e => alterar(i, 'deflator_motivo', e.target.value)}
                             disabled={travado}
-                            className="input text-xs w-28 py-1"
+                            className="input text-xs flex-1 min-w-[8rem] py-1"
                           />
                         )}
                       </div>

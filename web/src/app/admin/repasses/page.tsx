@@ -5,5 +5,5 @@
 import { redirect } from 'next/navigation'
 
 export default function RepassesRedirect() {
-  redirect('/financeiro')
+  redirect('/repasse')   // 14/10/2026: o Repasse virou tela própria
 }

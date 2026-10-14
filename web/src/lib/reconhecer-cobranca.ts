@@ -10,8 +10,10 @@
 // COMO UM ACERTO CONTA NA DRE SEM MEXER EM CONTA NENHUMA (FLOW_FINANCEIRO §9.5):
 //   - a DESPESA nasce no livro de quem deve (unidade_devedora), na categoria da
 //     cobrança — foi quem consumiu;
-//   - o REEMBOLSO (receita, conta 9.1.01) nasce no livro de quem cobra
-//     (unidade_credora) — neutraliza o gasto que ela tinha bancado;
+//   - o REEMBOLSO nasce no livro de quem cobra (unidade_credora) como DEDUÇÃO DA
+//     DESPESA (mig 166, 14/10/2026): valor NEGATIVO na mesma categoria — lê-se como o
+//     estorno, "Urnas: 424 − 424 repassado = 0". Até a 166 ele era receita (9.1.01) e
+//     inflava a receita de quem cobrou; a 9.1.01 só fica pra cobrança sem categoria;
 //   - as duas SEM `data_caixa`: nenhum dinheiro andou. O dinheiro anda uma vez
 //     só, líquido, quando o repasse é pago (uma transferência, que não é DRE).
 // As duas nascem juntas: separadas no tempo, o grupo contaria o gasto duas vezes.
@@ -92,20 +94,30 @@ export async function reconhecerCobranca(
     if (e1) throw new Error(e1.message)
     lancamentoAceiteId = (desp as { id: string }).id
 
-    // 2) o reembolso, no livro de quem COBRA — neutraliza a despesa lá.
-    const { data: ctaReemb } = await supabase
-      .from('fin_contas').select('id, codigo, nome').eq('codigo', CONTA_ACERTO_RECEITA).maybeSingle()
-    const cr = ctaReemb as { id: string; codigo: string; nome: string } | null
+    // 2) o reembolso, no livro de quem COBRA — DEDUÇÃO da despesa lá (mig 166): mesma
+    //    categoria e conta contábil, valor negativo. Sem categoria, cai no 9.1.01 antigo.
+    let contaReemb: { id: string | null; codigo: string | null; nome: string | null; natureza: string }
+    if (c.categoria_id) {
+      contaReemb = { id: c.fin_categorias?.fin_conta_id || null, codigo: conta?.codigo || null, nome: conta?.nome || null, natureza: conta?.natureza || 'opex' }
+    } else {
+      const { data: ctaReemb } = await supabase
+        .from('fin_contas').select('id, codigo, nome').eq('codigo', CONTA_ACERTO_RECEITA).maybeSingle()
+      const cr = ctaReemb as { id: string; codigo: string; nome: string } | null
+      contaReemb = { id: cr?.id || null, codigo: cr?.codigo || null, nome: cr?.nome || null, natureza: 'opex' }
+    }
     const { data: reemb, error: e2 } = await supabase.from('fin_lancamentos').insert({
       unidade_id: c.unidade_credora,
-      conta_id: cr?.id || null,
-      conta_codigo: cr?.codigo || null,
-      conta_nome: cr?.nome || null,
-      natureza: 'opex',
-      valor: c.valor,
+      categoria_id: c.categoria_id,
+      conta_id: contaReemb.id,
+      conta_codigo: contaReemb.codigo,
+      conta_nome: contaReemb.nome,
+      natureza: contaReemb.natureza,
+      valor: c.categoria_id ? -Math.abs(c.valor) : c.valor,
       data_competencia: c.data,
       data_caixa: null,
-      descricao: `Reembolso — ${c.descricao || 'compra'}${c.devedoraCodigo ? ` (${c.devedoraCodigo})` : ''}`,
+      descricao: c.categoria_id
+        ? `Repassado a ${c.devedoraCodigo || 'outra unidade'} — ${c.descricao || 'compra'}`
+        : `Reembolso — ${c.descricao || 'compra'}${c.devedoraCodigo ? ` (${c.devedoraCodigo})` : ''}`,
       ...marca,
       origem: ORIGEM_PERNA_COBRANCA,
       criado_por_nome: quem.userName || null,
@@ -124,5 +136,8 @@ export async function reconhecerCobranca(
     ...(opts.guardarReembolsoEmOrigem ? { lancamento_origem_id: reembolsoId } : {}),
   }).eq('id', c.id)
   if (error) throw new Error(error.message)
+  // o elo do reembolso (mig 166) — à parte: sem a migration a coluna não existe e o
+  // reconhecimento acima já valeu
+  if (reembolsoId) await supabase.from('fin_cobrancas').update({ lancamento_reembolso_id: reembolsoId }).eq('id', c.id)
   return { despesaId: lancamentoAceiteId, reembolsoId }
 }

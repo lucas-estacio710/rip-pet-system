@@ -25,6 +25,29 @@ export const SALDO_MINIMO = 5000
 const num = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const isoDe = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 
+/** A ESTEIRA das maquininhas calibradas: o que cai em cada dia (lib/recebiveis).
+ *  Exportada pra Visão do mês mostrar as Receitas a Prazo sem refazer a busca. */
+export async function carregarEsteira(sb: SupabaseClient, uid: string): Promise<Map<string, number>> {
+  const desde = new Date(); desde.setDate(desde.getDate() - 400)   // o parcelado em 12× ainda cai
+  const { data: cs } = await sb.from('contas').select('id, nome, produto, tipo')
+    .or(`unidade_id.eq.${uid},unidades_extras.cs.{${uid}}`).eq('ativo', true).eq('legado', false)
+  const contas = (cs as { id: string; nome: string; produto: string | null; tipo: string | null }[] | null) || []
+  const maqs = contas.filter(c => c.produto === 'maquininha' && contaCalibrada(c.nome)).map(c => c.id)
+  const pags: PagamentoCartao[] = []
+  if (maqs.length) {
+    for (let off = 0; ; off += 1000) {
+      const { data } = await sb.from('pagamentos').select('id, conta_id, data_pagamento, valor, valor_liquido, metodo, parcelas')
+        .in('conta_id', maqs).in('metodo', ['credito', 'debito']).gte('data_pagamento', isoDe(desde)).order('id').range(off, off + 999)
+      const pg = (data as PagamentoCartao[] | null) || []
+      pags.push(...pg)
+      if (pg.length < 1000) break
+    }
+  }
+  const m = new Map<string, number>()
+  for (const r of montarEsteira(pags)) m.set(r.previstoEm, (m.get(r.previstoEm) || 0) + r.valor)
+  return m
+}
+
 export default function ProximosDias({ sb, uid, disponivel, doMes, atrasadas, celular }: {
   sb: SupabaseClient; uid: string | undefined; disponivel: number
   doMes: (ano: number, mes0: number) => ContaNoMes[]
@@ -39,24 +62,11 @@ export default function ProximosDias({ sb, uid, disponivel, doMes, atrasadas, ce
     let vivo = true
     void (async () => {
       const hoje = new Date()
-      const desde = new Date(hoje); desde.setDate(desde.getDate() - 400)   // o parcelado em 12× ainda cai
-      const { data: cs } = await sb.from('contas').select('id, nome, produto, tipo')
+      const { data: cs } = await sb.from('contas').select('id, produto, tipo')
         .or(`unidade_id.eq.${uid},unidades_extras.cs.{${uid}}`).eq('ativo', true).eq('legado', false)
-      const contas = (cs as { id: string; nome: string; produto: string | null; tipo: string | null }[] | null) || []
-      const maqs = contas.filter(c => c.produto === 'maquininha' && contaCalibrada(c.nome)).map(c => c.id)
-      const cartoes = contas.filter(c => c.tipo === 'cartao' || c.produto === 'cartao_credito').map(c => c.id)
-      const pags: PagamentoCartao[] = []
-      if (maqs.length) {
-        for (let off = 0; ; off += 1000) {
-          const { data } = await sb.from('pagamentos').select('id, conta_id, data_pagamento, valor, valor_liquido, metodo, parcelas')
-            .in('conta_id', maqs).in('metodo', ['credito', 'debito']).gte('data_pagamento', isoDe(desde)).order('id').range(off, off + 999)
-          const pg = (data as PagamentoCartao[] | null) || []
-          pags.push(...pg)
-          if (pg.length < 1000) break
-        }
-      }
-      const m = new Map<string, number>()
-      for (const r of montarEsteira(pags)) m.set(r.previstoEm, (m.get(r.previstoEm) || 0) + r.valor)
+      const cartoes = ((cs as { id: string; produto: string | null; tipo: string | null }[] | null) || [])
+        .filter(c => c.tipo === 'cartao' || c.produto === 'cartao_credito').map(c => c.id)
+      const m = await carregarEsteira(sb, uid)
       // Faturas em aberto: compras do cartão pelo vencimento, menos as já quitadas.
       const f = new Map<string, number>()
       if (cartoes.length) {

@@ -20,6 +20,7 @@
 // extrato da conta, onde fica claro de qual banco é), nada de transferir/conferir
 // aqui, frases inteiras — sem abreviar.
 
+import { useCoresContas, rotuloConta, estiloConta } from '@/lib/cor-conta'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -86,6 +87,7 @@ export default function ContasFaturasModal({ aberto, onClose, onImportar, podeEd
   const [carregando, setCarregando] = useState(true)
 
   const uid = currentUnit?.id
+  const [semLiquidez, setSemLiquidez] = useState<Set<string>>(new Set())
   const carregar = useCallback(async () => {
     if (!uid) return
     const hoje = hojeISO()
@@ -93,6 +95,9 @@ export default function ContasFaturasModal({ aberto, onClose, onImportar, podeEd
       .or(`unidade_id.eq.${uid},unidades_extras.cs.{${uid}}`)
     const saldos = ((sd as Saldo[] | null) || []).filter(s => !s.legado && s.mostrar_no_caixa !== false)
       .sort((a, b) => a.nome.localeCompare(b.nome))
+    // SEM LIQUIDEZ (mig 160): o saldo aparece, mas não entra no "disponível agora".
+    const { data: rv, error: erv } = await supabase.from('contas').select('id').eq('reserva', true)
+    setSemLiquidez(erv ? new Set() : new Set(((rv as { id: string }[] | null) || []).map(x => x.id)))
 
     const novos = await Promise.all(saldos.map(async (s): Promise<Card> => {
       const cartao = s.tipo === 'cartao' || s.produto === 'cartao_credito'
@@ -185,7 +190,7 @@ export default function ContasFaturasModal({ aberto, onClose, onImportar, podeEd
   // Fechar sempre volta pra tela geral — a próxima abertura começa pelos cards.
   const fechar = () => { setTela({ tipo: 'geral' }); setCarregando(true); onClose() }
 
-  const disponivel = c2(cards.filter(c => c.grupo === 'contas').reduce((a, c) => a + c.saldo, 0))
+  const disponivel = c2(cards.filter(c => c.grupo === 'contas' && !semLiquidez.has(c.conta_id)).reduce((a, c) => a + c.saldo, 0))
   const titulo = tela.tipo === 'geral' ? 'Contas e Faturas'
     : tela.tipo === 'conta' ? tela.card.nome : `${tela.card.nome} · agenda de recebimentos`
 
@@ -211,6 +216,7 @@ export default function ContasFaturasModal({ aberto, onClose, onImportar, podeEd
 function Geral({ cards, carregando, disponivel, onAbrir }: {
   cards: Card[]; carregando: boolean; disponivel: number; onAbrir: (t: Tela) => void
 }) {
+  const cores = useCoresContas()
   const grupos: { chave: Card['grupo']; nome: string }[] = [
     { chave: 'contas', nome: 'Contas' }, { chave: 'faturas', nome: 'Faturas' }, { chave: 'maquininhas', nome: 'Maquininhas' },
   ]
@@ -233,7 +239,7 @@ function Geral({ cards, carregando, disponivel, onAbrir }: {
                 const fatura = c.grupo === 'faturas'
                 const valor = fatura ? Math.abs(Math.min(c.saldo, 0)) : c.saldo
                 return (
-                  <div key={c.conta_id} className="card p-4 flex flex-col gap-1 min-h-[128px]" style={c.parado ? { opacity: 0.55 } : undefined}>
+                  <div key={c.conta_id} className="card p-4 flex flex-col gap-1 min-h-[128px]" style={{ ...estiloConta(cores.get(c.conta_id)), ...(c.parado ? { opacity: 0.55 } : {}) }}>
                     <div className="flex items-baseline gap-2">
                       <span className="text-sm text-[var(--surface-700)] truncate">{c.nome}</span>
                       <button onClick={() => onAbrir(maq ? { tipo: 'agenda', card: c } : { tipo: 'conta', card: c })}

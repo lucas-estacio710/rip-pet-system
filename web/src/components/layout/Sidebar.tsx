@@ -23,7 +23,8 @@ import {
   Calendar,
   Stethoscope,
   Receipt,
-  ListTodo
+  ListTodo,
+  ArrowLeftRight,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
@@ -51,6 +52,8 @@ const navItems: NavItem[] = [
   { href: '/estoque', label: 'Estoque', icon: ShelvingUnit, countKey: null, module: 'tela_estoque', iconColor: '#a0522d' },
   { href: '/gc', label: 'GC', icon: Church, countKey: null, module: 'tela_gc', iconColor: '#60a5fa' },
   { href: '/financeiro', label: 'Financeiro', icon: Receipt, countKey: null, module: 'tela_financeiro', iconColor: '#34d399' },
+  // O Repasse saiu de aba do Financeiro e virou tela própria (14/10/2026)
+  { href: '/repasse', label: 'Repasse', icon: ArrowLeftRight, countKey: null, module: 'tela_repasse', iconColor: '#a78bfa' },
   { href: '/agenda', label: 'Agenda', icon: Calendar, countKey: null, module: 'tela_agenda', iconColor: '#f97316' },
   { href: '/clinicas', label: 'Clínicas', icon: Stethoscope, countKey: null, module: 'tela_clinicas', iconColor: '#06b6d4' },
   { href: '/tutores', label: 'Tutores', icon: Users, countKey: null, module: 'tela_tutores', iconColor: '#c4b5fd' },
