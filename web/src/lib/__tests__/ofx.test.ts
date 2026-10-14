@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { lerOFX, ehOFX } from '../ofx.ts'
+import { lerOFX, ehOFX, nomeDoBanco, mesmoBanco } from '../ofx.ts'
 
 // Trecho do OFX real do Inter (Conta PJ, 06/09 a 09/10/2026), encurtado.
 const INTER = `OFXHEADER:100
@@ -68,4 +68,69 @@ test('o saldo do banco (LEDGERBAL) vai na última linha do dia dele', () => {
   assert.deepEqual(r.saldo, { data: '2026-10-09', valor: 20413.34 })
   assert.equal(r.linhas[2].saldo, 20413.34)
   assert.equal(r.linhas[0].saldo, null)
+})
+
+// Trecho do OFX real do Itaú (14/10/2026): o banco intercala o SALDO como se fosse crédito.
+const ITAU = `OFXHEADER:100
+DATA:OFXSGML
+<OFX>
+<BANKMSGSRSV1><STMTTRNRS><STMTRS>
+<BANKACCTFROM>
+<BANKID>0341
+<ACCTID>0259000000
+<ACCTTYPE>CHECKING
+</BANKACCTFROM>
+<BANKTRANLIST>
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20261014100000[-03:EST]
+<TRNAMT>-381.35
+<FITID>20261014001
+<MEMO>BOLETO PAGO EXPANSAO CONTABIL
+</STMTTRN>
+<STMTTRN>
+<TRNTYPE>CREDIT
+<DTPOSTED>20261014100000[-03:EST]
+<TRNAMT>5034.53
+<FITID>20261014002
+<MEMO>RECEBIMENTO REDE VISA CD0096396083
+</STMTTRN>
+<STMTTRN>
+<TRNTYPE>CREDIT
+<DTPOSTED>20261013100000[-03:EST]
+<TRNAMT>5671.92
+<FITID>20261013001
+<MEMO>SALDO TOTAL DISPONÍVEL DIA
+</STMTTRN>
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20261013100000[-03:EST]
+<TRNAMT>-50.00
+<FITID>20261013002
+<MEMO>TAR PIX PGTO
+</STMTTRN>
+<STMTTRN>
+<TRNTYPE>CREDIT
+<DTPOSTED>20260901100000[-03:EST]
+<TRNAMT>1000.00
+<FITID>20260901001
+<MEMO>SALDO ANTERIOR
+</STMTTRN>
+</BANKTRANLIST>
+</STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>`
+
+test('Itaú: linha de saldo não vira lançamento, vira o saldo do dia', () => {
+  const x = lerOFX(ITAU)
+  assert.deepEqual(x.linhas.map(l => [l.data, l.valor]), [['2026-10-13', -50], ['2026-10-14', -381.35], ['2026-10-14', 5034.53]])
+  assert.equal(x.linhas.find(l => l.data === '2026-10-13')!.saldo, 5671.92)
+  assert.deepEqual(x.banco, { id: '0341', nome: 'Itaú' })
+})
+
+test('o banco do arquivo casa com a instituição da conta', () => {
+  assert.equal(nomeDoBanco('0341'), 'Itaú')
+  assert.equal(nomeDoBanco('77'), 'Inter')
+  assert.equal(mesmoBanco('Itaú', 'Itaú'), true)
+  assert.equal(mesmoBanco('itau', 'Itaú'), true)
+  assert.equal(mesmoBanco('Inter', 'Itaú'), false)
+  assert.equal(mesmoBanco(null, 'Itaú'), false)
 })

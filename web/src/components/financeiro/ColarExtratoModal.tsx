@@ -23,7 +23,8 @@
 // ⚠️ São DOIS inserts (fin_movimentos e fin_lancamentos): não há transação entre
 // tabelas pelo PostgREST. Se o segundo falhar, a tela diz o que entrou.
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useCoresContas, rotuloConta, estiloConta } from '@/lib/cor-conta'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { Loader2, ClipboardPaste } from 'lucide-react'
@@ -38,10 +39,11 @@ import {
 import { criarIndice, sugerir, type Sugestao } from '@/lib/similaridade'
 import { buscarCategorias, sugerirPorSinonimo, type CategoriaBuscavel } from '@/lib/busca-categoria'
 import { conciliar, semPar, type RegistroSistema, type Ref } from '@/lib/conciliacao'
-import { ehOFX, lerOFX, textoDoArquivo, type ExtratoOFX } from '@/lib/ofx'
+import { ehOFX, lerOFX, textoDoArquivo, mesmoBanco, type ExtratoOFX } from '@/lib/ofx'
+import { textoDoPdf, ehFaturaInter } from '@/lib/fatura-pdf'
 import { reconhecerCobranca } from '@/lib/reconhecer-cobranca'
 
-type ContaRow = { id: string; nome: string; produto: string | null; tipo: string | null; preferencial_recebimento: boolean | null }
+type ContaRow = { id: string; nome: string; produto: string | null; tipo: string | null; preferencial_recebimento: boolean | null; instituicao?: string | null }
 type Cat = {
   id: string
   fin_conta_id: string | null
@@ -152,11 +154,16 @@ export default function ColarExtratoModal({
 }) {
   const supabase = createClient() as unknown as SupabaseClient
   const { toast } = useToast()
+  const cores = useCoresContas()
   const { currentUnit, userName } = useUnit()
 
   const [texto, setTexto] = useState('')
   // O ARQUIVO OFX (09/10/2026): quando vem, ele é a fonte — não o texto.
   const [ofx, setOfx] = useState<{ nome: string; dados: ExtratoOFX } | null>(null)
+  // a conta escolhida pelo banco do arquivo: lê assim que o estado assentar (14/10/2026)
+  const lerQuandoPronto = useRef(false)
+  const [bancoAviso, setBancoAviso] = useState<string | null>(null)
+  const [pdfNome, setPdfNome] = useState<string | null>(null)
   const [itens, setItens] = useState<Item[]>([])
   const [contas, setContas] = useState<ContaRow[]>([])
   const [contaId, setContaId] = useState('')         // de QUAL conta é o extrato
@@ -173,8 +180,13 @@ export default function ColarExtratoModal({
   // Destinos possíveis de "foi para outras unidades" e os repasses que aceitam acerto.
   const [unidades, setUnidades] = useState<UnidadeRow[]>([])
   const [repassesAbertos, setRepassesAbertos] = useState<RepasseRow[]>([])
+  // CONTAS DE ACOMPANHAMENTO (14/10/2026): a despesa que paga uma delas ganha
+  // destaque e já nasce ligada (conta_fixa_id) — o calendário fica verde sozinho.
+  const [contasFixas, setContasFixas] = useState<{ id: string; nome: string; categoria_id: string | null; valor: number; repasse: boolean }[]>([])
   useEffect(() => {
     if (!aberto || !currentUnit?.id) return
+    void supabase.from('fin_contas_fixas').select('id, nome, categoria_id, valor, repasse').eq('unidade_id', currentUnit.id).eq('ativo', true)
+      .then(({ data, error }) => setContasFixas(error ? [] : ((data as typeof contasFixas | null) || [])))
     void supabase.from('unidades').select('id, codigo, nome, is_matriz')
       .eq('ativa', true).neq('id', currentUnit.id).order('nome')
       .then(({ data }) => setUnidades((data as UnidadeRow[] | null) || []))
@@ -188,6 +200,20 @@ export default function ColarExtratoModal({
     return unidades.find(u => u.id === destinoId)?.is_matriz ? currentUnit?.id || null : null
   }
   const [encontradasAberto, setEncontradasAberto] = useState(false)
+  /** A conta de acompanhamento que esta despesa paga: a única da categoria, ou a de
+   *  valor mais perto (até 15%) quando a categoria tem mais de uma — a mesma regra do calendário. */
+  const contaFixaDe = (catId: string, valor: number) => {
+    const cs = contasFixas.filter(c => !c.repasse && c.categoria_id === catId)
+    if (cs.length === 1) return cs[0]
+    let melhor: { c: (typeof cs)[number]; dif: number } | null = null
+    for (const c of cs) {
+      const ref = Number(c.valor) || 0
+      if (!ref) continue
+      const dif = Math.abs(Math.abs(valor) - ref) / ref
+      if (dif <= 0.15 && (!melhor || dif < melhor.dif)) melhor = { c, dif }
+    }
+    return melhor?.c || null
+  }
 
   const maquininhas = contas.filter(c => c.produto === 'maquininha')
   const correntes = contas.filter(c => c.produto !== 'maquininha' && c.tipo !== 'cartao')
@@ -230,9 +256,9 @@ export default function ColarExtratoModal({
   // As contas da unidade (as dela + as compartilhadas com ela), sem legado.
   useEffect(() => {
     if (!aberto || !currentUnit?.id) return
-    setTexto(''); setItens([]); setOfx(null)
+    setTexto(''); setItens([]); setOfx(null); setPdfNome(null); setBancoAviso(null)
     void supabase.from('contas')
-      .select('id, nome, produto, tipo, preferencial_recebimento')
+      .select('id, nome, produto, tipo, preferencial_recebimento, instituicao')
       .or(`unidade_id.eq.${currentUnit.id},unidades_extras.cs.{${currentUnit.id}}`)
       .eq('ativo', true).eq('legado', false).order('nome')
       .then(({ data }) => {
@@ -245,11 +271,21 @@ export default function ColarExtratoModal({
       })
   }, [aberto, currentUnit?.id, supabase, contaInicial])
 
+  // a conta acabou de ser trocada pelo banco do arquivo: lê com ela
+  useEffect(() => {
+    if (!lerQuandoPronto.current || !contaId || (!ofx && !texto)) return
+    lerQuandoPronto.current = false
+    void ler()
+  }, [contaId, ofx, texto]) // eslint-disable-line react-hooks/exhaustive-deps
+
   async function ler(deArquivo?: ExtratoOFX) {
     if (!contaId) return toast('Escolha de qual conta é o extrato', 'error')
     const ano = Number(mes.slice(0, 4)) || new Date().getFullYear()
-    // OFX: do arquivo enviado ou colado no campo de texto.
-    const fonteOfx = deArquivo ?? ofx?.dados ?? (ehOFX(texto) ? lerOFX(texto) : null)
+    // OFX: do arquivo enviado (ou colado no campo, que só existe na fatura de cartão).
+    const fonteOfx = deArquivo ?? ofx?.dados ?? (ehCartao && ehOFX(texto) ? lerOFX(texto) : null)
+    // CONTA CORRENTE SÓ POR OFX (14/10/2026, Lucas): colar texto é arriscado — data sem ano,
+    // sinal adivinhado, linha cortada. O OFX traz data, sinal, ID e saldo do próprio banco.
+    if (!ehCartao && !fonteOfx) return toast('Envie o arquivo OFX do extrato', 'error')
     if (fonteOfx && fonteOfx.cartao !== ehCartao) {
       toast(fonteOfx.cartao ? 'Este OFX é de cartão — confira a conta escolhida' : 'Este OFX é de conta corrente — confira a conta escolhida', 'error')
     }
@@ -391,16 +427,22 @@ export default function ColarExtratoModal({
       }
     }
 
-    // FITID já visto nesta conta (mig 158): a linha foi importada antes, mesmo
-    // que o registro tenha mudado de data/valor desde então.
-    const fitidVisto = new Set<string>()
+    // FITID já visto nesta conta (mig 158): a linha foi importada antes.
+    // 🔴 SÓ VALE COM O MESMO VALOR E A MESMA DATA DO BANCO (14/10/2026): o Itaú gera o ID
+    // como data + número de ordem no dia (20261014001, …002). Exportar de novo um dia que
+    // ainda não acabou desloca a numeração — o mesmo ID passa a ser OUTRA linha, e confiar
+    // só no ID pularia o lançamento novo em silêncio.
+    const fitidVisto = new Map<string, { valor: number; data: string }[]>()
     const fitids = linhas.map(l => l.fitid).filter((f): f is string => !!f)
     for (let k = 0; k < fitids.length; k += 150) {
-      const { data: fv, error: efv } = await supabase.from('fin_conciliacoes').select('fitid')
+      const { data: fv, error: efv } = await supabase.from('fin_conciliacoes').select('fitid, valor_banco, data_banco')
         .eq('conta_id', contaId).in('fitid', fitids.slice(k, k + 150))
       if (efv) break                                   // sem a mig 158: segue sem
-      for (const r of (fv as { fitid: string }[] | null) || []) fitidVisto.add(r.fitid)
+      for (const r of (fv as { fitid: string; valor_banco: number; data_banco: string }[] | null) || [])
+        fitidVisto.set(r.fitid, [...(fitidVisto.get(r.fitid) || []), { valor: Number(r.valor_banco), data: (r.data_banco || '').slice(0, 10) }])
     }
+    const mesmaLinhaJaImportada = (l: { fitid?: string; valor: number; data: string }) =>
+      !!l.fitid && (fitidVisto.get(l.fitid) || []).some(v => Math.abs(v.valor - l.valor) < 0.005 && v.data === l.data)
 
     // DEVOLUÇÃO NA CONTA (10/10/2026: "Pix enviado devolvido" +418,60, devolução
     // do Pix de −418,60 de 11/09 lançado como despesa). Procura a saída: mesmo
@@ -441,7 +483,7 @@ export default function ColarExtratoModal({
         const rot = par.tipo === 'contrato' ? `${par.candidatos[0].rotulo} (${par.candidatos.length} pagamentos)` : par.candidatos[0].rotulo
         return { ...base, destino: 'fora' as Destino, jaNoSistema: rot, exatos: par.candidatos, marcado: false }
       }
-      if (l.fitid && fitidVisto.has(l.fitid)) {
+      if (mesmaLinhaJaImportada(l)) {
         return { ...base, destino: 'fora' as Destino, marcado: false,
                  jaNoSistema: 'a mesma linha já importada antes (ID do banco)' }
       }
@@ -672,11 +714,13 @@ export default function ColarExtratoModal({
             { catId: i.catId, valor: i.estorno ? -Math.abs(i.valor) : i.partes.length ? restanteDe(i) : Math.abs(i.valor) },
             ...i.partes.map(pt => ({ catId: pt.catId, valor: digNum(pt.valor) })),
           ]
-          return pedacos.map(pd => {
+          const fixa = !i.estorno ? contaFixaDe(i.catId, i.partes.length ? restanteDe(i) : Math.abs(i.valor)) : null
+          return pedacos.map((pd, k) => {
             const cat = categorias.find(c => c.id === pd.catId)
             const cc = cat?.fin_contas
             donos.push(i)
             return {
+              ...(fixa && k === 0 ? { conta_fixa_id: fixa.id } : {}),
               unidade_id: currentUnit.id, categoria_id: pd.catId,
               conta_id: cat?.fin_conta_id || null,
               conta_codigo: cc?.codigo || null, conta_nome: cc?.nome || null,   // SNAPSHOT da DRE
@@ -812,6 +856,9 @@ export default function ColarExtratoModal({
                   {i.meses > 1 && <span className="font-normal text-[var(--brand-500)]"> · {i.meses} meses</span>}
                   {i.outras.length > 0 && <span className="font-normal text-[var(--brand-500)]"> · parte de outra unidade</span>}
                 </span>
+                {!i.estorno && (() => { const fx = contaFixaDe(i.catId, i.partes.length ? restanteDe(i) : Math.abs(i.valor)); return fx && (
+                  <span className="shrink-0 text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-400" title="Conta de acompanhamento — o calendário marca como paga">📌 {fx.nome}</span>
+                ) })()}
                 <span className="text-[11px] text-[var(--surface-400)] truncate">
                   {i.estornoDe || (i.doHistorico ? 'como das outras vezes' : caminhoDe(i.catId).split(' › ').slice(0, -1).join(' › '))}
                 </span>
@@ -936,7 +983,7 @@ export default function ColarExtratoModal({
                   Maquininha
                   <select value={i.opId || maquininhaLote} onChange={e => muda(i.n, { opId: e.target.value })} className="input text-sm py-1">
                     <option value="">escolher…</option>
-                    {maquininhas.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}
+                    {maquininhas.map(m => <option key={m.id} value={m.id}>{rotuloConta(cores, m.id, m.nome)}</option>)}
                   </select>
                 </label>
               )}
@@ -1136,7 +1183,7 @@ export default function ColarExtratoModal({
               <select value={i.entreConta} onChange={e => muda(i.n, { entreConta: e.target.value, entreHist: false })}
                       className={`input-field text-xs py-1 ${i.entreConta ? 'text-[var(--brand-500)] font-medium' : ''}`}>
                 <option value="">— escolha a conta —</option>
-                {contasEntre.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                {contasEntre.map(c => <option key={c.id} value={c.id}>{rotuloConta(cores, c.id, c.nome)}</option>)}
               </select>
               {i.entreConta && i.entreHist && <span className="text-[11px] text-[var(--surface-400)]">como das outras vezes</span>}
             </span>
@@ -1246,7 +1293,7 @@ export default function ColarExtratoModal({
             </>}
             {pendentes > 0 && <span className="text-amber-500"> Falta decidir {pendentes}.</span>}
           </span>
-          <button onClick={() => { setItens([]); setPlacar(null); setOfx(null) }} className="btn-secondary text-sm">Colar outro texto</button>
+          <button onClick={() => { setItens([]); setPlacar(null); setOfx(null) }} className="btn-secondary text-sm">{ehCartao ? 'Enviar outro PDF' : 'Enviar outro arquivo'}</button>
           <button onClick={() => void registrar()} disabled={salvando || conferir === 0} className="btn-primary text-sm">
             {salvando ? <><Loader2 className="h-4 w-4 animate-spin" /> Registrando…</> : 'Registrar e conferir'}
           </button>
@@ -1254,7 +1301,7 @@ export default function ColarExtratoModal({
       ) : (
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="btn-secondary text-sm">Cancelar</button>
-          <button onClick={() => void ler()} disabled={(!texto.trim() && !ofx) || lendo || !contaId} className="btn-primary text-sm">
+          <button onClick={() => void ler()} disabled={(ehCartao ? !texto.trim() : !ofx) || lendo || !contaId} className="btn-primary text-sm">
             {lendo ? <><Loader2 className="h-4 w-4 animate-spin" /> Lendo…</> : <><ClipboardPaste className="h-4 w-4" /> Ler o extrato</>}
           </button>
         </div>
@@ -1266,10 +1313,10 @@ export default function ColarExtratoModal({
             <label htmlFor="imp-conta" className="text-base font-semibold text-[var(--surface-800)]">De qual conta é o extrato?</label>
             <select id="imp-conta" value={contaId} onChange={e => { setContaId(e.target.value); setItens([]) }} className="input text-sm w-full sm:w-96">
               <option value="">Escolher…</option>
-              {correntes.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+              {correntes.map(c => <option key={c.id} value={c.id}>{rotuloConta(cores, c.id, c.nome)}</option>)}
               {cartoes.length > 0 && (
                 <optgroup label="Fatura de cartão">
-                  {cartoes.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                  {cartoes.map(c => <option key={c.id} value={c.id}>{rotuloConta(cores, c.id, c.nome)}</option>)}
                 </optgroup>
               )}
             </select>
@@ -1296,22 +1343,17 @@ export default function ColarExtratoModal({
                   {novaFatura ? (faturas.length ? 'escolher uma existente' : '') : '+ nova fatura'}
                 </button>
               </div>
-              <span className="text-sm text-[var(--surface-500)]">É quando essas compras saem do caixa. Se colar a fatura com o cabeçalho, ela é escolhida sozinha.</span>
+              <span className="text-sm text-[var(--surface-500)]">É quando essas compras saem do caixa. Com o PDF, ela é escolhida sozinha.</span>
             </div>
           )}
 
-          <div className="flex flex-col gap-2">
-            <label htmlFor="imp-texto" className="text-base font-semibold text-[var(--surface-800)]">Cole o extrato</label>
-            <textarea id="imp-texto" value={texto} onChange={e => setTexto(e.target.value)} rows={10} autoFocus
-                      className="input text-xs text-mono w-full" />
-            <span className="text-sm text-[var(--surface-500)]">
-              Do jeito que veio do banco — um dia, uma semana, tudo misturado. Cada linha é conferida com o que já
-              está no sistema; só o que for novo vira lançamento.
-            </span>
-            {/* OFX: o formato padrão dos bancos — data, sinal, ID e saldo sem adivinhação */}
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <label className="text-sm font-medium px-3 py-1.5 rounded-[10px] border border-[var(--surface-300)] text-[var(--surface-800)] hover:bg-[var(--surface-100)] cursor-pointer">
-                ou envie o arquivo OFX
+          {/* CONTA CORRENTE: só o arquivo OFX (14/10/2026) — colar texto saiu, era arriscado */}
+          {!ehCartao && (
+            <div className="flex flex-col gap-2">
+              <span className="text-base font-semibold text-[var(--surface-800)]">Envie o arquivo OFX do extrato</span>
+              <label className="flex flex-col items-center justify-center gap-1 rounded-[12px] border-2 border-dashed border-[var(--surface-300)] px-4 py-8 text-center cursor-pointer hover:border-[var(--brand-500)] hover:bg-[var(--surface-50)]">
+                <span className="text-sm font-medium text-[var(--surface-800)]">{ofx ? `${ofx.nome} · ${ofx.dados.linhas.length} lançamentos` : 'Escolher o arquivo .ofx'}</span>
+                <span className="text-xs text-[var(--surface-500)]">no app do banco: Extrato › Exportar › OFX — vem com o saldo e um ID por lançamento</span>
                 <input type="file" accept=".ofx,.OFX,application/x-ofx" className="sr-only"
                        onChange={async e => {
                          const arq = e.target.files?.[0]
@@ -1322,14 +1364,57 @@ export default function ColarExtratoModal({
                          const dados = lerOFX(t)
                          if (!dados.linhas.length) return toast('O OFX não trouxe nenhum lançamento', 'error')
                          setOfx({ nome: arq.name, dados })
+                         // QUAL CONTA: pelo banco do arquivo (<BANKID>) × instituição da conta
+                         const banco = dados.banco?.nome || null
+                         const doBanco = banco ? correntes.filter(c => mesmoBanco(c.instituicao, banco)) : []
+                         if (doBanco.length === 1) {
+                           setBancoAviso(`Arquivo do ${banco} — conta escolhida: ${doBanco[0].nome}`)
+                           if (doBanco[0].id !== contaId) { lerQuandoPronto.current = true; setContaId(doBanco[0].id); return }
+                         } else if (doBanco.length > 1) {
+                           setBancoAviso(`Arquivo do ${banco} — esta unidade tem ${doBanco.length} contas desse banco (${doBanco.map(c => c.nome).join(', ')}). Confira a conta escolhida.`)
+                           if (!doBanco.some(c => c.id === contaId)) { setContaId(doBanco[0].id); return }
+                         } else if (banco) {
+                           setBancoAviso(`Arquivo do ${banco}, mas nenhuma conta da unidade está cadastrada com esse banco — confira a conta escolhida.`)
+                         }
                          void ler(dados)
                        }} />
               </label>
-              <span className="text-xs text-[var(--surface-500)]">
-                {ofx ? `${ofx.nome} · ${ofx.dados.linhas.length} lançamentos` : 'no app do banco: Extrato › Exportar › OFX — vem com o saldo e um ID por lançamento'}
-              </span>
+              {bancoAviso && <span className="text-sm text-[var(--brand-500)]">{bancoAviso}</span>}
+              <span className="text-sm text-[var(--surface-500)]">Cada linha é conferida com o que já está no sistema; só o que for novo vira lançamento.</span>
             </div>
-          </div>
+          )}
+
+          {/* FATURA DE CARTÃO: só o PDF da fatura (14/10/2026). Colar texto saiu; o banco não exporta
+              OFX de fatura. Formato conferido: Inter (lib/fatura-pdf.ts) — os outros bancos entram
+              quando a fatura deles chegar e for conferida. */}
+          {ehCartao && (
+            <div className="flex flex-col gap-2">
+              <span className="text-base font-semibold text-[var(--surface-800)]">Envie o PDF da fatura</span>
+              <label className="flex flex-col items-center justify-center gap-1 rounded-[12px] border-2 border-dashed border-[var(--surface-300)] px-4 py-8 text-center cursor-pointer hover:border-[var(--brand-500)] hover:bg-[var(--surface-50)]">
+                <span className="text-sm font-medium text-[var(--surface-800)]">{pdfNome || 'Escolher o PDF da fatura'}</span>
+                <span className="text-xs text-[var(--surface-500)]">por enquanto, fatura do Inter (o PDF que o app manda todo mês)</span>
+                <input type="file" accept="application/pdf,.pdf" className="sr-only"
+                       onChange={async e => {
+                         const arq = e.target.files?.[0]
+                         e.target.value = ''
+                         if (!arq) return
+                         setLendo(true)
+                         let t = ''
+                         try { t = await textoDoPdf(arq) } catch { setLendo(false); return toast('Não consegui ler esse PDF', 'error') }
+                         setLendo(false)
+                         if (!ehFaturaInter(t)) return toast('Por enquanto só a fatura do Inter — este PDF não parece ser uma', 'error')
+                         setPdfNome(arq.name); setOfx(null); setTexto(t)
+                         // o cartão do Inter: se a unidade tem UM, escolhe sozinho
+                         const doInter = cartoes.filter(c => mesmoBanco(c.instituicao, 'Inter'))
+                         if (doInter.length === 1 && doInter[0].id !== contaId) { setBancoAviso(`Fatura do Inter — cartão escolhido: ${doInter[0].nome}`); lerQuandoPronto.current = true; setContaId(doInter[0].id); return }
+                         if (doInter.length > 1 && !doInter.some(c => c.id === contaId)) setBancoAviso(`Fatura do Inter — esta unidade tem ${doInter.length} cartões do Inter. Confira o escolhido.`)
+                         lerQuandoPronto.current = true
+                       }} />
+              </label>
+              {bancoAviso && <span className="text-sm text-[var(--brand-500)]">{bancoAviso}</span>}
+              <span className="text-sm text-[var(--surface-500)]">O vencimento e as compras saem do próprio PDF; cada compra é conferida com o que já está lançado.</span>
+            </div>
+          )}
         </div>
       ) : (
         <div className="flex flex-col gap-7">
@@ -1407,7 +1492,7 @@ export default function ColarExtratoModal({
                     <select value={maquininhaLote} onChange={e => setMaquininhaLote(e.target.value)} aria-label="Maquininha de todas"
                             className="input text-sm py-1" style={!maquininhaLote ? { borderColor: '#f59e0b' } : undefined}>
                       <option value="">qual maquininha?</option>
-                      {maquininhas.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}
+                      {maquininhas.map(m => <option key={m.id} value={m.id}>{rotuloConta(cores, m.id, m.nome)}</option>)}
                     </select>
                   </span>
                 ) : maquininhas.length === 0 ? (
