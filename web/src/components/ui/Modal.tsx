@@ -26,6 +26,10 @@ const SIZE_MAP = {
 
 export default function Modal({ isOpen, onClose, title, children, footer, size = 'md' }: Props) {
   const overlayRef = useRef<HTMLDivElement>(null)
+  // Onde o clique COMEÇOU (14/10/2026): arrastar pra selecionar texto dentro do
+  // popup e soltar fora disparava o clique no fundo e fechava — perdendo o que
+  // foi digitado. Só fecha se apertou E soltou no fundo.
+  const apertouNoFundo = useRef(false)
 
   // Trava a rolagem do fundo — com contador (lib/scroll-lock): um modal fechando não destrava
   // o fundo enquanto outro continua aberto por cima.
@@ -45,7 +49,8 @@ export default function Modal({ isOpen, onClose, title, children, footer, size =
 
   // Click on overlay (not content) closes
   function handleOverlayClick(e: React.MouseEvent) {
-    if (e.target === overlayRef.current) onClose()
+    if (e.target === overlayRef.current && apertouNoFundo.current) onClose()
+    apertouNoFundo.current = false
   }
 
   // Layout decidido por CSS (breakpoint md), NÃO por JS (demanda 2026/118):
@@ -55,6 +60,7 @@ export default function Modal({ isOpen, onClose, title, children, footer, size =
   return (
     <div
       ref={overlayRef}
+      onMouseDown={e => { apertouNoFundo.current = e.target === overlayRef.current }}
       onClick={handleOverlayClick}
       className="fixed inset-0 z-50 flex items-end md:items-center md:justify-center md:p-4 bg-black/40 backdrop-blur-[2px] animate-overlay-in"
     >
