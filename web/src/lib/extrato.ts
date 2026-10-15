@@ -104,11 +104,18 @@ export function pareceMaquininha(descricao: string): boolean {
 }
 
 /** Forma de pagamento de uma SAÍDA pelo texto do banco. null = a pessoa escolhe. */
+/** ITAÚ (15/10/2026): "FATURA CARTAO DEBITO CAMPINAS MO-001008" é COMPRA NO DÉBITO, não
+ *  pagamento de fatura — o Itaú escreve assim a compra feita com o cartão de débito (vem
+ *  junto com "COMPRA NO DEBITO" no mesmo extrato). Recebe o texto já normalizado. */
+export function ehCompraNoDebito(textoNorm: string): boolean {
+  return /FATURA\s+CART(AO|OES)\s+(DE\s+)?DEBITO/.test(textoNorm)
+}
+
 export function metodoDe(descricao: string): string | null {
   const t = normTexto(descricao)
   if (/\bPIX\b/.test(t)) return 'pix'
   if (/PAGAMENTO DE (TITULO|CONVENIO)|PAGAMENTO EFETUADO|\bBOLETO\b|\bDARF\b|SIMPLES NACIONAL/.test(t)) return 'boleto'
-  if (/COMPRA NO DEBITO|DEBITO EM CONTA|CARTAO DE DEBITO/.test(t)) return 'debito'
+  if (/COMPRA NO DEBITO|DEBITO EM CONTA|CARTAO DE DEBITO/.test(t) || ehCompraNoDebito(t)) return 'debito'
   if (/\bTED\b|\bDOC\b|TRANSFERENCIA/.test(t)) return 'transferencia'
   return null
 }
@@ -130,7 +137,7 @@ export function fornecedorDe(descricao: string): string {
  */
 export function naoEDespesa(descricao: string): string | null {
   const t = normTexto(descricao)
-  if (/FATURA\s+(DO\s+)?CART(AO|OES)|PAGAMENTO\s+(DE\s+)?FATURA/.test(t)) {
+  if (!ehCompraNoDebito(t) && /FATURA\s+(DO\s+)?CART(AO|OES)|PAGAMENTO\s+(DE\s+)?FATURA/.test(t)) {
     return 'pagamento de fatura de cartão — as despesas já estão no cartão; registre em + Lançar › Quitação'
   }
   if (/\bAPLICACAO\b|\bRESGATE\b/.test(t) && !/\bIOF\b/.test(t)) {
@@ -154,7 +161,7 @@ export function naoEDespesa(descricao: string): string | null {
  */
 export function quitacaoDe(descricao: string): 'repasse' | 'fatura' | null {
   const t = normTexto(descricao)
-  if (/FATURA\s+(DO\s+)?CART(AO|OES)|PAGAMENTO\s+(DE\s+)?FATURA/.test(t)) return 'fatura'
+  if (!ehCompraNoDebito(t) && /FATURA\s+(DO\s+)?CART(AO|OES)|PAGAMENTO\s+(DE\s+)?FATURA/.test(t)) return 'fatura'
   if (/\bRIP\s*PET\b|\bPRINA\b/.test(t)) return 'repasse'
   return null
 }
