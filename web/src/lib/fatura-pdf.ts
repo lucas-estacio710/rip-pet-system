@@ -49,7 +49,14 @@ export function recorteFaturaInter(texto: string): string {
   return [cab, ...ls.slice(ini, fim + 1)].join('\n')
 }
 
-export async function textoDoPdf(arquivo: File): Promise<string> {
+/** Decide o formato pelo TEXTO INTEIRO e só depois recorta. (15/10/2026: a tela perguntava
+ *  "é do Inter?" ao recorte, que não tem a palavra "Inter" — a fatura certa era recusada.) */
+export function prepararFatura(textoInteiro: string): { inter: boolean; texto: string } {
+  const inter = ehFaturaInter(textoInteiro)
+  return { inter, texto: inter ? recorteFaturaInter(textoInteiro) : textoInteiro }
+}
+
+export async function textoDoPdf(arquivo: File): Promise<{ inter: boolean; texto: string }> {
   const pdfjs = await import('pdfjs-dist')
   pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
   const doc = await pdfjs.getDocument({ data: new Uint8Array(await arquivo.arrayBuffer()) }).promise
@@ -61,6 +68,5 @@ export async function textoDoPdf(arquivo: File): Promise<string> {
       .map(i => ({ str: i.str, x: i.transform[4], y: i.transform[5], w: i.width }))
     paginas.push(itensEmLinhas(itens).join('\n'))
   }
-  const texto = paginas.join('\n')
-  return ehFaturaInter(texto) ? recorteFaturaInter(texto) : texto
+  return prepararFatura(paginas.join('\n'))
 }

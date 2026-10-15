@@ -40,7 +40,7 @@ import { criarIndice, sugerir, type Sugestao } from '@/lib/similaridade'
 import { buscarCategorias, sugerirPorSinonimo, type CategoriaBuscavel } from '@/lib/busca-categoria'
 import { conciliar, semPar, type RegistroSistema, type Ref } from '@/lib/conciliacao'
 import { ehOFX, lerOFX, textoDoArquivo, mesmoBanco, type ExtratoOFX } from '@/lib/ofx'
-import { textoDoPdf, ehFaturaInter } from '@/lib/fatura-pdf'
+import { textoDoPdf } from '@/lib/fatura-pdf'
 import { useCaixaConjunto } from '@/hooks/useCaixaConjunto'
 import { reconhecerCobranca } from '@/lib/reconhecer-cobranca'
 
@@ -126,11 +126,14 @@ type Item = LinhaExtrato & {
 }
 
 /** Crédito na fatura: "+ R$ 1,20" (Inter) ou texto de estorno/reembolso. No
- *  OFX o sinal é confiável: positivo que não é o pagamento da fatura. */
+ *  OFX o sinal é confiável: positivo que não é o pagamento da fatura.
+ *  ⚠️ No PDF do Inter o PAGAMENTO da fatura anterior também vem "+ R$" ("PAGAMENTO ON
+ *  LINE + R$ 6.728,19"): sem excluir, virava estorno e abatia as despesas (15/10/2026). */
+const ehPagamentoDaFatura = (d: string) => (foraDoCartao(d) || '').startsWith('pagamento')
 const creditoNoCartao = (l: { original: string; descricao: string; valor: number; fitid?: string }) =>
   l.fitid
-    ? l.valor > 0 && !(foraDoCartao(l.descricao) || '').startsWith('pagamento')
-    : /\+\s*R\$/.test(l.original) || (foraDoCartao(l.descricao) || '').startsWith('estorno')
+    ? l.valor > 0 && !ehPagamentoDaFatura(l.descricao)
+    : (/\+\s*R\$/.test(l.original) && !ehPagamentoDaFatura(l.descricao)) || (foraDoCartao(l.descricao) || '').startsWith('estorno')
 
 /** A chave do "entre contas": o nome entre aspas / do favorecido, sem número. */
 const chaveEntre = (d: string) => (fornecedorDe(d) || d).normalize('NFD').toLowerCase()
@@ -1415,11 +1418,12 @@ export default function ColarExtratoModal({
                          e.target.value = ''
                          if (!arq) return
                          setLendo(true)
-                         let t = ''
-                         try { t = await textoDoPdf(arq) } catch { setLendo(false); return toast('Não consegui ler esse PDF', 'error') }
+                         let lido: { inter: boolean; texto: string }
+                         try { lido = await textoDoPdf(arq) } catch { setLendo(false); return toast('Não consegui ler esse PDF', 'error') }
                          setLendo(false)
-                         if (!ehFaturaInter(t)) return toast('Por enquanto só a fatura do Inter — este PDF não parece ser uma', 'error')
-                         setPdfNome(arq.name); setOfx(null); setTexto(t)
+                         // o formato é decidido no PDF inteiro, antes do recorte (lib/fatura-pdf.ts)
+                         if (!lido.inter) return toast('Por enquanto só a fatura do Inter — este PDF não parece ser uma', 'error')
+                         setPdfNome(arq.name); setOfx(null); setTexto(lido.texto)
                          // o cartão do Inter: se a unidade tem UM, escolhe sozinho
                          const doInter = cartoes.filter(c => c.conciliavel !== false && mesmoBanco(c.instituicao, 'Inter'))
                          if (doInter.length === 1 && doInter[0].id !== contaId) { setBancoAviso(`Fatura do Inter — cartão escolhido: ${doInter[0].nome}`); lerQuandoPronto.current = true; setContaId(doInter[0].id); return }
