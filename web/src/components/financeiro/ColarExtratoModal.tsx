@@ -44,7 +44,7 @@ import { textoDoPdf, ehFaturaInter } from '@/lib/fatura-pdf'
 import { useCaixaConjunto } from '@/hooks/useCaixaConjunto'
 import { reconhecerCobranca } from '@/lib/reconhecer-cobranca'
 
-type ContaRow = { id: string; nome: string; produto: string | null; tipo: string | null; preferencial_recebimento: boolean | null; instituicao?: string | null }
+type ContaRow = { id: string; nome: string; produto: string | null; tipo: string | null; preferencial_recebimento: boolean | null; instituicao?: string | null; conciliavel?: boolean | null }
 type Cat = {
   id: string
   fin_conta_id: string | null
@@ -220,7 +220,11 @@ export default function ColarExtratoModal({
   }
 
   const maquininhas = contas.filter(c => c.produto === 'maquininha')
-  const correntes = contas.filter(c => c.produto !== 'maquininha' && c.tipo !== 'cartao')
+  // Só conta CONCILIÁVEL entra na escolha do extrato (mig 169, 15/10/2026: o Dinheiro de SJ,
+  // marcado "Não concilia", aparecia aqui). A lista `contas` inteira segue valendo pra outra
+  // ponta da transferência (sacar pro Dinheiro continua possível).
+  const conciliaveis = contas.filter(c => c.conciliavel !== false)
+  const correntes = conciliaveis.filter(c => c.produto !== 'maquininha' && c.tipo !== 'cartao')
   // FATURA DE CARTÃO também se cola (02/10/2026). Muda três coisas: (1) cada compra
   // sai do caixa no VENCIMENTO da fatura, não no dia — então pergunta-se qual
   // fatura; (2) o "já no sistema" compara pela data da COMPRA (data_competencia),
@@ -262,13 +266,13 @@ export default function ColarExtratoModal({
     if (!aberto || !currentUnit?.id) return
     setTexto(''); setItens([]); setOfx(null); setPdfNome(null); setBancoAviso(null)
     void supabase.from('contas')
-      .select('id, nome, produto, tipo, preferencial_recebimento, instituicao')
+      .select('id, nome, produto, tipo, preferencial_recebimento, instituicao, conciliavel')
       .or(`unidade_id.eq.${currentUnit.id},unidades_extras.cs.{${currentUnit.id}}`)
       .eq('ativo', true).eq('legado', false).order('nome')
       .then(({ data }) => {
         const cs = (data as ContaRow[] | null) || []
         setContas(cs)
-        const corr = cs.filter(c => c.produto !== 'maquininha' && c.tipo !== 'cartao')
+        const corr = cs.filter(c => c.produto !== 'maquininha' && c.tipo !== 'cartao' && c.conciliavel !== false)
         setContaId(contaInicial && cs.some(c => c.id === contaInicial) ? contaInicial : (corr.find(c => c.preferencial_recebimento) || corr[0])?.id || '')
         const maq = cs.filter(c => c.produto === 'maquininha')
         setMaquininhaLote(maq.length === 1 ? maq[0].id : '')
@@ -1328,7 +1332,7 @@ export default function ColarExtratoModal({
               {correntes.map(c => <option key={c.id} value={c.id}>{rotuloConta(cores, c.id, c.nome)}</option>)}
               {cartoes.length > 0 && (
                 <optgroup label="Fatura de cartão">
-                  {cartoes.map(c => <option key={c.id} value={c.id}>{rotuloConta(cores, c.id, c.nome)}</option>)}
+                  {cartoes.filter(c => c.conciliavel !== false).map(c => <option key={c.id} value={c.id}>{rotuloConta(cores, c.id, c.nome)}</option>)}
                 </optgroup>
               )}
             </select>
@@ -1417,7 +1421,7 @@ export default function ColarExtratoModal({
                          if (!ehFaturaInter(t)) return toast('Por enquanto só a fatura do Inter — este PDF não parece ser uma', 'error')
                          setPdfNome(arq.name); setOfx(null); setTexto(t)
                          // o cartão do Inter: se a unidade tem UM, escolhe sozinho
-                         const doInter = cartoes.filter(c => mesmoBanco(c.instituicao, 'Inter'))
+                         const doInter = cartoes.filter(c => c.conciliavel !== false && mesmoBanco(c.instituicao, 'Inter'))
                          if (doInter.length === 1 && doInter[0].id !== contaId) { setBancoAviso(`Fatura do Inter — cartão escolhido: ${doInter[0].nome}`); lerQuandoPronto.current = true; setContaId(doInter[0].id); return }
                          if (doInter.length > 1 && !doInter.some(c => c.id === contaId)) setBancoAviso(`Fatura do Inter — esta unidade tem ${doInter.length} cartões do Inter. Confira o escolhido.`)
                          lerQuandoPronto.current = true
