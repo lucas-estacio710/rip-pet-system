@@ -72,7 +72,10 @@ const TIPOS = [
   // Caixa o dinheiro andava, mas a fatura seguia "em aberto" lá — e podia ser paga 2×.
   { v: 'aporte',        label: 'Aporte',        destino: false, ajuda: 'Sócio pôs dinheiro. Não é receita, não vai pra DRE.' },
   { v: 'emprestimo',    label: 'Empréstimo',    destino: false, ajuda: 'Entrada do principal. Os juros são despesa e vão lançados à parte.' },
-  { v: 'ajuste',        label: 'Ajuste',        destino: false, ajuda: 'Acerto de saldo contra o extrato.' },
+  // AJUSTE PELO SALDO (15/10/2026): pede o saldo que o banco mostra e grava só a DIFERENÇA.
+  // Antes gravava o valor digitado como lançamento — quem pôs o saldo do investimento
+  // (R$ 25.406,51) dobrou a conta, quando faltavam R$ 21,61 de rendimento.
+  { v: 'ajuste',        label: 'Ajuste',        destino: false, ajuda: 'Informe o saldo que o banco mostra nesse dia: o sistema grava só a diferença.' },
 ]
 
 function IconeConta({ tipo, produto }: { tipo: string; produto?: string | null }) {
@@ -87,15 +90,13 @@ function IconeConta({ tipo, produto }: { tipo: string; produto?: string | null }
 const ehMaquininha = (x: { produto?: string | null }) => x.produto === 'maquininha'
 const ehCartao = (x: { tipo: string }) => x.tipo === 'cartao'
 
-export default function CaixaTab({ mes, somenteLeitura = false, comando = null, onComandoFeito, soModais = false, onIrDespesa }: {
+export default function CaixaTab({ mes, somenteLeitura = false, comando = null, onComandoFeito, soModais = false }: {
   /** O mês do Financeiro — um só, escolhido acima das abas (09/10/2026). */
   mes: string
-  /** Livro-Caixa (14/10/2026): montada só com os popups (Movimentação entre contas). */
+  /** Livro-Caixa (14/10/2026): montada só com os popups (Movimentação na Conta). */
   soModais?: boolean
-  /** A aba "Despesa" do popup de pré-lançamento (abre o dos Lançamentos). */
-  onIrDespesa?: () => void
   somenteLeitura?: boolean
-  /** "+ Lançar › Movimentação entre contas" (lib/lancar.ts). */
+  /** "+ Lançar › Movimentação na Conta" (lib/lancar.ts). */
   comando?: AcaoLancar | null
   onComandoFeito?: () => void
 }) {
@@ -131,6 +132,21 @@ export default function CaixaTab({ mes, somenteLeitura = false, comando = null, 
   const [data, setData] = useState('')   // sem padrão: "hoje" já gravou aplicação de agosto em outubro (08/10/2026)
   const [descricao, setDescricao] = useState('')
   const [salvando, setSalvando] = useState(false)
+  // AJUSTE: o saldo que o SISTEMA tem na conta no fim da data escolhida = saldo de hoje − o que
+  // entrou/saiu depois dela. O ajuste é o saldo do banco menos isto.
+  const [saldoNaData, setSaldoNaData] = useState<number | null>(null)
+  useEffect(() => {
+    setSaldoNaData(null)
+    if (!aberto || tipo !== 'ajuste' || !origem || !data) return
+    let vivo = true
+    void (async () => {
+      const { data: sd } = await supabase.from('vw_caixa_saldo').select('saldo').eq('conta_id', origem).maybeSingle()
+      const { data: dp } = await supabase.from('vw_caixa').select('valor').eq('conta_id', origem).gt('data', data).limit(5000)
+      const depois = ((dp as { valor: number }[] | null) || []).reduce((a, x) => a + Number(x.valor || 0), 0)
+      if (vivo) setSaldoNaData(Number((Number((sd as { saldo: number } | null)?.saldo || 0) - depois).toFixed(2)))
+    })()
+    return () => { vivo = false }
+  }, [supabase, aberto, tipo, origem, data])
   useEffect(() => {
     if (comando !== 'movimentacao' || somenteLeitura) return
     setAberto(true)
@@ -388,8 +404,13 @@ export default function CaixaTab({ mes, somenteLeitura = false, comando = null, 
     if (!data) return toast('Informe a data — a que está no extrato do banco', 'error')
     if (defTipo.destino && !destino) return toast('Escolha a conta de destino', 'error')
     if (defTipo.destino && destino === origem) return toast('Origem e destino têm que ser diferentes', 'error')
-    if (!v || v <= 0) return toast('Informe o valor', 'error')
+    const ehAjuste = tipo === 'ajuste'
+    if (ehAjuste ? (valor.trim() === '' || Number.isNaN(v)) : (!v || v <= 0)) return toast(ehAjuste ? 'Informe o saldo que o banco mostra' : 'Informe o valor', 'error')
     if (conj.conjunto && !donoMov) return toast(`De quem é? Escolha ${conj.irmas.map(i => i.nome).join(' ou ')}`, 'error')
+    if (ehAjuste && saldoNaData === null) return toast('Calculando o saldo do sistema nesse dia — tente de novo', 'error')
+    // o ajuste guarda a DIFERENÇA, com sinal (mig 136)
+    const gravar = ehAjuste ? Number((v - (saldoNaData as number)).toFixed(2)) : v
+    if (ehAjuste && Math.abs(gravar) < 0.005) { toast('O saldo já bate com o banco nesse dia', 'success'); limpar(); return }
 
     setSalvando(true)
     const { error } = await supabase.from('fin_movimentos').insert({
@@ -398,13 +419,13 @@ export default function CaixaTab({ mes, somenteLeitura = false, comando = null, 
       conta_id: origem,
       conta_destino_id: defTipo.destino ? destino : null,
       data,
-      valor: v,
-      descricao: descricao.trim() || null,
+      valor: gravar,
+      descricao: descricao.trim() || (ehAjuste ? 'Ajuste de saldo · conferência com o banco' : null),
       criado_por_nome: userName || null,
     })
     setSalvando(false)
     if (error) return toast(error.message, 'error')
-    toast('Movimento registrado', 'success')
+    toast(ehAjuste ? `Saldo ajustado em ${fmtBRL(gravar)}` : 'Movimento registrado', 'success')
     limpar()
     void carregar()
   }
@@ -684,7 +705,7 @@ export default function CaixaTab({ mes, somenteLeitura = false, comando = null, 
       <Modal
         isOpen={aberto}
         onClose={limpar}
-        title={onIrDespesa ? 'Pré-lançamento' : 'Novo movimento'}
+        title="Movimentação na Conta"
         footer={
           <div className="flex justify-end gap-2">
             <button onClick={limpar} className="btn-secondary text-sm">Cancelar</button>
@@ -695,17 +716,6 @@ export default function CaixaTab({ mes, somenteLeitura = false, comando = null, 
         }
       >
         <div className="space-y-3">
-          {/* PRÉ-LANÇAMENTO = um popup com duas abas (14/10/2026): Despesa · Movimentação entre contas */}
-          {onIrDespesa && (
-            <div className="flex gap-5 border-b border-[var(--surface-200)] -mt-1">
-              {(['despesa', 'movimentacao'] as const).map(k => (
-                <button key={k} type="button" onClick={() => { if (k !== 'movimentacao') { limpar(); onIrDespesa!() } }}
-                        className={`text-sm py-2 border-b-2 -mb-px ${k === 'movimentacao' ? 'font-semibold text-[var(--surface-900)] border-[var(--brand-500)]' : 'text-[var(--surface-500)] border-transparent hover:text-[var(--surface-800)]'}`}>
-                  {k === 'despesa' ? 'Despesa' : 'Movimentação entre contas'}
-                </button>
-              ))}
-            </div>
-          )}
           <DonoLancamento irmas={conj.irmas} valor={donoMov} onChange={setDonoMov} />
           <div className="flex flex-wrap gap-1.5">
             {TIPOS.map(t => {
@@ -757,12 +767,12 @@ export default function CaixaTab({ mes, somenteLeitura = false, comando = null, 
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-[var(--surface-500)] block mb-1">Valor</label>
+              <label className="text-xs text-[var(--surface-500)] block mb-1">{tipo === 'ajuste' ? 'Saldo no banco' : 'Valor'}</label>
               <div className="flex items-center rounded-[var(--radius-md)] border overflow-hidden"
                    style={{ borderColor: 'var(--surface-300)', background: 'var(--surface-0)' }}>
                 <span className="text-xs text-[var(--surface-400)] pl-2">R$</span>
                 <input
-                  type="number" min={0} step="0.01" value={valor}
+                  type="number" min={tipo === 'ajuste' ? undefined : 0} step="0.01" value={valor}
                   onChange={e => setValor(e.target.value)}
                   placeholder="0,00"
                   className="w-full bg-transparent border-0 outline-none text-sm text-mono px-2 py-2 text-[var(--surface-800)]"
@@ -774,6 +784,19 @@ export default function CaixaTab({ mes, somenteLeitura = false, comando = null, 
               <input type="date" value={data} onChange={e => setData(e.target.value)} className="input text-sm w-full" />
             </div>
           </div>
+          {/* o ajuste mostra a conta antes de gravar: sistema × banco = diferença */}
+          {tipo === 'ajuste' && origem && data && (
+            <p className="rounded-[8px] border border-[var(--surface-200)] px-3 py-2 text-[12px] text-[var(--surface-600)]">
+              {saldoNaData === null ? 'Calculando o saldo do sistema nesse dia…' : (<>
+                O sistema tem <b className="text-mono">{fmtBRL(saldoNaData)}</b> nesse dia.
+                {valor.trim() !== '' && !Number.isNaN(Number(valor)) && (() => {
+                  const d = Number((Number(valor) - saldoNaData).toFixed(2))
+                  return Math.abs(d) < 0.005 ? <> Já bate com o banco.</>
+                    : <> Vai gravar um ajuste de <b className={`text-mono ${d > 0 ? 'text-emerald-500' : 'text-red-400'}`}>{d > 0 ? '+' : '−'}{fmtBRL(Math.abs(d))}</b>.</>
+                })()}
+              </>)}
+            </p>
+          )}
 
           <div>
             <label className="text-xs text-[var(--surface-500)] block mb-1">Descrição</label>

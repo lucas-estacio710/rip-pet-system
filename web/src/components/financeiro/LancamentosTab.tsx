@@ -132,7 +132,7 @@ function IconeCat({ nome, className }: { nome?: string | null; className?: strin
  *   cria, edita nem exclui. Era a única aba do financeiro que ignorava isso —
  *   Repasse, Caixa e Contas já recebiam a prop, e Lançamentos não (13/09/2026).
  */
-export default function LancamentosTab({ mes, somenteLeitura = false, comando = null, onComandoFeito, contaImportar = null, despesaInicial = null, soModais = false, editarId = null, onEditarFeito, onIrMovimentacao }: {
+export default function LancamentosTab({ mes, somenteLeitura = false, comando = null, onComandoFeito, contaImportar = null, despesaInicial = null, soModais = false, editarId = null, onEditarFeito }: {
   /** O mês do Financeiro — um só, escolhido acima das abas (09/10/2026). */
   mes: string
   /** Livro-Caixa (14/10/2026): a aba saiu; fica montada SÓ com os popups (despesa,
@@ -141,8 +141,6 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
   /** Abre o "Editar lançamento" deste id (clique no cartão Lançamentos do Livro-Caixa). */
   editarId?: string | null
   onEditarFeito?: () => void
-  /** A aba "Movimentação entre contas" do popup de pré-lançamento (abre o do Caixa). */
-  onIrMovimentacao?: () => void
   somenteLeitura?: boolean
   /** Do "+ Lançar" da página (lib/lancar.ts): abre o formulário certo. */
   comando?: AcaoLancar | null
@@ -1160,17 +1158,8 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
         }
       >
         <div className="space-y-4">
-          {/* PRÉ-LANÇAMENTO = um popup com duas abas (14/10/2026): Despesa · Movimentação entre contas */}
-          {!editandoId && !contaFixa && onIrMovimentacao && (
-            <div className="flex gap-5 border-b border-[var(--surface-200)] -mt-1">
-              {(['despesa', 'movimentacao'] as const).map(k => (
-                <button key={k} type="button" onClick={() => { if (k !== 'despesa') { limpar(); onIrMovimentacao!() } }}
-                        className={`text-sm py-2 border-b-2 -mb-px ${k === 'despesa' ? 'font-semibold text-[var(--surface-900)] border-[var(--brand-500)]' : 'text-[var(--surface-500)] border-transparent hover:text-[var(--surface-800)]'}`}>
-                  {k === 'despesa' ? 'Despesa' : 'Movimentação entre contas'}
-                </button>
-              ))}
-            </div>
-          )}
+          {/* A aba "Movimentação entre contas" saiu daqui (15/10/2026): virou "Movimentação na
+              Conta", porta própria no + (lib/lancar.ts). O Pré-Lançamento é só despesa. */}
           {/* DE QUEM É? — só no caixa conjunto (Matriz + Pinda). Repassado/perna não troca de dona. */}
           {editandoId && conciliadoEdit && (
             <p className="rounded-[10px] border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-[12px] text-[var(--surface-700)]">

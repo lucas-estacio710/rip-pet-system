@@ -11,7 +11,7 @@
 //                   MONTADA só com os popups (`soModais`): despesa, Importar, Quitação.
 //   · Repasse     → tela própria, /repasse (onde a Matriz trabalha). Aqui, quitar abre um
 //                   POPUP com o repasse do mês (somente leitura) e o Confirmar pagamento.
-//   · Caixa       → montado só com o popup de Movimentação entre contas.
+//   · Caixa       → montado só com o popup de Movimentação na Conta.
 //   · Contas e Faturas → morreu: saldo/extrato nos cartões do Saldo das Contas, faturas no
 //                   cartão Faturas do cartão.
 //   · "+ Lançar"  → botão "+" flutuante, canto inferior direito.
@@ -252,13 +252,11 @@ export default function FinanceiroPage() {
       {temLanc && (
         <LancamentosTab mes={mes} soModais somenteLeitura={!canEdit(TELA, 'btn_lancamento_editar') || !canEdit(TELA, TELA)}
           comando={comandoPara('lancamentos')} onComandoFeito={() => setComando(null)} contaImportar={contaImportar} despesaInicial={despesaInicial}
-          editarId={editarLancId} onEditarFeito={() => setEditarLancId(null)}
-          onIrMovimentacao={pode.movimentacao ? () => lancar('movimentacao') : undefined} />
+          editarId={editarLancId} onEditarFeito={() => setEditarLancId(null)} />
       )}
       {temCaixa && (
         <CaixaTab mes={mes} soModais somenteLeitura={!canEdit(TELA, 'btn_caixa_editar')}
-          comando={comandoPara('caixa')} onComandoFeito={() => setComando(null)}
-          onIrDespesa={pode.despesa ? () => lancar('despesa') : undefined} />
+          comando={comandoPara('caixa')} onComandoFeito={() => setComando(null)} />
       )}
 
       <Modal isOpen={configAberto} onClose={() => { setConfigAberto(false); setVersaoConfig(v => v + 1) }} title="Configurações de Contas" size="wide">

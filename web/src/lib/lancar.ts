@@ -20,8 +20,11 @@ export type ItemMenuLancar =
 
 export const MENU_LANCAR: ItemMenuLancar[] = [
   { tipo: 'acao', acao: 'importar', titulo: 'Lançar OFX', detalhe: 'Para conciliação e classificação' },
-  // um popup só, com as abas Despesa · Movimentação entre contas (14/10/2026)
   { tipo: 'acao', acao: 'despesa', titulo: 'Pré-Lançamento', detalhe: 'Para controle, deve ser conciliado depois.' },
+  // MOVIMENTAÇÃO NA CONTA (15/10/2026, Lucas): saiu de dentro do Pré-Lançamento (era a aba
+  // "Movimentação entre contas") e virou porta própria — transferência, aporte, empréstimo e o
+  // ajuste, que pergunta o SALDO do banco e grava só a diferença.
+  { tipo: 'acao', acao: 'movimentacao', titulo: 'Movimentação na Conta', detalhe: 'Lançamentos Outras Movimentações' },
   { tipo: 'aba', aba: 'repasse', titulo: 'Repasse', detalhe: 'Ver fechados, prévias e confirmar pagamento' },
   { tipo: 'acao', acao: 'quitacao', titulo: 'Fatura', detalhe: 'Ver fechadas, prévias e confirmar pagamento' },
 ]
@@ -31,5 +34,5 @@ export const ITENS_LANCAR: { acao: AcaoLancar; titulo: string; detalhe: string }
   { acao: 'despesa',      titulo: 'Despesa',                   detalhe: 'Gasto da unidade — entra na DRE' },
   { acao: 'recebiveis',   titulo: 'Recebíveis de cartão',      detalhe: 'Liquidação, antecipação, chargeback da maquininha' },
   { acao: 'quitacao',     titulo: 'Quitação',                  detalhe: 'Pagamento do repasse à Matriz ou da fatura do cartão' },
-  { acao: 'movimentacao', titulo: 'Movimentação entre contas', detalhe: 'Transferência, aporte, empréstimo, ajuste' },
+  { acao: 'movimentacao', titulo: 'Movimentação na Conta',     detalhe: 'Lançamentos Outras Movimentações' },
 ]
