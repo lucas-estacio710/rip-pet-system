@@ -77,6 +77,7 @@ type Conta = {
   mostrar_no_caixa: boolean   // aparece na grade/total da aba Caixa (mig 146)
   reserva?: boolean           // guardada (aplicação): fora do "disponível pra pagar" (mig 160)
   cor?: string | null         // a cor da conta, em todo lugar (mig 163)
+  conciliavel?: boolean       // tem extrato/fatura pra conciliar (mig 169)
   entradasUso: number   // pagamentos que caíram nela
   saidasUso: number     // lançamentos pagos por ela
 }
@@ -118,7 +119,9 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
     const buscar = (cols: string) => supabase.from('contas').select(cols)
       .eq('unidade_id', currentUnit.id).order('ativo', { ascending: false }).order('nome')
     // `cor` é da mig 163: sem ela, tenta sem a coluna (e sem a 160, sem `reserva`).
-    let r = await buscar(`${COLS}, reserva, cor`)
+    // `conciliavel` é da mig 169: sem ela, cai pra consulta de antes.
+    let r = await buscar(`${COLS}, reserva, cor, conciliavel`)
+    if (r.error) r = await buscar(`${COLS}, reserva, cor`)
     if (r.error) r = await buscar(`${COLS}, reserva`)
     if (r.error) r = await buscar(COLS)
     const data = r.data
@@ -561,6 +564,21 @@ export default function ContasTab({ somenteLeitura = false }: { somenteLeitura?:
                               <button key={String(v)} onClick={() => { if (!!c.reserva !== v) void patch(c, { reserva: v }) }}
                                       className={`px-2 py-0.5 rounded-full transition-colors ${!!c.reserva === v ? 'bg-[var(--brand-500)] text-white' : 'text-[var(--surface-500)] hover:text-[var(--surface-800)]'}`}>
                                 {v ? 'Sem liquidez' : 'Disponível'}
+                              </button>
+                            ))}
+                          </span>
+                        )}
+
+                        {/* CONCILIÁVEL (mig 169, 15/10/2026): a conta tem extrato/fatura pra bater?
+                            "Não concilia" (Dinheiro, aplicação sem extrato) conta tudo como conferido;
+                            "Conciliável" deixa pendente o que não bateu com o banco. */}
+                        {c.conciliavel !== undefined && c.produto !== 'maquininha' && (
+                          <span className="inline-flex rounded-full border border-[var(--surface-300)] p-0.5 text-[11px]"
+                                title="Conciliável: tem extrato ou fatura — o que não bateu com o banco fica pendente (bolinha azul). Não concilia: tudo dela conta como conferido.">
+                            {([true, false] as const).map(v => (
+                              <button key={String(v)} onClick={() => { if (!!c.conciliavel !== v) void patch(c, { conciliavel: v }) }}
+                                      className={`px-2 py-0.5 rounded-full transition-colors ${!!c.conciliavel === v ? 'bg-[var(--brand-500)] text-white' : 'text-[var(--surface-500)] hover:text-[var(--surface-800)]'}`}>
+                                {v ? '© Conciliável' : 'Não concilia'}
                               </button>
                             ))}
                           </span>

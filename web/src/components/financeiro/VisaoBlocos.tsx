@@ -9,6 +9,7 @@
 //   · FaturasDoMes    — as compras no cartão cuja FATURA vence no mês, por cartão, com o que já
 //                       foi conferido com a fatura (✓) e os atalhos de pré-lançamento e OFX.
 
+import { conferidoNoBanco, buscarNaoConciliaveis } from '@/lib/conferido'
 import { useFinanceiroVersao } from '@/lib/financeiro-eventos'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -154,9 +155,8 @@ export function useCaixaDoMes(sb: SupabaseClient, uid: string | undefined, mes: 
           .map(l => ({ id: l.id, valor: Number(l.valor), data: l.data_competencia.slice(0, 10), descricao: [...new Set([l.descricao || l.conta_nome, l.fornecedor_nome, l.observacoes].map(x => x?.trim()).filter(Boolean))].join(' · ') || 'Compra no cartão', grupo: raiz(l.categoria_id) || null, unidade_id: l.unidade_id })))
       }
 
-      // CONFERIDO COM O BANCO (14/10/2026): a linha que já bateu com o extrato. Mesma regra do
-      // calendário: o que é de ANTES da 1ª conciliação daquela conta conta como conferido (não há
-      // como conciliar), e conta que nunca conciliou (ex.: Dinheiro, que não tem extrato) também.
+      // CONFERIDO COM O BANCO: a regra mora em lib/conferido.ts (mig 169 — a conta diz se é
+      // conciliável), a mesma do calendário.
       const conc = new Set<string>(), inicioConc = new Map<string, string>(), textoBanco = new Map<string, string>()
       for (let off = 0; ; off += 1000) {
         const { data } = await sb.from('fin_conciliacoes').select('conta_id, origem_id, data_banco, texto_banco').in('conta_id', [...caixa]).range(off, off + 999)
@@ -177,8 +177,9 @@ export function useCaixaDoMes(sb: SupabaseClient, uid: string | undefined, mes: 
           .map(x => x?.trim()).filter((x): x is string => !!x && !base.toLowerCase().includes(x.toLowerCase()))
         if (extra.length) l.descricao = [base, ...new Set(extra)].filter(Boolean).join(' · ')
       }
+      const ctxConf = { inicio: inicioConc, naoConciliaveis: await buscarNaoConciliaveis(sb) }
       const conferidos = new Set<string>()
-      for (const l of linhas) if (conc.has(l.origem_id) || l.data < (inicioConc.get(l.conta_id) || '9999-12-31')) conferidos.add(l.origem_id)
+      for (const l of linhas) if (conferidoNoBanco(conc.has(l.origem_id), l.conta_id, l.data, ctxConf)) conferidos.add(l.origem_id)
       if (vivo) setBruto({ linhas, saldo, reservas, nomeConta, base: { maquininhas, movs, categoriaDe, comprasDaFatura, conferidos } })
     })()
     return () => { vivo = false }

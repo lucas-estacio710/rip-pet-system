@@ -19,6 +19,7 @@
 // Cada ato respeita a aba de onde vem: sem a DRE visível, somem 1 e 2; sem o
 // Caixa, some o 3; sem o Repasse, o "pagar repasse" sai da lista.
 
+import { buscarNaoConciliaveis } from '@/lib/conferido'
 import { haQuantoTempo } from '@/lib/ha-quanto-tempo'
 import { useFinanceiroVersao } from '@/lib/financeiro-eventos'
 import CobrancasCard from './CobrancasCard'
@@ -123,7 +124,7 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
   const conj = useCaixaConjunto()
   const uidCal = conj.conjunto && conj.matrizId ? conj.matrizId : currentUnit?.id
   const fixas = useContasFixas(supabase, uidCal, conj.conjunto && conj.matrizId ? true : !!currentUnit?.is_matriz, currentUnit?.financeiro_desde?.slice(0, 7) || null, conj.ids)
-  const [saldos, setSaldos] = useState<{ disponivel: number; guardado: number; contas: { conta: ContaRow; saldo: number; guardada: boolean; virgem: boolean; ultimo?: string | null }[] } | null>(null)
+  const [saldos, setSaldos] = useState<{ disponivel: number; guardado: number; contas: { conta: ContaRow; saldo: number; guardada: boolean; virgem: boolean; ultimo?: string | null; ultimaConc?: string | null; conciliavel?: boolean }[] } | null>(null)
   // INICIAR CONTA (14/10/2026): conta sem nenhum lançamento ganha o atalho pro AJUSTE
   // INICIAL — a abertura de caixa da mig 136 (caixa_desde + movimento de ajuste).
   const [iniciando, setIniciando] = useState<ContaRow | null>(null)
@@ -185,7 +186,7 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
       const { data: rv, error: erv } = await supabase.from('contas').select('id').eq('reserva', true)
       if (!erv) reservas = new Set(((rv as { id: string }[] | null) || []).map(x => x.id))
       let disp = 0, guard = 0
-      const porConta: { conta: ContaRow; saldo: number; guardada: boolean; virgem: boolean; ultimo?: string | null }[] = []
+      const porConta: { conta: ContaRow; saldo: number; guardada: boolean; virgem: boolean; ultimo?: string | null; ultimaConc?: string | null; conciliavel?: boolean }[] = []
       for (const x of (sd as { conta_id: string; nome: string; tipo: string; produto: string | null; saldo: number; legado: boolean; mostrar_no_caixa: boolean | null; caixa_desde: string | null; entradas: number | null; saidas: number | null }[] | null) || []) {
         if (x.legado || x.mostrar_no_caixa === false || x.produto === 'maquininha' || x.tipo === 'cartao' || x.produto === 'cartao_credito') continue
         const guardada = reservas.has(x.conta_id)
@@ -197,9 +198,16 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
       porConta.sort((a, b) => Number(a.guardada) - Number(b.guardada) || b.saldo - a.saldo)
       // ÚLTIMO MOVIMENTO de cada conta (15/10/2026, Lucas): a data aparece embaixo do saldo — diz
       // até quando aquele número está atualizado (extrato importado até quando).
+      // ÚLTIMA CONCILIAÇÃO (mig 169): só na conta conciliável — a data da última linha do banco batida.
+      const naoConc = await buscarNaoConciliaveis(supabase)
       await Promise.all(porConta.map(async k => {
-        const { data: u } = await supabase.from('vw_caixa').select('data').eq('conta_id', k.conta.id).order('data', { ascending: false }).limit(1)
+        const [{ data: u }, { data: uc }] = await Promise.all([
+          supabase.from('vw_caixa').select('data').eq('conta_id', k.conta.id).order('data', { ascending: false }).limit(1),
+          supabase.from('fin_conciliacoes').select('data_banco').eq('conta_id', k.conta.id).not('data_banco', 'is', null).order('data_banco', { ascending: false }).limit(1),
+        ])
         k.ultimo = ((u as { data: string }[] | null) || [])[0]?.data || null
+        k.ultimaConc = ((uc as { data_banco: string }[] | null) || [])[0]?.data_banco?.slice(0, 10) || null
+        k.conciliavel = naoConc ? !naoConc.has(k.conta.id) : undefined   // undefined = sem a mig 169
       }))
       setSaldos({ disponivel: c2(disp), guardado: c2(guard), contas: porConta })
     }
@@ -486,6 +494,13 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
                       : <>
                           <span className={`block text-mono text-[15px] tabular-nums ${k.saldo < 0 ? 'text-red-400' : 'text-[var(--surface-900)]'}`}>{fmtBRL(k.saldo)}</span>
                           {k.ultimo && <span className="block text-[11px] text-[var(--surface-500)]">último movimento {k.ultimo.slice(8, 10)}/{k.ultimo.slice(5, 7)} ({haQuantoTempo(k.ultimo, hojeS)})</span>}
+                          {k.conciliavel && (
+                            <span className="block text-[11px] text-[var(--surface-500)]">
+                              <b className="font-bold text-emerald-500">©</b> {k.ultimaConc
+                                ? <>última conciliação {k.ultimaConc.slice(8, 10)}/{k.ultimaConc.slice(5, 7)} ({haQuantoTempo(k.ultimaConc, hojeS)})</>
+                                : <span className="text-amber-500">nunca conciliada</span>}
+                            </span>
+                          )}
                         </>}
                   </button>
                 ))}

@@ -19,6 +19,7 @@
 // Repasse (repasse=true): paga se houve pagamento de repasse (fin_movimentos com
 // repasse_id) no mês; o valor é o que falta do(s) repasse(s) em aberto.
 
+import { conferidoNoBanco, buscarNaoConciliaveis } from '@/lib/conferido'
 import { useFinanceiroVersao } from '@/lib/financeiro-eventos'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -149,6 +150,7 @@ export function useContasFixas(sb: SupabaseClient, uid: string | undefined, matr
     const todos = [...[...mapa.values()].flatMap(v => v.ids || []), ...[...pagsRep.values()].flat().map(p => p.id)]
     const ok = new Set<string>()
     const inicio = new Map<string, string>()
+    let naoConc: Set<string> | null = null
     if (todos.length) {
       for (let i = 0; i < todos.length; i += 200) {
         const { data: cc } = await sb.from('fin_conciliacoes').select('origem_id').in('origem', ['lancamento', 'movimento']).in('origem_id', todos.slice(i, i + 200))
@@ -158,19 +160,22 @@ export function useContasFixas(sb: SupabaseClient, uid: string | undefined, matr
       // ANTES DA CONCILIAÇÃO (14/10/2026): pagamento de antes da 1ª linha conciliada
       // daquela conta não tem como ser conciliado (o Importar não guardava a batida
       // até a mig 153). Não é pré-lançamento esquecido — conta como pago, verde.
+      // a regra mora em lib/conferido.ts (mig 169): conta NÃO conciliável conta como conferida;
+      // conciliável que nunca conciliou fica pendente
       const contasPag = [...new Set([...deOnde.values()].map(x => x.conta).filter((x): x is string => !!x))]
       await Promise.all(contasPag.map(async c => {
         const { data: pr } = await sb.from('fin_conciliacoes').select('data_banco').eq('conta_id', c).order('data_banco').limit(1)
         const d = (pr as { data_banco: string }[] | null)?.[0]?.data_banco
-        inicio.set(c, d ? d.slice(0, 10) : '9999-12-31')   // conta que nunca conciliou: tudo é "antes"
+        if (d) inicio.set(c, d.slice(0, 10))
       }))
+      naoConc = await buscarNaoConciliaveis(sb)
       for (const v of mapa.values()) {
         if (v.conciliado || !v.ids?.length) continue
-        v.antes = v.ids.every(id => { const o = deOnde.get(id); return !!o?.conta && o.data < (inicio.get(o.conta) || '') })
+        v.antes = v.ids.every(id => antesDe(id))
         if (v.antes) v.conciliado = true
       }
     }
-    const antesDe = (id: string) => { const o = deOnde.get(id); return !!o?.conta && o.data < (inicio.get(o.conta) || '') }
+    function antesDe(id: string) { const o = deOnde.get(id); return !!o && conferidoNoBanco(false, o.conta, o.data, { inicio, naoConciliaveis: naoConc }) }
     const rep = new Map<string, RepMes>()
     for (const [chave, r] of repBase) rep.set(chave, { ...r, pags: (pagsRep.get(r.id) || []).map(p => ({ ...p, conta: deOnde.get(p.id)?.conta || null, conciliado: ok.has(p.id) || antesDe(p.id), antes: !ok.has(p.id) && antesDe(p.id) })) })
     for (const v of mapa.values()) v.itens = (v.ids || []).map(id => { const o = deOnde.get(id)!; return { id, origem: o.origem, conta: o.conta, data: o.data, valor: o.valor, conciliado: ok.has(id) || antesDe(id) } })
