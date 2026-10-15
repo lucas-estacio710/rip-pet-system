@@ -25,6 +25,7 @@
 // Somar maquininha no disponível superestima o caixa de quem vende no crédito,
 // que é o caso aqui. A liquidação é uma transferência `Maquininha → corrente`.
 
+import { useFinanceiroVersao } from '@/lib/financeiro-eventos'
 import { useCoresContas, rotuloConta, estiloConta } from '@/lib/cor-conta'
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -36,6 +37,8 @@ import {
 import Modal from '@/components/ui/Modal'
 import ExtratoContaModal from './ExtratoContaModal'
 import type { AcaoLancar } from '@/lib/lancar'
+import { useCaixaConjunto } from '@/hooks/useCaixaConjunto'
+import { DonoLancamento } from './DonoLancamento'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import { fmtBRL, fmtData, hojeISO, limitesDoMes } from '@/lib/financeiro'
@@ -153,6 +156,7 @@ export default function CaixaTab({ mes, somenteLeitura = false, comando = null, 
    */
   const [previsoes, setPrevisoes] = useState<Record<string, RetratoMaquininha>>({})
 
+  const versaoFin = useFinanceiroVersao()   // gravou algo no financeiro → recarrega
   const carregar = useCallback(async () => {
     if (!currentUnit?.id) return
     setCarregando(true)
@@ -198,7 +202,7 @@ export default function CaixaTab({ mes, somenteLeitura = false, comando = null, 
     }
     setDivisaoDe(mapa)
     setCarregando(false)
-  }, [supabase, currentUnit?.id, mes])
+  }, [supabase, currentUnit?.id, mes, versaoFin])
 
   useEffect(() => { void carregar() }, [carregar])
 
@@ -371,8 +375,11 @@ export default function CaixaTab({ mes, somenteLeitura = false, comando = null, 
 
   function limpar() {
     setAberto(false); setTipo('transferencia'); setOrigem(''); setDestino('')
-    setValor(''); setData(''); setDescricao('')
+    setValor(''); setData(''); setDescricao(''); setDonoMov(null)
   }
+  // CAIXA CONJUNTO (15/10/2026): o movimento também diz de qual unidade é (Matriz | Pinda)
+  const conj = useCaixaConjunto()
+  const [donoMov, setDonoMov] = useState<string | null>(null)
 
   async function salvar() {
     if (!currentUnit?.id) return
@@ -382,10 +389,11 @@ export default function CaixaTab({ mes, somenteLeitura = false, comando = null, 
     if (defTipo.destino && !destino) return toast('Escolha a conta de destino', 'error')
     if (defTipo.destino && destino === origem) return toast('Origem e destino têm que ser diferentes', 'error')
     if (!v || v <= 0) return toast('Informe o valor', 'error')
+    if (conj.conjunto && !donoMov) return toast(`De quem é? Escolha ${conj.irmas.map(i => i.nome).join(' ou ')}`, 'error')
 
     setSalvando(true)
     const { error } = await supabase.from('fin_movimentos').insert({
-      unidade_id: currentUnit.id,
+      unidade_id: conj.conjunto && donoMov ? donoMov : currentUnit.id,
       tipo,
       conta_id: origem,
       conta_destino_id: defTipo.destino ? destino : null,
@@ -698,6 +706,7 @@ export default function CaixaTab({ mes, somenteLeitura = false, comando = null, 
               ))}
             </div>
           )}
+          <DonoLancamento irmas={conj.irmas} valor={donoMov} onChange={setDonoMov} />
           <div className="flex flex-wrap gap-1.5">
             {TIPOS.map(t => {
               const on = tipo === t.v

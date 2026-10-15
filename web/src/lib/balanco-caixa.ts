@@ -21,14 +21,14 @@
 
 export const SEM_CATEGORIA = 'Sem categoria'
 
-export type LinhaCaixa = { conta_id: string; data: string; tipo: string; valor: number; origem: string; origem_id: string; descricao?: string | null }
+export type LinhaCaixa = { conta_id: string; data: string; tipo: string; valor: number; origem: string; origem_id: string; descricao?: string | null; unidade_id?: string | null }
 export type MovInfo = { tipo: string; conta_id: string | null; conta_destino_id: string | null; repasse: boolean }
-export type CompraFatura = { id: string; valor: number; data: string; descricao: string; grupo: string | null }
+export type CompraFatura = { id: string; valor: number; data: string; descricao: string; grupo: string | null; unidade_id?: string | null }
 /** editar = abre o lançamento · lancar = falta lançar (compra da fatura) · extrato = ver/corrigir na conta */
 export type AcaoItem = 'editar' | 'lancar' | 'extrato' | null
 /** conciliado = já bateu com o extrato/fatura (ou é de antes da conta começar a conciliar) */
 /** fatura = a compra veio de dentro de uma fatura paga: o pagamento é UMA linha no banco */
-export type ItemCaixa = { data: string; descricao: string; valor: number; conta_id: string; origem_id: string; acao: AcaoItem; conciliado: boolean; fatura?: { id: string; descricao: string; data: string; valor: number } }
+export type ItemCaixa = { data: string; descricao: string; valor: number; conta_id: string; origem_id: string; acao: AcaoItem; conciliado: boolean; unidade_id?: string | null; fatura?: { id: string; descricao: string; data: string; valor: number } }
 export type Grupo = { nome: string; valor: number; itens: ItemCaixa[] }
 export type BalancoCaixa = { entrou: number; saiu: number; ajustes: number; entradas: Grupo[]; saidas: Grupo[] }
 
@@ -57,7 +57,7 @@ export function classificarCaixa(
     const v = Number(l.valor)
     if (Math.abs(v) < 0.005) continue
     const it = (valor: number, acao: AcaoItem, descricao = l.descricao || l.tipo): ItemCaixa =>
-      ({ data: l.data, descricao, valor: c2(valor), conta_id: l.conta_id, origem_id: l.origem_id, acao, conciliado: ctx.conferidos ? ctx.conferidos.has(l.origem_id) : true })
+      ({ data: l.data, descricao, valor: c2(valor), conta_id: l.conta_id, origem_id: l.origem_id, acao, conciliado: ctx.conferidos ? ctx.conferidos.has(l.origem_id) : true, unidade_id: l.unidade_id ?? null })
 
     if (l.origem === 'pagamento') {
       // pagamento NEGATIVO = devolução registrada no contrato (casada com o extrato pela
@@ -81,7 +81,7 @@ export function classificarCaixa(
       const compras = ctx.comprasDaFatura?.get(l.origem_id) || []
       let resto = -v
       for (const c of compras) {
-        por(sai, c.grupo || SEM_CATEGORIA, { data: c.data, descricao: c.descricao, valor: c2(c.valor), conta_id: l.conta_id, origem_id: c.id, acao: 'editar', conciliado: ctx.conferidos ? ctx.conferidos.has(l.origem_id) : true,
+        por(sai, c.grupo || SEM_CATEGORIA, { data: c.data, descricao: c.descricao, valor: c2(c.valor), conta_id: l.conta_id, origem_id: c.id, acao: 'editar', conciliado: ctx.conferidos ? ctx.conferidos.has(l.origem_id) : true, unidade_id: c.unidade_id ?? null,
           fatura: { id: l.origem_id, descricao: l.descricao || 'Fatura do cartão', data: l.data, valor: c2(-v) } })
         resto -= c.valor
       }

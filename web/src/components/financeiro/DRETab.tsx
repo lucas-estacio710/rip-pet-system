@@ -28,11 +28,13 @@
 //  · INVESTIMENTO (capex) fica FORA da cascata. Comprar um forno não é despesa
 //    do mês: é trocar dinheiro por um bem que dura anos.
 
+import { useFinanceiroVersao } from '@/lib/financeiro-eventos'
 import { Fragment, useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { Loader2, ChevronRight, Landmark, TrendingUp, TrendingDown } from 'lucide-react'
 import { useUnit } from '@/contexts/UnitContext'
+import { useCaixaConjunto } from '@/hooks/useCaixaConjunto'
 import { fmtBRL, mesParaData, rotuloMes } from '@/lib/repasse'
 
 type Resumo = {
@@ -80,6 +82,13 @@ export default function DRETab({ mes }: { mes: string }) {
   // As views vw_dre_* (mig 111) não estão em types/database.ts → client destipado.
   const supabase = supabaseTipado as unknown as SupabaseClient
   const { currentUnit } = useUnit()
+  // CAIXA CONJUNTO (15/10/2026): Matriz e Pinda dividem o caixa, mas a DRE é UMA POR UNIDADE —
+  // o seletor escolhe de quem; sem conjunto, é a unidade logada de sempre.
+  const conj = useCaixaConjunto()
+  const versaoFin = useFinanceiroVersao()
+  const [escolhida, setEscolhida] = useState<string | null>(null)
+  const unidadeDre = (conj.conjunto && escolhida && conj.ids.includes(escolhida) ? escolhida : currentUnit?.id) || null
+  const nomeDre = conj.conjunto ? conj.nome(unidadeDre) : currentUnit?.nome
 
   const [resumo, setResumo] = useState<Resumo>(ZERO)
   const [antes, setAntes] = useState<Resumo>(ZERO)
@@ -88,21 +97,21 @@ export default function DRETab({ mes }: { mes: string }) {
   const [aberto, setAberto] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
-    if (!currentUnit?.id) return
+    if (!unidadeDre) return
     setCarregando(true)
     const ref = mesParaData(mes)
     const refAntes = mesParaData(mesAnterior(mes))
     const [r, p, m] = await Promise.all([
-      supabase.from('vw_dre_resumo').select('*').eq('unidade_id', currentUnit.id).eq('mes', ref).maybeSingle(),
-      supabase.from('vw_dre_resumo').select('*').eq('unidade_id', currentUnit.id).eq('mes', refAntes).maybeSingle(),
+      supabase.from('vw_dre_resumo').select('*').eq('unidade_id', unidadeDre).eq('mes', ref).maybeSingle(),
+      supabase.from('vw_dre_resumo').select('*').eq('unidade_id', unidadeDre).eq('mes', refAntes).maybeSingle(),
       supabase.from('vw_dre_mensal').select('grupo_dre, conta_nome, valor, entra_no_resultado, sinal')
-        .eq('unidade_id', currentUnit.id).eq('mes', ref),
+        .eq('unidade_id', unidadeDre).eq('mes', ref),
     ])
     setResumo((r.data as Resumo) || ZERO)
     setAntes((p.data as Resumo) || ZERO)
     setContas(((m.data as LinhaConta[]) || []).sort((a, b) => b.valor * b.sinal - a.valor * a.sinal))
     setCarregando(false)
-  }, [supabase, currentUnit?.id, mes])
+  }, [supabase, unidadeDre, mes, versaoFin])
 
   useEffect(() => { void carregar() }, [carregar])
 
@@ -197,8 +206,18 @@ export default function DRETab({ mes }: { mes: string }) {
   return (
     <div className="animate-fade-in space-y-3">
       <div className="flex flex-wrap items-center gap-3">
+        {conj.conjunto && (
+          <span className="inline-flex rounded-full border border-[var(--surface-300)] p-0.5">
+            {conj.irmas.map(u => (
+              <button key={u.id} type="button" onClick={() => setEscolhida(u.id)}
+                      className={`px-3 py-1 rounded-full text-[13px] ${unidadeDre === u.id ? 'bg-[var(--brand-500)] text-white font-semibold' : 'text-[var(--surface-600)] hover:text-[var(--surface-900)]'}`}>
+                {u.nome}
+              </button>
+            ))}
+          </span>
+        )}
         <span className="text-xs text-[var(--surface-500)]">
-          {currentUnit?.nome} · {rotuloMes(mesParaData(mes))} · comparado com {rotuloMes(mesParaData(mesAnterior(mes)))}
+          {nomeDre} · {rotuloMes(mesParaData(mes))} · comparado com {rotuloMes(mesParaData(mesAnterior(mes)))}
         </span>
         {carregando && <Loader2 className="h-4 w-4 animate-spin text-[var(--surface-400)]" />}
       </div>

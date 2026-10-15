@@ -41,6 +41,7 @@ import { buscarCategorias, sugerirPorSinonimo, type CategoriaBuscavel } from '@/
 import { conciliar, semPar, type RegistroSistema, type Ref } from '@/lib/conciliacao'
 import { ehOFX, lerOFX, textoDoArquivo, mesmoBanco, type ExtratoOFX } from '@/lib/ofx'
 import { textoDoPdf, ehFaturaInter } from '@/lib/fatura-pdf'
+import { useCaixaConjunto } from '@/hooks/useCaixaConjunto'
 import { reconhecerCobranca } from '@/lib/reconhecer-cobranca'
 
 type ContaRow = { id: string; nome: string; produto: string | null; tipo: string | null; preferencial_recebimento: boolean | null; instituicao?: string | null }
@@ -102,6 +103,7 @@ type Item = LinhaExtrato & {
   partes: Parte[]                // dividir: a principal (catId) fica com o que sobra
   outras: ParaUnidade[]          // foi para outras unidades: o resto fica com esta
   meses: number                  // vale por vários meses (rateio_meses); 1 = não
+  dono?: string | null           // caixa conjunto (Matriz + Pinda): de quem é a despesa nova
   doHistorico: boolean
   porSinonimo: boolean           // categoria veio do sinônimo (sem histórico) — confira
   /** PALPITE pelo nome (sinônimo da árvore): só SUGERE, nunca escolhe — aparece
@@ -164,6 +166,8 @@ export default function ColarExtratoModal({
   const lerQuandoPronto = useRef(false)
   const [bancoAviso, setBancoAviso] = useState<string | null>(null)
   const [pdfNome, setPdfNome] = useState<string | null>(null)
+  // CAIXA CONJUNTO (15/10/2026): a despesa que nasce da importação pergunta de quem é
+  const conj = useCaixaConjunto()
   const [itens, setItens] = useState<Item[]>([])
   const [contas, setContas] = useState<ContaRow[]>([])
   const [contaId, setContaId] = useState('')         // de QUAL conta é o extrato
@@ -622,12 +626,12 @@ export default function ColarExtratoModal({
   const outrasOk = (i: Item) => i.outras.every(o => o.unidadeId && digNum(o.valor) > 0)
     && new Set(i.outras.map(o => o.unidadeId)).size === i.outras.length
     && somaOutras(i) <= Math.abs(i.valor) + 0.005
-  const despProntas = despesas.filter(i => i.marcado && i.catId && partesOk(i) && outrasOk(i))
+  const despProntas = despesas.filter(i => i.marcado && i.catId && partesOk(i) && outrasOk(i) && (!conj.conjunto || !!i.dono))
   const entreProntas = fora.filter(i => !i.jaNoSistema && i.entreConta)
   /** Pra onde o dinheiro pode ter ido: as outras contas da casa (sem maquininha e cartão). */
   const contasEntre = contas.filter(c => c.id !== contaId && c.produto !== 'maquininha' && c.tipo !== 'cartao')
   const pendentes = receitas.filter(i => i.marcado && !(i.opId || maquininhaLote) || (i.marcado && !i.mov)).length
-    + despesas.filter(i => i.marcado && (!i.catId || !partesOk(i) || !outrasOk(i))).length
+    + despesas.filter(i => i.marcado && (!i.catId || !partesOk(i) || !outrasOk(i) || (conj.conjunto && !i.dono))).length
     + parecidos.filter(i => i.parecido!.escolhido === -2).length
 
   async function registrar() {
@@ -721,7 +725,7 @@ export default function ColarExtratoModal({
             donos.push(i)
             return {
               ...(fixa && k === 0 ? { conta_fixa_id: fixa.id } : {}),
-              unidade_id: currentUnit.id, categoria_id: pd.catId,
+              unidade_id: (conj.conjunto && i.dono) || currentUnit.id, categoria_id: pd.catId,
               conta_id: cat?.fin_conta_id || null,
               conta_codigo: cc?.codigo || null, conta_nome: cc?.nome || null,   // SNAPSHOT da DRE
               natureza: cc?.natureza || 'opex',
@@ -848,6 +852,14 @@ export default function ColarExtratoModal({
           </span>
           {/* A DECISÃO — categoria (despesa) ou o que a maquininha fez (recebimento) */}
           <span className="col-span-4 col-start-3 sm:col-span-1 sm:col-start-auto row-start-2 sm:row-start-auto min-w-0">
+            {i.destino === 'despesa' && conj.conjunto && (
+              <span className={`mr-1.5 inline-flex rounded-full border p-0.5 align-middle ${i.dono ? 'border-[var(--surface-300)]' : 'border-amber-500/70'}`} title="De quem é esta despesa?">
+                {conj.irmas.map(u => (
+                  <button key={u.id} type="button" onClick={() => muda(i.n, { dono: u.id })}
+                          className={`px-1.5 rounded-full text-[11px] font-bold ${i.dono === u.id ? 'bg-[var(--brand-500)] text-white' : 'text-[var(--surface-500)]'}`}>{conj.letra(u.id)}</button>
+                ))}
+              </span>
+            )}
             {i.destino === 'despesa' && (i.catId ? (
               <span className="flex items-baseline gap-1.5 min-w-0">
                 <span className="text-sm font-semibold text-emerald-500 truncate">
@@ -1505,6 +1517,17 @@ export default function ColarExtratoModal({
           {despesas.length > 0 && (
             <section className="flex flex-col gap-2.5">
               {cabecaSecao('Despesas', `${despesas.length} ${despesas.length === 1 ? 'linha nova' : 'linhas novas'}`, somaDesp)}
+              {/* caixa conjunto: marcar todas de uma vez, depois ajustar as exceções na linha */}
+              {conj.conjunto && (
+                <div className="flex flex-wrap items-center gap-2 text-[12px] text-[var(--surface-600)]">
+                  <span>De quem são? Marcar todas:</span>
+                  {conj.irmas.map(u => (
+                    <button key={u.id} type="button" onClick={() => setItens(xs => xs.map(x => (x.destino === 'despesa' ? { ...x, dono: u.id } : x)))}
+                            className="px-2.5 py-0.5 rounded-full border border-[var(--surface-300)] hover:border-[var(--brand-500)]">{u.nome}</button>
+                  ))}
+                  {despesas.some(i => i.marcado && !i.dono) && <span className="text-amber-500">{despesas.filter(i => i.marcado && !i.dono).length} sem dona</span>}
+                </div>
+              )}
               {caixaLinhas(despesas.map(i => linhaNova(i)))}
             </section>
           )}

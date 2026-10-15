@@ -14,6 +14,7 @@
 // (`contaCalibrada`) e só conta o que tem data de verdade — nada inventado
 // pela média do histórico (a armadilha do QuickBooks/Rocket Money).
 
+import { filtroContasDe } from '@/hooks/useCaixaConjunto'
 import { useEffect, useMemo, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { montarEsteira, contaCalibrada, type PagamentoCartao } from '@/lib/recebiveis'
@@ -27,10 +28,10 @@ const isoDe = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padSta
 
 /** A ESTEIRA das maquininhas calibradas: o que cai em cada dia (lib/recebiveis).
  *  Exportada pra Visão do mês mostrar as Receitas a Prazo sem refazer a busca. */
-export async function carregarEsteira(sb: SupabaseClient, uid: string): Promise<Map<string, number>> {
+export async function carregarEsteira(sb: SupabaseClient, uid: string, ids?: string[]): Promise<Map<string, number>> {
   const desde = new Date(); desde.setDate(desde.getDate() - 400)   // o parcelado em 12× ainda cai
   const { data: cs } = await sb.from('contas').select('id, nome, produto, tipo')
-    .or(`unidade_id.eq.${uid},unidades_extras.cs.{${uid}}`).eq('ativo', true).eq('legado', false)
+    .or(filtroContasDe(ids?.length ? ids : [uid])).eq('ativo', true).eq('legado', false)
   const contas = (cs as { id: string; nome: string; produto: string | null; tipo: string | null }[] | null) || []
   const maqs = contas.filter(c => c.produto === 'maquininha' && contaCalibrada(c.nome)).map(c => c.id)
   const pags: PagamentoCartao[] = []

@@ -9,10 +9,13 @@
 //   · FaturasDoMes    — as compras no cartão cuja FATURA vence no mês, por cartão, com o que já
 //                       foi conferido com a fatura (✓) e os atalhos de pré-lançamento e OFX.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useFinanceiroVersao } from '@/lib/financeiro-eventos'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, Trash2 } from 'lucide-react'
 import { fmtBRL } from '@/lib/financeiro'
+import { filtroContasDe } from '@/hooks/useCaixaConjunto'
+import { EtiquetaUnidade } from './DonoLancamento'
 import { classificarCaixa, SEM_CATEGORIA, type BalancoCaixa, type CompraFatura, type ItemCaixa, type LinhaCaixa, type MovInfo } from '@/lib/balanco-caixa'
 import { useCoresContas, rotuloConta, estiloConta } from '@/lib/cor-conta'
 
@@ -69,15 +72,21 @@ export function caixaDoMes(bruto: Bruto | null, mes: string, modo: 'todas' | 'di
 }
 
 /** A busca do caixa do mês (6 meses pra trás até hoje), compartilhada pelo Balanço e pelo A conferir. */
-export function useCaixaDoMes(sb: SupabaseClient, uid: string | undefined, mes: string): Bruto | null {
+export function useCaixaDoMes(sb: SupabaseClient, uid: string | undefined, mes: string, ids?: string[], recarga = 0): Bruto | null {
   const [bruto, setBruto] = useState<Bruto | null>(null)
+  const versaoFin = useFinanceiroVersao()   // gravou algo no financeiro → recarrega
+  // RECARGA SILENCIOSA (15/10/2026): mudou de MÊS/unidade → limpa (e a tela escurece carregando);
+  // mudou só a versão (alguém gravou) → mantém o que está na tela e troca quando chegar.
+  const chave = `${uid}|${mes}|${(ids || []).join(',')}`
+  const ultimaChave = useRef<string | null>(null)
   useEffect(() => {
     if (!uid) return
     let vivo = true
     void (async () => {
-      setBruto(null)
+      if (ultimaChave.current !== chave) setBruto(null)
+      ultimaChave.current = chave
       const [{ data: sd }, { data: cts }, { data: cats }] = await Promise.all([
-        sb.from('vw_caixa_saldo').select('conta_id, tipo, produto, saldo, legado, mostrar_no_caixa').or(`unidade_id.eq.${uid},unidades_extras.cs.{${uid}}`),
+        sb.from('vw_caixa_saldo').select('conta_id, tipo, produto, saldo, legado, mostrar_no_caixa').or(filtroContasDe(ids?.length ? ids : [uid])),
         sb.from('contas').select('id, produto, nome, reserva'),
         sb.from('fin_categorias').select('id, nome, parent_id'),
       ])
@@ -95,7 +104,7 @@ export function useCaixaDoMes(sb: SupabaseClient, uid: string | undefined, mes: 
       // de 6 meses atrás até HOJE: o que veio depois do mês leva o saldo de hoje de volta ao do fim do mês
       const linhas: LinhaCaixa[] = []
       for (let off = 0; ; off += 1000) {
-        const { data } = await sb.from('vw_caixa').select('conta_id, data, tipo, valor, origem, origem_id, descricao')
+        const { data } = await sb.from('vw_caixa').select('conta_id, data, tipo, valor, origem, origem_id, descricao, unidade_id')
           .in('conta_id', [...caixa]).gte('data', `${somaMes(mes, -5)}-01`).order('data').order('origem_id').range(off, off + 999)
         const pg = (data as LinhaCaixa[] | null) || []
         linhas.push(...pg)
@@ -137,10 +146,10 @@ export function useCaixaDoMes(sb: SupabaseClient, uid: string | undefined, mes: 
       // as compras de cada fatura paga — cada uma no seu grupo
       const comprasDaFatura = new Map<string, CompraFatura[]>()
       for (const f of faturas) {
-        const { data } = await sb.from('fin_lancamentos').select('id, valor, data_competencia, descricao, fornecedor_nome, conta_nome, categoria_id, observacoes')
+        const { data } = await sb.from('fin_lancamentos').select('id, unidade_id, valor, data_competencia, descricao, fornecedor_nome, conta_nome, categoria_id, observacoes')
           .eq('conta_pagamento_id', f.cartao).eq('data_caixa', f.venc).in('status', ['pendente', 'aprovado'])
-        comprasDaFatura.set(f.id, ((data as { id: string; valor: number; data_competencia: string; descricao: string | null; fornecedor_nome: string | null; conta_nome: string | null; categoria_id: string | null; observacoes: string | null }[] | null) || [])
-          .map(l => ({ id: l.id, valor: Number(l.valor), data: l.data_competencia.slice(0, 10), descricao: [...new Set([l.descricao || l.conta_nome, l.fornecedor_nome, l.observacoes].map(x => x?.trim()).filter(Boolean))].join(' · ') || 'Compra no cartão', grupo: raiz(l.categoria_id) || null })))
+        comprasDaFatura.set(f.id, ((data as { id: string; unidade_id: string | null; valor: number; data_competencia: string; descricao: string | null; fornecedor_nome: string | null; conta_nome: string | null; categoria_id: string | null; observacoes: string | null }[] | null) || [])
+          .map(l => ({ id: l.id, valor: Number(l.valor), data: l.data_competencia.slice(0, 10), descricao: [...new Set([l.descricao || l.conta_nome, l.fornecedor_nome, l.observacoes].map(x => x?.trim()).filter(Boolean))].join(' · ') || 'Compra no cartão', grupo: raiz(l.categoria_id) || null, unidade_id: l.unidade_id })))
       }
 
       // CONFERIDO COM O BANCO (14/10/2026): a linha que já bateu com o extrato. Mesma regra do
@@ -171,7 +180,8 @@ export function useCaixaDoMes(sb: SupabaseClient, uid: string | undefined, mes: 
       if (vivo) setBruto({ linhas, saldo, reservas, nomeConta, base: { maquininhas, movs, categoriaDe, comprasDaFatura, conferidos } })
     })()
     return () => { vivo = false }
-  }, [sb, uid, mes])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sb, uid, mes, ids, recarga, versaoFin])
   return bruto
 }
 
@@ -179,8 +189,12 @@ export function useCaixaDoMes(sb: SupabaseClient, uid: string | undefined, mes: 
 // BALANÇO DE CAIXA (14/10/2026 — "aqui falamos de caixa, se não estaremos repetindo a info"):
 // era o resultado por competência (vw_dre_resumo), que é a DRE de novo. Agora é o dinheiro
 // que entrou e saiu das contas do "Saldo das Contas" no mês — regra em lib/balanco-caixa.ts.
-export function BalancoMes({ bruto, mes, marco = null, onEditar, onLancar, onExtrato }: {
+export function BalancoMes({ bruto, mes, marco = null, onEditar, onLancar, onExtrato, letra, onExcluir }: {
+  /** lixeira na linha do lançamento (pré-lançamento); devolve o motivo se não pôde */
+  onExcluir?: (lancamentoId: string) => Promise<string | null>
   bruto: Bruto | null; mes: string; marco?: string | null
+  /** caixa conjunto: a etiqueta M/P da unidade dona de cada linha */
+  letra?: (unidadeId: string | null | undefined) => string
   /** os atalhos do "Sem categoria": abrir o lançamento · lançar a compra que falta · ver no extrato da conta */
   onEditar?: (lancamentoId: string) => void; onLancar?: () => void; onExtrato?: (contaId: string) => void
 }) {
@@ -191,6 +205,7 @@ export function BalancoMes({ bruto, mes, marco = null, onEditar, onLancar, onExt
   const [abertos, setAbertos] = useState<Set<string>>(new Set([`s:${SEM_CATEGORIA}`, `e:${SEM_CATEGORIA}`]))
   // descrição numa linha; clique/toque abre o texto inteiro (14/10/2026)
   const [textoAberto, setTextoAberto] = useState<Set<string>>(new Set())
+  const [excluindo, setExcluindo] = useState<string | null>(null)   // 1º clique arma, 2º exclui
 
   // o cálculo, pelo conjunto de contas escolhido no toggle
   const dados = useMemo(() => caixaDoMes(bruto, mes, modo), [bruto, modo, mes])
@@ -225,7 +240,7 @@ export function BalancoMes({ bruto, mes, marco = null, onEditar, onLancar, onExt
   const escala = Math.max(1, ...ponte.map(b => Math.max(b.de, b.ate)))
 
   return (
-    <div className="card p-4 sm:p-5">
+    <div className="card p-4 sm:p-5 min-w-0">
       <div className="flex items-baseline gap-2">
         <span className={titulo}>Balanço do Caixa no Mês</span>
         {bruto && bruto.reservas.size > 0 && (
@@ -238,8 +253,8 @@ export function BalancoMes({ bruto, mes, marco = null, onEditar, onLancar, onExt
         )}
       </div>
       {pendentes.qtd > 0 && (
-        <p className="mt-2 rounded-[8px] border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-[12px] text-[var(--surface-700)]">
-          ⚠️ {pendentes.qtd} sem conciliar ({fmtBRL(pendentes.valor)})
+        <p className="mt-2 rounded-[8px] border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-[12px] text-[var(--surface-700)]">
+          🔵 {pendentes.qtd} sem conciliar ({fmtBRL(pendentes.valor)})
         </p>
       )}
       {dados === null ? <p className="text-sm text-[var(--surface-500)] py-6">carregando…</p>
@@ -258,22 +273,22 @@ export function BalancoMes({ bruto, mes, marco = null, onEditar, onLancar, onExt
             <Delta atual={sobrou} antes={antes ? c2(antes.entrou - antes.saiu) : null} /></div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-5 mt-5">
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] gap-5 mt-5">
           {/* 2) a ponte: do saldo do começo do mês ao do fim, entrada por entrada, saída por saída */}
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 min-w-0">
             <span className="text-xs text-[var(--surface-500)]">Do saldo do começo ao do fim do mês</span>
             {ponte.map((b, i) => {
               const lo = Math.max(0, Math.min(b.de, b.ate)), hi = Math.max(0, Math.max(b.de, b.ate))
               const aberto = !!b.chave && abertos.has(b.chave)
               const sem = b.nome === SEM_CATEGORIA
               return (
-                <div key={i}>
+                <div key={i} className="min-w-0">
                   <div onClick={b.chave ? () => setAbertos(a => { const n = new Set(a); if (n.has(b.chave!)) n.delete(b.chave!); else n.add(b.chave!); return n }) : undefined}
                        className={`grid grid-cols-[130px_1fr_auto] gap-2 items-center text-[12px] ${b.chave ? 'cursor-pointer hover:bg-[var(--surface-50)] rounded' : ''}`}>
                     <span className={`truncate flex items-center gap-1 ${b.forte ? 'font-semibold text-[var(--surface-800)]' : sem ? 'font-semibold text-amber-500' : 'text-[var(--surface-600)]'}`} title={b.nome}>
                       {b.chave && <ChevronRight className={`h-3 w-3 shrink-0 transition-transform ${aberto ? 'rotate-90' : ''}`} />}
                       <span className="truncate">{b.nome}{sem && b.itens ? ` (${b.itens.length})` : ''}</span>
-                      {b.itens && b.itens.some(i => !i.conciliado) && <span className="shrink-0 h-1.5 w-1.5 rounded-full bg-amber-500" title={`${b.itens.filter(i => !i.conciliado).length} a conferir com o extrato`} />}
+                      {b.itens && b.itens.some(i => !i.conciliado) && <span className="shrink-0 h-1.5 w-1.5 rounded-full bg-sky-500" title={`${b.itens.filter(i => !i.conciliado).length} a conferir com o extrato`} />}
                     </span>
                     <span className="relative h-3.5 rounded bg-[var(--surface-100)] overflow-hidden">
                       <span className="absolute top-0 bottom-0 rounded" style={{ left: `${(lo / escala) * 100}%`, width: `${Math.max(0.5, ((hi - lo) / escala) * 100)}%`, background: b.cor }} />
@@ -281,20 +296,23 @@ export function BalancoMes({ bruto, mes, marco = null, onEditar, onLancar, onExt
                     <span className="text-mono tabular-nums text-[var(--surface-700)] w-[92px] text-right">{b.sinal} {num(b.forte ? b.ate : b.ate - b.de)}</span>
                   </div>
                   {aberto && b.itens && (
-                    <div className={`ml-4 my-1 rounded-[8px] border ${sem ? 'border-amber-500/40 bg-amber-500/5' : 'border-[var(--surface-200)]'} divide-y divide-[var(--surface-200)]`}>
+                    <div className={`ml-4 my-1 min-w-0 overflow-hidden rounded-[8px] border ${sem ? 'border-amber-500/40 bg-amber-500/5' : 'border-[var(--surface-200)]'} divide-y divide-[var(--surface-200)]`}>
                       {sem && <p className="px-2.5 py-1.5 text-[11px] text-amber-600">Dinheiro que andou sem estar lançado com categoria. Resolva cada um pelo botão da linha.</p>}
                       {b.itens.map((it, k) => {
                         // atalho SÓ no "Sem categoria" (14/10/2026, Lucas): no que já está categorizado,
                         // abrir daqui só servia pra mudar conta/data/categoria sem querer
-                        const acao = !sem ? null
-                          : it.acao === 'editar' && onEditar ? { t: 'categorizar ›', f: () => onEditar(it.origem_id) }
+                        // abrir o lançamento (15/10/2026): conciliado só deixa trocar a categoria;
+                        // pré-lançamento edita à vontade — a trava mora no próprio formulário
+                        const acao = it.acao === 'editar' && onEditar ? { t: sem ? 'categorizar ›' : it.conciliado ? 'editar categoria' : 'editar', f: () => onEditar(it.origem_id) }
+                          : !sem ? null
                           : it.acao === 'lancar' && onLancar ? { t: 'lançar a compra ›', f: onLancar }
                           : it.acao === 'extrato' && onExtrato ? { t: 'ver no extrato ›', f: () => onExtrato(it.conta_id) }
                           : null
                         return (
                           <div key={k} className="flex items-start gap-2 px-2.5 py-1 text-[11.5px]">
-                            <span className={`shrink-0 mt-[5px] h-1.5 w-1.5 rounded-full ${it.conciliado ? 'bg-emerald-500' : 'bg-amber-500'}`} title={it.conciliado ? 'Conferido com o extrato' : 'Pré-lançamento: falta bater com o extrato'} />
+                            <span className={`shrink-0 mt-[5px] h-1.5 w-1.5 rounded-full ${it.conciliado ? 'bg-emerald-500' : 'bg-sky-500'}`} title={it.conciliado ? 'Conferido com o extrato' : 'Pré-lançamento: falta bater com o extrato'} />
                             <span className="text-[var(--surface-500)] tabular-nums shrink-0">{it.data.slice(8, 10)}/{it.data.slice(5, 7)}</span>
+                            {letra && <EtiquetaUnidade letra={letra(it.unidade_id)} />}
                             <span onClick={() => setTextoAberto(a => { const n = new Set(a), id = `${b.chave}|${k}`; if (n.has(id)) n.delete(id); else n.add(id); return n })}
                                   className={`flex-1 min-w-0 cursor-pointer text-[var(--surface-700)] ${textoAberto.has(`${b.chave}|${k}`) ? 'whitespace-normal break-words' : 'truncate'}`}
                                   title="Clique para ver a descrição inteira">
@@ -302,6 +320,14 @@ export function BalancoMes({ bruto, mes, marco = null, onEditar, onLancar, onExt
                             </span>
                             <span className="text-mono tabular-nums text-[var(--surface-700)] shrink-0">{num(it.valor)}</span>
                             {acao && <button onClick={acao.f} className="text-[11px] text-[var(--brand-500)] hover:underline shrink-0 whitespace-nowrap">{acao.t}</button>}
+                            {/* lixeira: só no lançamento que ainda não bateu com o banco (as travas finais moram em lib/excluir-lancamento) */}
+                            {onExcluir && it.acao === 'editar' && !it.conciliado && (
+                              <button title={excluindo === it.origem_id ? 'Clique de novo pra excluir' : 'Excluir este pré-lançamento'}
+                                      onClick={async () => { if (excluindo !== it.origem_id) return setExcluindo(it.origem_id); setExcluindo(null); await onExcluir(it.origem_id) }}
+                                      className={`shrink-0 rounded px-1 ${excluindo === it.origem_id ? 'bg-red-500 text-white text-[11px]' : 'text-[var(--surface-400)] hover:text-red-400'}`}>
+                                {excluindo === it.origem_id ? 'excluir?' : <Trash2 className="h-3.5 w-3.5" />}
+                              </button>
+                            )}
                           </div>
                         )
                       })}
@@ -484,21 +510,23 @@ export function LancamentosDoMes({ sb, uid, mes, onEditar }: { sb: SupabaseClien
 
 type Compra = { id: string; valor: number; data_competencia: string; data_caixa: string; fornecedor_nome: string | null; observacoes: string | null; conta_pagamento_id: string }
 
-export function FaturasDoMes({ sb, uid, mes, onPreLancar, onImportarConta }: {
+export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades }: {
+  unidades?: string[]
   sb: SupabaseClient; uid: string | undefined; mes: string
-  onPreLancar?: () => void; onImportarConta?: (contaId: string) => void
+  onImportarConta?: (contaId: string) => void
 }) {
   const cores = useCoresContas()
   const [cartoes, setCartoes] = useState<{ id: string; nome: string }[]>([])
   const [compras, setCompras] = useState<Compra[] | null>(null)
   const [pagas, setPagas] = useState<Set<string>>(new Set())
+  const versaoFin = useFinanceiroVersao()
   const [conc, setConc] = useState<Set<string>>(new Set())
   const [aberto, setAberto] = useState<string | null>(null)
   useEffect(() => {
     if (!uid) return
     let vivo = true
     void (async () => {
-      const { data: cs } = await sb.from('contas').select('id, nome, tipo, produto').or(`unidade_id.eq.${uid},unidades_extras.cs.{${uid}}`).eq('ativo', true).eq('legado', false)
+      const { data: cs } = await sb.from('contas').select('id, nome, tipo, produto').or(filtroContasDe(unidades?.length ? unidades : [uid])).eq('ativo', true).eq('legado', false)
       const cards = ((cs as { id: string; nome: string; tipo: string | null; produto: string | null }[] | null) || []).filter(c => c.tipo === 'cartao' || c.produto === 'cartao_credito')
       const ids = cards.map(c => c.id)
       let lista: Compra[] = [], pg = new Set<string>(), ok = new Set<string>()
@@ -518,7 +546,7 @@ export function FaturasDoMes({ sb, uid, mes, onPreLancar, onImportarConta }: {
       if (vivo) { setCartoes(cards.map(c => ({ id: c.id, nome: c.nome }))); setCompras(lista); setPagas(pg); setConc(ok) }
     })()
     return () => { vivo = false }
-  }, [sb, uid, mes])
+  }, [sb, uid, mes, unidades, versaoFin])
 
   // uma fatura = cartão + vencimento
   const faturas = useMemo(() => {
@@ -539,10 +567,9 @@ export function FaturasDoMes({ sb, uid, mes, onPreLancar, onImportarConta }: {
         <span className="text-xs text-[var(--surface-500)]">vencem neste mês</span>
       </div>
       <div className="flex flex-wrap gap-2 mt-2">
-        {onPreLancar && <button onClick={onPreLancar} className="text-[12px] px-3 py-1.5 rounded-full border border-[var(--surface-300)] text-[var(--surface-700)] hover:bg-[var(--surface-100)]">+ Pré-lançamento</button>}
         {onImportarConta && cartoes.map(c => (
           <button key={c.id} onClick={() => onImportarConta(c.id)} className="text-[12px] px-3 py-1.5 rounded-full border border-[var(--brand-500)]/50 text-[var(--brand-500)] hover:bg-[var(--brand-500)]/10">
-            {/* ninguém tem OFX de fatura: cola-se o texto da fatura (PDF: quando chegar o exemplo do Inter) */}
+            {/* ninguém tem OFX de fatura: entra pelo PDF (lib/fatura-pdf.ts — por ora o formato do Inter) */}
             Importar fatura · {rotuloConta(cores, c.id, c.nome)}
           </button>
         ))}
@@ -590,8 +617,9 @@ export function FaturasDoMes({ sb, uid, mes, onPreLancar, onImportarConta }: {
 // A CONFERIR (14/10/2026) — substitui o card "Lançamentos": não repete o Balanço, é a FILA do que
 // falta resolver no caixa do mês. (1) o que entrou no caixa e ainda não bateu com o extrato
 // (pré-lançamento), por conta, com o atalho de importar o extrato dela; (2) o "Sem categoria".
-export function AConferir({ bruto, mes, onEditar, onImportarConta, onLancar, onExtrato }: {
+export function AConferir({ bruto, mes, onEditar, onImportarConta, onLancar, onExtrato, letra }: {
   bruto: Bruto | null; mes: string
+  letra?: (unidadeId: string | null | undefined) => string
   onEditar?: (lancamentoId: string) => void; onImportarConta?: (contaId: string) => void
   onLancar?: () => void; onExtrato?: (contaId: string) => void
 }) {
@@ -619,8 +647,9 @@ export function AConferir({ bruto, mes, onEditar, onImportarConta, onLancar, onE
       : null
     return (
       <div key={k} className="flex items-center gap-2 px-2.5 py-1 text-[12px]">
-        <span className={`shrink-0 h-1.5 w-1.5 rounded-full ${i.conciliado ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+        <span className={`shrink-0 h-1.5 w-1.5 rounded-full ${i.conciliado ? 'bg-emerald-500' : 'bg-sky-500'}`} />
         <span className="text-[var(--surface-500)] tabular-nums shrink-0">{i.data.slice(8, 10)}/{i.data.slice(5, 7)}</span>
+        {letra && !i.fatura && <EtiquetaUnidade letra={letra(i.unidade_id)} />}
         <span className="flex-1 min-w-0 truncate text-[var(--surface-700)]" title={`${i.descricao} · ${i.grupo}`}>{i.descricao}<span className="text-[var(--surface-400)]"> · {i.grupo}</span></span>
         <span className={`text-mono tabular-nums shrink-0 ${i.entrada ? 'text-emerald-500' : 'text-[var(--surface-700)]'}`}>{i.entrada ? '+' : '−'}{num(i.valor)}</span>
         {acao && <button onClick={acao.f} className="text-[11px] text-[var(--brand-500)] hover:underline shrink-0 whitespace-nowrap">{acao.t}</button>}
@@ -628,16 +657,16 @@ export function AConferir({ bruto, mes, onEditar, onImportarConta, onLancar, onE
     )
   }
   return (
-    <div className="card p-4 sm:p-5">
+    <div className="card p-4 sm:p-5 min-w-0">
       <span className={titulo}>A conferir</span>
       {!bruto ? <p className="text-sm text-[var(--surface-500)] py-4">carregando…</p>
       : !pend.length && !sem.length ? <p className="text-sm text-emerald-500 py-4">Tudo conferido neste mês ✓</p> : (
         <div className="space-y-3 mt-3">
           {[...porConta].map(([conta, its]) => (
-            <div key={conta} className="rounded-[8px] border border-amber-500/40">
-              <div className="flex items-center gap-2 px-2.5 py-1.5 border-b border-amber-500/30 bg-amber-500/5">
+            <div key={conta} className="rounded-[8px] border border-sky-500/40">
+              <div className="flex items-center gap-2 px-2.5 py-1.5 border-b border-sky-500/30 bg-sky-500/5">
                 <span className="text-[12.5px] font-semibold text-[var(--surface-800)] flex-1 min-w-0 truncate">{nome(conta)}</span>
-                <span className="text-[11px] text-amber-600 shrink-0">{its.length} sem bater com o extrato</span>
+                <span className="text-[11px] text-sky-600 shrink-0">{its.length} sem bater com o extrato</span>
                 {onImportarConta && <button onClick={() => onImportarConta(conta)} className="text-[11px] text-[var(--brand-500)] hover:underline shrink-0 whitespace-nowrap">importar extrato ›</button>}
               </div>
               <div className="divide-y divide-[var(--surface-200)]">{its.map(linha)}</div>

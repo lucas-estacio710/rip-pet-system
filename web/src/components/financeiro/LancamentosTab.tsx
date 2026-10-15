@@ -10,6 +10,7 @@
 //
 // Tom profissional: "lançar" é o verbo que a equipe já usa. Nada de gamificação.
 
+import { useFinanceiroVersao } from '@/lib/financeiro-eventos'
 import RepassarCustoModal, { type LancParaRepassar } from './RepassarCustoModal'
 import TrilhaCustoModal from './TrilhaCustoModal'
 import ContaFixaModal from './ContaFixaModal'
@@ -32,6 +33,9 @@ import { criarIndice, sugerir, type Indice } from '@/lib/similaridade'
 import { buscarCategorias } from '@/lib/busca-categoria'
 import { reconhecerCobranca } from '@/lib/reconhecer-cobranca'
 import type { AcaoLancar } from '@/lib/lancar'
+import { useCaixaConjunto } from '@/hooks/useCaixaConjunto'
+import { excluirLancamento } from '@/lib/excluir-lancamento'
+import { DonoLancamento } from './DonoLancamento'
 import {
   fmtBRL, fmtData, hojeISO, limitesDoMes, colarValorBR
 } from '@/lib/financeiro'
@@ -50,6 +54,7 @@ type Categoria = {
 
 type Lancamento = {
   id: string
+  unidade_id?: string
   descricao: string | null
   valor: number
   data_competencia: string
@@ -143,7 +148,7 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
   /** Com o comando 'importar': a conta em que o Importar já abre. */
   contaImportar?: string | null
   /** Com o comando 'despesa': o "Paguei" de uma conta fixa (mig 160) — a despesa já preenchida. */
-  despesaInicial?: { contaFixaId: string; nome: string; categoriaId: string | null; valor: number; fornecedor: string | null } | null
+  despesaInicial?: { contaFixaId: string; nome: string; categoriaId: string | null; valor: number; fornecedor: string | null; unidadeId?: string | null } | null
   onComandoFeito?: () => void
 }) {
   const supabaseTipado = createClient()
@@ -183,6 +188,8 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
         setCatId(despesaInicial.categoriaId || ''); setFornecedor(despesaInicial.fornecedor || '')
         setValor(despesaInicial.valor ? numeroParaDigitos(despesaInicial.valor) : '')
         setContaFixa({ id: despesaInicial.contaFixaId, nome: despesaInicial.nome })
+        // a conta de acompanhamento já diz de quem é (caixa conjunto)
+        if (despesaInicial.unidadeId) setDono(despesaInicial.unidadeId)
       }
       setAberto(true)
     }
@@ -209,6 +216,10 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
   // corrigir obrigaria a excluir e relancar do zero.
   const [aberto, setAberto] = useState(false)
   const [editandoId, setEditandoId] = useState<string | null>(null)
+  // CAIXA CONJUNTO (15/10/2026): Matriz + Pinda lançam no mesmo caixa; cada lançamento escolhe a dona
+  const conj = useCaixaConjunto()
+  const versaoFin = useFinanceiroVersao()
+  const [dono, setDono] = useState<string | null>(null)
   // A conta fixa que este lançamento paga (Paguei da Visão do mês, mig 160).
   const [contaFixa, setContaFixa] = useState<{ id: string; nome: string } | null>(null)
   const [catId, setCatId] = useState('')
@@ -282,6 +293,18 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
   const [cobDoLanc, setCobDoLanc] = useState<{ unidade: string; valor: number; status: string }[]>([])
   const [trilhaId, setTrilhaId] = useState<string | null>(null)   // Trilha do custo (14/10/2026)
   const [versaoDiv, setVersaoDiv] = useState(0)
+  // CONCILIADO = já bateu com o extrato/fatura (15/10/2026, Lucas): não se apaga e só a CATEGORIA
+  // muda. Pré-lançamento (ainda sem o banco) edita e apaga à vontade.
+  const [conciliadoEdit, setConciliadoEdit] = useState(false)
+  const [confirmaExcluir, setConfirmaExcluir] = useState(false)
+  useEffect(() => {
+    let vivo = true
+    setConfirmaExcluir(false)
+    if (!editandoId) { setConciliadoEdit(false); return }
+    void supabase.from('fin_conciliacoes').select('id').eq('origem', 'lancamento').eq('origem_id', editandoId).limit(1)
+      .then(({ data }) => { if (vivo) setConciliadoEdit(!!(data && data.length)) })
+    return () => { vivo = false }
+  }, [editandoId, supabase])
   useEffect(() => {
     if (!editandoId) { setCobDoLanc([]); return }
     let vivo = true
@@ -369,8 +392,8 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
     const { ini, fim } = limitesDoMes(mes)
     const { data } = await supabase
       .from('fin_lancamentos')
-      .select('id, descricao, valor, data_competencia, data_caixa, metodo_pagamento, conta_pagamento_id, status, observacoes, fornecedor_nome, categoria_id, natureza, rateio_meses, divisao_id, origem, fin_categorias(nome, icone)')
-      .eq('unidade_id', currentUnit.id)
+      .select('id, unidade_id, descricao, valor, data_competencia, data_caixa, metodo_pagamento, conta_pagamento_id, status, observacoes, fornecedor_nome, categoria_id, natureza, rateio_meses, divisao_id, origem, fin_categorias(nome, icone)')
+      .in('unidade_id', conj.ids.length ? conj.ids : [currentUnit.id])
       .gte('data_competencia', ini)
       .lte('data_competencia', fim)
       .order('data_competencia', { ascending: false })
@@ -430,7 +453,7 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
     setConciliados(conc)
 
     setCarregando(false)
-  }, [supabase, currentUnit?.id, mes])
+  }, [supabase, currentUnit?.id, mes, conj.ids, versaoFin])
 
   useEffect(() => { void carregar() }, [carregar])
 
@@ -613,7 +636,7 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
     setDestinos([]); setMetodo(''); setMaisOpcoes(false)
     setDataOutra(false); setCaixaOutra(false)
     setAberto(false)
-    setEditandoId(null); setEditEstorno(false)
+    setEditandoId(null); setEditEstorno(false); setDono(null)
   }
 
   /** Abre o modal com o lançamento carregado. */
@@ -621,14 +644,28 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
   useEffect(() => {
     if (!editarId) return
     const l = lancamentos.find(x => x.id === editarId)
-    if (!l) return
-    editar(l); onEditarFeito?.()
+    if (l) { editar(l); onEditarFeito?.(); return }
+    // não está no mês (15/10/2026): o Balanço abre pelo dia do CAIXA — a compra da fatura ou a
+    // despesa paga hoje pode ser de outro mês de competência. Busca direto e abre.
+    if (carregando) return
+    let vivo = true
+    void supabase.from('fin_lancamentos')
+      .select('id, unidade_id, descricao, valor, data_competencia, data_caixa, metodo_pagamento, conta_pagamento_id, status, observacoes, fornecedor_nome, categoria_id, natureza, rateio_meses, divisao_id, origem, fin_categorias(nome, icone)')
+      .eq('id', editarId).maybeSingle()
+      .then(({ data: row }) => {
+        if (!vivo) return
+        if (!row) { onEditarFeito?.(); return toast('Lançamento não encontrado', 'error') }
+        const lanc = row as unknown as Lancamento
+        setLancamentos(xs => (xs.some(x => x.id === lanc.id) ? xs : [...xs, lanc]))
+      })
+    return () => { vivo = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editarId, lancamentos])
+  }, [editarId, lancamentos, carregando])
 
   function editar(l: Lancamento) {
     if (somenteLeitura) return
     setEditandoId(l.id)
+    setDono(l.unidade_id || null)
     setCatId(l.categoria_id || '')
     setEditEstorno(Number(l.valor) < 0)
     setValor(l.valor ? numeroParaDigitos(Math.abs(Number(l.valor))) : '')
@@ -695,7 +732,24 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
     // Colar do extrato traz o sinal ("-255,88"). Numa tela de DESPESA, saída é
     // saída — recusar por causa do sinal (e ainda dizer "informe o valor", com o
     // valor preenchido) era mandar o operador procurar um erro que não existe.
+    if (editandoId && conciliadoEdit) {
+      const orig = lancamentos.find(x => x.id === editandoId)
+      if (orig) {
+        const mudouOutro = Math.abs(Math.abs(digitosParaNumero(valor)) - Math.abs(Number(orig.valor))) > 0.005
+          || data !== (orig.data_competencia || '').slice(0, 10)
+          || (dataCaixa || '') !== (orig.data_caixa || '').slice(0, 10)
+          || contaId !== (orig.conta_pagamento_id || '')
+          || metodo !== (orig.metodo_pagamento || '')
+          || fornecedor.trim() !== (orig.fornecedor_nome || '')
+          || descricao.trim() !== (orig.descricao || '')
+          || (rateado ? Math.max(1, Number(meses) || 1) : 1) !== Number(orig.rateio_meses || 1)
+          || (!!orig.unidade_id && !!dono && dono !== orig.unidade_id)
+          || partes.length > 0
+        if (mudouOutro) return toast('Conciliado com o banco: só a categoria muda. Os outros campos ficam como o banco registrou', 'error')
+      }
+    }
     const v = digitosParaNumero(valor)
+    if (conj.conjunto && !dono) return toast(`De quem é? Escolha ${conj.irmas.map(i => i.nome).join(' ou ')}`, 'error')
     if (!catId) return toast('Escolha a categoria', 'error')
     // No crédito a fatura é obrigatória, e conferida contra a LISTA — não
     // contra "dataCaixa preenchido": quem troca de Pix para Crédito chega aqui
@@ -734,6 +788,8 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
       const conta = catSelecionada?.fin_contas
 
       const campos = {
+        // a dona: no caixa conjunto, a escolhida; senão, a unidade logada
+        ...(conj.conjunto && dono ? { unidade_id: dono } : {}),
         categoria_id: catId,
         conta_id: catSelecionada?.fin_conta_id || null,
         conta_codigo: conta?.codigo || null,  // SNAPSHOT: congela a DRE histórica
@@ -767,7 +823,7 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
         // / Não é meu). Errou? Quem lançou edita ou exclui.
         const { data: { user } } = await supabase.auth.getUser()
         const criacao = {
-          unidade_id: currentUnit.id,
+          unidade_id: conj.conjunto && dono ? dono : currentUnit.id,
           origem: 'manual',
           criado_por_nome: userName || null,
           status: 'aprovado',
@@ -875,8 +931,8 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
 
   async function excluir(id: string) {
     if (somenteLeitura) return
-    const { error } = await supabase.from('fin_lancamentos').delete().eq('id', id)
-    if (error) return toast(error.message, 'error')
+    const erro = await excluirLancamento(supabase, id)   // as travas (conciliado, perna, repassado) moram lá
+    if (erro) return toast(erro, 'error')
     setLancamentos(l => l.filter(x => x.id !== id))
     toast('Lançamento excluído', 'success')
   }
@@ -1087,6 +1143,12 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
         title={editandoId ? 'Editar lançamento' : contaFixa ? `Paguei · ${contaFixa.nome}` : 'Pré-lançamento'}
         footer={
           <div className="flex justify-end gap-2">
+            {editandoId && !conciliadoEdit && lancamentos.find(x => x.id === editandoId)?.origem !== 'sistema' && !cobDoLanc.some(c => c.status !== 'recusada') && (
+              <button onClick={() => { if (!confirmaExcluir) return setConfirmaExcluir(true); const id = editandoId; limpar(); void excluir(id) }}
+                      className={`mr-auto text-sm px-3 py-1.5 rounded-[var(--radius-md)] border ${confirmaExcluir ? 'border-red-500 bg-red-500 text-white' : 'border-red-400/60 text-red-400'}`}>
+                {confirmaExcluir ? 'Confirmar exclusão' : 'Excluir'}
+              </button>
+            )}
             <button onClick={limpar} className="btn-secondary text-sm">Cancelar</button>
             <button onClick={() => void salvar()} disabled={salvando} className="btn-primary text-sm">
               {salvando
@@ -1108,6 +1170,15 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
               ))}
             </div>
           )}
+          {/* DE QUEM É? — só no caixa conjunto (Matriz + Pinda). Repassado/perna não troca de dona. */}
+          {editandoId && conciliadoEdit && (
+            <p className="rounded-[10px] border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-[12px] text-[var(--surface-700)]">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5 align-middle" />
+              <b>Conciliado com o banco:</b> só a <b>categoria</b> muda aqui. Valor, datas, conta e o resto ficam como o banco registrou, e não dá pra excluir.
+            </p>
+          )}
+          <DonoLancamento irmas={conj.irmas} valor={dono} onChange={setDono}
+            travado={!!editandoId && (conciliadoEdit || lancamentos.find(x => x.id === editandoId)?.origem === 'sistema' || cobDoLanc.some(c => c.status !== 'recusada'))} />
           {/* ─────────────────────────────────────────────────────────────────
               A ORDEM DESTE MODAL É UMA ÁRVORE DE DECISÃO (13/09/2026).
               Antes, os seis campos apareciam de uma vez e quatro deles pediam
@@ -1117,6 +1188,9 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
               (ver o comentário em `metodo`).
               ───────────────────────────────────────────────────────────────── */}
 
+          {/* CONCILIADO (15/10/2026): os campos que o banco registrou aparecem TRAVADOS — só a
+              categoria (logo abaixo) fica livre. `fieldset disabled` trava tudo o que tem dentro. */}
+          <fieldset disabled={conciliadoEdit} className={`space-y-4 min-w-0 border-0 p-0 m-0 ${conciliadoEdit ? 'opacity-60' : ''}`}>
           {/* 1. Quando + quanto — o que o operador tem na mão ao abrir */}
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -1296,6 +1370,8 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
               {fornecedoresUsados.map(n => <option key={n} value={n} />)}
             </datalist>
           </div>
+
+          </fieldset>
 
           {/* Categoria — árvore (categoria › subcategoria › tipo) + busca direta */}
           <div>
@@ -1523,14 +1599,14 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
           </div>
 
           {/* Observação — junto da categoria, que é o que ela detalha */}
-          <div>
+          <fieldset disabled={conciliadoEdit} className={`min-w-0 border-0 p-0 m-0 ${conciliadoEdit ? 'opacity-60' : ''}`}>
             <label className="text-xs text-[var(--surface-500)] block mb-1">Observação</label>
             <input
               type="text" value={descricao} onChange={e => setDescricao(e.target.value)}
               placeholder="Ex.: abastecimento da van"
               className="input text-sm w-full"
             />
-          </div>
+          </fieldset>
 
           {editandoId && (lancamentos.find(x => x.id === editandoId)?.origem === 'sistema' || cobDoLanc.some(c => c.status !== 'recusada')) && (
             <p className="rounded-[10px] border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12px] text-[var(--surface-700)]">

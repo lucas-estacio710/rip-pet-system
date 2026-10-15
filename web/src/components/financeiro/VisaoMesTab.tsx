@@ -19,10 +19,14 @@
 // Cada ato respeita a aba de onde vem: sem a DRE visível, somem 1 e 2; sem o
 // Caixa, some o 3; sem o Repasse, o "pagar repasse" sai da lista.
 
+import { useFinanceiroVersao } from '@/lib/financeiro-eventos'
 import CobrancasCard from './CobrancasCard'
 import ReceitasPrazoTab from './ReceitasPrazoTab'
 import { BalancoMes, AConferir, FaturasDoMes, useCaixaDoMes } from './VisaoBlocos'
+import { useCaixaConjunto, filtroContasDe } from '@/hooks/useCaixaConjunto'
+import { excluirLancamento } from '@/lib/excluir-lancamento'
 import Modal from '@/components/ui/Modal'
+import { useToast } from '@/components/ui/Toast'
 import { useCoresContas, rotuloConta, estiloConta } from '@/lib/cor-conta'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -102,15 +106,22 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
 }) {
   const supabase = useMemo(() => createClient() as unknown as SupabaseClient, [])
   const { currentUnit, userName } = useUnit()
+  const { toast } = useToast()
   const cores = useCoresContas()
   const [carregando, setCarregando] = useState(false)
+  const versaoFin = useFinanceiroVersao()   // gravou algo no financeiro → recarrega tudo
+  const [mesCarregado, setMesCarregado] = useState<string | null>(null)   // o escuro de tela cheia só na 1ª carga do mês
   const [resumo, setResumo] = useState<Resumo | null>(null)
   const [qtdDespesas, setQtdDespesas] = useState(0)
   const [cards, setCards] = useState<CardConta[]>([])
   const [, setPend] = useState<Pendencia[]>([])
   const [extratoDe, setExtratoDe] = useState<ContaRow | null>(null)
   // CONTAS DO MÊS (mig 160) e o "disponível" de hoje.
-  const fixas = useContasFixas(supabase, currentUnit?.id, !!currentUnit?.is_matriz, currentUnit?.financeiro_desde?.slice(0, 7) || null)
+  // CAIXA CONJUNTO (15/10/2026): Matriz + Pinda num Livro-Caixa só — contas, calendário, faturas e
+  // balanço das duas, com a etiqueta M/P. O repasse a receber é sempre o da Matriz.
+  const conj = useCaixaConjunto()
+  const uidCal = conj.conjunto && conj.matrizId ? conj.matrizId : currentUnit?.id
+  const fixas = useContasFixas(supabase, uidCal, conj.conjunto && conj.matrizId ? true : !!currentUnit?.is_matriz, currentUnit?.financeiro_desde?.slice(0, 7) || null, conj.ids)
   const [saldos, setSaldos] = useState<{ disponivel: number; guardado: number; contas: { conta: ContaRow; saldo: number; guardada: boolean; virgem: boolean }[] } | null>(null)
   // INICIAR CONTA (14/10/2026): conta sem nenhum lançamento ganha o atalho pro AJUSTE
   // INICIAL — a abertura de caixa da mig 136 (caixa_desde + movimento de ajuste).
@@ -134,9 +145,9 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
   useEffect(() => {
     if (!currentUnit?.id) return
     let vivo = true
-    void carregarEsteira(supabase, currentUnit.id).then(m => { if (vivo) setEsteira(m) })
+    void carregarEsteira(supabase, currentUnit.id, conj.ids).then(m => { if (vivo) setEsteira(m) })
     return () => { vivo = false }
-  }, [supabase, currentUnit?.id])
+  }, [supabase, currentUnit?.id, conj.ids, versaoFin])
   const [rascunho, setRascunho] = useState<RascunhoConta | null>(null)
 
   const carregar = useCallback(async () => {
@@ -154,7 +165,7 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
         .eq('unidade_id', uid).neq('status', 'rejeitado').gte('data_competencia', ini).lte('data_competencia', fim),
       verCaixa
         ? supabase.from('contas').select('id, nome, tipo, produto, caixa_desde, mostrar_no_caixa')
-            .or(`unidade_id.eq.${uid},unidades_extras.cs.{${uid}}`).eq('ativo', true).eq('legado', false).order('nome')
+            .or(filtroContasDe(conj.ids.length ? conj.ids : [uid])).eq('ativo', true).eq('legado', false).order('nome')
         : Promise.resolve({ data: [] }),
       verRepasse
         ? supabase.from('fin_repasses').select('id, mes_referencia, status, qtd_pets, total_liquido')
@@ -168,7 +179,7 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
       // Disponível = contas que pagam (corrente, pagamento, dinheiro), sem maquininha
       // nem cartão; as marcadas como reserva (mig 160) ficam como "guardado".
       const { data: sd } = await supabase.from('vw_caixa_saldo').select('conta_id, nome, tipo, produto, saldo, legado, mostrar_no_caixa, caixa_desde, entradas, saidas')
-        .or(`unidade_id.eq.${uid},unidades_extras.cs.{${uid}}`)
+        .or(filtroContasDe(conj.ids.length ? conj.ids : [uid]))
       let reservas = new Set<string>()
       const { data: rv, error: erv } = await supabase.from('contas').select('id').eq('reserva', true)
       if (!erv) reservas = new Set(((rv as { id: string }[] | null) || []).map(x => x.id))
@@ -261,8 +272,8 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
       }
     }
     setPend(lista)
-    setCarregando(false)
-  }, [supabase, currentUnit?.id, mes, verResultado, verCaixa, verRepasse, verLancamentos, onIr, onLancar, fixas.contas])
+    setCarregando(false); setMesCarregado(`${currentUnit?.id}|${mes}`)
+  }, [supabase, currentUnit?.id, mes, verResultado, verCaixa, verRepasse, verLancamentos, onIr, onLancar, fixas.contas, conj.ids, versaoFin])
 
   useEffect(() => { void carregar() }, [carregar])
 
@@ -277,7 +288,9 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
   // acontecendo — "Como foi"/"Sobrou" dão a ideia de mês fechado.
   const emCurso = mes >= hojeISO().slice(0, 7)
   // a busca do caixa do mês: uma só, pro Balanço e pro A conferir (14/10/2026)
-  const caixaBruto = useCaixaDoMes(supabase, currentUnit?.id, mes)
+  const [recargaCaixa, setRecargaCaixa] = useState(0)
+  const caixaBruto = useCaixaDoMes(supabase, currentUnit?.id, mes, conj.ids, recargaCaixa)
+  const letraCx = conj.conjunto ? conj.letra : undefined
   // MÊS QUE JÁ PASSOU (14/10/2026): cada conta mostra "de (início) → para (fim do mês)".
   // Fim = saldo de hoje − o que andou depois do mês; início = fim − o que andou no mês.
   const [deParaMes, setDeParaMes] = useState<{ mes: string; m: Map<string, { de: number; para: number }> } | null>(null)
@@ -310,6 +323,12 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
     onEditar: onEditarLancamento,
     onLancar: onLancar ? () => onLancar('despesa') : undefined,
     onExtrato: (contaId: string) => { const k = saldos?.contas.find(x => x.conta.id === contaId); if (k) setExtratoDe(k.conta) },
+    // lixeira na linha do Balanço: as travas moram em lib/excluir-lancamento
+    onExcluir: async (id: string) => {
+      const erro = await excluirLancamento(supabase, id)
+      if (erro) toast(erro, 'error'); else { toast('Lançamento excluído', 'success'); setRecargaCaixa(v => v + 1) }
+      return erro
+    },
   }
 
   const titulo = 'text-[11px] font-semibold tracking-[.14em] uppercase text-[var(--surface-500)]'
@@ -386,7 +405,7 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
       {/* CARREGANDO EM TELA CHEIA (14/10/2026, Lucas): a tela escurece e o círculo fica no meio,
           em vez do giro pequeno embaixo do título — até o resumo e o caixa do mês chegarem.
           Portal no body: algum ancestral com transform prenderia o `fixed`. */}
-      {(carregando || (!!currentUnit?.id && !caixaBruto)) && typeof document !== 'undefined' && createPortal(
+      {((carregando && mesCarregado !== `${currentUnit?.id}|${mes}`) || (!!currentUnit?.id && !caixaBruto)) && typeof document !== 'undefined' && createPortal(
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 backdrop-blur-[1px]" aria-busy="true" aria-label="Carregando">
           <Loader2 className="h-9 w-9 animate-spin text-white/90" />
         </div>,
@@ -402,7 +421,7 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
           fazem sentido olhando um mês fechado — fica só a lista das contas, cada uma abrindo o
           extrato DAQUELE mês (o ExtratoContaModal recebe mesInicial={mes}). */}
       {/* mês que já passou: o Balanço vem PRIMEIRO (14/10/2026, Lucas) — não há saldo de hoje nem calendário */}
-      {verResultado && !emCurso && <BalancoMes bruto={caixaBruto} mes={mes} marco={currentUnit?.financeiro_desde?.slice(0, 7) || null} {...atalhosBalanco} />}
+      {verResultado && !emCurso && <BalancoMes bruto={caixaBruto} mes={mes} marco={currentUnit?.financeiro_desde?.slice(0, 7) || null} {...atalhosBalanco} letra={letraCx} />}
       {!emCurso ? (
         <div className="card p-4 text-center">
           <span className="text-sm text-[var(--surface-500)]">Contas</span>
@@ -461,7 +480,7 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
               </div>
             )}
             {onContasFaturas && <button onClick={onContasFaturas} className={`${link} mt-2`}>Ver saldo das contas ›</button>}
-            {esteira && esteira.size > 0 && !currentUnit?.is_matriz && (() => {
+            {esteira && esteira.size > 0 && (!currentUnit?.is_matriz || conj.conjunto) && (() => {
               const d = new Date(`${hojeS}T12:00:00`)
               const fimMes = new Date(d.getFullYear(), d.getMonth() + 1, 0, 12).toISOString().slice(0, 10)
               const prox = new Date(d.getFullYear(), d.getMonth() + 1, 1, 12).toISOString().slice(0, 7)
@@ -508,7 +527,7 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
           {emCurso && <div className="md:pl-8">
             <CalendarioHoje itens={itensMes} ano={anoN} mes0={mesN} podeLancar={podeLancar} onPaguei={pagar}
               onGerenciar={podeLancar ? () => setGerenciarAberto(true) : undefined}
-              sb={supabase} uid={currentUnit?.id} onMudou={() => void fixas.carregar()} />
+              sb={supabase} uid={currentUnit?.id} ids={conj.ids} onMudou={() => void fixas.carregar()} />
           </div>}
         </div>
       </div>
@@ -517,12 +536,13 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
       {/* ordem de importância (Lucas, 14/10): saldo das contas → balanço do mês → ainda neste mês */}
       {/* MATRIZ (14/10/2026): a conta corrente é a mesma de Pinda e a única receita da
           Matriz é o repasse das unidades — a orientação fica à vista de quem opera */}
-      {currentUnit?.is_matriz && (
+      {/* CAIXA CONJUNTO (15/10/2026): Matriz + Pinda num Livro-Caixa só — a orientação à vista */}
+      {conj.conjunto && (
         <div className="rounded-[12px] border border-[var(--brand-500)]/30 bg-[var(--brand-500)]/5 px-4 py-3 text-[13px] text-[var(--surface-700)] space-y-1">
-          <p className="font-semibold text-[var(--surface-900)]">Financeiro da Matriz · conta corrente compartilhada com Pinda</p>
-          <p>• <b>Lance e importe o extrato sempre por aqui</b> (Matriz) — a conta é uma só, e importar pelas duas unidades duplicaria tudo.</p>
-          <p>• Custo que é de Pinda: <b>+ › Pré-lançamento › Despesa › 🏢 Parte é de outra unidade</b> — pode ser 100% (botão “100%”).</p>
-          <p>• A receita da Matriz é só o <b>repasse das unidades</b>; as maquininhas são de Pinda.</p>
+          <p className="font-semibold text-[var(--surface-900)]">Caixa conjunto · {conj.irmas.map(i => i.nome).join(' + ')}</p>
+          <p>• Um Livro-Caixa só: as contas são as mesmas. Cada lançamento leva a etiqueta da unidade dona ({conj.irmas.map(i => `${conj.letra(i.id)} = ${i.nome}`).join(' · ')}).</p>
+          <p>• Todo lançamento pergunta <b>de quem é</b> — quem lança escolhe na hora, sem dividir depois. A DRE continua <b>uma por unidade</b>.</p>
+          <p>• Importe o extrato num lugar só; as despesas novas também perguntam de quem são.</p>
         </div>
       )}
 
@@ -536,11 +556,11 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
       )}
 
       {/* os três cartões de baixo (14/10/2026): balanço novo + lançamentos + faturas */}
-      {verResultado && emCurso && <BalancoMes bruto={caixaBruto} mes={mes} marco={currentUnit?.financeiro_desde?.slice(0, 7) || null} {...atalhosBalanco} />}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+      {verResultado && emCurso && <BalancoMes bruto={caixaBruto} mes={mes} marco={currentUnit?.financeiro_desde?.slice(0, 7) || null} {...atalhosBalanco} letra={letraCx} />}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4 items-start">
         {/* "Lançamentos" saiu (14/10/2026): repetia o Balanço. No lugar, a fila do que falta conferir */}
-        {verLancamentos && <AConferir bruto={caixaBruto} mes={mes} onEditar={onEditarLancamento} onImportarConta={onImportarConta} onLancar={atalhosBalanco.onLancar} onExtrato={atalhosBalanco.onExtrato} />}
-        <FaturasDoMes sb={supabase} uid={currentUnit?.id} mes={mes} onPreLancar={onLancar ? () => onLancar('despesa') : undefined} onImportarConta={onImportarConta} />
+        {verLancamentos && <AConferir bruto={caixaBruto} mes={mes} letra={letraCx} onEditar={onEditarLancamento} onImportarConta={onImportarConta} onLancar={atalhosBalanco.onLancar} onExtrato={atalhosBalanco.onExtrato} />}
+        <FaturasDoMes sb={supabase} uid={currentUnit?.id} unidades={conj.ids} mes={mes} onImportarConta={onImportarConta} />
       </div>
 
       {/* "Contas do mês" e "Precisa de você" saíram em 14/10/2026: o calendário do topo já mostra tudo */}

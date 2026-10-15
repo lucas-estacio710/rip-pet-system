@@ -79,7 +79,7 @@ export default function FinanceiroPage() {
   const [versaoConfig, setVersaoConfig] = useState(0)
   const [contaImportar, setContaImportar] = useState<string | null>(null)
   // PAGUEI (conta de acompanhamento): a despesa abre já preenchida.
-  const [despesaInicial, setDespesaInicial] = useState<{ contaFixaId: string; nome: string; categoriaId: string | null; valor: number; fornecedor: string | null } | null>(null)
+  const [despesaInicial, setDespesaInicial] = useState<{ contaFixaId: string; nome: string; categoriaId: string | null; valor: number; fornecedor: string | null; unidadeId?: string | null } | null>(null)
   // Editar um lançamento clicado no Livro-Caixa.
   const [editarLancId, setEditarLancId] = useState<string | null>(null)
   // QUITAR O REPASSE sem sair do Financeiro: o repasse do mês num popup.
@@ -132,7 +132,7 @@ export default function FinanceiroPage() {
     // o item do calendário é 'repasse-aaaa-mm' (o mês de referência)
     if (x.conta.repasse) { setDespesaInicial(null); abrirRepasse(x.conta.id.startsWith('repasse-') ? x.conta.id.slice(8) : undefined); return }
     setDespesaInicial({ contaFixaId: x.conta.id, nome: `${x.conta.nome} de ${x.venc.data.slice(5, 7)}/${x.venc.data.slice(0, 4)}`,
-                        categoriaId: x.conta.categoria_id, valor: x.valor, fornecedor: x.conta.fornecedor_nome })
+                        categoriaId: x.conta.categoria_id, valor: x.valor, fornecedor: x.conta.fornecedor_nome, unidadeId: x.conta.unidade_id })
     setComando('despesa')
   }, [abrirRepasse])
   const comandoPara = (parte: 'lancamentos' | 'caixa') =>

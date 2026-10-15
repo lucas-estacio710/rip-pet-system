@@ -19,6 +19,7 @@
 // Repasse (repasse=true): paga se houve pagamento de repasse (fin_movimentos com
 // repasse_id) no mês; o valor é o que falta do(s) repasse(s) em aberto.
 
+import { useFinanceiroVersao } from '@/lib/financeiro-eventos'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
@@ -54,7 +55,11 @@ const contaRepasse = (uid: string, ref: string, previa: boolean): ContaFixa => (
 type RepMes = { id: string; status: string; total: number; pags: { id: string; data: string; valor: number; conciliado: boolean; antes: boolean; conta: string | null }[] }
 
 /** Contas fixas + o que foi pago (12 meses pra trás — o calendário volta no tempo) + o repasse. */
-export function useContasFixas(sb: SupabaseClient, uid: string | undefined, matriz = false, marco: string | null = null) {
+export function useContasFixas(sb: SupabaseClient, uid: string | undefined, matriz = false, marco: string | null = null, ids?: string[]) {
+  // caixa conjunto: as contas de acompanhamento de todas as unidades do caixa
+  const unids = ids?.length ? ids : uid ? [uid] : []
+  const unidsKey = unids.join(',')
+  const versaoFin = useFinanceiroVersao()
   const [contas, setContas] = useState<ContaFixa[]>([])
   const [pagos, setPagos] = useState<Map<string, { valor: number; data: string; porCategoria?: boolean; ids?: string[]; conciliado?: boolean; antes?: boolean; itens?: PagItem[] }>>(new Map())
   const [repasseAberto, setRepasseAberto] = useState(0)
@@ -68,7 +73,7 @@ export function useContasFixas(sb: SupabaseClient, uid: string | undefined, matr
     if (!uid) return
     const hoje = hojeLocal()
     const ini = (() => { const x = mesMais(Number(hoje.slice(0, 4)), Number(hoje.slice(5, 7)) - 1, -12); return `${x.ano}-${String(x.mes0 + 1).padStart(2, '0')}-01` })()
-    const { data: cf, error } = await sb.from('fin_contas_fixas').select('*').eq('unidade_id', uid).eq('ativo', true).order('nome')
+    const { data: cf, error } = await sb.from('fin_contas_fixas').select('*').in('unidade_id', unids).eq('ativo', true).order('nome')
     if (error) { setContas([]); setPronto(true); return }   // sem a mig 160: o bloco mostra o convite
     const lista = (cf as ContaFixa[] | null) || []
     const ids = lista.map(c => c.id)
@@ -103,7 +108,7 @@ export function useContasFixas(sb: SupabaseClient, uid: string | undefined, matr
       }
       if (porCat.size) {
         const { data: lc } = await sb.from('fin_lancamentos').select('id, categoria_id, valor, data_competencia, data_caixa, conta_pagamento_id')
-          .in('categoria_id', [...porCat.keys()]).eq('unidade_id', uid).is('conta_fixa_id', null).neq('status', 'rejeitado').gte('data_competencia', ini)
+          .in('categoria_id', [...porCat.keys()]).in('unidade_id', unids).is('conta_fixa_id', null).neq('status', 'rejeitado').gte('data_competencia', ini)
         for (const l of (lc as { id: string; categoria_id: string; valor: number; data_competencia: string; data_caixa: string | null; conta_pagamento_id: string | null }[] | null) || []) {
           const dono = donoDe(l.categoria_id, Number(l.valor))
           if (!dono) continue
@@ -170,7 +175,8 @@ export function useContasFixas(sb: SupabaseClient, uid: string | undefined, matr
     for (const [chave, r] of repBase) rep.set(chave, { ...r, pags: (pagsRep.get(r.id) || []).map(p => ({ ...p, conta: deOnde.get(p.id)?.conta || null, conciliado: ok.has(p.id) || antesDe(p.id), antes: !ok.has(p.id) && antesDe(p.id) })) })
     for (const v of mapa.values()) v.itens = (v.ids || []).map(id => { const o = deOnde.get(id)!; return { id, origem: o.origem, conta: o.conta, data: o.data, valor: o.valor, conciliado: ok.has(id) || antesDe(id) } })
     setContas(lista); setPagos(mapa); setRepasses(rep); setRepasseAberto(Math.max(0, c2(aberto))); setPronto(true)
-  }, [sb, uid, matriz])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sb, uid, matriz, unidsKey, versaoFin])
 
   useEffect(() => { const t = setTimeout(() => { void carregar() }, 0); return () => clearTimeout(t) }, [carregar])
 
@@ -289,17 +295,20 @@ export function ContasDoMesWidget({ itens, pronto, temContas, podeLancar, onPagu
 }
 
 /** As 4 cores do calendário do Hoje (Lucas, 14/10/2026):
- *  verde = paga e conciliada com o banco/fatura · amarelo = pré-lançamento (paga à mão,
- *  sem conciliar) · vermelho = venceu sem lançamento nenhum · roxo = ainda vai vencer. */
+ *  verde = paga e conciliada com o banco/fatura · AZUL = pré-lançamento (paga à mão, sem
+ *  conciliar) · vermelho = venceu sem lançamento nenhum · AMARELO = ainda vai vencer.
+ *  ⚠️ As chaves 'amarelo'/'roxo' são históricas: desde 15/10/2026 'amarelo' PINTA azul e 'roxo'
+ *  pinta amarelo (pedido do Lucas). Mudar a chave mexeria em todo o calendário à toa. */
 export type CorConta = 'verde' | 'amarelo' | 'vermelho' | 'roxo'
 export const corDaConta = (x: ContaNoMes, hoje: string): CorConta =>
   x.pago ? (x.pago.conciliado ? 'verde' : 'amarelo') : x.venc.data < hoje ? 'vermelho' : 'roxo'
-const BOLA: Record<CorConta, string> = { verde: 'bg-emerald-500', amarelo: 'bg-amber-400', vermelho: 'bg-red-500', roxo: 'bg-violet-500' }
+const BOLA: Record<CorConta, string> = { verde: 'bg-emerald-500', amarelo: 'bg-sky-500', vermelho: 'bg-red-500', roxo: 'bg-amber-400' }
 const ROTULO: Record<CorConta, string> = { verde: 'conciliada com o banco', amarelo: 'pré-lançamento — falta conciliar', vermelho: 'atrasada — sem lançamento', roxo: 'a vencer' }
-const TXT: Record<CorConta, string> = { verde: 'text-emerald-500', amarelo: 'text-amber-500', vermelho: 'text-red-400', roxo: 'text-violet-400' }
+const TXT: Record<CorConta, string> = { verde: 'text-emerald-500', amarelo: 'text-sky-500', vermelho: 'text-red-400', roxo: 'text-amber-500' }
 
 /** O calendário do mês no bloco Hoje: o dia de hoje em azul, uma bolinha por conta. */
-export function CalendarioHoje({ itens, ano, mes0, podeLancar, onPaguei, onGerenciar, sb, uid, onMudou }: {
+export function CalendarioHoje({ itens, ano, mes0, podeLancar, onPaguei, onGerenciar, sb, uid, onMudou, ids }: {
+  ids?: string[]
   itens: ContaNoMes[]; ano: number; mes0: number; podeLancar: boolean; onPaguei: (x: ContaNoMes) => void
   onGerenciar?: () => void
   /** Pra ASSOCIAR depois (post-mortem): ligar à conta um lançamento que já existe. */
@@ -316,7 +325,7 @@ export function CalendarioHoje({ itens, ano, mes0, podeLancar, onPaguei, onGeren
     const ini = `${x.venc.data.slice(0, 7)}-01`
     const fimD = new Date(Date.UTC(Number(ini.slice(0, 4)), Number(ini.slice(5, 7)), 0)).toISOString().slice(0, 10)
     const { data } = await sb.from('fin_lancamentos').select('id, valor, data_caixa, data_competencia, fornecedor_nome, observacoes, categoria_id')
-      .eq('unidade_id', uid).is('conta_fixa_id', null).neq('status', 'rejeitado').gte('data_competencia', ini).lte('data_competencia', fimD).limit(300)
+      .in('unidade_id', ids?.length ? ids : [uid]).is('conta_fixa_id', null).neq('status', 'rejeitado').gte('data_competencia', ini).lte('data_competencia', fimD).limit(300)
     const ref = Number(x.conta.valor) || 0
     const lista = ((data as { id: string; valor: number; data_caixa: string | null; data_competencia: string; fornecedor_nome: string | null; observacoes: string | null; categoria_id: string | null }[] | null) || [])
       .filter(l => Number(l.valor) > 0)

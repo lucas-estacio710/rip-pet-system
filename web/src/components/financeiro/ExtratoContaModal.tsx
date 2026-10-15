@@ -17,12 +17,15 @@
 // aplicação lançada no dia errado não tinha onde ser corrigida). Despesa e
 // recebimento continuam se corrigindo nos lugares deles.
 
+import { useFinanceiroVersao } from '@/lib/financeiro-eventos'
 import { useCoresContas, rotuloConta, estiloConta } from '@/lib/cor-conta'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import Modal from '@/components/ui/Modal'
+import { useCaixaConjunto } from '@/hooks/useCaixaConjunto'
+import { EtiquetaUnidade } from './DonoLancamento'
 import { useToast } from '@/components/ui/Toast'
 import { fmtBRL, fmtData, limitesDoMes } from '@/lib/financeiro'
 
@@ -31,8 +34,8 @@ import { fmtBRL, fmtData, limitesDoMes } from '@/lib/financeiro'
 type Mov = { id: string; tipo: string; data: string; valor: string; descricao: string; repasse: { id: string; enviado: boolean; quitou: boolean; pago: boolean } | null }
 
 type Conta = { conta_id: string; nome: string; tipo: string; caixa_desde: string | null }
-type Linha = { data: string; tipo: string; descricao: string | null; valor: number; origem: string; origem_id: string }
-type Item = { data: string; descricao: string; valor: number; partes: number; saldoDia: number | null; ids: string[]; conciliado: boolean; origem: string }
+type Linha = { data: string; tipo: string; descricao: string | null; valor: number; origem: string; origem_id: string; unidade_id?: string | null }
+type Item = { data: string; descricao: string; valor: number; partes: number; saldoDia: number | null; ids: string[]; conciliado: boolean; origem: string; unidade_id?: string | null }
 
 const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
 const rotuloMes = (m: string) => `${MESES[Number(m.slice(5, 7)) - 1]} de ${m.slice(0, 4)}`
@@ -65,6 +68,8 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
   const [mes, setMes] = useState(mesInicial)
   const [anterior, setAnterior] = useState(0)
   const [itens, setItens] = useState<Item[]>([])
+  const conj = useCaixaConjunto()   // caixa conjunto: etiqueta M/P na linha
+  const versaoFin = useFinanceiroVersao()
   // no celular a descrição nasce numa linha só; tocar abre o resto (14/10/2026)
   const [abertos, setAbertos] = useState<Set<number>>(new Set())
   const [carregando, setCarregando] = useState(false)
@@ -82,7 +87,7 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
       const todas: Linha[] = []
       for (let off = 0; ; off += 1000) {
         const { data } = await supabase.from('vw_caixa')
-          .select('data, tipo, descricao, valor, origem, origem_id')
+          .select('data, tipo, descricao, valor, origem, origem_id, unidade_id')
           .eq('conta_id', conta.conta_id).lte('data', fim)
           .order('data').order('origem_id').range(off, off + 999)
         const pg = (data as Linha[] | null) || []
@@ -106,7 +111,7 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
         const div = l.origem === 'lancamento' ? divisaoDe.get(l.origem_id) : undefined
         const existente = div ? porDivisao.get(div) : undefined
         if (existente) { existente.valor = centavos(existente.valor + Number(l.valor)); existente.partes++; existente.ids.push(l.origem_id); continue }
-        const it: Item = { data: l.data, descricao: l.descricao || l.tipo, valor: Number(l.valor), partes: 1, saldoDia: null, ids: [l.origem_id], conciliado: false, origem: l.origem }
+        const it: Item = { data: l.data, descricao: l.descricao || l.tipo, valor: Number(l.valor), partes: 1, saldoDia: null, ids: [l.origem_id], conciliado: false, origem: l.origem, unidade_id: l.unidade_id }
         agrup.push(it)
         if (div) porDivisao.set(div, it)
       }
@@ -138,7 +143,7 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
       setAnterior(antes); setItens(agrup); setAbertos(new Set()); setCarregando(false)
     })()
     return () => { cancelado = true }
-  }, [conta, mes, supabase, versao])
+  }, [conta, mes, supabase, versao, versaoFin])
 
   async function abrirMov(id: string) {
     const [{ data }, { data: rep }] = await Promise.all([
@@ -290,6 +295,7 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
                         onClick={e => { if (window.innerWidth >= 640) return; e.stopPropagation(); setAbertos(a => { const b = new Set(a); if (b.has(i)) b.delete(i); else b.add(i); return b }) }}>
                       {/* bolinha verde = conciliado (14/10/2026: no lugar do ✓, igual no Livro-Caixa) */}
                       {it.conciliado && <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5 align-middle shrink-0" title="Conciliado com o banco/fatura" />}
+                      {conj.conjunto && <span className="mr-1.5 align-middle"><EtiquetaUnidade letra={conj.letra(it.unidade_id)} nome={conj.nome(it.unidade_id)} /></span>}
                       {it.descricao}
                       {it.partes > 1 && (
                         <span className="ml-1 px-1 rounded-full text-[10px]" style={{ background: 'rgba(99,102,241,0.14)', color: '#818cf8' }}
