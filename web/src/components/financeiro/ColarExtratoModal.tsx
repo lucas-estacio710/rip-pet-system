@@ -123,6 +123,9 @@ type Item = LinhaExtrato & {
   /** Devolução na CONTA (10/10/2026): "Pix enviado devolvido" — a saída que ela
    *  desfaz ("devolve a saída de 11/09"). Vira estorno na categoria da saída. */
   estornoDe: string
+  /** REIMPORTAR PRA CLASSIFICAR (15/10/2026): a linha já está no sistema, mas lançada SEM
+   *  categoria — o id desse lançamento. Escolhida a categoria, o registro só a grava nele. */
+  reclassificar?: string
 }
 
 /** Crédito na fatura: "+ R$ 1,20" (Inter) ou texto de estorno/reembolso. No
@@ -382,6 +385,12 @@ export default function ColarExtratoModal({
       agrup.set(chave, reg)
     })
     const registros = [...agrup.values()]
+    const idsLanc = registros.map(r => r.ajustavel).filter((x): x is string => !!x)
+    const semCatJa = new Set<string>()
+    for (let k = 0; k < idsLanc.length; k += 150) {
+      const { data: sc } = await supabase.from('fin_lancamentos').select('id').in('id', idsLanc.slice(k, k + 150)).is('categoria_id', null)
+      for (const x of (sc as { id: string }[] | null) || []) semCatJa.add(x.id)
+    }
 
     // Os quatro níveis (exato · contrato · provável · ambíguo) — lib/conciliacao.
     const pares = conciliar(linhas, registros, {
@@ -490,6 +499,12 @@ export default function ColarExtratoModal({
       }
       // 1) já está no sistema?
       const par = exatoDe(l.n)
+      const semCat = par && par.tipo === 'exato' && par.candidatos.length === 1 && par.candidatos[0].ajustavel && semCatJa.has(par.candidatos[0].ajustavel)
+        ? par.candidatos[0].ajustavel : null
+      if (par && semCat) {
+        return { ...base, destino: 'despesa' as Destino, exatos: par.candidatos, reclassificar: semCat,
+                 estornoDe: 'já lançada, sem categoria' }
+      }
       if (par) {
         const rot = par.tipo === 'contrato' ? `${par.candidatos[0].rotulo} (${par.candidatos.length} pagamentos)` : par.candidatos[0].rotulo
         return { ...base, destino: 'fora' as Destino, jaNoSistema: rot, exatos: par.candidatos, marcado: false }
@@ -633,20 +648,32 @@ export default function ColarExtratoModal({
   const outrasOk = (i: Item) => i.outras.every(o => o.unidadeId && digNum(o.valor) > 0)
     && new Set(i.outras.map(o => o.unidadeId)).size === i.outras.length
     && somaOutras(i) <= Math.abs(i.valor) + 0.005
-  const despProntas = despesas.filter(i => i.marcado && i.catId && partesOk(i) && outrasOk(i) && (!conj.conjunto || !!i.dono))
+  // SEM CATEGORIA (15/10/2026, Lucas): a linha MARCADA sem categoria entra assim mesmo, como
+  // "Sem categoria" — classifica-se depois (Livro-Caixa › Sem categoria) e a fatura só se quita
+  // com tudo classificado. Antes ela era PULADA em silêncio: duas compras da floricultura (R$ 70)
+  // sumiram da fatura do Inter de 10/10. Dividir ou repartir com outra unidade exige a categoria.
+  const catOk = (i: Item) => !!i.catId || (!i.partes.length && !i.outras.length)
+  const despProntas = despesas.filter(i => !i.reclassificar && i.marcado && catOk(i) && partesOk(i) && outrasOk(i) && (!conj.conjunto || !!i.dono))
+  /** já lançadas sem categoria, agora com categoria escolhida: só grava a categoria nelas */
+  const reclassProntas = despesas.filter(i => i.reclassificar && i.marcado && i.catId)
+  const semCategoria = despProntas.filter(i => !i.catId)
+  /** marcadas que NÃO podem entrar (parte sem categoria, unidade sem valor, sem dono) — barram o registro */
+  const travadas = despesas.filter(i => !i.reclassificar && i.marcado && !despProntas.includes(i))
   const entreProntas = fora.filter(i => !i.jaNoSistema && i.entreConta)
   /** Pra onde o dinheiro pode ter ido: as outras contas da casa (sem maquininha e cartão). */
   const contasEntre = contas.filter(c => c.id !== contaId && c.produto !== 'maquininha' && c.tipo !== 'cartao')
   const pendentes = receitas.filter(i => i.marcado && !(i.opId || maquininhaLote) || (i.marcado && !i.mov)).length
-    + despesas.filter(i => i.marcado && (!i.catId || !partesOk(i) || !outrasOk(i) || (conj.conjunto && !i.dono))).length
+    + travadas.length
     + parecidos.filter(i => i.parecido!.escolhido === -2).length
 
   async function registrar() {
     if (!currentUnit?.id || !contaId) return
-    if (!recProntas.length && !despProntas.length && !entreProntas.length && !confirmados.length && !exatosParaConciliar.length) {
+    if (!recProntas.length && !despProntas.length && !reclassProntas.length && !entreProntas.length && !confirmados.length && !exatosParaConciliar.length) {
       return toast('Nada pronto pra registrar', 'error')
     }
     if (ehCartao && despProntas.length && !vencimento) return toast('Escolha a fatura (o vencimento) dessas compras', 'error')
+    // nunca pular linha marcada em silêncio: ou entra, ou o registro para e diz qual
+    if (travadas.length) return toast(`${travadas.length} ${travadas.length === 1 ? 'linha marcada não está completa' : 'linhas marcadas não estão completas'} (divisão, outra unidade ou "de quem é"). Complete ou desmarque.`, 'error')
     setSalvando(true)
     let entrouRec = 0
     try {
@@ -711,6 +738,15 @@ export default function ColarExtratoModal({
         entrouRec += rows.length
         ;((novos as { id: string }[] | null) || []).forEach((m, k) => conc(entreProntas[k], [{ origem: 'movimento', origem_id: m.id }], 'novo'))
       }
+      for (const i of reclassProntas) {
+        const cat = categorias.find(c => c.id === i.catId)
+        const cc = cat?.fin_contas
+        const { error } = await supabase.from('fin_lancamentos').update({
+          categoria_id: i.catId, conta_id: cat?.fin_conta_id || null,
+          conta_codigo: cc?.codigo || null, conta_nome: cc?.nome || null, natureza: cc?.natureza || 'opex',
+        }).eq('id', i.reclassificar!).is('categoria_id', null)
+        if (error) throw new Error(`Classificar "${i.descricao}": ${error.message}`)
+      }
       if (despProntas.length) {
         // Uma linha do banco = 1 lançamento, ou N com o MESMO divisao_id quando
         // foi dividida (a principal com o que sobra) — a regra do avulso. Um
@@ -725,14 +761,14 @@ export default function ColarExtratoModal({
             { catId: i.catId, valor: i.estorno ? -Math.abs(i.valor) : i.partes.length ? restanteDe(i) : Math.abs(i.valor) },
             ...i.partes.map(pt => ({ catId: pt.catId, valor: digNum(pt.valor) })),
           ]
-          const fixa = !i.estorno ? contaFixaDe(i.catId, i.partes.length ? restanteDe(i) : Math.abs(i.valor)) : null
+          const fixa = !i.estorno && i.catId ? contaFixaDe(i.catId, i.partes.length ? restanteDe(i) : Math.abs(i.valor)) : null
           return pedacos.map((pd, k) => {
             const cat = categorias.find(c => c.id === pd.catId)
             const cc = cat?.fin_contas
             donos.push(i)
             return {
               ...(fixa && k === 0 ? { conta_fixa_id: fixa.id } : {}),
-              unidade_id: (conj.conjunto && i.dono) || currentUnit.id, categoria_id: pd.catId,
+              unidade_id: (conj.conjunto && i.dono) || currentUnit.id, categoria_id: pd.catId || null,
               conta_id: cat?.fin_conta_id || null,
               conta_codigo: cc?.codigo || null, conta_nome: cc?.nome || null,   // SNAPSHOT da DRE
               natureza: cc?.natureza || 'opex',
@@ -800,7 +836,7 @@ export default function ColarExtratoModal({
         }
         if (error) toast(`Registrado, mas a conciliação não foi gravada: ${error.message}`, 'error')
       }
-      toast(`${recProntas.length} receitas a prazo · ${entreProntas.length} entre contas · ${despProntas.length} despesas · ${concs.length} conciliados`, 'success')
+      toast(`${recProntas.length} receitas a prazo · ${entreProntas.length} entre contas · ${despProntas.length} despesas${reclassProntas.length ? ` · ${reclassProntas.length} classificadas` : ''} · ${concs.length} conciliados`, 'success')
       onRegistrou()
       onClose()
     } catch (e) {
@@ -887,7 +923,7 @@ export default function ColarExtratoModal({
             ) : (
               <input value={i.catTexto} autoComplete="off"
                      onChange={e => muda(i.n, { catTexto: e.target.value, catId: '', doHistorico: false, porSinonimo: false })}
-                     aria-label="Categoria da despesa" placeholder="do que foi? (gasolina, aluguel…)"
+                     aria-label="Categoria da despesa" placeholder={i.reclassificar ? 'já lançada sem categoria: do que foi?' : 'do que foi? (gasolina, aluguel…)'}
                      className="input text-sm py-1 w-full" style={{ borderColor: '#f59e0b' }} />
             ))}
             {i.destino === 'receita' && (
@@ -1311,6 +1347,7 @@ export default function ColarExtratoModal({
               marcar {conferir} {conferir === 1 ? 'linha' : 'linhas'} como conferida{conferir === 1 ? '' : 's'}.
             </>}
             {pendentes > 0 && <span className="text-amber-500"> Falta decidir {pendentes}.</span>}
+            {semCategoria.length > 0 && <span className="block text-amber-500 mt-0.5">⚠ {semCategoria.length} {semCategoria.length === 1 ? 'lançamento vai' : 'lançamentos vão'} sem categoria. Tudo bem, pode lançar: classifique pela tela ({ehCartao ? 'Livro-Caixa › Faturas do cartão' : 'Livro-Caixa › Sem categoria'}) ou reimporte o arquivo para classificar.{ehCartao ? ' A quitação não é feita sem todos os lançamentos da fatura classificados.' : ''}</span>}
           </span>
           <button onClick={() => { setItens([]); setPlacar(null); setOfx(null) }} className="btn-secondary text-sm">{ehCartao ? 'Enviar outro PDF' : 'Enviar outro arquivo'}</button>
           <button onClick={() => void registrar()} disabled={salvando || conferir === 0} className="btn-primary text-sm">

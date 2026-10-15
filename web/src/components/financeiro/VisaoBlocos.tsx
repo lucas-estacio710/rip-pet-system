@@ -514,10 +514,13 @@ export function LancamentosDoMes({ sb, uid, mes, onEditar }: { sb: SupabaseClien
   )
 }
 
-type Compra = { id: string; valor: number; data_competencia: string; data_caixa: string; fornecedor_nome: string | null; observacoes: string | null; conta_pagamento_id: string }
+type Compra = { id: string; valor: number; data_competencia: string; data_caixa: string; fornecedor_nome: string | null; observacoes: string | null; conta_pagamento_id: string; categoria_id: string | null }
 
-export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades }: {
+export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades, onEditar }: {
   unidades?: string[]
+  /** CLASSIFICAR (15/10/2026): a compra abre o lançamento — é onde se dá categoria à que
+   *  entrou "Sem categoria" pelo Importar, antes de quitar (a quitação exige tudo classificado). */
+  onEditar?: (lancamentoId: string) => void
   sb: SupabaseClient; uid: string | undefined; mes: string
   onImportarConta?: (contaId: string) => void
 }) {
@@ -527,6 +530,10 @@ export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades }: {
   const [pagas, setPagas] = useState<Set<string>>(new Set())
   const versaoFin = useFinanceiroVersao()
   const [conc, setConc] = useState<Set<string>>(new Set())
+  // O TOTAL QUE A FATURA DIZ (15/10/2026): o Importar grava o cabeçalho do PDF em fin_saldos_banco
+  // (data = vencimento, saldo = −total). Com ele o card sabe se falta compra: faltavam as duas da
+  // floricultura (R$ 70) e o card dizia "✓ todas conferidas".
+  const [totalBanco, setTotalBanco] = useState<Map<string, number>>(new Map())
   const [aberto, setAberto] = useState<string | null>(null)
   useEffect(() => {
     if (!uid) return
@@ -536,9 +543,13 @@ export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades }: {
       const cards = ((cs as { id: string; nome: string; tipo: string | null; produto: string | null }[] | null) || []).filter(c => c.tipo === 'cartao' || c.produto === 'cartao_credito')
       const ids = cards.map(c => c.id)
       let lista: Compra[] = [], pg = new Set<string>(), ok = new Set<string>()
+      const tb = new Map<string, number>()
       if (ids.length) {
+        const { data: sbk } = await sb.from('fin_saldos_banco').select('conta_id, data, saldo').eq('origem', 'fatura').in('conta_id', ids)
+          .gte('data', `${mes}-01`).lte('data', fimDoMes(mes))
+        for (const r of (sbk as { conta_id: string; data: string; saldo: number }[] | null) || []) tb.set(`${r.conta_id}|${r.data.slice(0, 10)}`, c2(-Number(r.saldo)))
         const [{ data: ls }, { data: mv }] = await Promise.all([
-          sb.from('fin_lancamentos').select('id, valor, data_competencia, data_caixa, fornecedor_nome, observacoes, conta_pagamento_id')
+          sb.from('fin_lancamentos').select('id, valor, data_competencia, data_caixa, fornecedor_nome, observacoes, conta_pagamento_id, categoria_id')
             .in('conta_pagamento_id', ids).neq('status', 'rejeitado').gte('data_caixa', `${mes}-01`).lte('data_caixa', fimDoMes(mes)).limit(1000),
           sb.from('fin_movimentos').select('conta_destino_id, fatura_vencimento').eq('tipo', 'fatura_cartao').in('conta_destino_id', ids).not('fatura_vencimento', 'is', null),
         ])
@@ -549,7 +560,7 @@ export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades }: {
           for (const c of (cc as { origem_id: string }[] | null) || []) ok.add(c.origem_id)
         }
       }
-      if (vivo) { setCartoes(cards.map(c => ({ id: c.id, nome: c.nome }))); setCompras(lista); setPagas(pg); setConc(ok) }
+      if (vivo) { setCartoes(cards.map(c => ({ id: c.id, nome: c.nome }))); setCompras(lista); setPagas(pg); setConc(ok); setTotalBanco(tb) }
     })()
     return () => { vivo = false }
   }, [sb, uid, mes, unidades, versaoFin])
@@ -586,6 +597,10 @@ export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades }: {
         : faturas.map(([k, f]) => {
           const paga = pagas.has(k)
           const nConc = f.itens.filter(i => conc.has(i.id)).length
+          const nSemCat = f.itens.filter(i => !i.categoria_id).length
+          const doBanco = totalBanco.get(k)
+          const falta = doBanco !== undefined ? c2(doBanco - f.total) : 0   // > 0: compra que a fatura cobra e não foi lançada
+          const divergente = Math.abs(falta) >= 0.005
           return (
             <div key={k} className="mt-3 rounded-[10px] border border-[var(--surface-200)] overflow-hidden" style={estiloConta(cores.get(f.cartao))}>
               <button onClick={() => setAberto(aberto === k ? null : k)} className="w-full grid grid-cols-[16px_1fr_auto] gap-2 items-center px-3 py-2.5 text-left">
@@ -593,8 +608,10 @@ export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades }: {
                 <span className="min-w-0 flex flex-col">
                   <span className="text-sm text-[var(--surface-800)] truncate">{nomeCartao(f.cartao)} · vence {f.venc.slice(8, 10)}/{f.venc.slice(5, 7)}</span>
                   <span className="text-[11px] text-[var(--surface-500)]">
-                    {f.itens.length} compras · {nConc === f.itens.length ? <span className="text-emerald-500">✓ todas conferidas com a fatura</span> : <span className="text-amber-500">{f.itens.length - nConc} em pré-lançamento</span>}
+                    {f.itens.length} compras · {nConc === f.itens.length && !divergente ? <span className="text-emerald-500">✓ todas conferidas com a fatura</span> : nConc < f.itens.length ? <span className="text-amber-500">{f.itens.length - nConc} em pré-lançamento</span> : <span>conferidas</span>}
+                    {divergente && <span className="text-red-400"> · a fatura é de {fmtBRL(doBanco!)}: {falta > 0 ? `faltam ${fmtBRL(falta)} em compras` : `${fmtBRL(-falta)} lançados a mais`}</span>}
                     {paga ? <span className="text-emerald-500"> · paga</span> : null}
+                    {nSemCat > 0 && <span className="text-amber-500"> · {nSemCat} sem categoria: classifique antes de quitar</span>}
                   </span>
                 </span>
                 <span className="text-mono text-sm tabular-nums text-[var(--surface-900)]">{num(f.total)}</span>
@@ -602,12 +619,16 @@ export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades }: {
               {aberto === k && (
                 <div className="px-3 pb-2">
                   {f.itens.sort((a, b) => a.data_competencia.localeCompare(b.data_competencia)).map(l => (
-                    <div key={l.id} className="grid grid-cols-[14px_40px_1fr_auto] gap-2 py-1 text-[12px] border-t border-[var(--surface-100)]">
+                    <div key={l.id} onClick={onEditar ? () => onEditar(l.id) : undefined}
+                         className={`grid grid-cols-[14px_40px_1fr_auto] gap-2 py-1 text-[12px] border-t border-[var(--surface-100)] ${onEditar ? 'cursor-pointer hover:bg-[var(--surface-50)]' : ''}`}>
                       <span className="flex items-center" title={conc.has(l.id) ? 'conferida com a fatura' : 'pré-lançamento — falta conferir com a fatura'}>
                         {conc.has(l.id) ? <b className="text-[12px] font-bold leading-none text-emerald-500">©</b> : <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />}
                       </span>
                       <span className="text-mono text-[var(--surface-400)]">{l.data_competencia.slice(8, 10)}/{l.data_competencia.slice(5, 7)}</span>
-                      <span className="truncate text-[var(--surface-600)]" title={l.observacoes || ''}>{l.fornecedor_nome || l.observacoes || '—'}</span>
+                      <span className="truncate text-[var(--surface-600)]" title={l.observacoes || ''}>
+                        {l.fornecedor_nome || l.observacoes || '—'}
+                        {!l.categoria_id && <span className="ml-1.5 text-[10.5px] px-1.5 rounded-full bg-amber-500/15 text-amber-500">sem categoria · classificar ›</span>}
+                      </span>
                       <span className={`text-mono tabular-nums ${Number(l.valor) < 0 ? 'text-emerald-500' : 'text-[var(--surface-700)]'}`}>{Number(l.valor) < 0 ? '−' : ''}{num(Number(l.valor))}</span>
                     </div>
                   ))}

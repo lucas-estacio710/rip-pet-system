@@ -299,6 +299,11 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
     if (!origemId || !cartaoId || !faturaVenc) return toast('Escolha a conta, o cartão e a fatura', 'error')
     if (!v) return toast('Informe o valor pago', 'error')
     if (!data) return toast('Informe quando o pagamento saiu do banco', 'error')
+    // FATURA SÓ SE QUITA CLASSIFICADA (15/10/2026, Lucas): compra sem categoria na fatura trava o
+    // pagamento — o Importar deixa entrar "Sem categoria", mas a conta fecha com tudo nomeado.
+    const { data: semCat } = await supabase.from('fin_lancamentos').select('id')
+      .eq('conta_pagamento_id', cartaoId).eq('data_caixa', faturaVenc).is('categoria_id', null).neq('status', 'rejeitado')
+    if (semCat && semCat.length) return toast(`Esta fatura tem ${semCat.length} ${semCat.length === 1 ? 'compra sem categoria' : 'compras sem categoria'}. Classifique antes de quitar (Livro-Caixa › Faturas do cartão: clique na compra).`, 'error')
     setSalvando(true)
     try {
       const cartao = cartoes.find(c => c.id === cartaoId)
