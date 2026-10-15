@@ -463,8 +463,8 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
             {saldos && saldos.contas.length > 0 && (
               <div className="grid grid-cols-2 gap-2 mt-3">
                 {saldos.contas.map(k => (
-                  <button key={k.conta.id} onClick={() => { if (k.virgem && podeLancar) { setIniciando(k.conta); setIniData(hojeS); setIniSaldo('') } else setExtratoDe(k.conta) }}
-                          title={k.virgem ? `Iniciar ${k.conta.nome}: o primeiro lançamento é o ajuste inicial` : `Ver o extrato de ${k.conta.nome}`} style={estiloConta(cores.get(k.conta.id), false)}
+                  <button key={k.conta.id} onClick={() => { if (!k.conta.caixa_desde && podeLancar) { setIniciando(k.conta); setIniData(hojeS); setIniSaldo('') } else setExtratoDe(k.conta) }}
+                          title={!k.conta.caixa_desde ? `Iniciar ${k.conta.nome}: o primeiro lançamento é o ajuste inicial` : `Ver o extrato de ${k.conta.nome}`} style={estiloConta(cores.get(k.conta.id), false)}
                           className="text-left rounded-[10px] border border-[var(--surface-200)] px-3 py-2 hover:border-[var(--brand-500)] hover:bg-[var(--surface-100)] transition-colors">
                     {/* nome INTEIRO, quebrando linha (14/10/2026: no celular cortava bem onde se
                         identifica a conta — "Conta Inter · P…") */}
@@ -472,8 +472,10 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
                       <span className="break-words">{k.conta.nome}</span>
                       {k.guardada && <span className="shrink-0 text-[10px] px-1.5 rounded-full bg-[var(--surface-100)]">sem liquidez</span>}
                     </span>
-                    {k.virgem && podeLancar
-                      ? <span className="block text-[13px] font-semibold text-[var(--surface-400)]">Iniciar conta ›</span>
+                    {/* INICIAR (15/10/2026): toda conta SEM data de início — não só a vazia. As contas
+                        Prina já tinham repasse e Pix lançados e o botão sumia, sem jeito de abrir o caixa. */}
+                    {!k.conta.caixa_desde && podeLancar
+                      ? <span className="block text-[13px] font-semibold text-[var(--surface-400)]">Iniciar conta ›{!k.virgem && <span className="block text-[11px] font-normal text-mono">{fmtBRL(k.saldo)} lançado</span>}</span>
                       : <span className={`block text-mono text-[15px] tabular-nums ${k.saldo < 0 ? 'text-red-400' : 'text-[var(--surface-900)]'}`}>{fmtBRL(k.saldo)}</span>}
                   </button>
                 ))}
@@ -636,13 +638,16 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
           </div>
         }>
         <div className="space-y-3 text-sm">
-          <p className="text-[var(--surface-600)]">O primeiro lançamento da conta é o <b>ajuste inicial</b>: o saldo que ela tinha no dia em que você começa a acompanhar. Daí pra frente, o saldo anda com cada lançamento.</p>
+          <p className="text-[var(--surface-600)]">O primeiro lançamento da conta é o <b>ajuste inicial</b>: o saldo que ela tinha no <b>começo</b> do dia em que você começa a acompanhar (o "saldo anterior" do extrato). Daí pra frente, o saldo anda com cada lançamento.</p>
+          {iniciando && saldos?.contas.find(x => x.conta.id === iniciando.id && !x.virgem) && (
+            <p className="text-[12px] text-amber-600">Esta conta já tem lançamentos. Os de <b>antes</b> da data escolhida saem do caixa dela; os de depois continuam e batem com o extrato ao importar.</p>
+          )}
           <label className="flex flex-col gap-1">
             <span className="text-xs text-[var(--surface-500)]">A partir de quando?</span>
             <input type="date" value={iniData} onChange={e => setIniData(e.target.value)} className="input w-full" />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-xs text-[var(--surface-500)]">Saldo nesse dia (o que o banco mostra)</span>
+            <span className="text-xs text-[var(--surface-500)]">Saldo no começo desse dia (o "saldo anterior" do banco)</span>
             <input inputMode="decimal" value={iniSaldo} onChange={e => setIniSaldo(e.target.value)} placeholder="0,00" className="input w-full text-mono" />
           </label>
         </div>
