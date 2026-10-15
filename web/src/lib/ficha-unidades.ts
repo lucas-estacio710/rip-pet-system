@@ -23,8 +23,9 @@ export const FICHA_UNIDADES: Record<string, FichaUnidadeConfig> = {
   sjc: {
     unidade_id: '883bcc04-7885-4c46-93ee-696f452cc07c',
     codigo: 'SJ', nome: 'São José dos Campos', cidade: 'São José dos Campos', estado: 'SP',
-    // SJC/Pinda (mesmo dono) pediram (13/08): PV até 10x. EM segue em 8 pelo maxParcelas base.
-    label: 'Unidade São José dos Campos', unidadeCompleta: 'São José dos Campos - SP', maxParcelas: 8, maxParcelasPV: 10,
+    // SJC/Pinda (mesmo dono) pediram (13/08): PV até 10x. Em 15/10/2026 SJC pediu EM também em 10x
+    // (só SJC — Pinda segue em 8 pelo maxParcelas base).
+    label: 'Unidade São José dos Campos', unidadeCompleta: 'São José dos Campos - SP', maxParcelas: 8, maxParcelasEM: 10, maxParcelasPV: 10,
   },
   pinda: {
     unidade_id: '69c5ed84-0aaa-424b-90c5-34221774e47b',
