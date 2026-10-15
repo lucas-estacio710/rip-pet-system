@@ -18,6 +18,7 @@ import { filtroContasDe } from '@/hooks/useCaixaConjunto'
 import { EtiquetaUnidade } from './DonoLancamento'
 import { classificarCaixa, SEM_CATEGORIA, type BalancoCaixa, type CompraFatura, type ItemCaixa, type LinhaCaixa, type MovInfo } from '@/lib/balanco-caixa'
 import { useCoresContas, rotuloConta, estiloConta } from '@/lib/cor-conta'
+import { ContaComBolinha } from './ContaComBolinha'
 
 const c2 = (n: number) => Math.round(n * 100) / 100
 const num = (v: number) => Math.abs(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -205,6 +206,7 @@ export function BalancoMes({ bruto, mes, marco = null, onEditar, onLancar, onExt
   const [abertos, setAbertos] = useState<Set<string>>(new Set([`s:${SEM_CATEGORIA}`, `e:${SEM_CATEGORIA}`]))
   // descrição numa linha; clique/toque abre o texto inteiro (14/10/2026)
   const [textoAberto, setTextoAberto] = useState<Set<string>>(new Set())
+  const cores = useCoresContas()
   const [excluindo, setExcluindo] = useState<string | null>(null)   // 1º clique arma, 2º exclui
 
   // o cálculo, pelo conjunto de contas escolhido no toggle
@@ -310,13 +312,14 @@ export function BalancoMes({ bruto, mes, marco = null, onEditar, onLancar, onExt
                           : null
                         return (
                           <div key={k} className="flex items-start gap-2 px-2.5 py-1 text-[11.5px]">
-                            <span className={`shrink-0 mt-[5px] h-1.5 w-1.5 rounded-full ${it.conciliado ? 'bg-emerald-500' : 'bg-sky-500'}`} title={it.conciliado ? 'Conferido com o extrato' : 'Pré-lançamento: falta bater com o extrato'} />
+                            {it.conciliado ? <b className="shrink-0 mt-[3px] text-[12px] font-bold leading-none text-emerald-500" title="Conferido com o extrato">©</b> : <span className="shrink-0 mt-[5px] h-1.5 w-1.5 rounded-full bg-sky-500" title="Pré-lançamento: falta bater com o extrato" />}
                             <span className="text-[var(--surface-500)] tabular-nums shrink-0">{it.data.slice(8, 10)}/{it.data.slice(5, 7)}</span>
+                            <ContaComBolinha cor={cores.get(it.conta_id)} nome={dados?.nomeConta.get(it.conta_id) || 'conta'} />
                             {letra && <EtiquetaUnidade letra={letra(it.unidade_id)} />}
                             <span onClick={() => setTextoAberto(a => { const n = new Set(a), id = `${b.chave}|${k}`; if (n.has(id)) n.delete(id); else n.add(id); return n })}
                                   className={`flex-1 min-w-0 cursor-pointer text-[var(--surface-700)] ${textoAberto.has(`${b.chave}|${k}`) ? 'whitespace-normal break-words' : 'truncate'}`}
                                   title="Clique para ver a descrição inteira">
-                              {it.descricao}<span className="text-[var(--surface-400)]"> · {dados?.nomeConta.get(it.conta_id) || 'conta'}</span>
+                              {it.descricao}
                             </span>
                             <span className="text-mono tabular-nums text-[var(--surface-700)] shrink-0">{num(it.valor)}</span>
                             {acao && <button onClick={acao.f} className="text-[11px] text-[var(--brand-500)] hover:underline shrink-0 whitespace-nowrap">{acao.t}</button>}
@@ -369,7 +372,7 @@ export function LancamentosDoMes({ sb, uid, mes, onEditar }: { sb: SupabaseClien
   const [lancs, setLancs] = useState<Lanc[] | null>(null)
   const [cats, setCats] = useState<Map<string, Cat>>(new Map())
   const [abertos, setAbertos] = useState<Set<string>>(new Set())
-  // bolinha verde = lançamento conciliado com o extrato/fatura (14/10/2026)
+  // © verde = lançamento conciliado com o extrato/fatura (15/10/2026; era bolinha)
   const [conc, setConc] = useState<Set<string>>(new Set())
   useEffect(() => {
     if (!uid) return
@@ -455,7 +458,7 @@ export function LancamentosDoMes({ sb, uid, mes, onEditar }: { sb: SupabaseClien
                 <button onClick={() => onEditar?.(l.id)} disabled={!onEditar}
                         className="w-full grid grid-cols-[1fr_auto] gap-2 py-1.5 px-1 text-[12.5px] text-left hover:bg-[var(--surface-50)] disabled:hover:bg-transparent">
                   <span className="min-w-0 truncate text-[var(--surface-700)]" title={[l.fornecedor_nome, l.descricao, l.observacoes].filter(Boolean).join(' · ')}>
-                    {conc.has(l.id) ? <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5 align-middle shrink-0" title="Conciliado com o banco/fatura" /> : <span className="inline-block w-1.5 mr-1.5" />}
+                    {conc.has(l.id) ? <b className="mr-1 font-bold leading-none text-emerald-500" title="Conciliado com o banco/fatura">©</b> : <span className="inline-block w-1.5 mr-1.5" />}
                     {nomeCat(l)}<span className="text-[var(--surface-400)]"> · {l.fornecedor_nome || l.descricao || l.observacoes || '—'}</span>
                   </span>
                   <span className={`text-mono tabular-nums ${Number(l.valor) < 0 ? 'text-emerald-500' : 'text-[var(--surface-800)]'}`}>{Number(l.valor) < 0 ? '−' : ''}{num(Number(l.valor))}</span>
@@ -490,7 +493,7 @@ export function LancamentosDoMes({ sb, uid, mes, onEditar }: { sb: SupabaseClien
                     <div key={l.id} onClick={() => onEditar?.(l.id)} className={`pl-5 grid grid-cols-[40px_1fr_auto] gap-2 py-1 text-[12px] rounded ${onEditar ? 'cursor-pointer hover:bg-[var(--surface-50)]' : ''}`}>
                       <span className="text-mono text-[var(--surface-400)]">{l.data_competencia.slice(8, 10)}/{l.data_competencia.slice(5, 7)}</span>
                       <span className="min-w-0 truncate text-[var(--surface-600)]" title={[l.fornecedor_nome, l.descricao, l.observacoes].filter(Boolean).join(' · ')}>
-                        {conc.has(l.id) ? <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5 align-middle shrink-0" title="Conciliado com o banco/fatura" /> : <span className="inline-block w-1.5 mr-1.5" />}
+                        {conc.has(l.id) ? <b className="mr-1 font-bold leading-none text-emerald-500" title="Conciliado com o banco/fatura">©</b> : <span className="inline-block w-1.5 mr-1.5" />}
                         {l.fornecedor_nome || '—'}{(l.descricao || l.observacoes) ? <span className="text-[var(--surface-400)]"> · {l.descricao || l.observacoes}</span> : null}
                       </span>
                       <span className={`text-mono tabular-nums ${Number(l.valor) < 0 ? 'text-emerald-500' : 'text-[var(--surface-700)]'}`}>{Number(l.valor) < 0 ? '−' : ''}{num(Number(l.valor))}</span>
@@ -598,7 +601,7 @@ export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades }: {
                   {f.itens.sort((a, b) => a.data_competencia.localeCompare(b.data_competencia)).map(l => (
                     <div key={l.id} className="grid grid-cols-[14px_40px_1fr_auto] gap-2 py-1 text-[12px] border-t border-[var(--surface-100)]">
                       <span className="flex items-center" title={conc.has(l.id) ? 'conferida com a fatura' : 'pré-lançamento — falta conferir com a fatura'}>
-                        <span className={`h-1.5 w-1.5 rounded-full ${conc.has(l.id) ? 'bg-emerald-500' : 'bg-amber-400'}`} />
+                        {conc.has(l.id) ? <b className="text-[12px] font-bold leading-none text-emerald-500">©</b> : <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />}
                       </span>
                       <span className="text-mono text-[var(--surface-400)]">{l.data_competencia.slice(8, 10)}/{l.data_competencia.slice(5, 7)}</span>
                       <span className="truncate text-[var(--surface-600)]" title={l.observacoes || ''}>{l.fornecedor_nome || l.observacoes || '—'}</span>
@@ -624,6 +627,7 @@ export function AConferir({ bruto, mes, onEditar, onImportarConta, onLancar, onE
   onLancar?: () => void; onExtrato?: (contaId: string) => void
 }) {
   const atual = useMemo(() => caixaDoMes(bruto, mes, 'todas')?.porMes.get(mes) || null, [bruto, mes])
+  const cores = useCoresContas()
   const itens = atual ? [...atual.entradas.map(g => ({ g, e: true })), ...atual.saidas.map(g => ({ g, e: false }))]
     .flatMap(({ g, e }) => g.itens.map(i => ({ ...i, grupo: g.nome, entrada: e }))) : []
   // a fatura é UM pagamento no banco: as compras dela, pendentes, viram uma linha só (14/10/2026)
@@ -647,8 +651,9 @@ export function AConferir({ bruto, mes, onEditar, onImportarConta, onLancar, onE
       : null
     return (
       <div key={k} className="flex items-center gap-2 px-2.5 py-1 text-[12px]">
-        <span className={`shrink-0 h-1.5 w-1.5 rounded-full ${i.conciliado ? 'bg-emerald-500' : 'bg-sky-500'}`} />
+        {i.conciliado ? <b className="shrink-0 text-[12px] font-bold leading-none text-emerald-500" title="Conferido com o extrato">©</b> : <span className="shrink-0 h-1.5 w-1.5 rounded-full bg-sky-500" />}
         <span className="text-[var(--surface-500)] tabular-nums shrink-0">{i.data.slice(8, 10)}/{i.data.slice(5, 7)}</span>
+        <ContaComBolinha cor={cores.get(i.conta_id)} nome={nome(i.conta_id)} />
         {letra && !i.fatura && <EtiquetaUnidade letra={letra(i.unidade_id)} />}
         <span className="flex-1 min-w-0 truncate text-[var(--surface-700)]" title={`${i.descricao} · ${i.grupo}`}>{i.descricao}<span className="text-[var(--surface-400)]"> · {i.grupo}</span></span>
         <span className={`text-mono tabular-nums shrink-0 ${i.entrada ? 'text-emerald-500' : 'text-[var(--surface-700)]'}`}>{i.entrada ? '+' : '−'}{num(i.valor)}</span>

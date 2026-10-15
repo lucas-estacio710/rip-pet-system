@@ -293,8 +293,8 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
                     </td>
                     <td className={`py-1 pr-2 text-[var(--surface-700)] max-sm:max-w-0 max-sm:w-full ${abertos.has(i) ? 'max-sm:whitespace-normal' : 'max-sm:truncate'}`}
                         onClick={e => { if (window.innerWidth >= 640) return; e.stopPropagation(); setAbertos(a => { const b = new Set(a); if (b.has(i)) b.delete(i); else b.add(i); return b }) }}>
-                      {/* bolinha verde = conciliado (14/10/2026: no lugar do ✓, igual no Livro-Caixa) */}
-                      {it.conciliado && <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5 align-middle shrink-0" title="Conciliado com o banco/fatura" />}
+                      {/* © verde = conciliado (15/10/2026: no lugar da bolinha, igual no Livro-Caixa) */}
+                      {it.conciliado && <b className="mr-1 font-bold leading-none text-emerald-500" title="Conciliado com o banco/fatura">©</b>}
                       {conj.conjunto && <span className="mr-1.5 align-middle"><EtiquetaUnidade letra={conj.letra(it.unidade_id)} nome={conj.nome(it.unidade_id)} /></span>}
                       {it.descricao}
                       {it.partes > 1 && (

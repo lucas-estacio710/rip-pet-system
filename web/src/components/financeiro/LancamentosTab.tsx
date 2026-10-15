@@ -15,6 +15,7 @@ import RepassarCustoModal, { type LancParaRepassar } from './RepassarCustoModal'
 import TrilhaCustoModal from './TrilhaCustoModal'
 import ContaFixaModal from './ContaFixaModal'
 import { useCoresContas, rotuloConta, estiloConta } from '@/lib/cor-conta'
+import { ContaComBolinha } from './ContaComBolinha'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -1066,11 +1067,11 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
                     </span>
                   )}
                   {conciliados.has(l.id) && (
-                    <span className="mr-1 text-emerald-500" title="Conferido com o banco/fatura (Importar extrato)">✓</span>
+                    <b className="mr-1 font-bold leading-none text-emerald-500" title="Conferido com o banco/fatura (Importar extrato)">©</b>
                   )}
                   {fmtData(l.data_competencia)}
                   {l.conta_pagamento_id && nomeConta.get(l.conta_pagamento_id) && (
-                    <span className="text-[var(--surface-600)]"> · {rotuloConta(cores, l.conta_pagamento_id, nomeConta.get(l.conta_pagamento_id) || '')}</span>
+                    <ContaComBolinha cor={cores.get(l.conta_pagamento_id)} nome={nomeConta.get(l.conta_pagamento_id) || ''} className="ml-1.5" />
                   )}
                   {l.descricao && ` · ${l.descricao}`}
                   {/* Em lançamento colado do extrato, a observação é o texto do
@@ -1173,7 +1174,7 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
           {/* DE QUEM É? — só no caixa conjunto (Matriz + Pinda). Repassado/perna não troca de dona. */}
           {editandoId && conciliadoEdit && (
             <p className="rounded-[10px] border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-[12px] text-[var(--surface-700)]">
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5 align-middle" />
+              <b className="mr-1 font-bold leading-none text-emerald-500">©</b>
               <b>Conciliado com o banco:</b> só a <b>categoria</b> muda aqui. Valor, datas, conta e o resto ficam como o banco registrou, e não dá pra excluir.
             </p>
           )}
