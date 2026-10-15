@@ -31,7 +31,8 @@ const titulo = 'text-[11px] font-semibold tracking-[.14em] uppercase text-[var(-
 
 const CORES_GRUPO: Record<string, string> = {
   'Clientes (Pix e dinheiro)': '#10b981', 'Maquininha (liquidações)': '#34d399', 'Repasse das unidades': '#2dd4bf',
-  'Aportes e empréstimos': '#38bdf8', 'Transferências recebidas': '#60a5fa',
+  'Aportes e empréstimos': '#38bdf8', 'Transferências recebidas': '#60a5fa', Rendimentos: '#22d3ee',
+  'Empréstimos pagos': '#7dd3fc', 'Aportes devolvidos': '#7dd3fc',
   [SEM_CATEGORIA]: '#f59e0b', Cremação: '#a78bfa', 'Devoluções a clientes': '#fda4af', Pessoal: '#f472b6', Operacional: '#fb923c',
   Administrativo: '#60a5fa', Comercial: '#e879f9', Financeiro: '#38bdf8', Impostos: '#fbbf24', Investimentos: '#94a3b8', Sócios: '#f87171',
 }

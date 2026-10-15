@@ -97,6 +97,12 @@ export function classificarCaixa(
       if (v >= 0) por(ent, 'Aportes e empréstimos', it(v, null)); else por(sai, SEM_CATEGORIA, it(-v, 'extrato'))
       continue
     }
+    // mig 168: rendimento entra; pagar o principal do empréstimo e devolver aporte saem
+    if (tipo === 'rendimento') { if (v >= 0) por(ent, 'Rendimentos', it(v, null)); else por(sai, SEM_CATEGORIA, it(-v, 'extrato')); continue }
+    if (tipo === 'amortizacao' || tipo === 'devolucao_aporte') {
+      if (v < 0) por(sai, tipo === 'amortizacao' ? 'Empréstimos pagos' : 'Aportes devolvidos', it(-v, null)); else por(ent, SEM_CATEGORIA, it(v, 'extrato'))
+      continue
+    }
     if (tipo === 'transferencia' && m) {
       const outra = v > 0 ? m.conta_id : m.conta_destino_id
       if (outra && ctx.contasCaixa.has(outra)) continue          // entre contas do caixa: nada

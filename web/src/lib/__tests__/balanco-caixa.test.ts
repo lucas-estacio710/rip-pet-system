@@ -81,3 +81,15 @@ test('conciliado: o item bate com o banco; a compra da fatura herda o pagamento 
   assert.equal(todos.find(i => i.origem_id === 'd2')!.conciliado, false)
   assert.equal(todos.find(i => i.origem_id === 'c1')!.conciliado, true)
 })
+
+test('mig 168: rendimento entra; pagar empréstimo e devolver aporte saem, cada um com nome', () => {
+  const b = classificarCaixa([
+    L('inter', 21.61, 'movimento', 'rd'), L('inter', -1000, 'movimento', 'am'), L('inter', -500, 'movimento', 'da'),
+  ], { ...ctx, movs: new Map<string, MovInfo>([
+    ['rd', { tipo: 'rendimento', conta_id: 'inter', conta_destino_id: null, repasse: false }],
+    ['am', { tipo: 'amortizacao', conta_id: 'inter', conta_destino_id: null, repasse: false }],
+    ['da', { tipo: 'devolucao_aporte', conta_id: 'inter', conta_destino_id: null, repasse: false }],
+  ]) })
+  assert.deepEqual(b.entradas.map(g => [g.nome, g.valor]), [['Rendimentos', 21.61]])
+  assert.deepEqual(b.saidas.map(g => [g.nome, g.valor]), [['Empréstimos pagos', 1000], ['Aportes devolvidos', 500]])
+})
