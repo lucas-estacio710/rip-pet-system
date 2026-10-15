@@ -203,7 +203,8 @@ export function BalancoMes({ bruto, mes, marco = null, onEditar, onLancar, onExt
 }) {
   // TODAS AS CONTAS × CONTAS DISPONÍVEIS (14/10/2026): as disponíveis deixam de fora as guardadas
   // (reserva / sem liquidez) — aí ir pro investimento é saída e o resgate é entrada.
-  const [modo, setModo] = useState<'todas' | 'disponiveis'>('todas')
+  // Contas disponíveis primeiro e marcada por padrão (15/10/2026, Lucas): o dinheiro que paga as contas
+  const [modo, setModo] = useState<'todas' | 'disponiveis'>('disponiveis')
   // cada grupo da ponte abre e mostra as linhas dele (14/10/2026); o "Sem categoria" nasce aberto
   const [abertos, setAbertos] = useState<Set<string>>(new Set([`s:${SEM_CATEGORIA}`, `e:${SEM_CATEGORIA}`]))
   // descrição numa linha; clique/toque abre o texto inteiro (14/10/2026)
@@ -249,7 +250,7 @@ export function BalancoMes({ bruto, mes, marco = null, onEditar, onLancar, onExt
         <span className={titulo}>Balanço do Caixa no Mês</span>
         {bruto && bruto.reservas.size > 0 && (
           <span className="ml-auto inline-flex rounded-full border border-[var(--surface-300)] p-0.5 text-[11.5px]">
-            {([['todas', 'Todas as contas'], ['disponiveis', 'Contas disponíveis']] as const).map(([k, t]) => (
+            {([['disponiveis', 'Contas disponíveis'], ['todas', 'Todas as contas']] as const).map(([k, t]) => (
               <button key={k} type="button" onClick={() => setModo(k)}
                       className={`px-2.5 py-0.5 rounded-full transition-colors ${modo === k ? 'bg-[var(--brand-500)] text-white' : 'text-[var(--surface-500)] hover:text-[var(--surface-800)]'}`}>{t}</button>
             ))}
