@@ -40,6 +40,8 @@ test('o dinheiro do mês, do jeito que o banco vê', () => {
   assert.equal(b.entrou, 3300)
   assert.equal(b.saiu, 3750)
   assert.equal(b.ajustes, 90000)
+  // a linha "Ajustes de saldo" abre neles: um a um, com sinal, já conferidos
+  assert.deepEqual(b.ajustesItens.map(i => [i.origem_id, i.valor, i.conciliado]), [['aj', 90000, true]])
   assert.deepEqual(b.saidas.map(g => [g.nome, g.valor]), [
     ['Cremação', 1500], ['Pessoal', 1200], ['Administrativo', 350], ['Operacional', 400], [SEM_CATEGORIA, 300],
   ].sort((a, b) => Number(a[0] === SEM_CATEGORIA) - Number(b[0] === SEM_CATEGORIA) || (b[1] as number) - (a[1] as number)))

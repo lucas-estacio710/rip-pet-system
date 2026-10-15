@@ -236,7 +236,7 @@ export function BalancoMes({ bruto, mes, marco = null, onEditar, onLancar, onExt
     ponte.push({ nome: 'Começou com', de: 0, ate: r, cor: '#64748b', sinal: '', forte: true })
     for (const g of atual.entradas) { ponte.push({ nome: g.nome, de: r, ate: r + g.valor, cor: corGrupo(g.nome), sinal: '+', chave: `e:${g.nome}`, itens: g.itens }); r += g.valor }
     for (const g of atual.saidas) { ponte.push({ nome: g.nome, de: r, ate: r - g.valor, cor: corGrupo(g.nome), sinal: '−', chave: `s:${g.nome}`, itens: g.itens }); r -= g.valor }
-    if (Math.abs(atual.ajustes) >= 0.005) { ponte.push({ nome: 'Ajustes de saldo', de: r, ate: r + atual.ajustes, cor: '#94a3b8', sinal: atual.ajustes > 0 ? '+' : '−' }); r += atual.ajustes }
+    if (Math.abs(atual.ajustes) >= 0.005) { ponte.push({ nome: 'Ajustes de saldo', de: r, ate: r + atual.ajustes, cor: '#94a3b8', sinal: atual.ajustes > 0 ? '+' : '−', chave: 'ajustes', itens: atual.ajustesItens }); r += atual.ajustes }
     ponte.push({ nome: ehHoje ? 'Hoje' : 'Terminou com', de: 0, ate: dados.fim, cor: dados.fim >= dados.inicio ? '#10b981' : '#f87171', sinal: '=', forte: true })
   }
   const escala = Math.max(1, ...ponte.map(b => Math.max(b.de, b.ate)))
@@ -321,7 +321,7 @@ export function BalancoMes({ bruto, mes, marco = null, onEditar, onLancar, onExt
                                   title="Clique para ver a descrição inteira">
                               {it.descricao}
                             </span>
-                            <span className="text-mono tabular-nums text-[var(--surface-700)] shrink-0">{num(it.valor)}</span>
+                            <span className="text-mono tabular-nums text-[var(--surface-700)] shrink-0">{b.chave === 'ajustes' ? (it.valor < 0 ? '−' : '+') : ''}{num(it.valor)}</span>
                             {acao && <button onClick={acao.f} className="text-[11px] text-[var(--brand-500)] hover:underline shrink-0 whitespace-nowrap">{acao.t}</button>}
                             {/* lixeira: só no lançamento que ainda não bateu com o banco (as travas finais moram em lib/excluir-lancamento) */}
                             {onExcluir && it.acao === 'editar' && !it.conciliado && (

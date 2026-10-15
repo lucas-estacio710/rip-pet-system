@@ -30,7 +30,8 @@ export type AcaoItem = 'editar' | 'lancar' | 'extrato' | null
 /** fatura = a compra veio de dentro de uma fatura paga: o pagamento é UMA linha no banco */
 export type ItemCaixa = { data: string; descricao: string; valor: number; conta_id: string; origem_id: string; acao: AcaoItem; conciliado: boolean; unidade_id?: string | null; fatura?: { id: string; descricao: string; data: string; valor: number } }
 export type Grupo = { nome: string; valor: number; itens: ItemCaixa[] }
-export type BalancoCaixa = { entrou: number; saiu: number; ajustes: number; entradas: Grupo[]; saidas: Grupo[] }
+/** ajustesItens (15/10/2026): os ajustes de saldo, um a um, COM sinal — a linha "Ajustes de saldo" abre neles */
+export type BalancoCaixa = { entrou: number; saiu: number; ajustes: number; ajustesItens: ItemCaixa[]; entradas: Grupo[]; saidas: Grupo[] }
 
 const c2 = (n: number) => Math.round(n * 100) / 100
 
@@ -50,6 +51,7 @@ export function classificarCaixa(
 ): BalancoCaixa {
   const ent = new Map<string, ItemCaixa[]>(), sai = new Map<string, ItemCaixa[]>()
   let ajustes = 0
+  const ajustesItens: ItemCaixa[] = []
   const por = (m: Map<string, ItemCaixa[]>, g: string, it: ItemCaixa) => { if (!m.has(g)) m.set(g, []); m.get(g)!.push(it) }
 
   for (const l of linhas) {
@@ -75,7 +77,8 @@ export function classificarCaixa(
     // movimento
     const m = ctx.movs.get(l.origem_id)
     const tipo = m?.tipo || l.tipo
-    if (tipo === 'ajuste') { ajustes += v; continue }
+    // o ajuste É a conferência com o banco: nasce conferido, e guarda o sinal (sobe ou desce o saldo)
+    if (tipo === 'ajuste') { ajustes += v; ajustesItens.push({ ...it(v, null, l.descricao || 'Ajuste de saldo'), conciliado: true }); continue }
     if (tipo === 'fatura_cartao' && v < 0) {
       // a fatura abre nas compras; o que ela cobrou sem compra lançada → Sem categoria
       const compras = ctx.comprasDaFatura?.get(l.origem_id) || []
@@ -119,6 +122,7 @@ export function classificarCaixa(
     entrou: c2(entradas.reduce((a, g) => a + g.valor, 0)),
     saiu: c2(saidas.reduce((a, g) => a + g.valor, 0)),
     ajustes: c2(ajustes),
+    ajustesItens: ajustesItens.sort((a, b) => a.data.localeCompare(b.data)),
     entradas, saidas,
   }
 }
