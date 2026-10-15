@@ -122,7 +122,7 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
   const conj = useCaixaConjunto()
   const uidCal = conj.conjunto && conj.matrizId ? conj.matrizId : currentUnit?.id
   const fixas = useContasFixas(supabase, uidCal, conj.conjunto && conj.matrizId ? true : !!currentUnit?.is_matriz, currentUnit?.financeiro_desde?.slice(0, 7) || null, conj.ids)
-  const [saldos, setSaldos] = useState<{ disponivel: number; guardado: number; contas: { conta: ContaRow; saldo: number; guardada: boolean; virgem: boolean }[] } | null>(null)
+  const [saldos, setSaldos] = useState<{ disponivel: number; guardado: number; contas: { conta: ContaRow; saldo: number; guardada: boolean; virgem: boolean; ultimo?: string | null }[] } | null>(null)
   // INICIAR CONTA (14/10/2026): conta sem nenhum lançamento ganha o atalho pro AJUSTE
   // INICIAL — a abertura de caixa da mig 136 (caixa_desde + movimento de ajuste).
   const [iniciando, setIniciando] = useState<ContaRow | null>(null)
@@ -184,7 +184,7 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
       const { data: rv, error: erv } = await supabase.from('contas').select('id').eq('reserva', true)
       if (!erv) reservas = new Set(((rv as { id: string }[] | null) || []).map(x => x.id))
       let disp = 0, guard = 0
-      const porConta: { conta: ContaRow; saldo: number; guardada: boolean; virgem: boolean }[] = []
+      const porConta: { conta: ContaRow; saldo: number; guardada: boolean; virgem: boolean; ultimo?: string | null }[] = []
       for (const x of (sd as { conta_id: string; nome: string; tipo: string; produto: string | null; saldo: number; legado: boolean; mostrar_no_caixa: boolean | null; caixa_desde: string | null; entradas: number | null; saidas: number | null }[] | null) || []) {
         if (x.legado || x.mostrar_no_caixa === false || x.produto === 'maquininha' || x.tipo === 'cartao' || x.produto === 'cartao_credito') continue
         const guardada = reservas.has(x.conta_id)
@@ -194,6 +194,12 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
       }
       // as que pagam primeiro, a guardada no fim; dentro de cada grupo, a maior antes
       porConta.sort((a, b) => Number(a.guardada) - Number(b.guardada) || b.saldo - a.saldo)
+      // ÚLTIMO MOVIMENTO de cada conta (15/10/2026, Lucas): a data aparece embaixo do saldo — diz
+      // até quando aquele número está atualizado (extrato importado até quando).
+      await Promise.all(porConta.map(async k => {
+        const { data: u } = await supabase.from('vw_caixa').select('data').eq('conta_id', k.conta.id).order('data', { ascending: false }).limit(1)
+        k.ultimo = ((u as { data: string }[] | null) || [])[0]?.data || null
+      }))
       setSaldos({ disponivel: c2(disp), guardado: c2(guard), contas: porConta })
     }
     setQtdDespesas((ql as { count: number | null }).count || 0)
@@ -476,7 +482,10 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
                         Prina já tinham repasse e Pix lançados e o botão sumia, sem jeito de abrir o caixa. */}
                     {!k.conta.caixa_desde && podeLancar
                       ? <span className="block text-[13px] font-semibold text-[var(--surface-400)]">Iniciar conta ›{!k.virgem && <span className="block text-[11px] font-normal text-mono">{fmtBRL(k.saldo)} lançado</span>}</span>
-                      : <span className={`block text-mono text-[15px] tabular-nums ${k.saldo < 0 ? 'text-red-400' : 'text-[var(--surface-900)]'}`}>{fmtBRL(k.saldo)}</span>}
+                      : <>
+                          <span className={`block text-mono text-[15px] tabular-nums ${k.saldo < 0 ? 'text-red-400' : 'text-[var(--surface-900)]'}`}>{fmtBRL(k.saldo)}</span>
+                          {k.ultimo && <span className="block text-[11px] text-[var(--surface-500)]">último movimento {k.ultimo.slice(8, 10)}/{k.ultimo.slice(5, 7)}</span>}
+                        </>}
                   </button>
                 ))}
               </div>
