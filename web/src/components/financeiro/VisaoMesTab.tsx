@@ -19,6 +19,7 @@
 // Cada ato respeita a aba de onde vem: sem a DRE visível, somem 1 e 2; sem o
 // Caixa, some o 3; sem o Repasse, o "pagar repasse" sai da lista.
 
+import { haQuantoTempo } from '@/lib/ha-quanto-tempo'
 import { useFinanceiroVersao } from '@/lib/financeiro-eventos'
 import CobrancasCard from './CobrancasCard'
 import ReceitasPrazoTab from './ReceitasPrazoTab'
@@ -484,7 +485,7 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
                       ? <span className="block text-[13px] font-semibold text-[var(--surface-400)]">Iniciar conta ›{!k.virgem && <span className="block text-[11px] font-normal text-mono">{fmtBRL(k.saldo)} lançado</span>}</span>
                       : <>
                           <span className={`block text-mono text-[15px] tabular-nums ${k.saldo < 0 ? 'text-red-400' : 'text-[var(--surface-900)]'}`}>{fmtBRL(k.saldo)}</span>
-                          {k.ultimo && <span className="block text-[11px] text-[var(--surface-500)]">último movimento {k.ultimo.slice(8, 10)}/{k.ultimo.slice(5, 7)}</span>}
+                          {k.ultimo && <span className="block text-[11px] text-[var(--surface-500)]">último movimento {k.ultimo.slice(8, 10)}/{k.ultimo.slice(5, 7)} ({haQuantoTempo(k.ultimo, hojeS)})</span>}
                         </>}
                   </button>
                 ))}
