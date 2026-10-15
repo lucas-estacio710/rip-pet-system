@@ -21,7 +21,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Receipt, BarChart3, BookOpen, Shield, Plus, ClipboardPaste, Settings, type LucideIcon } from 'lucide-react'
+import { Receipt, BarChart3, BookOpen, Shield, Plus, Settings, type LucideIcon } from 'lucide-react'
 import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
 import EmptyState from '@/components/ui/EmptyState'
@@ -153,7 +153,9 @@ export default function FinanceiroPage() {
     const cab = (
       <>
         <span className="flex items-center gap-1.5 text-sm font-medium text-[var(--surface-800)]">
-          {m.tipo === 'acao' && m.acao === 'importar' && <ClipboardPaste className="h-3.5 w-3.5 text-emerald-500" />}
+          {/* os mesmos sinais das linhas do Livro-Caixa (15/10/2026): © conciliado · bolinha azul pré-lançamento */}
+          {m.tipo === 'acao' && m.acao === 'importar' && <b className="font-bold leading-none text-emerald-500">©</b>}
+          {m.tipo === 'acao' && m.acao === 'despesa' && <span className="h-2 w-2 rounded-full bg-sky-500 shrink-0" />}
           {m.titulo}
         </span>
         <span className="block text-[11px] text-[var(--surface-500)]">{m.detalhe}</span>
