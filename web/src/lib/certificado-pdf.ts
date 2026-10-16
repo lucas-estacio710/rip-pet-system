@@ -23,9 +23,10 @@ export type DadosCertificado = {
 // sem arrastar o bundle do PDF. Reexportada aqui por compatibilidade com quem já importava daqui.
 export { tituloNome }
 
+// "Responsável", não "Tutor(a)" (16/10/2026): pedido do crematório — o termo tutor saiu de uso.
 function formatarTutorBlock(nomes: string[]): string {
-  if (nomes.length === 0) return 'Tutor(a) Senhor(a)'
-  const prefixo = nomes.length === 1 ? 'Tutor(a) Senhor(a)' : 'Tutores(as) Senhores(as)'
+  if (nomes.length === 0) return 'Responsável Senhor(a)'
+  const prefixo = nomes.length === 1 ? 'Responsável Senhor(a)' : 'Responsáveis Senhores(as)'
   const normalizados = nomes.map(tituloNome)
   let lista: string
   if (normalizados.length === 1) lista = normalizados[0]
