@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { naoEDespesa, quitacaoDe, metodoDe } from '../extrato.ts'
+import { naoEDespesa, quitacaoDe, metodoDe, ehRendimento } from '../extrato.ts'
 
 test('Itaú: "FATURA CARTAO DEBITO" é compra no débito, não pagamento de fatura', () => {
   const t = 'FATURA CARTAO DEBITO CAMPINAS MO-001008'
@@ -14,4 +14,12 @@ test('pagamento de fatura de verdade continua sendo fatura', () => {
     assert.equal(quitacaoDe(t), 'fatura')
     assert.notEqual(naoEDespesa(t), null)
   }
+})
+
+test('Itaú: rendimento automático da conta vira rendimento sozinho; aluguel de maquininha não', () => {
+  assert.equal(ehRendimento('RENDIMENTOS REND PAGO APLIC AUT MAIS', 0.02), true)
+  assert.equal(ehRendimento('REND PAGO APLIC AUT MAIS', 1.5), true)
+  assert.equal(ehRendimento('RENDIMENTOS REND PAGO APLIC AUT MAIS', -0.02), false)
+  assert.equal(ehRendimento('REMUNERACAO POS', 10), false)
+  assert.equal(ehRendimento('PIX RECEBIDO MARIA', 100), false)
 })

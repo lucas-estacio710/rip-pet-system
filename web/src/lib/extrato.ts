@@ -155,6 +155,17 @@ export function naoEDespesa(descricao: string): string | null {
 }
 
 /**
+ * ENTRADA que é o rendimento automático da conta (SJ, 16/10/2026: "RENDIMENTOS REND PAGO
+ * APLIC AUT MAIS", R$ 0,02 quase todo dia no Itaú). Vira movimento `rendimento` (mig 168)
+ * sozinho, sem perguntar. "REMUNERACAO POS" é aluguel de maquininha: fica de fora.
+ */
+export function ehRendimento(descricao: string, valor: number): boolean {
+  if (valor <= 0) return false
+  const t = normTexto(descricao)
+  return /\bRENDIMENTOS?\b|\bREND\s+(PAGO|APLIC)|\bRENTABILIDADE\b/.test(t)
+}
+
+/**
  * Saída que é QUITAÇÃO de uma obrigação — tem lugar próprio em Lançamentos ›
  * Lançamentos especiais (mig 150): pagamento à empresa do grupo = repasse;
  * pagamento de fatura = fatura de cartão. O Colar oferece o atalho pra lá.

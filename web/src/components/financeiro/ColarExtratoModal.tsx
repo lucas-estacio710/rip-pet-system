@@ -33,7 +33,7 @@ import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import { fmtBRL, fmtData, colarValorBR } from '@/lib/financeiro'
 import {
-  lerExtrato, movimentoDe, pareceMaquininha, metodoDe, fornecedorDe, naoEDespesa, quitacaoDe, foraDoCartao, cabecalhoFatura,
+  lerExtrato, movimentoDe, pareceMaquininha, metodoDe, fornecedorDe, naoEDespesa, quitacaoDe, foraDoCartao, ehRendimento, cabecalhoFatura,
   ROTULO_MOV, ENTRA_MOV, movDoRegistro, type MovMaquininha, type LinhaExtrato,
 } from '@/lib/extrato'
 import { criarIndice, sugerir, type Sugestao } from '@/lib/similaridade'
@@ -142,6 +142,9 @@ type Item = LinhaExtrato & {
   repassePgto?: CasamentoRepasse | null
   conciliarRepasse?: boolean
   parcialRepasse?: boolean
+  /** RENDIMENTO AUTOMÁTICO (16/10/2026, reunião com SJ): "REND PAGO APLIC AUT" vira movimento
+   *  `rendimento` (mig 168) sem perguntar. Desmarcar ("não é rendimento") devolve a linha. */
+  rendimento?: boolean
 }
 
 /** Crédito na fatura: "+ R$ 1,20" (Inter) ou texto de estorno/reembolso. No
@@ -621,6 +624,12 @@ export default function ColarExtratoModal({
         return { ...base, destino: 'despesa' as Destino, estorno: true, catId: dev.catId, catTexto: caminhoDe(dev.catId),
                  estornoDe: `devolve a saída de ${dev.data.slice(8, 10)}/${dev.data.slice(5, 7)}` }
       }
+      // 2) rendimento automático da conta: entra sozinho como rendimento (antes do histórico,
+      //    que poderia ter ensinado "entre contas" pra mesma frase)
+      if (!ehCartao && ehRendimento(l.descricao, l.valor)) {
+        return { ...base, destino: 'fora' as Destino, marcado: false, rendimento: true,
+                 motivoFora: 'rendimento da aplicação automática' }
+      }
       // 2) entre contas da casa, pelo histórico
       const entre = !ehCartao ? entreDe.get(chaveEntre(l.descricao)) : undefined
       if (entre) return { ...base, destino: 'fora' as Destino, marcado: false, entreConta: entre, entreHist: true,
@@ -751,6 +760,7 @@ export default function ColarExtratoModal({
   /** marcadas que NÃO podem entrar (parte sem categoria, unidade sem valor, sem dono) — barram o registro */
   const travadas = despesas.filter(i => !i.reclassificar && i.marcado && !despProntas.includes(i))
   const entreProntas = fora.filter(i => !i.jaNoSistema && i.entreConta)
+  const rendProntas = fora.filter(i => !i.jaNoSistema && i.rendimento && !i.entreConta)
   /** pagamentos de fatura que batem e ficaram marcados: viram o pagamento, já conciliado */
   const faturaProntas = fora.filter(i => !i.jaNoSistema && (i.faturaPgto?.tipo === 'bate' ? !!i.conciliarFatura : i.faturaPgto?.tipo === 'difere' && i.faturaPgto.podeParcial && !!i.parcialFatura))
   const repasseProntas = fora.filter(i => !i.jaNoSistema && (i.repassePgto?.tipo === 'bate' ? !!i.conciliarRepasse : i.repassePgto?.tipo === 'difere' && i.repassePgto.podeParcial && !!i.parcialRepasse))
@@ -764,7 +774,7 @@ export default function ColarExtratoModal({
 
   async function registrar() {
     if (!currentUnit?.id || !contaId) return
-    if (!recProntas.length && !despProntas.length && !reclassProntas.length && !entreProntas.length && !faturaProntas.length && !repasseProntas.length && !confirmados.length && !exatosParaConciliar.length) {
+    if (!recProntas.length && !despProntas.length && !reclassProntas.length && !entreProntas.length && !rendProntas.length && !faturaProntas.length && !repasseProntas.length && !confirmados.length && !exatosParaConciliar.length) {
       return toast('Nada pronto pra registrar', 'error')
     }
     if (ehCartao && despProntas.length && !vencimento) return toast('Escolha a fatura (o vencimento) dessas compras', 'error')
@@ -833,6 +843,18 @@ export default function ColarExtratoModal({
         if (error) throw new Error(`Entre contas: ${error.message}${entrouRec ? ` (as ${entrouRec} receitas a prazo JÁ entraram)` : ''}`)
         entrouRec += rows.length
         ;((novos as { id: string }[] | null) || []).forEach((m, k) => conc(entreProntas[k], [{ origem: 'movimento', origem_id: m.id }], 'novo'))
+      }
+      if (rendProntas.length) {
+        // RENDIMENTO: entra na conta (vw_caixa soma; o Balanço mostra em "Rendimentos")
+        const rows = rendProntas.map(i => ({
+          unidade_id: currentUnit.id, tipo: 'rendimento', conta_id: contaId, conta_destino_id: null,
+          data: i.data, valor: Math.abs(i.valor), descricao: i.descricao,
+          criado_por_nome: userName || null,
+        }))
+        const { data: novos, error } = await supabase.from('fin_movimentos').insert(rows).select('id')
+        if (error) throw new Error(`Rendimentos: ${error.message}${entrouRec ? ` (${entrouRec} registros JÁ entraram)` : ''}`)
+        entrouRec += rows.length
+        ;((novos as { id: string }[] | null) || []).forEach((m, k) => conc(rendProntas[k], [{ origem: 'movimento', origem_id: m.id }], 'novo'))
       }
       // PAGAMENTO DE FATURA: o banco diz a data e o valor; a fatura (cartão + vencimento) já bateu.
       for (const i of faturaProntas) {
@@ -969,7 +991,7 @@ export default function ColarExtratoModal({
         }
         if (error) toast(`Registrado, mas a conciliação não foi gravada: ${error.message}`, 'error')
       }
-      toast(`${recProntas.length} receitas a prazo · ${entreProntas.length} entre contas · ${despProntas.length} despesas${reclassProntas.length ? ` · ${reclassProntas.length} classificadas` : ''}${faturaProntas.length ? ` · ${faturaProntas.length} ${faturaProntas.length === 1 ? 'fatura paga' : 'faturas pagas'}` : ''}${repasseProntas.length ? ` · ${repasseProntas.length} ${repasseProntas.length === 1 ? 'repasse pago' : 'repasses pagos'}` : ''} · ${concs.length} conciliados`, 'success')
+      toast(`${recProntas.length} receitas a prazo · ${entreProntas.length} entre contas · ${despProntas.length} despesas${rendProntas.length ? ` · ${rendProntas.length} ${rendProntas.length === 1 ? 'rendimento' : 'rendimentos'}` : ''}${reclassProntas.length ? ` · ${reclassProntas.length} classificadas` : ''}${faturaProntas.length ? ` · ${faturaProntas.length} ${faturaProntas.length === 1 ? 'fatura paga' : 'faturas pagas'}` : ''}${repasseProntas.length ? ` · ${repasseProntas.length} ${repasseProntas.length === 1 ? 'repasse pago' : 'repasses pagos'}` : ''} · ${concs.length} conciliados`, 'success')
       onRegistrou()
       onClose()
     } catch (e) {
@@ -1348,13 +1370,20 @@ export default function ColarExtratoModal({
     const quit = i.valor < 0 ? quitacaoDe(i.descricao) : null
     // Aplicação/resgate já chegam perguntando a conta; o resto, por um link tímido.
     const entreAberto = /aplica|resgate/i.test(i.descricao)
+    const rend = !!i.rendimento && !i.entreConta && !i.jaNoSistema
     return (
       <div key={i.n} className={`${grade} py-2.5 border-b border-[var(--surface-100)] last:border-0`}>
-        <span className={`text-xs ${i.entreConta ? 'text-[var(--brand-500)]' : 'text-[var(--surface-400)]'}`} aria-hidden="true">{i.entreConta ? '⇄' : '—'}</span>
+        <span className={`text-xs ${i.entreConta ? 'text-[var(--brand-500)]' : rend ? 'text-emerald-500' : 'text-[var(--surface-400)]'}`} aria-hidden="true">{i.entreConta ? '⇄' : rend ? '+' : '—'}</span>
         <span className="text-xs text-[var(--surface-400)]">{dataCurta(i.data)}</span>
         <span className="text-sm text-[var(--surface-500)] truncate" title={i.original}>{i.descricao}</span>
         <span className="col-span-4 col-start-3 sm:col-span-1 sm:col-start-auto row-start-2 sm:row-start-auto flex flex-wrap items-center gap-2 min-w-0">
-          {!i.entreConta && !i.faturaPgto && !i.repassePgto && <span className="text-xs text-[var(--surface-400)]">{i.motivoFora || 'ignorada'}</span>}
+          {rend ? (
+            <>
+              <span className="text-xs text-emerald-500">rendimento da conta → entra como <b>Rendimento</b></span>
+              <button type="button" onClick={() => muda(i.n, { rendimento: false, motivoFora: 'entrada que não é de maquininha nem está no sistema — confira' })}
+                      className="text-[11px] text-[var(--brand-500)] hover:underline">não é rendimento</button>
+            </>
+          ) : !i.entreConta && !i.faturaPgto && !i.repassePgto && <span className="text-xs text-[var(--surface-400)]">{i.motivoFora || 'ignorada'}</span>}
           {i.faturaPgto?.tipo === 'bate' && (
             <label className="flex items-center gap-1.5 text-xs text-[var(--surface-700)] cursor-pointer">
               <input type="checkbox" checked={!!i.conciliarFatura} onChange={e => muda(i.n, { conciliarFatura: e.target.checked })} />
@@ -1385,11 +1414,11 @@ export default function ColarExtratoModal({
               <span>Foi uma parte do <b>repasse de {rotuloRef(i.repassePgto.repasse.ref)}</b>: o resto continua em aberto → <span className="text-emerald-500 font-medium">© conciliar</span></span>
             </label>
           )}
-          {!quit && !i.entreConta && (
+          {!quit && !i.entreConta && !rend && (
             <button type="button" onClick={() => muda(i.n, { destino: i.valor < 0 ? 'despesa' : (permiteReceitas ? 'receita' : 'fora'), marcado: true, motivoFora: null })}
                     className="text-[11px] text-[var(--brand-500)] hover:underline">não ignorar</button>
           )}
-          {!quit && !ehCartao && contasEntre.length > 0 && (i.entreConta || entreAberto || abertos.has(i.n) ? (
+          {!quit && !rend && !ehCartao && contasEntre.length > 0 && (i.entreConta || entreAberto || abertos.has(i.n) ? (
             <span className="flex items-center gap-1.5 text-xs">
               <span className="text-[var(--surface-500)]">{i.valor < 0 ? 'foi para' : 'veio de'}</span>
               <select value={i.entreConta} onChange={e => muda(i.n, { entreConta: e.target.value, entreHist: false })}
@@ -1404,7 +1433,7 @@ export default function ColarExtratoModal({
                     className="text-[11px] text-[var(--brand-500)] hover:underline">é de outra conta da casa?</button>
           ))}
         </span>
-        <span className={`text-right text-mono text-sm tabular-nums ${i.entreConta ? valorCor(i.valor) : 'text-[var(--surface-400)]'}`}>{valorTxt(i.valor)}</span>
+        <span className={`text-right text-mono text-sm tabular-nums ${i.entreConta || rend ? valorCor(i.valor) : 'text-[var(--surface-400)]'}`}>{valorTxt(i.valor)}</span>
       </div>
     )
   }
@@ -1463,7 +1492,7 @@ export default function ColarExtratoModal({
   // ── o placar: banco × sistema × depois de registrar (conta corrente) ──
   const depois = placar
     ? Math.round((placar.sistema
-        + [...recProntas, ...despProntas, ...entreProntas, ...faturaProntas, ...repasseProntas].reduce((a, i) => a + i.valor, 0)
+        + [...recProntas, ...despProntas, ...entreProntas, ...rendProntas, ...faturaProntas, ...repasseProntas].reduce((a, i) => a + i.valor, 0)
         + confirmados.reduce((a, i) => {
             const r = i.parecido!.candidatos[i.parecido!.escolhido]
             return a + (r.ajustavel ? i.valor - r.valor : 0)
@@ -1487,11 +1516,12 @@ export default function ColarExtratoModal({
   const frasePronto = [
     recProntas.length ? `${recProntas.length} ${recProntas.length === 1 ? 'recebimento' : 'recebimentos'}` : '',
     entreProntas.length ? `${entreProntas.length} entre contas` : '',
+    rendProntas.length ? `${rendProntas.length} ${rendProntas.length === 1 ? 'rendimento' : 'rendimentos'}` : '',
     despProntas.length ? `${despProntas.length} ${despProntas.length === 1 ? 'despesa' : 'despesas'}` : '',
     faturaProntas.length ? `${faturaProntas.length} ${faturaProntas.length === 1 ? 'pagamento de fatura' : 'pagamentos de fatura'}` : '',
     repasseProntas.length ? `${repasseProntas.length} ${repasseProntas.length === 1 ? 'pagamento de repasse' : 'pagamentos de repasse'}` : '',
   ].filter(Boolean).join(' e ')
-  const conferir = exatosParaConciliar.length + confirmados.length + recProntas.length + entreProntas.length + despProntas.length + faturaProntas.length + repasseProntas.length
+  const conferir = exatosParaConciliar.length + confirmados.length + recProntas.length + entreProntas.length + rendProntas.length + despProntas.length + faturaProntas.length + repasseProntas.length
 
   return (
     <Modal
@@ -1748,7 +1778,7 @@ export default function ColarExtratoModal({
 
           {ignoradas.length > 0 && (
             <section className="flex flex-col gap-2.5">
-              {cabecaSecao('Fora', 'não vira despesa — pagamentos têm o lugar deles; entre contas vira transferência')}
+              {cabecaSecao('Fora', 'não vira despesa — pagamentos têm o lugar deles; entre contas vira transferência; rendimento da conta entra sozinho')}
               {caixaLinhas(ignoradas.map(i => linhaFora(i)))}
             </section>
           )}
