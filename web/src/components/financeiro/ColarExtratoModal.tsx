@@ -849,7 +849,7 @@ export default function ColarExtratoModal({
   const pendentes = receitas.filter(i => i.marcado && !(i.opId || maquininhaLote) || (i.marcado && !i.mov)).length
     + travadas.length
     + parecidos.filter(i => i.parecido!.escolhido === -2).length
-    + itens.filter(i => outraNoQuase(i) && (!i.outraCoisa || (i.outraCoisa === 'entre' && !i.entreConta))).length
+    + itens.filter(i => (outraNoQuase(i) && !i.outraCoisa) || (i.outraCoisa === 'entre' && !i.entreConta && !emParecido(i))).length
 
   async function registrar() {
     if (!currentUnit?.id || !contaId) return
@@ -1447,11 +1447,12 @@ export default function ColarExtratoModal({
   /** Linha ignorada ou que é pagamento (fatura, repasse) — com o atalho certo. */
   function linhaFora(i: Item) {
     const quit = i.valor < 0 ? quitacaoDe(i.descricao) : null
-    // Aplicação/resgate já chegam perguntando a conta; o resto, por um link tímido.
-    const entreAberto = /aplica|resgate/i.test(i.descricao)
     const rend = !!i.rendimento && !i.entreConta && !i.jaNoSistema
+    // o "O que é?" — não em pagamento de fatura/repasse nem no rendimento automático (tem o "não é rendimento")
+    const escolhe = !quit && !i.faturaPgto && !i.repassePgto && !i.jaNoSistema && !(rend && !i.outraCoisa) && !(ehCartao && !i.outraCoisa)
     return (
-      <div key={i.n} className={`${grade} py-2.5 border-b border-[var(--surface-100)] last:border-0`}>
+      <div key={i.n} className="py-2.5 border-b border-[var(--surface-100)] last:border-0">
+      <div className={grade}>
         <span className={`text-xs ${i.entreConta ? 'text-[var(--brand-500)]' : rend ? 'text-emerald-500' : 'text-[var(--surface-400)]'}`} aria-hidden="true">{i.entreConta ? '⇄' : rend ? '+' : '—'}</span>
         <span className="text-xs text-[var(--surface-400)]">{dataCurta(i.data)}</span>
         <span className="text-sm text-[var(--surface-500)] truncate" title={i.original}>{i.descricao}</span>
@@ -1462,7 +1463,7 @@ export default function ColarExtratoModal({
               <button type="button" onClick={() => muda(i.n, { rendimento: false, motivoFora: 'entrada que não é de maquininha nem está no sistema — confira' })}
                       className="text-[11px] text-[var(--brand-500)] hover:underline">não é rendimento</button>
             </>
-          ) : !i.entreConta && !i.faturaPgto && !i.repassePgto && <span className="text-xs text-[var(--surface-400)]">{i.motivoFora || 'ignorada'}</span>}
+          ) : !i.entreConta && !i.outraCoisa && !i.faturaPgto && !i.repassePgto && <span className="text-xs text-[var(--surface-400)]">{i.motivoFora || 'ignorada'}</span>}
           {i.faturaPgto?.tipo === 'bate' && (
             <label className="flex items-center gap-1.5 text-xs text-[var(--surface-700)] cursor-pointer">
               <input type="checkbox" checked={!!i.conciliarFatura} onChange={e => muda(i.n, { conciliarFatura: e.target.checked })} />
@@ -1493,26 +1494,67 @@ export default function ColarExtratoModal({
               <span>Foi uma parte do <b>repasse de {rotuloRef(i.repassePgto.repasse.ref)}</b>: o resto continua em aberto → <span className="text-emerald-500 font-medium">© conciliar</span></span>
             </label>
           )}
-          {!quit && !i.entreConta && !rend && (
-            <button type="button" onClick={() => muda(i.n, { destino: i.valor < 0 ? 'despesa' : (permiteReceitas ? 'receita' : 'fora'), marcado: true, motivoFora: null })}
-                    className="text-[11px] text-[var(--brand-500)] hover:underline">não ignorar</button>
-          )}
-          {!quit && !rend && !ehCartao && contasEntre.length > 0 && (i.entreConta || entreAberto || abertos.has(i.n) ? (
-            <span className="flex items-center gap-1.5 text-xs">
-              <span className="text-[var(--surface-500)]">{i.valor < 0 ? 'foi para' : 'veio de'}</span>
-              <select value={i.entreConta} onChange={e => muda(i.n, { entreConta: e.target.value, entreHist: false })}
-                      className={`input-field text-xs py-1 ${i.entreConta ? 'text-[var(--brand-500)] font-medium' : ''}`}>
-                <option value="">— escolha a conta —</option>
-                {contasEntre.map(c => <option key={c.id} value={c.id}>{rotuloConta(cores, c.id, c.nome)}</option>)}
-              </select>
-              {i.entreConta && i.entreHist && <span className="text-[11px] text-[var(--surface-400)]">como das outras vezes</span>}
-            </span>
-          ) : (
-            <button type="button" onClick={() => setAbertos(a => new Set(a).add(i.n))}
-                    className="text-[11px] text-[var(--brand-500)] hover:underline">é transferência interna entre contas?</button>
-          ))}
         </span>
-        <span className={`text-right text-mono text-sm tabular-nums ${i.entreConta || rend ? valorCor(i.valor) : 'text-[var(--surface-400)]'}`}>{valorTxt(i.valor)}</span>
+        <span className={`text-right text-mono text-sm tabular-nums ${i.entreConta || rend || i.outraCoisa ? valorCor(i.valor) : 'text-[var(--surface-400)]'}`}>{valorTxt(i.valor)}</span>
+      </div>
+      {escolhe && <div className="mt-1.5 ml-[34px] sm:ml-[86px]">{blocoOutraCoisa(i, 'fora')}</div>}
+      </div>
+    )
+  }
+
+  /** "O QUE É?" (16/10/2026, Lucas: "me preocupa inferências") — a pessoa diz o que a linha é, ali
+   *  mesmo, no Quase lá ("não, é outra coisa") e no Fora. A linha NÃO muda de seção: o que falta
+   *  (categoria, maquininha, conta) aparece logo abaixo. */
+  function blocoOutraCoisa(i: Item, onde: 'quase' | 'fora') {
+    const entrada = i.valor > 0
+    // aplicação/resgate e o "entre contas" que veio do histórico já chegam como transferência
+    const escolha: OutraCoisa | undefined = i.outraCoisa ?? (i.entreConta || /aplica|resgate/i.test(i.descricao) ? 'entre' : undefined)
+    const opcoes: { v: OutraCoisa; t: string }[] = entrada
+      ? [{ v: 'contrato', t: onde === 'quase' ? 'pagamento de outro contrato' : 'pagamento de contrato' },
+         ...(permiteReceitas ? [{ v: 'receita' as const, t: 'recebimento de maquininha' }] : []),
+         { v: 'entre', t: 'transferência interna entre contas' },
+         { v: 'rendimento', t: 'rendimento da conta' },
+         { v: 'fora', t: onde === 'quase' ? 'deixar de fora por enquanto' : 'deixar de fora' }]
+      : [{ v: 'despesa', t: 'despesa nova' },
+         { v: 'entre', t: 'transferência interna entre contas' },
+         { v: 'fora', t: onde === 'quase' ? 'deixar de fora por enquanto' : 'deixar de fora' }]
+    const definir = (o: OutraCoisa) => {
+      const base = { outraCoisa: o, rendimento: false, entreConta: o === 'entre' ? i.entreConta : '', motivoFora: null as string | null }
+      if (o === 'despesa') muda(i.n, { ...base, destino: 'despesa', marcado: true })
+      else if (o === 'receita') muda(i.n, { ...base, destino: 'receita', marcado: true, mov: i.mov || (movimentoDe(i.descricao, i.valor) || '') })
+      else if (o === 'rendimento') muda(i.n, { ...base, destino: 'fora', marcado: false, rendimento: true })
+      else if (o === 'entre') muda(i.n, { ...base, destino: 'fora', marcado: false })
+      else if (o === 'contrato') muda(i.n, { ...base, destino: 'fora', marcado: false, motivoFora: 'pagamento de contrato — registre o pagamento no contrato e coloque este arquivo de novo' })
+      else muda(i.n, { ...base, destino: 'fora', marcado: false, motivoFora: 'deixada de fora por você' })
+    }
+    return (
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className={`text-xs ${escolha || onde === 'fora' ? 'text-[var(--surface-500)]' : 'text-amber-500 font-medium'}`}>{onde === 'quase' ? 'O que é, então?' : 'O que é?'}</span>
+          {opcoes.map(o => (
+            <button key={o.v} type="button" onClick={() => definir(o.v)}
+                    className={`px-2.5 py-0.5 rounded-full border text-xs ${escolha === o.v ? 'border-[var(--brand-500)] text-[var(--brand-500)] font-medium' : 'border-[var(--surface-300)] text-[var(--surface-600)] hover:border-[var(--brand-500)]'}`}>
+              {o.t}
+            </button>
+          ))}
+        </div>
+        {/* o que falta completar, ali mesmo */}
+        {(escolha === 'despesa' || escolha === 'receita') && <div className="-ml-6 sm:-ml-[86px]">{linhaNova(i)}</div>}
+        {escolha === 'entre' && (
+          <span className="flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="text-[var(--surface-500)]">{entrada ? 'veio de' : 'foi para'}</span>
+            <select value={i.entreConta} onChange={e => muda(i.n, { entreConta: e.target.value, entreHist: false, outraCoisa: 'entre' })}
+                    className={`input-field text-xs py-1 ${i.entreConta ? 'text-[var(--brand-500)] font-medium' : ''}`}>
+              <option value="">— escolha a conta —</option>
+              {contasEntre.map(c => <option key={c.id} value={c.id}>{rotuloConta(cores, c.id, c.nome)}</option>)}
+            </select>
+            {i.entreConta && i.entreHist && <span className="text-[11px] text-[var(--surface-400)]">como das outras vezes</span>}
+            {!i.entreConta && <span className="text-amber-500">escolha a conta para registrar</span>}
+          </span>
+        )}
+        {escolha === 'rendimento' && <span className="text-xs text-emerald-500">entra como <b>Rendimento</b> ao registrar</span>}
+        {escolha === 'contrato' && <span className="text-xs text-[var(--surface-500)]">nada é registrado agora: lance o pagamento no contrato e coloque este arquivo de novo</span>}
+        {escolha === 'fora' && <span className="text-xs text-[var(--surface-500)]">fica de fora: nada é registrado nem conciliado</span>}
       </div>
     )
   }
@@ -1524,25 +1566,6 @@ export default function ColarExtratoModal({
     const escolher = (k: number) => muda(i.n, k === -1
       ? { parecido: { ...p, escolhido: k }, outraCoisa: undefined, destino: 'fora', marcado: false, rendimento: false, entreConta: '', motivoFora: null }
       : { parecido: { ...p, escolhido: k }, outraCoisa: undefined })
-    const entrada = i.valor > 0
-    const opcoes: { v: OutraCoisa; t: string }[] = entrada
-      ? [{ v: 'contrato', t: 'pagamento de outro contrato' },
-         ...(permiteReceitas ? [{ v: 'receita' as const, t: 'recebimento de maquininha' }] : []),
-         { v: 'entre', t: 'transferência interna entre contas' },
-         { v: 'rendimento', t: 'rendimento da conta' },
-         { v: 'fora', t: 'deixar de fora por enquanto' }]
-      : [{ v: 'despesa', t: 'despesa nova' },
-         { v: 'entre', t: 'transferência interna entre contas' },
-         { v: 'fora', t: 'deixar de fora por enquanto' }]
-    const definir = (o: OutraCoisa) => {
-      const base = { outraCoisa: o, rendimento: false, entreConta: '', motivoFora: null as string | null }
-      if (o === 'despesa') muda(i.n, { ...base, destino: 'despesa', marcado: true })
-      else if (o === 'receita') muda(i.n, { ...base, destino: 'receita', marcado: true, mov: i.mov || (movimentoDe(i.descricao, i.valor) || '') })
-      else if (o === 'rendimento') muda(i.n, { ...base, destino: 'fora', marcado: false, rendimento: true })
-      else if (o === 'entre') muda(i.n, { ...base, destino: 'fora', marcado: false })
-      else if (o === 'contrato') muda(i.n, { ...base, destino: 'fora', marcado: false, motivoFora: 'pagamento de outro contrato — registre o pagamento no contrato certo e coloque este arquivo de novo' })
-      else muda(i.n, { ...base, destino: 'fora', marcado: false, motivoFora: 'deixada de fora por você' })
-    }
     return (
       <div key={i.n} className="py-2.5 border-b border-[var(--surface-100)] last:border-0">
         <div className={grade}>
@@ -1570,35 +1593,7 @@ export default function ColarExtratoModal({
             <input type="radio" name={`par-${i.n}`} checked={p.escolhido === -1} onChange={() => escolher(-1)} className="accent-[var(--brand-500)]" />
             <span className="text-[var(--surface-500)]">não, é outra coisa</span>
           </label>
-          {p.escolhido === -1 && (
-            <div className="ml-6 flex flex-col gap-2">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className={`text-xs ${i.outraCoisa ? 'text-[var(--surface-500)]' : 'text-amber-500 font-medium'}`}>O que é, então?</span>
-                {opcoes.map(o => (
-                  <button key={o.v} type="button" onClick={() => definir(o.v)}
-                          className={`px-2.5 py-0.5 rounded-full border text-xs ${i.outraCoisa === o.v ? 'border-[var(--brand-500)] text-[var(--brand-500)] font-medium' : 'border-[var(--surface-300)] text-[var(--surface-600)] hover:border-[var(--brand-500)]'}`}>
-                    {o.t}
-                  </button>
-                ))}
-              </div>
-              {/* o que falta completar, ali mesmo */}
-              {(i.outraCoisa === 'despesa' || i.outraCoisa === 'receita') && <div className="-ml-6 sm:-ml-[86px]">{linhaNova(i)}</div>}
-              {i.outraCoisa === 'entre' && (
-                <span className="flex flex-wrap items-center gap-1.5 text-xs">
-                  <span className="text-[var(--surface-500)]">{entrada ? 'veio de' : 'foi para'}</span>
-                  <select value={i.entreConta} onChange={e => muda(i.n, { entreConta: e.target.value, entreHist: false })}
-                          className={`input-field text-xs py-1 ${i.entreConta ? 'text-[var(--brand-500)] font-medium' : ''}`}>
-                    <option value="">— escolha a conta —</option>
-                    {contasEntre.map(c => <option key={c.id} value={c.id}>{rotuloConta(cores, c.id, c.nome)}</option>)}
-                  </select>
-                  {!i.entreConta && <span className="text-amber-500">escolha a conta para registrar</span>}
-                </span>
-              )}
-              {i.outraCoisa === 'rendimento' && <span className="text-xs text-emerald-500">entra como <b>Rendimento</b> ao registrar</span>}
-              {i.outraCoisa === 'contrato' && <span className="text-xs text-[var(--surface-500)]">nada é registrado agora: lance o pagamento no contrato certo e coloque este arquivo de novo</span>}
-              {i.outraCoisa === 'fora' && <span className="text-xs text-[var(--surface-500)]">fica de fora: nada é registrado nem conciliado</span>}
-            </div>
-          )}
+          {p.escolhido === -1 && <div className="ml-6">{blocoOutraCoisa(i, 'quase')}</div>}
         </div>
       </div>
     )
@@ -1646,11 +1641,13 @@ export default function ColarExtratoModal({
   const jaAntes = itens.filter(i => !!i.jaNoSistema && !emParecido(i) && !!i.jaConciliada && i.duplicada === undefined)
   const duplicadas = itens.filter(i => i.duplicada !== undefined)
   // o rendimento automático vai pro "Conciliados automaticamente" (16/10/2026, Lucas): entra sozinho, como o par exato
-  const ignoradas = fora.filter(i => !i.jaNoSistema && !i.faturaPgto && !i.repassePgto && !rendProntas.includes(i) && !outraNoQuase(i))
+  const rendAuto = rendProntas.filter(i => !outraNoQuase(i) && !i.outraCoisa)
+  // quem a pessoa definiu no "O que é?" do Fora continua desenhado no Fora (receita/despesa inclusive)
+  const ignoradas = itens.filter(i => !emParecido(i) && !outraNoQuase(i) && !i.jaNoSistema && !i.faturaPgto && !i.repassePgto
+    && ((i.destino === 'fora' && !rendAuto.includes(i)) || !!i.outraCoisa))
   const quaseVis = itens.filter(i => !!i.parecido)
-  const recVis = receitas.filter(i => !outraNoQuase(i))
-  const despVis = despesas.filter(i => !outraNoQuase(i))
-  const rendAuto = rendProntas.filter(i => !outraNoQuase(i))
+  const recVis = receitas.filter(i => !outraNoQuase(i) && !i.outraCoisa)
+  const despVis = despesas.filter(i => !outraNoQuase(i) && !i.outraCoisa)
   const autoN = encontradas.length + rendAuto.length
   const pgtosDeFatura = fora.filter(i => !i.jaNoSistema && (i.faturaPgto || i.repassePgto))
   const frasePronto = [
