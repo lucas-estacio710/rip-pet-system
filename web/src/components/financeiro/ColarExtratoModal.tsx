@@ -145,6 +145,8 @@ type Item = LinhaExtrato & {
   /** RENDIMENTO AUTOMÁTICO (16/10/2026, reunião com SJ): "REND PAGO APLIC AUT" vira movimento
    *  `rendimento` (mig 168) sem perguntar. Desmarcar ("não é rendimento") devolve a linha. */
   rendimento?: boolean
+  /** A mesma linha (ID do banco) já foi conciliada noutra importação — vai pra "Já conciliadas antes". */
+  jaConciliada?: boolean
 }
 
 /** Crédito na fatura: "+ R$ 1,20" (Inter) ou texto de estorno/reembolso. No
@@ -228,6 +230,7 @@ export default function ColarExtratoModal({
     return unidades.find(u => u.id === destinoId)?.is_matriz ? currentUnit?.id || null : null
   }
   const [encontradasAberto, setEncontradasAberto] = useState(false)
+  const [jaAntesAberto, setJaAntesAberto] = useState(false)
   /** A conta de acompanhamento que esta despesa paga: a única da categoria, ou a de
    *  valor mais perto (até 15%) quando a categoria tem mais de uma — a mesma regra do calendário. */
   const contaFixaDe = (catId: string, valor: number) => {
@@ -590,6 +593,7 @@ export default function ColarExtratoModal({
         doHistorico: false, porSinonimo: false, palpite: '', sugestoes: [] as Sugestao<Decisao>[],
         partes: [] as Parte[], meses: 1, outras: [] as ParaUnidade[],
         entreConta: '', entreHist: false, estorno: false, estornoDe: '',
+        jaConciliada: mesmaLinhaJaImportada(l),
       }
       // 1) já está no sistema?
       const par = exatoDe(l.n)
@@ -697,7 +701,7 @@ export default function ColarExtratoModal({
     // O PLACAR (conta corrente). Banco: o saldo da ÚLTIMA linha do último dia
     // (no extrato do Inter, a ordem do texto é a do dia). Sistema: tudo o que o
     // Caixa tem nesta conta até esse dia — paginado, a conta passa de 1000 linhas.
-    setAbertos(new Set()); setEncontradasAberto(false)
+    setAbertos(new Set()); setEncontradasAberto(false); setJaAntesAberto(false)
     if (ehCartao) setPlacar(null)
     else {
       const ultimo = [...linhas].reverse().find(l => l.data === fim && l.saldo !== null)
@@ -733,7 +737,7 @@ export default function ColarExtratoModal({
   const despesas = itens.filter(i => !emParecido(i) && !i.jaNoSistema && i.destino === 'despesa')
   const fora = itens.filter(i => !emParecido(i) && (i.jaNoSistema || i.destino === 'fora'))
   const confirmados = parecidos.filter(i => i.parecido!.escolhido >= 0)
-  const exatosParaConciliar = itens.filter(i => i.exatos.length)
+  const exatosParaConciliar = itens.filter(i => i.exatos.length && !i.jaConciliada)   // a já conciliada antes não conta de novo
   // Escolha de um candidato não pode servir a duas linhas.
   const escolhidosChaves = confirmados.map(i => i.parecido!.candidatos[i.parecido!.escolhido].chave)
   const naoVieram = semPar(paraVerso, new Map(), [
@@ -1510,7 +1514,10 @@ export default function ColarExtratoModal({
         return ds[0] === ds[ds.length - 1] ? fmtData(ds[0]) : `${fmtData(ds[0])} a ${fmtData(ds[ds.length - 1])}`
       })()
     : ''
-  const encontradas = itens.filter(i => !!i.jaNoSistema && !emParecido(i))
+  /** CONCILIADOS AUTOMATICAMENTE (16/10/2026, Lucas): o par exato no sistema — concilia ao registrar.
+   *  JÁ CONCILIADAS ANTES: a mesma linha (ID do banco) já veio noutra importação. Duas seções no topo, fechadas. */
+  const encontradas = itens.filter(i => !!i.jaNoSistema && !emParecido(i) && !i.jaConciliada)
+  const jaAntes = itens.filter(i => !!i.jaNoSistema && !emParecido(i) && !!i.jaConciliada)
   const ignoradas = fora.filter(i => !i.jaNoSistema && !i.faturaPgto && !i.repassePgto)
   const pgtosDeFatura = fora.filter(i => !i.jaNoSistema && (i.faturaPgto || i.repassePgto))
   const frasePronto = [
@@ -1713,6 +1720,28 @@ export default function ColarExtratoModal({
             )
           })()}
 
+          {encontradas.length > 0 && (
+            <section className="flex flex-col gap-2.5">
+              {cabecaSecao(<span className="text-emerald-500">© Conciliados automaticamente</span>,
+                `${encontradas.length} ${encontradas.length === 1 ? 'linha bateu' : 'linhas bateram'} com o que já está no sistema — conciliam ao registrar`, undefined,
+                <button type="button" onClick={() => setEncontradasAberto(v => !v)} className="ml-auto text-sm text-[var(--brand-500)] hover:underline">
+                  {encontradasAberto ? 'esconder' : 'ver quais'}
+                </button>)}
+              {encontradasAberto && caixaLinhas(encontradas.map(i => linhaEncontrada(i)))}
+            </section>
+          )}
+
+          {jaAntes.length > 0 && (
+            <section className="flex flex-col gap-2.5">
+              {cabecaSecao(<span className="text-emerald-500">✓ Já conciliadas antes</span>,
+                `${jaAntes.length} ${jaAntes.length === 1 ? 'linha deste arquivo já veio' : 'linhas deste arquivo já vieram'} em outra importação — nada a fazer`, undefined,
+                <button type="button" onClick={() => setJaAntesAberto(v => !v)} className="ml-auto text-sm text-[var(--brand-500)] hover:underline">
+                  {jaAntesAberto ? 'esconder' : 'ver quais'}
+                </button>)}
+              {jaAntesAberto && caixaLinhas(jaAntes.map(i => linhaEncontrada(i)))}
+            </section>
+          )}
+
           {parecidos.length > 0 && (
             <section className="flex flex-col gap-2.5">
               {cabecaSecao(<span className="text-amber-500">Quase lá</span>,
@@ -1721,16 +1750,6 @@ export default function ColarExtratoModal({
             </section>
           )}
 
-          {encontradas.length > 0 && (
-            <section className="flex flex-col gap-2.5">
-              {cabecaSecao(<span className="text-emerald-500">✓ Encontramos</span>,
-                `${encontradas.length} ${encontradas.length === 1 ? 'linha já está' : 'linhas já estão'} no sistema — nada a fazer`, undefined,
-                <button type="button" onClick={() => setEncontradasAberto(v => !v)} className="ml-auto text-sm text-[var(--brand-500)] hover:underline">
-                  {encontradasAberto ? 'esconder' : 'ver quais'}
-                </button>)}
-              {encontradasAberto && caixaLinhas(encontradas.map(i => linhaEncontrada(i)))}
-            </section>
-          )}
 
           {pgtosDeFatura.length > 0 && (
             <section className="flex flex-col gap-2.5">
