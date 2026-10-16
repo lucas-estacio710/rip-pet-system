@@ -1449,7 +1449,7 @@ export default function ColarExtratoModal({
     const quit = i.valor < 0 ? quitacaoDe(i.descricao) : null
     const rend = !!i.rendimento && !i.entreConta && !i.jaNoSistema
     // o "O que é?" — não em pagamento de fatura/repasse nem no rendimento automático (tem o "não é rendimento")
-    const escolhe = !quit && !i.faturaPgto && !i.repassePgto && !i.jaNoSistema && !(rend && !i.outraCoisa) && !(ehCartao && !i.outraCoisa)
+    const escolhe = !quit && !i.faturaPgto && !i.repassePgto && !i.jaNoSistema && !(rend && !i.outraCoisa)
     return (
       <div key={i.n} className="py-2.5 border-b border-[var(--surface-100)] last:border-0">
       <div className={grade}>
@@ -1509,7 +1509,11 @@ export default function ColarExtratoModal({
     const entrada = i.valor > 0
     // aplicação/resgate e o "entre contas" que veio do histórico já chegam como transferência
     const escolha: OutraCoisa | undefined = i.outraCoisa ?? (i.entreConta || /aplica|resgate/i.test(i.descricao) ? 'entre' : undefined)
-    const opcoes: { v: OutraCoisa; t: string }[] = entrada
+    // no CARTÃO só há compra (ou estorno, se é crédito na fatura) ou deixar de fora (achado da Ouro)
+    const opcoes: { v: OutraCoisa; t: string }[] = ehCartao
+      ? [{ v: 'despesa', t: entrada ? 'estorno de compra (abate a fatura)' : 'compra / despesa nova' },
+         { v: 'fora', t: 'deixar de fora' }]
+      : entrada
       ? [{ v: 'contrato', t: onde === 'quase' ? 'pagamento de outro contrato' : 'pagamento de contrato' },
          ...(permiteReceitas ? [{ v: 'receita' as const, t: 'recebimento de maquininha' }] : []),
          { v: 'entre', t: 'transferência interna entre contas' },
@@ -1520,7 +1524,7 @@ export default function ColarExtratoModal({
          { v: 'fora', t: onde === 'quase' ? 'deixar de fora por enquanto' : 'deixar de fora' }]
     const definir = (o: OutraCoisa) => {
       const base = { outraCoisa: o, rendimento: false, entreConta: o === 'entre' ? i.entreConta : '', motivoFora: null as string | null }
-      if (o === 'despesa') muda(i.n, { ...base, destino: 'despesa', marcado: true })
+      if (o === 'despesa') muda(i.n, { ...base, destino: 'despesa', marcado: true, ...(ehCartao ? { estorno: entrada } : {}) })
       else if (o === 'receita') muda(i.n, { ...base, destino: 'receita', marcado: true, mov: i.mov || (movimentoDe(i.descricao, i.valor) || '') })
       else if (o === 'rendimento') muda(i.n, { ...base, destino: 'fora', marcado: false, rendimento: true })
       else if (o === 'entre') muda(i.n, { ...base, destino: 'fora', marcado: false })
