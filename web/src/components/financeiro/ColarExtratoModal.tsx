@@ -27,7 +27,7 @@ import { useCoresContas, rotuloConta, estiloConta } from '@/lib/cor-conta'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { Loader2, ClipboardPaste } from 'lucide-react'
+import { Loader2, ClipboardPaste, ChevronRight, X } from 'lucide-react'
 import Modal from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
@@ -153,7 +153,12 @@ type Item = LinhaExtrato & {
   /** "É OUTRA COISA" no Quase lá (16/10/2026, Lucas: "me preocupa inferências"): a pessoa diz
    *  ali mesmo o que a linha é — o sistema não escolhe outra seção por ela. Sem escolha = pendente. */
   outraCoisa?: OutraCoisa
+  /** A SEÇÃO onde a linha nasce e de onde não sai (16/10/2026, redesenho): a decisão muda a
+   *  etiqueta, nunca o lugar. 'auto' = rendimento que entra sozinho; 'pgto' = fatura/repasse. */
+  casa?: Casa
 }
+
+type Casa = 'quase' | 'despesa' | 'receita' | 'fora' | 'auto' | 'pgto'
 
 type OutraCoisa = 'contrato' | 'receita' | 'entre' | 'rendimento' | 'despesa' | 'fora'
   | 'outra_receita' | 'emprestimo_devolvido' | 'emprestimo_concedido'   // mig 171
@@ -215,7 +220,10 @@ export default function ColarExtratoModal({
   // O PLACAR (V2): saldo do banco no último dia lido × saldo do sistema até ele.
   const [placar, setPlacar] = useState<{ data: string; banco: number | null; sistema: number } | null>(null)
   // Linhas com o detalhe aberto (fornecedor, forma, maquininha) e a seção "Encontramos".
-  const [abertos, setAbertos] = useState<Set<number>>(new Set())
+  // UMA linha aberta por vez (redesenho 16/10/2026)
+  const [linhaAberta, setLinhaAberta] = useState<number | null>(null)
+  const [soPendentes, setSoPendentes] = useState(false)
+  const [trocarPerg, setTrocarPerg] = useState(false)
   // Destinos possíveis de "foi para outras unidades" e os repasses que aceitam acerto.
   const [unidades, setUnidades] = useState<UnidadeRow[]>([])
   const [repassesAbertos, setRepassesAbertos] = useState<RepasseRow[]>([])
@@ -324,6 +332,18 @@ export default function ColarExtratoModal({
     void ler()
   }, [contaId, ofx, texto]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** A casa de cada linha (ver Item.casa) — calculada uma vez, depois de toda a classificação. */
+  function comCasa(xs: Item[]): Item[] {
+    return xs.map(i => ({
+      ...i,
+      casa: i.jaNoSistema ? undefined
+        : i.parecido ? 'quase'
+        : (i.faturaPgto || i.repassePgto || (i.valor < 0 && !ehCartao && quitacaoDe(i.descricao)) || (ehCartao && ehPagamentoDaFatura(i.descricao))) ? 'pgto'
+        : (i.destino === 'fora' && i.rendimento) ? 'auto'
+        : i.destino as Casa,
+    }))
+  }
+
   /** A linha que paga fatura e não está no sistema ganha a fatura dela (uma fatura serve a uma linha só). */
   function comPagamentoDeFatura(faturas: FaturaResumo[], xs: Item[], repasses: RepasseResumo[] = []): Item[] {
     if (!faturas.length && !repasses.length) return xs
@@ -386,7 +406,7 @@ export default function ColarExtratoModal({
             .select('id, data_competencia, data_caixa, valor, divisao_id, observacoes, fornecedor_nome, descricao')
             .eq('conta_pagamento_id', contaId).neq('status', 'rejeitado')
             .or(`and(data_competencia.gte.${iniJ},data_competencia.lte.${fimJ})${vencLido ? `,data_caixa.eq.${vencLido}` : ''}`)
-        : supabase.from('vw_caixa').select('data, valor, origem, origem_id, descricao')
+        : supabase.from('vw_caixa').select('data, valor, origem, origem_id, descricao, tipo')
             .eq('conta_id', contaId).gte('data', iniJ).lte('data', fimJ),
       // 2) As divisões dessas despesas, pra somar as partes (uma linha no banco).
       ehCartao
@@ -423,7 +443,7 @@ export default function ColarExtratoModal({
             descricao: l.observacoes || l.fornecedor_nome || l.descricao || 'compra no cartão',
           }
         })
-      : ((caixa.data as CX[] | null) || [])
+      : ((caixa.data as (CX & { tipo?: string })[] | null) || []).filter(r => r.tipo !== 'ajuste')   // ajuste de saldo é nosso, nunca vem no banco
     const agrup = new Map<string, RegistroSistema>()
     linhasCaixa.forEach((r, idx) => {
       const grupo = r.origem === 'lancamento' ? divisaoDe.get(r.origem_id) : undefined
@@ -646,7 +666,7 @@ export default function ColarExtratoModal({
       }
     }
 
-    setItens(comPagamentoDeFatura(faturasAbertas, linhas.map(l => {
+    setItens(comCasa(comPagamentoDeFatura(faturasAbertas, linhas.map(l => {
       const base = {
         ...l, jaNoSistema: null as string | null, motivoFora: null as string | null, marcado: true,
         exatos: [] as RegistroSistema[], parecido: null as Item['parecido'],
@@ -760,7 +780,7 @@ export default function ColarExtratoModal({
         item.parecido = { tipo: folga.tipo, candidatos: folga.candidatos, escolhido: folga.tipo === 'provavel' ? 0 : -2 }
       }
       return item
-    }), repassesPgto))
+    }), repassesPgto)))
     // Fatura: o cabeçalho traz vencimento e total — preenche a fatura (se ainda
     // não escolhida) e guarda o total pra conferir a soma das compras.
     const cab = ehCartao ? cabecalhoFatura(texto) : null
@@ -776,7 +796,7 @@ export default function ColarExtratoModal({
     // O PLACAR (conta corrente). Banco: o saldo da ÚLTIMA linha do último dia
     // (no extrato do Inter, a ordem do texto é a do dia). Sistema: tudo o que o
     // Caixa tem nesta conta até esse dia — paginado, a conta passa de 1000 linhas.
-    setAbertos(new Set()); setEncontradasAberto(false); setJaAntesAberto(false)
+    setLinhaAberta(null); setEncontradasAberto(false); setJaAntesAberto(false); setTrocarPerg(false)
     if (ehCartao) setPlacar(null)
     else {
       const ultimo = [...linhas].reverse().find(l => l.data === fim && l.saldo !== null)
@@ -808,7 +828,6 @@ export default function ColarExtratoModal({
 
   const emParecido = (i: Item) => !!i.parecido && i.parecido.escolhido !== -1
   /** "é outra coisa": a linha continua DESENHADA no Quase lá, com a escolha dela ali */
-  const outraNoQuase = (i: Item) => !!i.parecido && i.parecido.escolhido === -1
   const parecidos = itens.filter(emParecido)
   const receitas = itens.filter(i => !emParecido(i) && !i.jaNoSistema && i.destino === 'receita')
   const despesas = itens.filter(i => !emParecido(i) && !i.jaNoSistema && i.destino === 'despesa')
@@ -852,11 +871,9 @@ export default function ColarExtratoModal({
   const faturaDifere = fora.filter(i => !i.jaNoSistema && ((i.faturaPgto?.tipo === 'difere' && !i.parcialFatura) || (i.repassePgto?.tipo === 'difere' && !i.parcialRepasse)))
   /** Pra onde o dinheiro pode ter ido: as outras contas da casa (sem maquininha e cartão). */
   const contasEntre = contas.filter(c => c.id !== contaId && c.produto !== 'maquininha' && c.tipo !== 'cartao')
-  const pendentes = receitas.filter(i => i.marcado && !(i.opId || maquininhaLote) || (i.marcado && !i.mov)).length
-    + travadas.length
-    + parecidos.filter(i => i.parecido!.escolhido === -2).length
-    + itens.filter(i => (outraNoQuase(i) && !i.outraCoisa) || (!emParecido(i) && ((i.outraCoisa === 'entre' && !i.entreConta)
-        || (i.outraCoisa === 'outra_receita' && !catsReceita.some(r => r.id === i.catId))))).length
+  /** linhas ainda sem decisão (ou com a decisão incompleta) — o rodapé conta e o "ver qual" leva até elas */
+  const pendentesL = itens.filter(i => i.casa && i.casa !== 'pgto' && estadoDe(i).tipo === 'pendente')
+  const pendentes = pendentesL.length
 
   async function registrar() {
     if (!currentUnit?.id || !contaId) return
@@ -1184,189 +1201,351 @@ export default function ColarExtratoModal({
     )
   }
 
-  /** Linha nova (recebimento ou despesa): o essencial numa linha; o resto,
-   *  tímido, embaixo — e abre dentro da própria linha. */
-  function linhaNova(i: Item) {
-    const aberta = abertos.has(i.n)
-    const alternar = () => setAbertos(s => { const n = new Set(s); if (n.has(i.n)) n.delete(i.n); else n.add(i.n); return n })
+  // ══ O PADRÃO ÚNICO DE LINHA (16/10/2026 — revisão de um leigo e de uma especialista em finanças,
+  // aprovada pelo Lucas). Fechada: bolinha de estado · data · texto do banco · ETIQUETA da decisão
+  // (✕ desfaz) · valor. Aberta: linha + painel num bloco só; o painel nunca repete data/texto/valor
+  // e fecha no "Pronto" ou clicando de novo na linha. A linha nunca muda de seção (Item.casa).
+
+  /** O que a linha É agora — null = ninguém decidiu. */
+  function escolhaDe(i: Item): OutraCoisa | null {
+    if (i.outraCoisa) return i.outraCoisa
+    if (i.destino === 'despesa' && i.marcado) return 'despesa'
+    if (i.destino === 'receita' && i.marcado) return 'receita'
+    if (i.destino === 'fora' && i.rendimento) return 'rendimento'
+    if (i.destino === 'fora' && i.entreConta) return 'entre'
+    return null
+  }
+
+  /** `fixo`: a linha já está no sistema (só falta a categoria) — sem ✕ e sem "O que é?" (mudar o tipo duplicaria) */
+  type Estado = { tipo: 'pendente' | 'feito' | 'fora'; texto: string; falta?: string; fixo?: boolean }
+  function estadoDe(i: Item): Estado {
+    const p = i.parecido
+    if (i.casa === 'quase' && p) {
+      if (p.escolhido >= 0) return { tipo: 'feito', texto: `É ${p.candidatos[p.escolhido].rotulo}` }
+      if (p.escolhido === -2) return { tipo: 'pendente', texto: 'Confirme', falta: 'é o lançamento do sistema?' }
+    }
+    const folha = (id: string) => caminhoDe(id).split(' › ').pop() || ''
+    if (i.reclassificar) return { tipo: 'feito', texto: `Já no sistema · ${i.catId ? folha(i.catId) : 'sem categoria'}`, fixo: true }
+    switch (escolhaDe(i)) {
+      case 'despesa': {
+        const base = `${i.estorno ? 'Estorno' : 'Despesa'} · ${i.catId ? folha(i.catId) : 'sem categoria'}`
+        const extra = [i.partes.length ? `dividida em ${i.partes.length + 1}` : '', i.meses > 1 ? `${i.meses} meses` : '', i.outras.length ? 'com outra unidade' : ''].filter(Boolean)
+        const falta = travadas.includes(i) ? (conj.conjunto && !i.dono ? 'de quem é?' : 'complete os detalhes') : undefined
+        return { tipo: falta ? 'pendente' : 'feito', texto: [base, ...extra].join(' · '), falta }
+      }
+      case 'receita': {
+        const maq = maquininhas.find(m => m.id === (i.opId || maquininhaLote))?.nome
+        if (!maq || !i.mov) return { tipo: 'pendente', texto: 'Maquininha', falta: !maq ? 'qual maquininha?' : 'o que ela fez?' }
+        return { tipo: 'feito', texto: `Maquininha · ${maq} · ${ROTULO_MOV[i.mov].toLowerCase()}` }
+      }
+      case 'entre': {
+        const c = contasEntre.find(x => x.id === i.entreConta)
+        return c ? { tipo: 'feito', texto: `Transferência ${i.valor < 0 ? 'para' : 'de'} ${c.nome}` }
+                 : { tipo: 'pendente', texto: 'Transferência', falta: 'qual conta?' }
+      }
+      case 'rendimento': return { tipo: 'feito', texto: 'Rendimento da conta' }
+      case 'outra_receita': return catsReceita.some(r => r.id === i.catId)
+        ? { tipo: 'feito', texto: `Outra receita · ${folha(i.catId)}` } : { tipo: 'pendente', texto: 'Outra receita', falta: 'qual?' }
+      case 'emprestimo_concedido': return { tipo: 'feito', texto: 'Empréstimo concedido' }
+      case 'emprestimo_devolvido': return { tipo: 'feito', texto: 'Devolução de empréstimo' }
+      case 'contrato': return { tipo: 'fora', texto: 'Pagamento de contrato — lançar no contrato' }
+      case 'fora': return { tipo: 'fora', texto: 'Deixada de fora' }
+      default: return { tipo: 'pendente', texto: 'O que é?' }
+    }
+  }
+
+  /** As opções do "O que é?" — as mesmas em toda a tela, sempre na mesma ordem. */
+  function opcoesDe(i: Item): { v: OutraCoisa; t: string }[] {
+    const entrada = i.valor > 0
+    if (ehCartao) return [{ v: 'despesa', t: entrada ? 'Estorno de compra' : 'Compra / despesa' }, { v: 'fora', t: 'Deixar de fora' }]
+    return entrada
+      ? [{ v: 'contrato', t: 'Pagamento de contrato' },
+         ...(permiteReceitas ? [{ v: 'receita' as const, t: 'Recebimento da maquininha' }] : []),
+         ...(catsReceita.length ? [{ v: 'outra_receita' as const, t: 'Outra receita' }] : []),
+         { v: 'emprestimo_devolvido', t: 'Devolução de empréstimo' },
+         { v: 'entre', t: 'Transferência entre contas' },
+         { v: 'rendimento', t: 'Rendimento da conta' },
+         { v: 'fora', t: 'Deixar de fora' }]
+      : [{ v: 'despesa', t: 'Despesa' },
+         ...(permiteReceitas && maquininhas.length ? [{ v: 'receita' as const, t: 'Taxa ou estorno da maquininha' }] : []),
+         { v: 'emprestimo_concedido', t: 'Empréstimo concedido' },
+         { v: 'entre', t: 'Transferência entre contas' },
+         { v: 'fora', t: 'Deixar de fora' }]
+  }
+
+  /** Escolher uma opção do "O que é?". Nada muda de seção: só a decisão da linha. */
+  function definir(i: Item, o: OutraCoisa) {
+    const entrada = i.valor > 0
+    const catDeReceita = catsReceita.some(r => r.id === i.catId)
+    const base: Partial<Item> = {
+      outraCoisa: o, rendimento: false, entreConta: o === 'entre' ? i.entreConta : '', motivoFora: null,
+      ...(i.casa === 'quase' && i.parecido ? { parecido: { ...i.parecido, escolhido: -1 } } : {}),
+    }
+    if (o === 'despesa') muda(i.n, { ...base, destino: 'despesa', marcado: true, catId: catDeReceita ? '' : i.catId, ...(ehCartao ? { estorno: entrada } : {}) })
+    else if (o === 'receita') muda(i.n, { ...base, destino: 'receita', marcado: true, mov: i.mov || (movimentoDe(i.descricao, i.valor) || '') })
+    else if (o === 'rendimento') muda(i.n, { ...base, destino: 'fora', marcado: false, rendimento: true })
+    else if (o === 'outra_receita') muda(i.n, { ...base, destino: 'fora', marcado: false, catId: catsReceita.length === 1 ? catsReceita[0].id : (catDeReceita ? i.catId : '') })
+    else if (o === 'contrato') muda(i.n, { ...base, destino: 'fora', marcado: false, motivoFora: 'pagamento de contrato' })
+    else if (o === 'fora') muda(i.n, { ...base, destino: 'fora', marcado: false, motivoFora: 'deixada de fora por você' })
+    else muda(i.n, { ...base, destino: 'fora', marcado: false })   // transferência, empréstimos
+  }
+
+  /** O ✕ da etiqueta: volta a linha a "O que é?" (no Quase lá, a "Confirme"). */
+  function desfazer(i: Item) {
+    const p = i.parecido
+    if (i.casa === 'quase' && p && p.escolhido >= 0) muda(i.n, { parecido: { ...p, escolhido: -2 } })
+    else muda(i.n, { outraCoisa: undefined, destino: 'fora', marcado: false, rendimento: false, entreConta: '', entreHist: false, motivoFora: null })
+    setLinhaAberta(i.n)
+  }
+
+  /** A linha — fechada mostra a decisão; clicar abre o painel embaixo, no mesmo bloco. */
+  function linha(i: Item) {
+    const est = estadoDe(i)
+    const aberta = linhaAberta === i.n
+    const alternar = () => setLinhaAberta(a => (a === i.n ? null : i.n))
+    const corBolinha = est.tipo === 'pendente' ? 'bg-amber-500' : est.tipo === 'feito' ? 'bg-emerald-500' : 'bg-[var(--surface-300)]'
+    const corBorda = est.tipo === 'pendente' ? 'border-amber-500' : est.tipo === 'feito' ? 'border-emerald-500' : 'border-[var(--surface-300)]'
+    const etiqueta = est.tipo === 'pendente' ? (
+      <span className="inline-flex items-center gap-1 max-w-full px-2.5 py-0.5 rounded-full border border-amber-500/60 bg-amber-500/10 text-[12px] font-medium text-amber-500">
+        <span className="truncate">{est.texto === 'O que é?' ? 'O que é?' : `${est.texto}${est.falta ? ` · ${est.falta}` : ''}`}</span>
+        <ChevronRight className={`h-3 w-3 shrink-0 transition-transform ${aberta ? 'rotate-90' : ''}`} />
+      </span>
+    ) : (
+      <span className={`inline-flex items-center gap-1 max-w-full pl-2.5 pr-1 py-0.5 rounded-full text-[12px] font-medium ${est.tipo === 'feito' ? 'bg-emerald-500/15 text-emerald-500' : 'bg-[var(--surface-200)] text-[var(--surface-600)]'}`}>
+        <span className="truncate">{est.texto}</span>
+        {!est.fixo && <button type="button" title="Desfazer esta escolha" aria-label="Desfazer esta escolha"
+                onClick={e => { e.stopPropagation(); desfazer(i) }}
+                className="shrink-0 rounded-full p-0.5 hover:bg-black/10"><X className="h-3 w-3" /></button>}
+      </span>
+    )
     return (
-      <div key={i.n} className="py-2.5 border-b border-[var(--surface-100)] last:border-0" style={{ opacity: i.marcado ? 1 : 0.5 }}>
-        <div className={grade}>
-          <input type="checkbox" checked={i.marcado} onChange={e => muda(i.n, { marcado: e.target.checked })}
-                 aria-label="Registrar esta linha" className="h-4 w-4 accent-[var(--brand-500)]" />
-          <span className="text-xs text-[var(--surface-400)]">{dataCurta(i.data)}</span>
-          <span className="text-sm text-[var(--surface-600)] truncate" title={i.original}>
-            {i.descricao}
-            {i.estorno && <span className="ml-1.5 px-1.5 rounded-full text-[10px] font-medium bg-emerald-500/15 text-emerald-500" title="Crédito na fatura: entra negativo, abate a fatura e a despesa da categoria">estorno</span>}
-            {i.fornecedor && i.destino === 'despesa' && <span className="text-[var(--surface-400)]"> · {i.fornecedor}</span>}
-          </span>
-          {/* A DECISÃO — categoria (despesa) ou o que a maquininha fez (recebimento) */}
-          <span className="col-span-4 col-start-3 sm:col-span-1 sm:col-start-auto row-start-2 sm:row-start-auto min-w-0">
-            {i.destino === 'despesa' && conj.conjunto && (
-              <span className={`mr-1.5 inline-flex rounded-full border p-0.5 align-middle ${i.dono ? 'border-[var(--surface-300)]' : 'border-amber-500/70'}`} title="De quem é esta despesa?">
-                {conj.irmas.map(u => (
-                  <button key={u.id} type="button" onClick={() => muda(i.n, { dono: u.id })}
-                          className={`px-1.5 rounded-full text-[11px] font-bold ${i.dono === u.id ? 'bg-[var(--brand-500)] text-white' : 'text-[var(--surface-500)]'}`}>{conj.letra(u.id)}</button>
-                ))}
-              </span>
-            )}
-            {i.destino === 'despesa' && (i.catId ? (
-              <span className="flex items-baseline gap-1.5 min-w-0">
-                <span className="text-sm font-semibold text-emerald-500 truncate">
-                  {caminhoDe(i.catId).split(' › ').pop()}
-                  {i.partes.length > 0 && <span className="font-normal text-[var(--brand-500)]"> + {i.partes.length} {i.partes.length === 1 ? 'parte' : 'partes'}</span>}
-                  {i.meses > 1 && <span className="font-normal text-[var(--brand-500)]"> · {i.meses} meses</span>}
-                  {i.outras.length > 0 && <span className="font-normal text-[var(--brand-500)]"> · parte de outra unidade</span>}
-                </span>
-                {!i.estorno && (() => { const fx = contaFixaDe(i.catId, i.partes.length ? restanteDe(i) : Math.abs(i.valor)); return fx && (
-                  <span className="shrink-0 text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-400" title="Conta de acompanhamento — o calendário marca como paga">📌 {fx.nome}</span>
-                ) })()}
-                <span className="text-[11px] text-[var(--surface-400)] truncate">
-                  {i.estornoDe || (i.doHistorico ? 'como das outras vezes' : caminhoDe(i.catId).split(' › ').slice(0, -1).join(' › '))}
-                </span>
-                <button type="button" onClick={() => muda(i.n, { catId: '', catTexto: '', doHistorico: false, porSinonimo: false })}
-                        className="text-[11px] text-[var(--brand-500)] hover:underline shrink-0">trocar</button>
-              </span>
-            ) : (
-              <input value={i.catTexto} autoComplete="off"
-                     onChange={e => muda(i.n, { catTexto: e.target.value, catId: '', doHistorico: false, porSinonimo: false })}
-                     aria-label="Categoria da despesa" placeholder={i.reclassificar ? 'já lançada sem categoria: do que foi?' : 'do que foi? (gasolina, aluguel…)'}
-                     className="input text-sm py-1 w-full" style={{ borderColor: '#f59e0b' }} />
-            ))}
-            {i.destino === 'receita' && (
-              <span className="text-sm text-[var(--surface-600)]">
-                {(maquininhas.find(m => m.id === (i.opId || maquininhaLote))?.nome) || <span className="text-amber-500">qual maquininha?</span>}
-                {' · '}
-                {i.mov ? <span className={i.mov === 'antecipacao' ? 'text-amber-500' : ''}>{ROTULO_MOV[i.mov].toLowerCase()}</span>
-                       : <span className="text-amber-500">o que é?</span>}
-                {!aberta && <button type="button" onClick={alternar} className="ml-1.5 text-[11px] text-[var(--brand-500)] hover:underline">trocar</button>}
-              </span>
-            )}
-          </span>
-          <span className={`text-right text-mono text-sm tabular-nums ${valorCor(i.valor)}`}>{valorTxt(i.valor)}</span>
+      <div key={i.n} data-linha={i.n}
+           className={`border-l-[3px] px-3 py-2 ${aberta ? `${corBorda} bg-[var(--surface-0)] shadow-sm rounded-r-[10px] my-1` : 'border-transparent'}`}>
+        <div role="button" tabIndex={0} onClick={alternar}
+             onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); alternar() } }}
+             className="grid grid-cols-[8px_42px_minmax(0,1fr)_auto] sm:grid-cols-[8px_46px_minmax(0,1fr)_minmax(0,300px)_104px_14px] gap-x-3 gap-y-1 items-center cursor-pointer">
+          <span className={`h-2 w-2 rounded-full ${corBolinha}`} aria-hidden="true" />
+          <span className="text-xs text-[var(--surface-400)] tabular-nums">{dataCurta(i.data)}</span>
+          <span className="text-sm text-[var(--surface-700)] truncate" title={i.original}>{i.descricao}</span>
+          <span className="row-start-2 col-start-3 col-span-2 sm:row-start-auto sm:col-start-auto sm:col-span-1 min-w-0 flex sm:justify-end">{etiqueta}</span>
+          <span className={`row-start-1 col-start-4 sm:row-start-auto sm:col-start-auto text-right text-mono text-sm tabular-nums ${valorCor(i.valor)}`}>{valorTxt(i.valor)}</span>
+          <ChevronRight className={`hidden sm:block h-3.5 w-3.5 text-[var(--surface-400)] transition-transform ${aberta ? 'rotate-90' : ''}`} />
         </div>
+        {aberta && <div className="mt-2.5 pl-[22px] sm:pl-[66px]">{painelDecisao(i)}</div>}
+      </div>
+    )
+  }
 
-        {/* busca de categoria enquanto não há uma escolhida */}
-        {i.destino === 'despesa' && !i.catId && (() => {
-          const achados = i.catTexto.trim().length >= 2 ? buscarCategorias(folhas, caminhoDe, i.catTexto, 6) : []
-          const sugeridas = i.sugestoes.filter(s => s.decisao.tipo === 'despesa')
-          if (!achados.length && !sugeridas.length && !i.palpite && i.catTexto.trim().length < 2) return null
-          return (
-            <div className="mt-2 ml-[34px] sm:ml-[86px] flex flex-col gap-1.5">
-              {(sugeridas.length > 0 || i.palpite) && !i.catTexto && (
-                <div className="flex flex-wrap gap-1.5">
-                  {i.palpite && !sugeridas.some(s => s.decisao.tipo === 'despesa' && (s.decisao as { catId: string }).catId === i.palpite) && (
-                    <button type="button" onClick={() => muda(i.n, { catId: i.palpite, catTexto: '', porSinonimo: true })}
-                            className="text-xs px-2.5 py-1 rounded-full border border-dashed border-amber-500/60 text-amber-500 hover:bg-amber-500/10"
-                            title="Palpite pelo nome — não há histórico parecido. Confira antes de escolher">
-                      talvez {caminhoDe(i.palpite).split(' › ').pop()}?
-                    </button>
-                  )}
-                  {sugeridas.map(s => s.decisao.tipo === 'despesa' && (
-                    <button key={s.chave} type="button"
-                            onClick={() => muda(i.n, { catId: (s.decisao as { catId: string }).catId, catTexto: '', porSinonimo: false })}
-                            className="text-xs px-2.5 py-1 rounded-full border border-[var(--surface-200)] text-[var(--surface-600)] hover:border-emerald-500 hover:text-emerald-500"
-                            title={`Usada ${s.vezes}× em linhas parecidas`}>
-                      {caminhoDe((s.decisao as { catId: string }).catId).split(' › ').pop()}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {achados.length > 0 && (
-                <div className="rounded-[var(--radius-md)] border border-[var(--surface-200)] divide-y divide-[var(--surface-100)] max-w-[520px]">
-                  {achados.map(({ c, termoBatido, forte }) => (
-                    <button key={c.id} type="button"
-                            onClick={() => muda(i.n, { catId: c.id, catTexto: '', porSinonimo: false })}
-                            className="w-full text-left px-3 py-1.5 text-sm hover:bg-[var(--surface-50)] flex items-center gap-2">
-                      <span className="flex-1 truncate text-[var(--surface-700)]">{caminhoDe(c.id)}</span>
-                      {!forte && termoBatido && <span className="text-[11px] text-[var(--surface-400)] shrink-0">“{termoBatido}”</span>}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {i.catTexto.trim().length >= 2 && !achados.length && (
-                <span className="text-xs text-amber-500">nenhuma categoria com “{i.catTexto.trim()}”</span>
-              )}
-            </div>
-          )
-        })()}
-
-        {/* OS LINKS TÍMIDOS — e o que eles abrem, dentro da própria linha */}
-        <div className="mt-1.5 ml-[34px] sm:ml-[86px] flex flex-wrap gap-x-4 gap-y-1">
-          <button type="button" onClick={alternar} className="text-[11px] text-[var(--surface-400)] hover:text-[var(--surface-700)]">
-            {aberta ? 'fechar' : i.destino === 'despesa' ? 'fornecedor · forma de pagamento' : 'maquininha · movimento'}
-          </button>
-          {i.destino === 'despesa' && !i.estorno && i.outras.length === 0 && i.partes.length === 0 && unidades.length > 0 && (
-            <button type="button" className="text-[11px] text-[var(--surface-400)] hover:text-[var(--surface-700)]"
-                    onClick={() => muda(i.n, { outras: [{ key: crypto.randomUUID(), unidadeId: '', valor: '', modo: 'repasse', repasseId: '' }] })}>
-              foi para outras unidades
-            </button>
-          )}
-          {i.destino === 'despesa' && !i.estorno && i.partes.length === 0 && i.outras.length === 0 && (
-            <button type="button" className="text-[11px] text-[var(--surface-400)] hover:text-[var(--surface-700)]"
-                    onClick={() => muda(i.n, { partes: [{ key: crypto.randomUUID(), catId: '', catTexto: '', valor: '' }] })}>
-              dividir em categorias
-            </button>
-          )}
-          {i.destino === 'despesa' && !i.estorno && i.meses === 1 && (
-            <button type="button" className="text-[11px] text-[var(--surface-400)] hover:text-[var(--surface-700)]"
-                    onClick={() => muda(i.n, { meses: 12 })}>
-              vale por vários meses
-            </button>
-          )}
-          <select value={i.destino} aria-label="O que é esta linha"
-                  onChange={e => muda(i.n, { destino: e.target.value as Destino, marcado: e.target.value !== 'fora',
-                    mov: e.target.value === 'receita' && !i.mov ? (movimentoDe(i.descricao, i.valor) || '') : i.mov })}
-                  className="text-[11px] bg-transparent border-0 p-0 text-[var(--surface-400)] hover:text-[var(--surface-700)] cursor-pointer">
-            {i.valor < 0 && <option value="despesa">é uma despesa</option>}
-            {permiteReceitas && <option value="receita">é da maquininha</option>}
-            <option value="fora">ignorar esta linha</option>
-          </select>
-        </div>
-        {aberta && (
-          <div className="mt-2 ml-[34px] sm:ml-[86px] pl-4 border-l-2 border-[var(--brand-500)] flex flex-wrap items-end gap-3">
-            {i.destino === 'despesa' ? (<>
-              <label className="flex flex-col gap-1 text-xs text-[var(--surface-500)]">
-                Para quem
-                <input value={i.fornecedor} onChange={e => muda(i.n, { fornecedor: e.target.value })}
-                       className="input text-sm py-1 w-56" />
-              </label>
-              <label className="flex flex-col gap-1 text-xs text-[var(--surface-500)]">
-                Forma de pagamento
-                {ehCartao ? <span className="text-sm text-[var(--surface-600)] py-1">cartão de crédito</span> : (
-                  <select value={i.metodo} onChange={e => muda(i.n, { metodo: e.target.value })} className="input text-sm py-1">
-                    {METODOS.map(m => <option key={m.v} value={m.v}>{m.l}</option>)}
-                  </select>
-                )}
-              </label>
-            </>) : (<>
-              {maquininhas.length > 1 && (
-                <label className="flex flex-col gap-1 text-xs text-[var(--surface-500)]">
-                  Maquininha
-                  <select value={i.opId || maquininhaLote} onChange={e => muda(i.n, { opId: e.target.value })} className="input text-sm py-1">
-                    <option value="">escolher…</option>
-                    {maquininhas.map(m => <option key={m.id} value={m.id}>{rotuloConta(cores, m.id, m.nome)}</option>)}
-                  </select>
+  /** O painel da linha aberta: (Quase lá: o par sugerido) · "O que é?" · o que falta · Pronto. */
+  function painelDecisao(i: Item) {
+    const p = i.parecido
+    const quase = i.casa === 'quase' && !!p
+    const escolha = escolhaDe(i)
+    const mostraMenu = !i.reclassificar && (!quase || p!.escolhido === -1)
+    const escolherPar = (k: number) => muda(i.n, k === -1
+      ? { parecido: { ...p!, escolhido: -1 }, outraCoisa: undefined, destino: 'fora', marcado: false, rendimento: false, entreConta: '', motivoFora: null }
+      : { parecido: { ...p!, escolhido: k }, outraCoisa: undefined })
+    return (
+      <div className="flex flex-col gap-3">
+        {quase && p && (
+          <div className="flex flex-col gap-1.5">
+            {p.candidatos.map((c, k) => {
+              const outra = itens.some(x => x.n !== i.n && x.parecido && x.parecido.escolhido >= 0 && x.parecido.candidatos[x.parecido.escolhido].chave === c.chave)
+              const ajusta = c.ajustavel && (Math.abs(c.valor - i.valor) >= 0.005 || c.data !== i.data)
+              return (
+                <label key={c.chave} className={`flex flex-wrap items-center gap-x-2 text-sm ${outra ? 'opacity-40' : 'cursor-pointer'}`}>
+                  <input type="radio" name={`par-${i.n}`} checked={p.escolhido === k} disabled={outra} onChange={() => escolherPar(k)} className="accent-[var(--brand-500)]" />
+                  <span className="text-[var(--surface-700)]">Sim, é <strong className="font-semibold">{c.rotulo}</strong></span>
+                  <span className="text-xs text-[var(--surface-500)]">lançado em {fmtData(c.data)} · {fmtBRL(Math.abs(c.valor))}</span>
+                  {ajusta && <span className="text-xs text-[var(--surface-500)]">(o lançamento passa a ter a data e o valor do banco)</span>}
+                  {outra && <span className="text-xs text-[var(--surface-400)]">(já escolhido em outra linha)</span>}
                 </label>
-              )}
-              <label className="flex flex-col gap-1 text-xs text-[var(--surface-500)]">
-                O que a maquininha fez
-                <select value={i.mov} onChange={e => muda(i.n, { mov: e.target.value as MovMaquininha })} className="input text-sm py-1">
-                  <option value="">escolher…</option>
-                  {(Object.keys(ROTULO_MOV) as MovMaquininha[]).filter(m => ENTRA_MOV[m] === (i.valor > 0))
-                    .map(m => <option key={m} value={m}>{ROTULO_MOV[m]}</option>)}
-                </select>
-              </label>
-              {i.mov === 'antecipacao' && (
-                <span className="text-xs text-amber-500 pb-1.5">Registre o valor que caiu. O custo da antecipação é despesa (Financeiro › Encargos).</span>
-              )}
-            </>)}
+              )
+            })}
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="radio" name={`par-${i.n}`} checked={p.escolhido === -1} onChange={() => escolherPar(-1)} className="accent-[var(--brand-500)]" />
+              <span className="text-[var(--surface-700)]">Não, é outra coisa</span>
+            </label>
           </div>
         )}
-        {i.destino === 'despesa' && i.partes.length > 0 && painelDividir(i)}
-        {i.destino === 'despesa' && i.outras.length > 0 && painelOutras(i)}
-        {i.destino === 'despesa' && i.meses > 1 && (
-          <div className="mt-2 ml-[34px] sm:ml-[86px] pl-4 border-l-2 border-[var(--brand-500)] flex flex-wrap items-center gap-3">
+        {mostraMenu && (
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-[var(--surface-500)]">{quase ? 'Então o que é?' : 'O que é?'}</span>
+            <div className="flex flex-wrap gap-1.5">
+              {opcoesDe(i).map(o => (
+                <button key={o.v} type="button" onClick={() => definir(i, o.v)}
+                        className={`px-3 py-1 rounded-full border text-xs ${escolha === o.v ? 'border-[var(--brand-500)] bg-[var(--brand-500)] text-white font-medium' : 'border-[var(--surface-300)] text-[var(--surface-700)] hover:border-[var(--brand-500)]'}`}>
+                  {o.t}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {i.reclassificar ? painelDespesa(i) : mostraMenu && completar(i, escolha)}
+        <div className="flex items-center justify-end gap-3">
+          <button type="button" onClick={() => setLinhaAberta(null)} className="btn-secondary text-xs py-1 px-4">Pronto</button>
+        </div>
+      </div>
+    )
+  }
+
+  /** O que cada escolha ainda pede — sem repetir a linha do banco. */
+  function completar(i: Item, escolha: OutraCoisa | null) {
+    const frase = (t: ReactNode, cor = 'text-[var(--surface-500)]') => <span className={`text-xs leading-snug ${cor}`}>{t}</span>
+    switch (escolha) {
+      case 'despesa': return painelDespesa(i)
+      case 'receita': return (
+        <div className="flex flex-wrap items-end gap-3">
+          {maquininhas.length > 1 && (
+            <label className="flex flex-col gap-1 text-xs text-[var(--surface-500)]">
+              Maquininha
+              <select value={i.opId || maquininhaLote} onChange={e => muda(i.n, { opId: e.target.value })} className="input text-sm py-1 w-auto max-w-[320px]">
+                <option value="">escolher…</option>
+                {maquininhas.map(m => <option key={m.id} value={m.id}>{rotuloConta(cores, m.id, m.nome)}</option>)}
+              </select>
+            </label>
+          )}
+          {maquininhas.length === 0 && frase('Nenhuma maquininha cadastrada — cadastre em Configurações de Contas.', 'text-amber-500')}
+          <label className="flex flex-col gap-1 text-xs text-[var(--surface-500)]">
+            O que a maquininha fez
+            <select value={i.mov} onChange={e => muda(i.n, { mov: e.target.value as MovMaquininha })} className="input text-sm py-1 w-auto max-w-[320px]">
+              <option value="">escolher…</option>
+              {(Object.keys(ROTULO_MOV) as MovMaquininha[]).filter(m => ENTRA_MOV[m] === (i.valor > 0))
+                .map(m => <option key={m} value={m}>{ROTULO_MOV[m]}</option>)}
+            </select>
+          </label>
+          {i.mov === 'antecipacao' && frase('Registre o valor que caiu. O custo da antecipação é despesa (Financeiro › Encargos).', 'text-amber-500')}
+        </div>
+      )
+      case 'entre': return (
+        <label className="flex flex-wrap items-center gap-2 text-xs text-[var(--surface-500)]">
+          {i.valor < 0 ? 'Foi para a conta' : 'Veio da conta'}
+          <select value={i.entreConta} onChange={e => muda(i.n, { entreConta: e.target.value, entreHist: false, outraCoisa: 'entre' })}
+                  className="input text-sm py-1 w-auto max-w-[320px]">
+            <option value="">escolher…</option>
+            {contasEntre.map(c => <option key={c.id} value={c.id}>{rotuloConta(cores, c.id, c.nome)}</option>)}
+          </select>
+          {i.entreConta && i.entreHist && <span className="text-[var(--surface-400)]">como das outras vezes</span>}
+        </label>
+      )
+      case 'outra_receita': return (
+        <label className="flex flex-wrap items-center gap-2 text-xs text-[var(--surface-500)]">
+          Qual receita
+          <select value={catsReceita.some(r => r.id === i.catId) ? i.catId : ''} onChange={e => muda(i.n, { catId: e.target.value })} className="input text-sm py-1 w-auto max-w-[320px]">
+            <option value="">escolher…</option>
+            {catsReceita.map(r => <option key={r.id} value={r.id}>{caminhoDe(r.id).split(' › ').slice(1).join(' › ') || caminhoDe(r.id)}</option>)}
+          </select>
+          <span>Entra no caixa e aparece na DRE em Outras receitas.</span>
+        </label>
+      )
+      case 'rendimento': return frase('Entra no caixa e aparece na DRE como Receitas financeiras.')
+      case 'emprestimo_devolvido': return frase('Entra no caixa como devolução de um empréstimo que a unidade deu. Não é receita: não vai para a DRE.')
+      case 'emprestimo_concedido': return frase('Sai do caixa como empréstimo da unidade a alguém. Não é despesa: não vai para a DRE.')
+      case 'contrato': return frase('Nada é registrado agora. Lance o pagamento no contrato do pet e envie este arquivo de novo: a linha encontra o pagamento sozinha. Até lá, ela fica no A conferir.')
+      case 'fora': return frase(ehCartao ? 'Esta linha não entra na fatura.' : 'Nada é registrado. A linha fica no A conferir até alguém resolver ou descartar.')
+      default: return null
+    }
+  }
+
+  /** Despesa: categoria, de quem é (caixa conjunto), para quem / forma, e os três detalhes. */
+  function painelDespesa(i: Item) {
+    const achados = !i.catId && i.catTexto.trim().length >= 2 ? buscarCategorias(folhas, caminhoDe, i.catTexto, 6) : []
+    const sugeridas = i.sugestoes.filter(sg => sg.decisao.tipo === 'despesa')
+    const fx = i.catId && !i.estorno ? contaFixaDe(i.catId, i.partes.length ? restanteDe(i) : Math.abs(i.valor)) : null
+    const caixinha = (rotulo: string, marcado: boolean, onChange: (v: boolean) => void, desab = false) => (
+      <label className={`flex items-center gap-1.5 text-xs ${desab ? 'opacity-40' : 'cursor-pointer text-[var(--surface-700)]'}`}>
+        <input type="checkbox" checked={marcado} disabled={desab} onChange={e => onChange(e.target.checked)} className="h-3.5 w-3.5 accent-[var(--brand-500)]" />
+        {rotulo}
+      </label>
+    )
+    return (
+      <div className="flex flex-col gap-3">
+        {i.reclassificar && <span className="text-xs text-[var(--surface-500)]">Esta saída já está no sistema, sem categoria. Escolha do que foi — o valor não muda.</span>}
+        {conj.conjunto && (
+          <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--surface-500)]">
+            De quem é
+            {conj.irmas.map(u => (
+              <button key={u.id} type="button" onClick={() => muda(i.n, { dono: u.id })}
+                      className={`px-2.5 py-0.5 rounded-full border text-xs ${i.dono === u.id ? 'border-[var(--brand-500)] bg-[var(--brand-500)] text-white' : 'border-[var(--surface-300)] text-[var(--surface-700)]'}`}>{u.nome}</button>
+            ))}
+          </div>
+        )}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs text-[var(--surface-500)]">Do que foi</span>
+          {i.catId ? (
+            <span className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="font-medium text-[var(--surface-800)]">{caminhoDe(i.catId)}</span>
+              {fx && <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-400" title="Conta de acompanhamento — o calendário marca como paga">📌 {fx.nome}</span>}
+              {(i.estornoDe || i.doHistorico) && <span className="text-xs text-[var(--surface-400)]">{i.estornoDe || 'como das outras vezes'}</span>}
+              <button type="button" onClick={() => muda(i.n, { catId: '', catTexto: '', doHistorico: false, porSinonimo: false })}
+                      className="text-xs text-[var(--brand-500)] hover:underline">trocar</button>
+            </span>
+          ) : (<>
+            <input value={i.catTexto} autoComplete="off"
+                   onChange={e => muda(i.n, { catTexto: e.target.value, catId: '', doHistorico: false, porSinonimo: false })}
+                   aria-label="Do que foi esta despesa" placeholder="Digite: aluguel, gasolina, gesso…"
+                   className="input text-sm py-1 w-full max-w-[420px]" />
+            {(sugeridas.length > 0 || i.palpite) && !i.catTexto && (
+              <div className="flex flex-wrap gap-1.5">
+                {i.palpite && !sugeridas.some(sg => sg.decisao.tipo === 'despesa' && (sg.decisao as { catId: string }).catId === i.palpite) && (
+                  <button type="button" onClick={() => muda(i.n, { catId: i.palpite, catTexto: '', porSinonimo: true })}
+                          className="text-xs px-2.5 py-1 rounded-full border border-dashed border-amber-500/60 text-amber-500 hover:bg-amber-500/10"
+                          title="Palpite pelo nome — não há histórico parecido. Confira antes de escolher">
+                    talvez {caminhoDe(i.palpite).split(' › ').pop()}?
+                  </button>
+                )}
+                {sugeridas.map(sg => (
+                  <button key={sg.chave} type="button"
+                          onClick={() => muda(i.n, { catId: (sg.decisao as { catId: string }).catId, catTexto: '', porSinonimo: false })}
+                          className="text-xs px-2.5 py-1 rounded-full border border-[var(--surface-300)] text-[var(--surface-700)] hover:border-emerald-500 hover:text-emerald-500"
+                          title={`Usada ${sg.vezes}× em linhas parecidas`}>
+                    {caminhoDe((sg.decisao as { catId: string }).catId).split(' › ').pop()}
+                  </button>
+                ))}
+              </div>
+            )}
+            {achados.length > 0 && (
+              <div className="rounded-[var(--radius-md)] border border-[var(--surface-200)] divide-y divide-[var(--surface-100)] max-w-[520px]">
+                {achados.map(({ c, termoBatido, forte }) => (
+                  <button key={c.id} type="button" onClick={() => muda(i.n, { catId: c.id, catTexto: '', porSinonimo: false })}
+                          className="w-full text-left px-3 py-1.5 text-sm hover:bg-[var(--surface-50)] flex items-center gap-2">
+                    <span className="flex-1 truncate text-[var(--surface-700)]">{caminhoDe(c.id)}</span>
+                    {!forte && termoBatido && <span className="text-[11px] text-[var(--surface-400)] shrink-0">“{termoBatido}”</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+            {i.catTexto.trim().length >= 2 && !achados.length && <span className="text-xs text-amber-500">nenhuma categoria com “{i.catTexto.trim()}”</span>}
+            {!i.catTexto && <span className="text-xs text-[var(--surface-400)]">Sem categoria também pode registrar — dá pra classificar depois.</span>}
+          </>)}
+        </div>
+        {!i.reclassificar && <div className="flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-xs text-[var(--surface-500)]">
+            Para quem
+            <input value={i.fornecedor} onChange={e => muda(i.n, { fornecedor: e.target.value })} className="input text-sm py-1 w-56" />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-[var(--surface-500)]">
+            Forma de pagamento
+            {ehCartao ? <span className="text-sm text-[var(--surface-600)] py-1">cartão de crédito</span> : (
+              <select value={i.metodo} onChange={e => muda(i.n, { metodo: e.target.value })} className="input text-sm py-1">
+                {METODOS.map(m => <option key={m.v} value={m.v}>{m.l}</option>)}
+              </select>
+            )}
+          </label>
+        </div>}
+        {!i.estorno && !i.reclassificar && (
+          <div className="flex flex-wrap gap-x-5 gap-y-1.5">
+            {caixinha('Dividir em mais de uma categoria', i.partes.length > 0,
+              v => muda(i.n, { partes: v ? [{ key: crypto.randomUUID(), catId: '', catTexto: '', valor: '' }] : [] }), i.outras.length > 0)}
+            {unidades.length > 0 && caixinha('Parte é de outra unidade', i.outras.length > 0,
+              v => muda(i.n, { outras: v ? [{ key: crypto.randomUUID(), unidadeId: '', valor: '', modo: 'repasse', repasseId: '' }] : [] }), i.partes.length > 0)}
+            {caixinha('Vale por vários meses', i.meses > 1, v => muda(i.n, { meses: v ? 12 : 1 }))}
+          </div>
+        )}
+        {i.partes.length > 0 && painelDividir(i)}
+        {i.outras.length > 0 && painelOutras(i)}
+        {i.meses > 1 && (
+          <div className="pl-3 border-l-2 border-[var(--brand-500)]/50 flex flex-wrap items-center gap-3">
             <label className="flex items-center gap-2 text-sm text-[var(--surface-700)]">
               Vale por
               <input type="number" min={2} max={120} value={i.meses}
@@ -1374,12 +1553,7 @@ export default function ColarExtratoModal({
                      className="input text-sm py-1 w-20 text-mono" />
               meses
             </label>
-            <span className="text-sm text-[var(--surface-500)]">
-              {fmtBRL(Math.abs(i.valor) / i.meses)} por mês, de {mesMais(i.data, 0)} a {mesMais(i.data, i.meses - 1)}
-            </span>
-            <button type="button" onClick={() => muda(i.n, { meses: 1 })} className="ml-auto text-[11px] text-[var(--surface-400)] hover:text-[var(--surface-700)]">
-              é só deste mês
-            </button>
+            <span className="text-sm text-[var(--surface-500)]">{fmtBRL(Math.abs(i.valor) / i.meses)} por mês, de {mesMais(i.data, 0)} a {mesMais(i.data, i.meses - 1)}</span>
           </div>
         )}
       </div>
@@ -1394,7 +1568,7 @@ export default function ColarExtratoModal({
       muda(i.n, { partes: i.partes.map((pt, j) => (j === k ? { ...pt, ...patch } : pt)) })
     const total = Math.abs(i.valor)
     return (
-      <div className="mt-2 ml-[34px] sm:ml-[86px] pl-4 border-l-2 border-[var(--brand-500)] flex flex-col gap-2.5">
+      <div className="pl-3 border-l-2 border-[var(--brand-500)]/50 flex flex-col gap-2.5">
         <div className="flex items-center gap-3">
           <span className="text-sm font-semibold text-[var(--surface-800)]">Dividir os {fmtBRL(total)}</span>
           <button type="button" onClick={() => muda(i.n, { partes: [] })}
@@ -1402,7 +1576,7 @@ export default function ColarExtratoModal({
         </div>
         <div className="grid grid-cols-[minmax(0,1fr)_120px_22px] gap-2 items-center">
           <span className="text-sm text-[var(--surface-600)] truncate px-3 py-1.5 rounded-[var(--radius-md)] bg-[var(--surface-50)]">
-            {i.catId ? caminhoDe(i.catId) : <span className="text-amber-500">escolha a categoria da linha (acima)</span>}
+            {i.catId ? caminhoDe(i.catId) : <span className="text-amber-500">escolha &ldquo;Do que foi&rdquo; (acima)</span>}
           </span>
           <span className={`text-right text-mono text-sm px-3 py-1.5 ${resto > 0 ? 'text-[var(--surface-700)]' : 'text-red-500'}`}
                 title="A principal fica com o que sobra">{fmtBRL(Math.max(resto, 0)).replace('R$', '').trim()}</span>
@@ -1456,7 +1630,7 @@ export default function ColarExtratoModal({
     const mudaO = (k: number, patch: Partial<ParaUnidade>) =>
       muda(i.n, { outras: i.outras.map((o, j) => (j === k ? { ...o, ...patch } : o)) })
     return (
-      <div className="mt-2 ml-[34px] sm:ml-[86px] pl-4 border-l-2 border-[var(--brand-500)] flex flex-col gap-2.5">
+      <div className="pl-3 border-l-2 border-[var(--brand-500)]/50 flex flex-col gap-2.5">
         <div className="flex items-center gap-3">
           <span className="text-sm font-semibold text-[var(--surface-800)]">Quem mais vai pagar por isso?</span>
           <button type="button" onClick={() => muda(i.n, { outras: [] })}
@@ -1520,10 +1694,9 @@ export default function ColarExtratoModal({
   /** Linha ignorada ou que é pagamento (fatura, repasse) — com o atalho certo. */
   function linhaFora(i: Item) {
     const quit = i.valor < 0 ? quitacaoDe(i.descricao) : null
-    const rend = !!i.rendimento && !i.entreConta && !i.jaNoSistema
-    // o "O que é?" — não em pagamento de fatura/repasse nem no rendimento automático (tem o "não é rendimento")
-    // pagamento da própria fatura (no cartão) tem módulo dedicado: sem "O que é?" — um clique viraria estorno do valor cheio (Ouro)
-    const escolhe = !quit && !i.faturaPgto && !i.repassePgto && !i.jaNoSistema && !(rend && !i.outraCoisa) && !(ehCartao && ehPagamentoDaFatura(i.descricao))
+    // desde o redesenho (16/10/2026) só desenha PAGAMENTO DE FATURA E REPASSE — o resto usa `linha()`
+    void quit
+    const rend = false
     return (
       <div key={i.n} className="py-2.5 border-b border-[var(--surface-100)] last:border-0">
       <div className={grade}>
@@ -1571,129 +1744,6 @@ export default function ColarExtratoModal({
         </span>
         <span className={`text-right text-mono text-sm tabular-nums ${i.entreConta || rend || i.outraCoisa ? valorCor(i.valor) : 'text-[var(--surface-400)]'}`}>{valorTxt(i.valor)}</span>
       </div>
-      {escolhe && <div className="mt-1.5 ml-[34px] sm:ml-[86px]">{blocoOutraCoisa(i, 'fora')}</div>}
-      </div>
-    )
-  }
-
-  /** "O QUE É?" (16/10/2026, Lucas: "me preocupa inferências") — a pessoa diz o que a linha é, ali
-   *  mesmo, no Quase lá ("não, é outra coisa") e no Fora. A linha NÃO muda de seção: o que falta
-   *  (categoria, maquininha, conta) aparece logo abaixo. */
-  function blocoOutraCoisa(i: Item, onde: 'quase' | 'fora') {
-    const entrada = i.valor > 0
-    // aplicação/resgate e o "entre contas" que veio do histórico já chegam como transferência
-    const escolha: OutraCoisa | undefined = i.outraCoisa ?? (i.entreConta || /aplica|resgate/i.test(i.descricao) ? 'entre' : undefined)
-    // no CARTÃO só há compra (ou estorno, se é crédito na fatura) ou deixar de fora (achado da Ouro)
-    const opcoes: { v: OutraCoisa; t: string }[] = ehCartao
-      ? [{ v: 'despesa', t: entrada ? 'estorno de compra (abate a fatura)' : 'compra / despesa nova' },
-         { v: 'fora', t: 'deixar de fora' }]
-      : entrada
-      ? [{ v: 'contrato', t: onde === 'quase' ? 'pagamento de outro contrato' : 'pagamento de contrato' },
-         ...(permiteReceitas ? [{ v: 'receita' as const, t: 'recebimento de maquininha' }] : []),
-         ...(catsReceita.length ? [{ v: 'outra_receita' as const, t: 'outra receita' }] : []),
-         { v: 'emprestimo_devolvido', t: 'devolução de empréstimo' },
-         { v: 'entre', t: 'transferência interna entre contas' },
-         { v: 'rendimento', t: 'rendimento da conta' },
-         { v: 'fora', t: onde === 'quase' ? 'deixar de fora por enquanto' : 'deixar de fora' }]
-      : [{ v: 'despesa', t: 'despesa nova' },
-         { v: 'emprestimo_concedido', t: 'empréstimo concedido' },
-         { v: 'entre', t: 'transferência interna entre contas' },
-         { v: 'fora', t: onde === 'quase' ? 'deixar de fora por enquanto' : 'deixar de fora' }]
-    const definir = (o: OutraCoisa) => {
-      const base = { outraCoisa: o, rendimento: false, entreConta: o === 'entre' ? i.entreConta : '', motivoFora: null as string | null }
-      if (o === 'despesa') muda(i.n, { ...base, destino: 'despesa', marcado: true, ...(ehCartao ? { estorno: entrada } : {}) })
-      else if (o === 'receita') muda(i.n, { ...base, destino: 'receita', marcado: true, mov: i.mov || (movimentoDe(i.descricao, i.valor) || '') })
-      else if (o === 'rendimento') muda(i.n, { ...base, destino: 'fora', marcado: false, rendimento: true })
-      else if (o === 'entre') muda(i.n, { ...base, destino: 'fora', marcado: false })
-      else if (o === 'contrato') muda(i.n, { ...base, destino: 'fora', marcado: false, motivoFora: 'pagamento de contrato — registre o pagamento no contrato e coloque este arquivo de novo' })
-      // outra receita: a categoria é do ramo Receitas (só uma folha? já vem escolhida)
-      else if (o === 'outra_receita') muda(i.n, { ...base, destino: 'fora', marcado: false, catId: catsReceita.length === 1 ? catsReceita[0].id : (catsReceita.some(r => r.id === i.catId) ? i.catId : '') })
-      else if (o === 'emprestimo_devolvido' || o === 'emprestimo_concedido') muda(i.n, { ...base, destino: 'fora', marcado: false })
-      else muda(i.n, { ...base, destino: 'fora', marcado: false, motivoFora: 'deixada de fora por você' })
-    }
-    return (
-      <div className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className={`text-xs ${escolha || onde === 'fora' ? 'text-[var(--surface-500)]' : 'text-amber-500 font-medium'}`}>{onde === 'quase' ? 'O que é, então?' : 'O que é?'}</span>
-          {opcoes.map(o => (
-            <button key={o.v} type="button" onClick={() => definir(o.v)}
-                    className={`px-2.5 py-0.5 rounded-full border text-xs ${escolha === o.v ? 'border-[var(--brand-500)] text-[var(--brand-500)] font-medium' : 'border-[var(--surface-300)] text-[var(--surface-600)] hover:border-[var(--brand-500)]'}`}>
-              {o.t}
-            </button>
-          ))}
-        </div>
-        {/* o que falta completar, ali mesmo */}
-        {(escolha === 'despesa' || escolha === 'receita') && <div className="-ml-6 sm:-ml-[86px]">{linhaNova(i)}</div>}
-        {escolha === 'entre' && (
-          <span className="flex flex-wrap items-center gap-1.5 text-xs">
-            <span className="text-[var(--surface-500)]">{entrada ? 'veio de' : 'foi para'}</span>
-            <select value={i.entreConta} onChange={e => muda(i.n, { entreConta: e.target.value, entreHist: false, outraCoisa: 'entre' })}
-                    className={`input-field text-xs py-1 ${i.entreConta ? 'text-[var(--brand-500)] font-medium' : ''}`}>
-              <option value="">— escolha a conta —</option>
-              {contasEntre.map(c => <option key={c.id} value={c.id}>{rotuloConta(cores, c.id, c.nome)}</option>)}
-            </select>
-            {i.entreConta && i.entreHist && <span className="text-[11px] text-[var(--surface-400)]">como das outras vezes</span>}
-            {!i.entreConta && <span className="text-amber-500">escolha a conta para registrar</span>}
-          </span>
-        )}
-        {escolha === 'rendimento' && <span className="text-xs text-emerald-500">entra como <b>Rendimento</b> ao registrar</span>}
-        {escolha === 'outra_receita' && (
-          <span className="flex flex-wrap items-center gap-1.5 text-xs">
-            <select value={catsReceita.some(r => r.id === i.catId) ? i.catId : ''} onChange={e => muda(i.n, { catId: e.target.value })}
-                    className={`input-field text-xs py-1 ${i.catId ? 'text-[var(--brand-500)] font-medium' : ''}`}>
-              <option value="">— qual receita? —</option>
-              {catsReceita.map(r => <option key={r.id} value={r.id}>{caminhoDe(r.id)}</option>)}
-            </select>
-            {catsReceita.some(r => r.id === i.catId)
-              ? <span className="text-[var(--surface-500)]">entra no caixa e na DRE, em Outras receitas</span>
-              : <span className="text-amber-500">escolha a receita para registrar</span>}
-          </span>
-        )}
-        {(escolha === 'emprestimo_devolvido' || escolha === 'emprestimo_concedido') && (
-          <span className="text-xs text-[var(--surface-500)]">{escolha === 'emprestimo_devolvido' ? 'entra' : 'sai'} no caixa como empréstimo — não é receita nem despesa, não vai pra DRE</span>
-        )}
-        {escolha === 'contrato' && <span className="text-xs text-[var(--surface-500)]">nada é registrado agora: lance o pagamento no contrato e coloque este arquivo de novo</span>}
-        {escolha === 'fora' && <span className="text-xs text-[var(--surface-500)]">fica de fora: nada é registrado nem conciliado</span>}
-      </div>
-    )
-  }
-
-  /** "QUASE LÁ" — a linha do banco e os candidatos do sistema. */
-  function linhaParecida(i: Item) {
-    const p = i.parecido!
-    // "é outra coisa" zera o que o sistema tinha deduzido: a pessoa escolhe abaixo
-    const escolher = (k: number) => muda(i.n, k === -1
-      ? { parecido: { ...p, escolhido: k }, outraCoisa: undefined, destino: 'fora', marcado: false, rendimento: false, entreConta: '', motivoFora: null }
-      : { parecido: { ...p, escolhido: k }, outraCoisa: undefined })
-    return (
-      <div key={i.n} className="py-2.5 border-b border-[var(--surface-100)] last:border-0">
-        <div className={grade}>
-          <span className="text-amber-500 text-xs" aria-hidden="true">≈</span>
-          <span className="text-xs text-[var(--surface-400)]">{dataCurta(i.data)}</span>
-          <span className="text-sm text-[var(--surface-600)] truncate" title={i.original}>{i.descricao}</span>
-          <span className="hidden sm:block" />
-          <span className={`text-right text-mono text-sm tabular-nums ${valorCor(i.valor)}`}>{valorTxt(i.valor)}</span>
-        </div>
-        <div className="mt-1.5 ml-[34px] sm:ml-[86px] flex flex-col gap-1">
-          {p.candidatos.map((c, k) => {
-            const outra = itens.some(x => x.n !== i.n && x.parecido && x.parecido.escolhido >= 0 && x.parecido.candidatos[x.parecido.escolhido].chave === c.chave)
-            const muda_ = c.ajustavel && (Math.abs(c.valor - i.valor) >= 0.005 || c.data !== i.data)
-            return (
-              <label key={c.chave} className={`flex flex-wrap items-center gap-x-2 text-sm ${outra ? 'opacity-40' : 'cursor-pointer'}`}>
-                <input type="radio" name={`par-${i.n}`} checked={p.escolhido === k} disabled={outra} onChange={() => escolher(k)} className="accent-[var(--brand-500)]" />
-                <span className="text-[var(--surface-700)]">é <strong className="font-semibold">{c.rotulo}</strong></span>
-                <span className="text-xs text-[var(--surface-400)]">lançado {fmtData(c.data)} · {fmtBRL(Math.abs(c.valor))}</span>
-                {muda_ && <span className="text-xs text-emerald-500">→ fica igual ao banco</span>}
-                {outra && <span className="text-xs text-[var(--surface-400)]">(já escolhido em outra linha)</span>}
-              </label>
-            )
-          })}
-          <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <input type="radio" name={`par-${i.n}`} checked={p.escolhido === -1} onChange={() => escolher(-1)} className="accent-[var(--brand-500)]" />
-            <span className="text-[var(--surface-500)]">não, é outra coisa</span>
-          </label>
-          {p.escolhido === -1 && <div className="ml-6">{blocoOutraCoisa(i, 'quase')}</div>}
-        </div>
       </div>
     )
   }
@@ -1712,6 +1762,21 @@ export default function ColarExtratoModal({
   const caixaLinhas = (filhos: ReactNode) => (
     <div className="rounded-[14px] bg-[var(--surface-50)] px-4 sm:px-5">{filhos}</div>
   )
+  /** caixa das linhas de decisão (o padrão único): a linha aberta tem fundo e borda próprios */
+  const caixaDecisao = (filhos: ReactNode) => (
+    <div className="rounded-[14px] bg-[var(--surface-50)] p-1.5 divide-y divide-[var(--surface-100)]">{filhos}</div>
+  )
+  /** "3 de 15 decididas" no cabeçalho */
+  const andamento = (xs: Item[]) => {
+    const d = decididas(xs)
+    return <span className={`text-xs ${d === xs.length ? 'text-emerald-500' : 'text-[var(--surface-500)]'}`}>{d === xs.length ? '✓ tudo decidido' : `${d} de ${xs.length} decididas`}</span>
+  }
+  /** botão de abrir/fechar seção resolvida (seta, não "ver quais/esconder") */
+  const abreFecha = (aberto: boolean, alternar: () => void) => (
+    <button type="button" onClick={alternar} className="ml-auto inline-flex items-center gap-1 text-sm text-[var(--brand-500)] hover:underline">
+      {aberto ? 'fechar' : 'ver'} <ChevronRight className={`h-3.5 w-3.5 transition-transform ${aberto ? 'rotate-90' : ''}`} />
+    </button>
+  )
 
   // ── o placar: banco × sistema × depois de registrar (conta corrente) ──
   const depois = placar
@@ -1725,8 +1790,6 @@ export default function ColarExtratoModal({
   const fecha = placar && placar.banco !== null && depois !== null && Math.abs(depois - placar.banco) < 0.005
   /** banco − sistema: positivo = falta no sistema; negativo = o sistema tem a mais. */
   const difTxt = (d: number) => d > 0 ? `faltam ${fmtBRL(d)} no sistema` : `o sistema tem ${fmtBRL(-d)} a mais`
-  const somaRec = recProntas.reduce((a, i) => a + i.valor, 0)
-  const somaDesp = despProntas.reduce((a, i) => a + i.valor, 0)
   const contaNome = contas.find(c => c.id === contaId)?.nome || ''
   const periodo = itens.length
     ? (() => {
@@ -1739,16 +1802,23 @@ export default function ColarExtratoModal({
   const encontradas = itens.filter(i => !!i.jaNoSistema && !emParecido(i) && !i.jaConciliada)
   const jaAntes = itens.filter(i => !!i.jaNoSistema && !emParecido(i) && !!i.jaConciliada && i.duplicada === undefined)
   const duplicadas = itens.filter(i => i.duplicada !== undefined)
-  // o rendimento automático vai pro "Conciliados automaticamente" (16/10/2026, Lucas): entra sozinho, como o par exato
-  const rendAuto = rendProntas.filter(i => !outraNoQuase(i) && !i.outraCoisa)
-  // quem a pessoa definiu no "O que é?" do Fora continua desenhado no Fora (receita/despesa inclusive)
-  const ignoradas = itens.filter(i => !emParecido(i) && !outraNoQuase(i) && !i.jaNoSistema && !i.faturaPgto && !i.repassePgto
-    && ((i.destino === 'fora' && !rendAuto.includes(i)) || !!i.outraCoisa))
-  const quaseVis = itens.filter(i => !!i.parecido)
-  const recVis = receitas.filter(i => !outraNoQuase(i) && !i.outraCoisa)
-  const despVis = despesas.filter(i => !outraNoQuase(i) && !i.outraCoisa)
+  // AS SEÇÕES, pela casa de cada linha (redesenho 16/10/2026): a decisão não muda o lugar
+  const daCasa = (c: Casa) => itens.filter(i => i.casa === c)
+  const quaseVis = daCasa('quase'), foraVis = daCasa('fora'), despVis = daCasa('despesa'), recVis = daCasa('receita')
+  const rendAuto = daCasa('auto')
   const autoN = encontradas.length + rendAuto.length
-  const pgtosDeFatura = fora.filter(i => !i.jaNoSistema && (i.faturaPgto || i.repassePgto))
+  /** "mostrar só o que falta decidir" — a linha aberta continua à vista */
+  const visiveis = (xs: Item[]) => (soPendentes ? xs.filter(i => linhaAberta === i.n || estadoDe(i).tipo === 'pendente') : xs)
+  const decididas = (xs: Item[]) => xs.filter(i => estadoDe(i).tipo !== 'pendente').length
+  /** leva até a primeira linha sem decisão */
+  function verPendente() {
+    const alvo = pendentesL[0]
+    if (!alvo) return
+    if (alvo.casa === 'auto') setEncontradasAberto(true)
+    setLinhaAberta(alvo.n)
+    setTimeout(() => document.querySelector(`[data-linha="${alvo.n}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 60)
+  }
+  const pgtosDeFatura = daCasa('pgto')
   const frasePronto = [
     recProntas.length ? `${recProntas.length} ${recProntas.length === 1 ? 'recebimento' : 'recebimentos'}` : '',
     entreProntas.length ? `${entreProntas.length} entre contas` : '',
@@ -1778,18 +1848,27 @@ export default function ColarExtratoModal({
       title={itens.length ? `${contaNome} — ${periodo}` : 'Importar extrato'}
       footer={itens.length ? (
         <div className="flex flex-wrap items-center gap-3 w-full">
-          <span className="text-sm text-[var(--surface-500)] flex-1 min-w-[220px]">
-            {conferir === 0 ? 'Nada para registrar.' : <>
-              {frasePronto ? <>Vai registrar <strong className="text-[var(--surface-800)]">{frasePronto}</strong> e </> : 'Vai '}
-              marcar {conferir} {conferir === 1 ? 'linha' : 'linhas'} como conferida{conferir === 1 ? '' : 's'}.
-            </>}
-            {pendentes > 0 && <span className="text-amber-500"> Falta decidir {pendentes}.</span>}
-            {linhasSemPar.length > 0 && <span className="block text-rose-500 mt-0.5">{linhasSemPar.length} {linhasSemPar.length === 1 ? 'linha do banco fica' : 'linhas do banco ficam'} sem par e {linhasSemPar.length === 1 ? 'vai' : 'vão'} para o A conferir, até alguém registrar ou descartar.</span>}
-            {semCategoria.length > 0 && <span className="block text-amber-500 mt-0.5">⚠ {semCategoria.length} {semCategoria.length === 1 ? 'lançamento vai' : 'lançamentos vão'} sem categoria. Tudo bem, pode lançar: classifique pela tela ({ehCartao ? 'Livro-Caixa › Faturas do cartão' : 'Livro-Caixa › Sem categoria'}) ou reimporte o arquivo para classificar.{ehCartao ? ' A fatura só fica pronta pra pagar com todos os lançamentos classificados.' : ''}</span>}
-            {/* a fatura não bateu (16/10/2026, Lucas): nada de tirar a pessoa da tela — diz o que fazer e que o resto já fica salvo */}
-            {faturaDifere.length > 0 && <span className="block text-amber-500 mt-0.5">⚠ {faturaDifere.length === 1 ? 'O pagamento acima (fatura ou repasse) não vai' : `Os ${faturaDifere.length} pagamentos acima (fatura ou repasse) não vão`} ser conciliado{faturaDifere.length === 1 ? '' : 's'} agora. Pode registrar o resto tranquilo: o que você salvar agora já fica classificado. Depois de acertar, coloque este arquivo do banco de novo, e só esse pagamento vai aparecer para conciliar.</span>}
+          <span className="text-sm text-[var(--surface-500)] flex-1 min-w-[220px] flex flex-col gap-0.5">
+            <span>
+              {conferir === 0 ? 'Nada para registrar ainda.'
+                : frasePronto ? <>Vai registrar <strong className="text-[var(--surface-800)]">{frasePronto}</strong> ({conferir} {conferir === 1 ? 'linha conferida' : 'linhas conferidas'}).</>
+                : <>Vai marcar {conferir} {conferir === 1 ? 'linha' : 'linhas'} como conferida{conferir === 1 ? '' : 's'}.</>}
+            </span>
+            {pendentes > 0 && (
+              <span className="text-amber-500">
+                {pendentes} {pendentes === 1 ? 'linha ainda sem decisão' : 'linhas ainda sem decisão'}{' — '}
+                <button type="button" onClick={verPendente} className="underline">ver {pendentes === 1 ? 'qual' : 'a primeira'}</button>
+              </span>
+            )}
+            {linhasSemPar.length > 0 && <span>{linhasSemPar.length} {linhasSemPar.length === 1 ? 'linha do banco fica guardada' : 'linhas do banco ficam guardadas'} no A conferir para decidir depois.</span>}
+            {semCategoria.length > 0 && <span>{semCategoria.length} {semCategoria.length === 1 ? 'despesa vai' : 'despesas vão'} sem categoria — dá pra classificar depois{ehCartao ? ' (a fatura só fica pronta pra pagar com tudo classificado)' : ''}.</span>}
+            {faturaDifere.length > 0 && <span>{faturaDifere.length === 1 ? '1 pagamento de fatura ou repasse com valor diferente fica' : `${faturaDifere.length} pagamentos de fatura ou repasse com valor diferente ficam`} para depois — o resto pode registrar.</span>}
           </span>
-          <button onClick={() => { setItens([]); setPlacar(null); setOfx(null) }} className="btn-secondary text-sm">{ehCartao ? 'Enviar outro PDF' : 'Enviar outro arquivo'}</button>
+          <button onClick={() => { if (!trocarPerg) { setTrocarPerg(true); return } setTrocarPerg(false); setItens([]); setPlacar(null); setOfx(null) }}
+                  onBlur={() => setTrocarPerg(false)}
+                  className={`btn-secondary text-sm ${trocarPerg ? 'text-amber-500' : ''}`}>
+            {trocarPerg ? 'Perder as escolhas e trocar?' : ehCartao ? 'Trocar o PDF' : 'Trocar o arquivo'}
+          </button>
           <button onClick={() => void registrar()} disabled={salvando || conferir === 0} className="btn-primary text-sm">
             {salvando ? <><Loader2 className="h-4 w-4 animate-spin" /> Registrando…</> : 'Registrar e conferir'}
           </button>
@@ -1849,7 +1928,7 @@ export default function ColarExtratoModal({
               <span className="text-base font-semibold text-[var(--surface-800)]">Envie o arquivo OFX do extrato</span>
               <label className="flex flex-col items-center justify-center gap-1 rounded-[12px] border-2 border-dashed border-[var(--surface-300)] px-4 py-8 text-center cursor-pointer hover:border-[var(--brand-500)] hover:bg-[var(--surface-50)]">
                 <span className="text-sm font-medium text-[var(--surface-800)]">{ofx ? `${ofx.nome} · ${ofx.dados.linhas.length} lançamentos` : 'Escolher o arquivo .ofx'}</span>
-                <span className="text-xs text-[var(--surface-500)]">no app do banco: Extrato › Exportar › OFX — vem com o saldo e um ID por lançamento</span>
+                <span className="text-xs text-[var(--surface-500)]">no app ou site do banco: Extrato › Exportar › formato OFX</span>
                 <input type="file" accept=".ofx,.OFX,application/x-ofx" className="sr-only"
                        onChange={async e => {
                          const arq = e.target.files?.[0]
@@ -1876,7 +1955,7 @@ export default function ColarExtratoModal({
                        }} />
               </label>
               {bancoAviso && <span className="text-sm text-[var(--brand-500)]">{bancoAviso}</span>}
-              <span className="text-sm text-[var(--surface-500)]">Cada linha é conferida com o que já está no sistema; só o que for novo vira lançamento.</span>
+              <span className="text-sm text-[var(--surface-500)]">Você vê cada linha antes de registrar. Nada é gravado até clicar em Registrar e conferir.</span>
             </div>
           )}
 
@@ -1923,7 +2002,7 @@ export default function ColarExtratoModal({
                 <span className="text-mono text-xl tabular-nums text-[var(--surface-800)]">
                   {placar.banco !== null ? fmtBRL(placar.banco) : '—'}
                 </span>
-                {placar.banco === null && <span className="text-xs text-[var(--surface-400)]">o texto colado não trouxe o saldo</span>}
+                {placar.banco === null && <span className="text-xs text-[var(--surface-400)]">o arquivo não trouxe o saldo</span>}
               </div>
               <div className="flex flex-col gap-0.5">
                 <span className="text-sm text-[var(--surface-500)]">No sistema em {fmtData(placar.data)}</span>
@@ -1937,7 +2016,7 @@ export default function ColarExtratoModal({
                 <span className={`text-mono text-xl tabular-nums ${fecha ? 'text-emerald-500' : 'text-[var(--surface-800)]'}`}>{fmtBRL(depois ?? 0)}</span>
                 {placar.banco !== null && (fecha
                   ? <span className="text-xs text-emerald-500">✓ bate com o banco</span>
-                  : <span className="text-xs text-amber-500">{difTxt((placar.banco ?? 0) - (depois ?? 0))} — veja as linhas ignoradas ou em aberto</span>)}
+                  : <span className="text-xs text-amber-500">{difTxt((placar.banco ?? 0) - (depois ?? 0))} — veja abaixo as linhas sem decisão e o que está no sistema e não no banco</span>)}
               </div>
             </div>
           )}
@@ -1954,7 +2033,7 @@ export default function ColarExtratoModal({
                   <span className="text-sm text-[var(--surface-500)]">Compras lidas</span>
                   <span className={`text-mono text-xl tabular-nums ${bate ? 'text-emerald-500' : 'text-[var(--surface-800)]'}`}>{fmtBRL(soma)}</span>
                   <span className={`text-xs ${bate ? 'text-emerald-500' : 'text-amber-500'}`}>
-                    {bate ? '✓ bate com a fatura' : `faltam ${fmtBRL(cabecalho.total - soma)} — o texto colado está inteiro?`}
+                    {bate ? '✓ bate com a fatura' : `faltam ${fmtBRL(cabecalho.total - soma)} — o PDF foi lido inteiro?`}
                   </span>
                 </div>
               </div>
@@ -1979,69 +2058,36 @@ export default function ColarExtratoModal({
             </section>
           )}
 
-          {autoN > 0 && (
-            <section className="flex flex-col gap-2.5">
-              {cabecaSecao(<span className="text-emerald-500">© Conciliados automaticamente</span>,
-                `${[
-                  encontradas.length ? `${encontradas.length} ${encontradas.length === 1 ? 'linha bateu' : 'linhas bateram'} com um registro do sistema` : '',
-                  rendAuto.length ? `${rendAuto.length} ${rendAuto.length === 1 ? 'rendimento da conta entra' : 'rendimentos da conta entram'} sozinho${rendAuto.length === 1 ? '' : 's'}` : '',
-                ].filter(Boolean).join(' · ')} — conciliam ao registrar (cancelar não grava nada)`, undefined,
-                <button type="button" onClick={() => setEncontradasAberto(v => !v)} className="ml-auto text-sm text-[var(--brand-500)] hover:underline">
-                  {encontradasAberto ? 'esconder' : 'ver quais'}
-                </button>)}
-              {encontradasAberto && caixaLinhas([...encontradas.map(i => linhaEncontrada(i)), ...rendAuto.map(i => linhaFora(i))])}
-            </section>
-          )}
-
-          {jaAntes.length > 0 && (
-            <section className="flex flex-col gap-2.5">
-              {cabecaSecao(<span className="text-emerald-500">✓ Encontramos</span>,
-                `${jaAntes.length} ${jaAntes.length === 1 ? 'linha já está classificada e conciliada' : 'linhas já estão classificadas e conciliadas'} — nada a fazer`, undefined,
-                <button type="button" onClick={() => setJaAntesAberto(v => !v)} className="ml-auto text-sm text-[var(--brand-500)] hover:underline">
-                  {jaAntesAberto ? 'esconder' : 'ver quais'}
-                </button>)}
-              {jaAntesAberto && caixaLinhas(jaAntes.map(i => linhaEncontrada(i)))}
-            </section>
+          {/* o que pede você vem primeiro; o resolvido fica no fim, fechado */}
+          {(quaseVis.length + foraVis.length + despVis.length + recVis.length) > 0 && (
+            <label className="-mb-3 flex items-center gap-2 self-end text-xs text-[var(--surface-500)] cursor-pointer">
+              <input type="checkbox" checked={soPendentes} onChange={e => setSoPendentes(e.target.checked)} className="h-3.5 w-3.5 accent-[var(--brand-500)]" />
+              mostrar só o que falta decidir
+            </label>
           )}
 
           {quaseVis.length > 0 && (
             <section className="flex flex-col gap-2.5">
-              {cabecaSecao(<span className="text-amber-500">Quase lá</span>,
-                `parece um lançamento seu com data${ehCartao ? ' ou câmbio' : ''} um pouco diferente — confirme`)}
-              {caixaLinhas(quaseVis.map(i => linhaParecida(i)))}
+              {cabecaSecao('Quase lá', `achamos no sistema um lançamento parecido, com data${ehCartao ? ', câmbio' : ''} ou valor um pouco diferente — confira cada um`, undefined, andamento(quaseVis))}
+              {caixaDecisao(visiveis(quaseVis).map(i => linha(i)))}
             </section>
           )}
 
-
-          {pgtosDeFatura.length > 0 && (
+          {foraVis.length > 0 && (
             <section className="flex flex-col gap-2.5">
-              {cabecaSecao('Pagamento de fatura e repasse', 'o banco pagou uma fatura do cartão ou o repasse da Matriz: bateu, é só conciliar')}
-              {caixaLinhas(pgtosDeFatura.map(i => linhaFora(i)))}
-            </section>
-          )}
-
-          {recVis.length > 0 && (
-            <section className="flex flex-col gap-2.5">
-              {cabecaSecao('Recebimentos de cartão', `${recVis.length} ${recVis.length === 1 ? 'linha nova' : 'linhas novas'} · a maquininha depositou`, somaRec,
-                maquininhas.length > 1 ? (
-                  <span className="flex items-center gap-2 text-sm text-[var(--surface-500)]">
-                    todas da
-                    <select value={maquininhaLote} onChange={e => setMaquininhaLote(e.target.value)} aria-label="Maquininha de todas"
-                            className="input text-sm py-1" style={!maquininhaLote ? { borderColor: '#f59e0b' } : undefined}>
-                      <option value="">qual maquininha?</option>
-                      {maquininhas.map(m => <option key={m.id} value={m.id}>{rotuloConta(cores, m.id, m.nome)}</option>)}
-                    </select>
-                  </span>
-                ) : maquininhas.length === 0 ? (
-                  <span className="text-sm text-amber-500">nenhuma maquininha cadastrada — aba Contas</span>
-                ) : undefined)}
-              {caixaLinhas(recVis.map(i => linhaNova(i)))}
+              {cabecaSecao(ehCartao ? 'Não é compra' : 'Sem par no sistema',
+                ehCartao ? 'linhas da fatura que não são compra' : 'movimentos do banco que não achamos no sistema — diga o que é cada um',
+                undefined, andamento(foraVis))}
+              {!ehCartao && <span className="-mt-1 text-xs text-[var(--surface-500)]">Se for pagamento de tutor, lance no contrato do pet e envie o arquivo de novo. O que ficar sem resposta vai para o A conferir.</span>}
+              {caixaDecisao(visiveis(foraVis).map(i => linha(i)))}
             </section>
           )}
 
           {despVis.length > 0 && (
             <section className="flex flex-col gap-2.5">
-              {cabecaSecao('Despesas', `${despVis.length} ${despVis.length === 1 ? 'linha nova' : 'linhas novas'}`, somaDesp)}
+              {cabecaSecao(ehCartao ? 'Compras' : 'Despesas',
+                ehCartao ? 'compras desta fatura — escolha do que foi cada uma' : 'saídas do banco que viram despesa — escolha do que foi cada uma',
+                despVis.reduce((a, i) => a + i.valor, 0), andamento(despVis))}
               {/* caixa conjunto: marcar todas de uma vez, depois ajustar as exceções na linha */}
               {conj.conjunto && (
                 <div className="flex flex-wrap items-center gap-2 text-[12px] text-[var(--surface-600)]">
@@ -2053,22 +2099,42 @@ export default function ColarExtratoModal({
                   {despesas.some(i => i.marcado && !i.dono) && <span className="text-amber-500">{despesas.filter(i => i.marcado && !i.dono).length} sem dona</span>}
                 </div>
               )}
-              {caixaLinhas(despVis.map(i => linhaNova(i)))}
+              {caixaDecisao(visiveis(despVis).map(i => linha(i)))}
             </section>
           )}
 
-          {ignoradas.length > 0 && (
+          {recVis.length > 0 && (
             <section className="flex flex-col gap-2.5">
-              {cabecaSecao('Fora', 'não vira despesa — pagamentos têm o lugar deles; entre contas vira transferência')}
-              {caixaLinhas(ignoradas.map(i => linhaFora(i)))}
+              {cabecaSecao('Recebimentos da maquininha', 'depósitos das vendas no cartão', recVis.reduce((a, i) => a + i.valor, 0),
+                <span className="flex items-center gap-3">
+                  {andamento(recVis)}
+                  {maquininhas.length > 1 && (
+                    <span className="flex items-center gap-2 text-sm text-[var(--surface-500)]">
+                      todas da
+                      <select value={maquininhaLote} onChange={e => setMaquininhaLote(e.target.value)} aria-label="Maquininha de todas"
+                              className="input text-sm py-1" style={!maquininhaLote ? { borderColor: '#f59e0b' } : undefined}>
+                        <option value="">qual maquininha?</option>
+                        {maquininhas.map(m => <option key={m.id} value={m.id}>{rotuloConta(cores, m.id, m.nome)}</option>)}
+                      </select>
+                    </span>
+                  )}
+                </span>)}
+              {caixaDecisao(visiveis(recVis).map(i => linha(i)))}
+            </section>
+          )}
+
+          {pgtosDeFatura.length > 0 && (
+            <section className="flex flex-col gap-2.5">
+              {cabecaSecao('Pagamento de fatura e repasse', 'cada um tem tela própria: confira lá primeiro (+ Lançar › Fatura do cartão / Repasse); conferido, ele concilia aqui')}
+              {caixaLinhas(pgtosDeFatura.map(i => linhaFora(i)))}
             </section>
           )}
 
           {naoVieram.length > 0 && (
             <section className="flex flex-col gap-2.5 rounded-[14px] border border-dashed border-[var(--surface-300)] p-4">
-              {cabecaSecao('No sistema e não veio no texto',
-                ehCartao ? 'estão nesta fatura e nenhuma linha bateu' : 'estão nesta conta nesses dias e nenhuma linha bateu')}
-              <span className="text-sm text-[var(--surface-500)]">Lançamento a mais, cancelado, com valor errado — ou o texto colado está incompleto.</span>
+              {cabecaSecao(ehCartao ? 'Na fatura do sistema e não no PDF' : 'No sistema e não está no extrato',
+                ehCartao ? 'lançado nesta fatura e não aparece no PDF' : 'lançado nesta conta nesses dias e não aparece no banco')}
+              <span className="text-sm text-[var(--surface-500)]">Pode ser lançamento duplicado, cancelado ou com valor errado — confira na tela de lançamentos. Aqui não precisa fazer nada.</span>
               <div className="flex flex-col">
                 {naoVieram.map(r => (
                   <div key={r.chave} className={`${grade} py-1.5`}>
@@ -2080,6 +2146,28 @@ export default function ColarExtratoModal({
                   </div>
                 ))}
               </div>
+            </section>
+          )}
+
+          {autoN > 0 && (
+            <section className="flex flex-col gap-2.5">
+              {cabecaSecao(<span className="text-emerald-500">✓ Conciliam sozinhos</span>,
+                [
+                  encontradas.length ? `${encontradas.length} ${encontradas.length === 1 ? 'linha bateu' : 'linhas bateram'} com o sistema` : '',
+                  rendAuto.length ? `${rendAuto.length} ${rendAuto.length === 1 ? 'rendimento da conta' : 'rendimentos da conta'}` : '',
+                ].filter(Boolean).join(' · ') + ' — ficam conferidos ao registrar',
+                undefined, abreFecha(encontradasAberto, () => setEncontradasAberto(v => !v)))}
+              {encontradasAberto && encontradas.length > 0 && caixaLinhas(encontradas.map(i => linhaEncontrada(i)))}
+              {encontradasAberto && rendAuto.length > 0 && caixaDecisao(rendAuto.map(i => linha(i)))}
+            </section>
+          )}
+
+          {jaAntes.length > 0 && (
+            <section className="flex flex-col gap-2.5">
+              {cabecaSecao(<span className="text-emerald-500">✓ Já conciliadas antes</span>,
+                `${jaAntes.length} ${jaAntes.length === 1 ? 'linha já está classificada e conferida' : 'linhas já estão classificadas e conferidas'} — nada a fazer`,
+                undefined, abreFecha(jaAntesAberto, () => setJaAntesAberto(v => !v)))}
+              {jaAntesAberto && caixaLinhas(jaAntes.map(i => linhaEncontrada(i)))}
             </section>
           )}
         </div>
