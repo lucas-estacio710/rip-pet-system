@@ -38,6 +38,7 @@ import { createPortal } from 'react-dom'
 import { useUnit } from '@/contexts/UnitContext'
 import { fmtBRL, fmtData, limitesDoMes, hojeISO } from '@/lib/financeiro'
 import { mesParaData } from '@/lib/repasse'
+import { ehAberturaDeConta } from '@/lib/balanco-caixa'
 import ExtratoContaModal from './ExtratoContaModal'
 import type { AcaoLancar } from '@/lib/lancar'
 import { useContasFixas, CalendarioContasModal, CalendarioHoje, curto, type ContaNoMes } from './ContasDoMes'
@@ -318,10 +319,14 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
       const { ini, fim } = limitesDoMes(mes)
       const depois = new Map<string, number>(), noMes = new Map<string, number>()
       for (let off = 0; ; off += 1000) {
-        const { data } = await supabase.from('vw_caixa').select('conta_id, data, valor').in('conta_id', ids).gte('data', ini)
+        const { data } = await supabase.from('vw_caixa').select('conta_id, data, valor, origem, descricao').in('conta_id', ids).gte('data', ini)
           .order('data').order('origem_id').range(off, off + 999)
-        const pg = (data as { conta_id: string; data: string; valor: number }[] | null) || []
-        for (const l of pg) { const alvo = l.data > fim ? depois : noMes; alvo.set(l.conta_id, (alvo.get(l.conta_id) || 0) + Number(l.valor)) }
+        const pg = (data as { conta_id: string; data: string; valor: number; origem: string; descricao: string | null }[] | null) || []
+        for (const l of pg) {
+          // a abertura da conta é o saldo que ela já tinha: fica no "de", não anda no mês
+          if (l.data <= fim && ehAberturaDeConta(l)) continue
+          const alvo = l.data > fim ? depois : noMes; alvo.set(l.conta_id, (alvo.get(l.conta_id) || 0) + Number(l.valor))
+        }
         if (pg.length < 1000) break
       }
       if (!vivo) return

@@ -28,6 +28,7 @@ import { useCaixaConjunto } from '@/hooks/useCaixaConjunto'
 import { EtiquetaUnidade } from './DonoLancamento'
 import { useToast } from '@/components/ui/Toast'
 import { fmtBRL, fmtData, limitesDoMes } from '@/lib/financeiro'
+import { ehAberturaDeConta } from '@/lib/balanco-caixa'
 
 /** `repasse.quitou`: este movimento é o que QUITOU (pago_movimento_id).
  *  `repasse.pago`: o repasse está pago — apagar QUALQUER pagamento dele o reabre. */
@@ -94,8 +95,10 @@ export default function ExtratoContaModal({ conta, mesInicial, onClose, onConfer
         todas.push(...pg)
         if (pg.length < 1000) break
       }
-      const doMes = todas.filter(l => l.data >= ini)
-      const antes = centavos(todas.filter(l => l.data < ini).reduce((a, l) => a + Number(l.valor), 0))
+      // a abertura da conta ("Ajuste inicial" / "Abertura de caixa") é o saldo que ela JÁ TINHA:
+      // vai pro saldo anterior, não vira linha do mês (SJ, 16/10/2026: começava de R$ 0,00)
+      const doMes = todas.filter(l => l.data >= ini && !ehAberturaDeConta(l))
+      const antes = centavos(todas.filter(l => l.data < ini || ehAberturaDeConta(l)).reduce((a, l) => a + Number(l.valor), 0))
 
       // Partes de uma divisão → uma linha com o total, como no banco.
       const idsLanc = doMes.filter(l => l.origem === 'lancamento').map(l => l.origem_id)
