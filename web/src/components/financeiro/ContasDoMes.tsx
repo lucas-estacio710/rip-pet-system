@@ -376,18 +376,18 @@ export function CalendarioHoje({ itens, ano, mes0, podeLancar, onPaguei, onGeren
     const doDia = porDia.get(s) || []
     const ehHoje = s === hoje
     // QUADRADO COM NOME (16/10/2026, Lucas): contorno em cada dia, o número pequeno no canto e,
-    // por conta, a bolinha do status + o nome truncado; passou de 4, "+N contas" (o clique abre o dia).
+    // por conta, a bolinha do status + o nome truncado; passou de 3, "+N contas" (o clique abre o dia).
     cel.push(
       <button key={s} onClick={() => setDiaAberto(s)}
-              className={`min-h-16 min-w-0 rounded-[8px] border p-1 flex flex-col items-stretch gap-[1px] text-left transition-colors ${ehHoje ? 'border-blue-500 bg-blue-500/10 ring-1 ring-blue-500' : 'border-[var(--surface-200)] hover:bg-[var(--surface-100)]'} ${diaUtil(s) ? '' : 'opacity-60'}`}>
+              className={`min-h-18 min-w-0 rounded-[8px] border p-1 flex flex-col items-stretch gap-[1px] text-left transition-colors ${ehHoje ? 'border-blue-500 bg-blue-500/10 ring-1 ring-blue-500' : 'border-[var(--surface-200)] hover:bg-[var(--surface-100)]'} ${diaUtil(s) ? '' : 'opacity-60'}`}>
         <span className={`text-[9.5px] leading-none tabular-nums ${ehHoje ? 'text-blue-400 font-bold' : 'text-[var(--surface-500)]'}`}>{d}</span>
-        {doDia.slice(0, 4).map(x => (
+        {doDia.slice(0, 3).map(x => (
           <span key={x.conta.id} className="flex items-center gap-1 min-w-0" title={x.conta.nome}>
             <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${BOLA[corDaConta(x, hoje)]}`} />
             <span className="truncate text-[9.5px] leading-tight text-[var(--surface-700)]">{x.conta.nome}</span>
           </span>
         ))}
-        {doDia.length > 4 && <span className="text-[9.5px] leading-tight text-[var(--brand-500)] truncate">+{doDia.length - 4} {doDia.length - 4 === 1 ? 'conta' : 'contas'}</span>}
+        {doDia.length > 3 && <span className="text-[9.5px] leading-tight text-[var(--brand-500)] truncate">+{doDia.length - 3} {doDia.length - 3 === 1 ? 'conta' : 'contas'}</span>}
       </button>,
     )
   }
