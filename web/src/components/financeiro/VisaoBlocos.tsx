@@ -22,6 +22,7 @@ import { EtiquetaUnidade } from './DonoLancamento'
 import { classificarCaixa, ehAberturaDeConta, SEM_CATEGORIA, type BalancoCaixa, type CompraFatura, type ItemCaixa, type LinhaCaixa, type MovInfo } from '@/lib/balanco-caixa'
 import { useCoresContas, rotuloConta, estiloConta } from '@/lib/cor-conta'
 import { ContaComBolinha } from './ContaComBolinha'
+import { useUnit } from '@/contexts/UnitContext'
 
 const c2 = (n: number) => Math.round(n * 100) / 100
 const num = (v: number) => Math.abs(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -36,6 +37,8 @@ const CORES_GRUPO: Record<string, string> = {
   'Clientes (Pix e dinheiro)': '#10b981', 'Maquininha (liquidações)': '#34d399', 'Repasse das unidades': '#2dd4bf',
   'Aportes e empréstimos': '#38bdf8', 'Transferências recebidas': '#60a5fa', Rendimentos: '#22d3ee',
   'Empréstimos pagos': '#7dd3fc', 'Aportes devolvidos': '#7dd3fc',
+  // mig 171
+  'Outras receitas': '#4ade80', 'Empréstimos devolvidos': '#38bdf8', 'Empréstimos concedidos': '#7dd3fc',
   [SEM_CATEGORIA]: '#f59e0b', Cremação: '#a78bfa', 'Devoluções a clientes': '#fda4af', Pessoal: '#f472b6', Operacional: '#fb923c',
   Administrativo: '#60a5fa', Comercial: '#e879f9', Financeiro: '#38bdf8', Impostos: '#fbbf24', Investimentos: '#94a3b8', Sócios: '#f87171',
 }
@@ -711,14 +714,50 @@ function fraseNaoBateu(its: { grupo: string }[], conta: string): string {
   return `${onde} ${n === 1 ? 'está no sistema mas não foi encontrado' : 'estão no sistema mas não foram encontrados'} no extrato do ${conta}`
 }
 
-export function AConferir({ bruto, mes, onEditar, onImportarConta, onLancar, onExtrato, letra }: {
+/** Linha do banco sem par (mig 171) — o que ficou no "Fora" da Conciliação com Extrato. */
+type Pendente = { id: string; conta_id: string; data_banco: string; valor_banco: number; texto_banco: string | null; motivo: string | null }
+const MOTIVO_PENDENTE: Record<string, string> = {
+  deixada_de_fora: 'deixada de fora na conciliação',
+  pagamento_de_contrato: 'pagamento de contrato — falta lançar no contrato',
+  desmarcada: 'desmarcada na conciliação',
+}
+
+export function AConferir({ bruto, mes, onEditar, onImportarConta, onLancar, onExtrato, letra, sb }: {
   bruto: Bruto | null; mes: string
+  /** mig 171: lê e descarta as linhas do banco sem par */
+  sb?: SupabaseClient
   letra?: (unidadeId: string | null | undefined) => string
   onEditar?: (lancamentoId: string) => void; onImportarConta?: (contaId: string) => void
   onLancar?: () => void; onExtrato?: (contaId: string) => void
 }) {
   const atual = useMemo(() => caixaDoMes(bruto, mes, 'todas')?.porMes.get(mes) || null, [bruto, mes])
   const cores = useCoresContas()
+  const { userName } = useUnit()
+  // ENTRARAM NO EXTRATO E NÃO ESTÃO NO SISTEMA (mig 171): regra do Lucas — "tudo tem que bater
+  // com o saldo do banco". As abertas até o fim deste mês (a de um mês anterior segue aparecendo).
+  const versao = useFinanceiroVersao()
+  const [lidos, setPendentes] = useState<Pendente[]>([])
+  const [descartando, setDescartando] = useState<string | null>(null)
+  const [motivoDescarte, setMotivoDescarte] = useState('')
+  const contasDoCaixa = useMemo(() => (bruto ? [...bruto.saldo.keys()].sort().join(',') : ''), [bruto])
+  useEffect(() => {
+    if (!sb || !contasDoCaixa) return
+    let vivo = true
+    void sb.from('fin_extrato_pendentes').select('id, conta_id, data_banco, valor_banco, texto_banco, motivo')
+      .in('conta_id', contasDoCaixa.split(',')).eq('status', 'aberta').lte('data_banco', fimDoMes(mes))
+      .order('data_banco').limit(1000)
+      .then(({ data, error }) => { if (vivo) setPendentes(error ? [] : ((data as Pendente[] | null) || [])) })
+    return () => { vivo = false }
+  }, [sb, contasDoCaixa, mes, versao])
+  const pendentes = sb && contasDoCaixa ? lidos : []
+  async function descartar(id: string) {
+    if (!sb || !motivoDescarte.trim()) return
+    const { error } = await sb.from('fin_extrato_pendentes').update({
+      status: 'descartada', motivo_descarte: motivoDescarte.trim(),
+      resolvida_em: new Date().toISOString(), resolvida_por_nome: userName || null,
+    }).eq('id', id).eq('status', 'aberta')
+    if (!error) { setPendentes(ps => ps.filter(x => x.id !== id)); setDescartando(null); setMotivoDescarte('') }
+  }
   const itens = atual ? [...atual.entradas.map(g => ({ g, e: true })), ...atual.saidas.map(g => ({ g, e: false }))]
     .flatMap(({ g, e }) => g.itens.map(i => ({ ...i, grupo: g.nome, entrada: e }))) : []
   // a fatura é UM pagamento no banco: as compras dela, pendentes, viram uma linha só (14/10/2026)
@@ -756,7 +795,7 @@ export function AConferir({ bruto, mes, onEditar, onImportarConta, onLancar, onE
     <div className="card p-4 sm:p-5 min-w-0">
       <span className={titulo}>A conferir</span>
       {!bruto ? <p className="text-sm text-[var(--surface-500)] py-4">carregando…</p>
-      : !pend.length && !sem.length ? <p className="text-sm text-emerald-500 py-4">Tudo conferido neste mês ✓</p> : (
+      : !pend.length && !sem.length && !pendentes.length ? <p className="text-sm text-emerald-500 py-4">Tudo conferido neste mês ✓</p> : (
         <div className="space-y-3 mt-3">
           {[...porConta].map(([conta, its]) => (
             <div key={conta} className="rounded-[8px] border border-sky-500/40">
@@ -768,6 +807,35 @@ export function AConferir({ bruto, mes, onEditar, onImportarConta, onLancar, onE
               <div className="divide-y divide-[var(--surface-200)]">{its.map(linha)}</div>
             </div>
           ))}
+          {pendentes.length > 0 && (
+            <div className="rounded-[8px] border border-rose-500/40">
+              <div className="px-2.5 py-1.5 border-b border-rose-500/30 bg-rose-500/5 text-[12.5px] font-semibold text-rose-500">Entraram no extrato e não estão no sistema ({pendentes.length})</div>
+              <p className="px-2.5 py-1.5 text-[11.5px] leading-snug text-rose-500 border-b border-rose-500/20">Valores que o banco mostrou e ninguém registrou ainda. Enquanto estiverem aqui, o saldo do sistema não bate com o do banco: registre pela conciliação ou descarte dizendo por quê.</p>
+              <div className="divide-y divide-[var(--surface-200)]">
+                {pendentes.map(x => (
+                  <div key={x.id} className="px-2.5 py-1 text-[12px]">
+                    <div className="flex items-center gap-2">
+                      <span className="shrink-0 h-1.5 w-1.5 rounded-full bg-rose-500" />
+                      <span className="text-[var(--surface-500)] tabular-nums shrink-0">{x.data_banco.slice(8, 10)}/{x.data_banco.slice(5, 7)}</span>
+                      <ContaComBolinha cor={cores.get(x.conta_id)} nome={nome(x.conta_id)} />
+                      <span className="flex-1 min-w-0 truncate text-[var(--surface-700)]" title={x.texto_banco || ''}>{x.texto_banco || 'linha do banco'}{x.motivo && MOTIVO_PENDENTE[x.motivo] && <span className="text-[var(--surface-400)]"> · {MOTIVO_PENDENTE[x.motivo]}</span>}</span>
+                      <span className={`text-mono tabular-nums shrink-0 ${x.valor_banco > 0 ? 'text-emerald-500' : 'text-[var(--surface-700)]'}`}>{x.valor_banco > 0 ? '+' : '−'}{num(x.valor_banco)}</span>
+                      {onImportarConta && <button onClick={() => onImportarConta(x.conta_id)} className="text-[11px] text-[var(--brand-500)] hover:underline shrink-0 whitespace-nowrap">conciliar ›</button>}
+                      {sb && descartando !== x.id && <button onClick={() => { setDescartando(x.id); setMotivoDescarte('') }} className="text-[11px] text-[var(--surface-500)] hover:underline shrink-0">descartar</button>}
+                    </div>
+                    {descartando === x.id && (
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1 ml-3.5">
+                        <input autoComplete="off" value={motivoDescarte} onChange={e => setMotivoDescarte(e.target.value)} placeholder="Por que descartar? (ex.: já lançado à mão em outra conta)"
+                               className="input-field text-xs py-1 flex-1 min-w-[180px]" />
+                        <button onClick={() => void descartar(x.id)} disabled={!motivoDescarte.trim()} className="text-[11px] text-rose-500 hover:underline disabled:opacity-40">descartar</button>
+                        <button onClick={() => setDescartando(null)} className="text-[11px] text-[var(--surface-500)] hover:underline">cancelar</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {sem.length > 0 && (
             <div className="rounded-[8px] border border-amber-500/40">
               <div className="px-2.5 py-1.5 border-b border-amber-500/30 bg-amber-500/5 text-[12.5px] font-semibold text-amber-600">{SEM_CATEGORIA} ({sem.length})</div>

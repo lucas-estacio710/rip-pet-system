@@ -32,6 +32,7 @@ import LancamentosEspeciaisModal from './LancamentosEspeciaisModal'
 import UnderlineTabs from '@/components/ui/UnderlineTabs'
 import { criarIndice, sugerir, type Indice } from '@/lib/similaridade'
 import { buscarCategorias } from '@/lib/busca-categoria'
+import { semReceitas, folhasDeReceita } from '@/lib/categoria-receita'
 import { reconhecerCobranca } from '@/lib/reconhecer-cobranca'
 import type { AcaoLancar } from '@/lib/lancar'
 import { useCaixaConjunto } from '@/hooks/useCaixaConjunto'
@@ -363,8 +364,10 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
   }, [supabase])
 
   // ── árvore: categoria > subcategoria > tipo ──────────────────────────────
+  // O lançamento é DESPESA: sem o ramo Receitas (mig 171). `caminhoDe` segue com a árvore inteira.
+  const catsDespesa = useMemo(() => semReceitas(categorias), [categorias])
   const filhosDe = (pai: string | null) =>
-    categorias.filter(c => (pai === null ? c.parent_id === null : c.parent_id === pai))
+    catsDespesa.filter(c => (pai === null ? c.parent_id === null : c.parent_id === pai))
 
   /** "Operacional › Veículos › Combustível" */
   const caminhoDe = useCallback((id: string): string => {
@@ -377,7 +380,8 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
     return partes.join(' › ')
   }, [categorias])
 
-  const folhas = categorias.filter(c => !categorias.some(f => f.parent_id === c.id))
+  const folhas = catsDespesa.filter(c => !categorias.some(f => f.parent_id === c.id))
+  const folhasReceita = useMemo(() => folhasDeReceita(categorias), [categorias])
 
   // Busca no nome, no caminho E nos SINÔNIMOS: "gasolina" → Combustível,
   // "troca de óleo" → Manutenção, "chocolate" → Brinde. Mora em
@@ -1121,6 +1125,7 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
         onClose={() => setColarAberto(false)}
         categorias={categorias}
         folhas={folhas}
+        receitas={folhasReceita}
         caminhoDe={caminhoDe}
         mes={mes}
         permiteReceitas={veReceitas}

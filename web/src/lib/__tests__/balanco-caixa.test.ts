@@ -103,3 +103,15 @@ test('o Ajuste inicial é a abertura da conta (vai pro "Começou com"); outro aj
   assert.equal(ehAberturaDeConta({ origem: 'lancamento', descricao: 'Ajuste inicial' }), false)
   assert.equal(ehAberturaDeConta({ origem: 'movimento', descricao: null }), false)
 })
+
+test('mig 171: outra receita entra (ramo Receitas); empréstimo dado sai e a devolução entra, cada um com nome', () => {
+  const b = classificarCaixa([
+    L('itau', 0.01, 'lancamento', 'or'),                       // outra receita (gravada −0,01 → entra +0,01)
+    L('itau', -1600, 'movimento', 'ec'), L('itau', 160, 'movimento', 'ed'),
+  ], { ...ctx, categoriaDe: new Map([['or', 'Receitas']]), movs: new Map<string, MovInfo>([
+    ['ec', { tipo: 'emprestimo_concedido', conta_id: 'itau', conta_destino_id: null, repasse: false }],
+    ['ed', { tipo: 'emprestimo_devolvido', conta_id: 'itau', conta_destino_id: null, repasse: false }],
+  ]) })
+  assert.deepEqual(b.entradas.map(g => [g.nome, g.valor]), [['Empréstimos devolvidos', 160], ['Outras receitas', 0.01]])
+  assert.deepEqual(b.saidas.map(g => [g.nome, g.valor]), [['Empréstimos concedidos', 1600]])
+})

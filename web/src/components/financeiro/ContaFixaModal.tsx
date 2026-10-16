@@ -15,6 +15,7 @@ import Modal from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import { buscarCategorias } from '@/lib/busca-categoria'
+import { semReceitas } from '@/lib/categoria-receita'
 import { proximosVencimentos, nomeFeriado, type RegraVencimento } from '@/lib/vencimentos'
 
 export type ContaFixa = {
@@ -70,7 +71,7 @@ export default function ContaFixaModal({ aberto, conta, rascunho = null, onClose
       supabase.from('contas').select('id, nome, produto, tipo').or(`unidade_id.eq.${uid},unidades_extras.cs.{${uid}}`)
         .eq('ativo', true).eq('legado', false).order('nome'),
     ]).then(([c, k]) => {
-      setCats((c.data as Cat[] | null) || [])
+      setCats(semReceitas((c.data as Cat[] | null) || []))   // conta de acompanhamento é despesa (mig 171)
       setContas(((k.data as ContaRow[] | null) || []).filter(x => x.produto !== 'maquininha' && x.tipo !== 'cartao'))
     })
   }, [aberto, currentUnit?.id, supabase])

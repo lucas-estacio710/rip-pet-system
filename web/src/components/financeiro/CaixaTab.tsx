@@ -73,9 +73,12 @@ const TIPOS = [
   { v: 'aporte',        label: 'Aporte',        destino: false, ajuda: 'Sócio pôs dinheiro. Não é receita, não vai pra DRE.' },
   { v: 'emprestimo',    label: 'Empréstimo',    destino: false, ajuda: 'Entrada do principal. Os juros são despesa e vão lançados à parte.' },
   // mig 168 (15/10/2026): os três que faltavam — todos só trocam dinheiro de lugar
-  { v: 'rendimento',    label: 'Rendimento',    destino: false, ajuda: 'A aplicação rendeu: entra na conta. (Ainda não aparece na DRE como receita financeira.)' },
+  { v: 'rendimento',    label: 'Rendimento',    destino: false, ajuda: 'A aplicação rendeu: entra na conta e aparece na DRE como Receitas financeiras (mig 171).' },
   { v: 'amortizacao',   label: 'Pagar empréstimo', destino: false, ajuda: 'Sai o principal do empréstimo. Os juros são despesa e vão lançados à parte.' },
   { v: 'devolucao_aporte', label: 'Devolver aporte', destino: false, ajuda: 'Devolve ao sócio o que ele aportou. Retirada de lucro é despesa (grupo Sócios).' },
+  // mig 171 (16/10/2026): empréstimo DADO pela unidade (ex.: adiantou a CNH de alguém) — sem saldo por pessoa, fora da DRE
+  { v: 'emprestimo_concedido', label: 'Empréstimo concedido', destino: false, ajuda: 'A unidade emprestou dinheiro a alguém: sai da conta. Não é despesa, não vai pra DRE.' },
+  { v: 'emprestimo_devolvido', label: 'Devolução de empréstimo', destino: false, ajuda: 'Devolveram um empréstimo que a unidade deu: entra na conta. Não é receita, não vai pra DRE.' },
   // AJUSTE PELO SALDO (15/10/2026): pede o saldo que o banco mostra e grava só a DIFERENÇA.
   // Antes gravava o valor digitado como lançamento — quem pôs o saldo do investimento
   // (R$ 25.406,51) dobrou a conta, quando faltavam R$ 21,61 de rendimento.

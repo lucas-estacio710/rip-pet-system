@@ -29,6 +29,7 @@ import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import { fmtBRL, fmtData, colarValorBR } from '@/lib/financeiro'
 import { buscarCategorias } from '@/lib/busca-categoria'
+import { semReceitas } from '@/lib/categoria-receita'
 import { criarIndice, sugerir } from '@/lib/similaridade'
 import { reconhecerCobranca, ORIGEM_PERNA_COBRANCA } from '@/lib/reconhecer-cobranca'
 import TrilhaCustoModal from './TrilhaCustoModal'
@@ -128,7 +129,7 @@ export default function AcertosRepasse({
     ])
     // Deste repasse: os já embutidos nele, e os soltos que ainda vão entrar.
     setAcertos(((cs as Acerto[] | null) || []).filter(a => a.repasse_id === null || a.repasse_id === repasseId))
-    setCats((ct as unknown as Cat[] | null) || [])
+    setCats(semReceitas((ct as unknown as Cat[] | null) || []))   // acerto é despesa: sem o ramo Receitas (mig 171)
     setHistorico((hs as { descricao: string; categoria_id: string; data: string }[] | null) || [])
     if (mz) setMatrizNome((mz as { nome: string }).nome)
     // as unidades que podem consumir: todas menos a Matriz e a do acerto. Quem tem repasse

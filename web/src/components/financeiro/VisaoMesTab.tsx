@@ -591,7 +591,7 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
       {verResultado && emCurso && <BalancoMes bruto={caixaBruto} mes={mes} marco={currentUnit?.financeiro_desde?.slice(0, 7) || null} {...atalhosBalanco} letra={letraCx} />}
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4 items-start">
         {/* "Lançamentos" saiu (14/10/2026): repetia o Balanço. No lugar, a fila do que falta conferir */}
-        {verLancamentos && <AConferir bruto={caixaBruto} mes={mes} letra={letraCx} onEditar={onEditarLancamento} onImportarConta={onImportarConta} onLancar={atalhosBalanco.onLancar} onExtrato={atalhosBalanco.onExtrato} />}
+        {verLancamentos && <AConferir bruto={caixaBruto} mes={mes} sb={supabase} letra={letraCx} onEditar={onEditarLancamento} onImportarConta={onImportarConta} onLancar={atalhosBalanco.onLancar} onExtrato={atalhosBalanco.onExtrato} />}
         <FaturasDoMes sb={supabase} uid={currentUnit?.id} unidades={conj.ids} mes={mes} onImportarConta={onImportarConta} onEditar={onEditarLancamento} />
       </div>
 

@@ -156,6 +156,7 @@ type Item = LinhaExtrato & {
 }
 
 type OutraCoisa = 'contrato' | 'receita' | 'entre' | 'rendimento' | 'despesa' | 'fora'
+  | 'outra_receita' | 'emprestimo_devolvido' | 'emprestimo_concedido'   // mig 171
 
 /** Crédito na fatura: "+ R$ 1,20" (Inter) ou texto de estorno/reembolso. No
  *  OFX o sinal é confiável: positivo que não é o pagamento da fatura.
@@ -172,12 +173,14 @@ const chaveEntre = (d: string) => (fornecedorDe(d) || d).normalize('NFD').toLowe
   .replace(/[^a-z ]/g, ' ').replace(/ +/g, ' ').trim()
 
 export default function ColarExtratoModal({
-  aberto, onClose, categorias, folhas, caminhoDe, mes, onRegistrou, permiteReceitas = true, contaInicial,
+  aberto, onClose, categorias, folhas, receitas: catsReceita = [], caminhoDe, mes, onRegistrou, permiteReceitas = true, contaInicial,
 }: {
   aberto: boolean
   onClose: () => void
   categorias: Cat[]
   folhas: CategoriaBuscavel[]
+  /** As folhas do ramo Receitas (mig 171) — o "outra receita" escolhe entre elas. */
+  receitas?: CategoriaBuscavel[]
   caminhoDe: (id: string) => string
   mes: string
   onRegistrou: () => void
@@ -839,6 +842,9 @@ export default function ColarExtratoModal({
   const travadas = despesas.filter(i => !i.reclassificar && i.marcado && !despProntas.includes(i))
   const entreProntas = fora.filter(i => !i.jaNoSistema && i.entreConta)
   const rendProntas = fora.filter(i => !i.jaNoSistema && i.rendimento && !i.entreConta)
+  /** mig 171: outra receita (com a categoria escolhida) e empréstimo dado/devolvido */
+  const receitaProntas = fora.filter(i => !i.jaNoSistema && i.outraCoisa === 'outra_receita' && catsReceita.some(r => r.id === i.catId))
+  const emprestimoProntas = fora.filter(i => !i.jaNoSistema && (i.outraCoisa === 'emprestimo_devolvido' || i.outraCoisa === 'emprestimo_concedido'))
   /** pagamentos de fatura que batem e ficaram marcados: viram o pagamento, já conciliado */
   const faturaProntas = fora.filter(i => !i.jaNoSistema && (i.faturaPgto?.tipo === 'bate' ? !!i.conciliarFatura : i.faturaPgto?.tipo === 'difere' && i.faturaPgto.podeParcial && !!i.parcialFatura))
   const repasseProntas = fora.filter(i => !i.jaNoSistema && (i.repassePgto?.tipo === 'bate' ? !!i.conciliarRepasse : i.repassePgto?.tipo === 'difere' && i.repassePgto.podeParcial && !!i.parcialRepasse))
@@ -849,11 +855,12 @@ export default function ColarExtratoModal({
   const pendentes = receitas.filter(i => i.marcado && !(i.opId || maquininhaLote) || (i.marcado && !i.mov)).length
     + travadas.length
     + parecidos.filter(i => i.parecido!.escolhido === -2).length
-    + itens.filter(i => (outraNoQuase(i) && !i.outraCoisa) || (i.outraCoisa === 'entre' && !i.entreConta && !emParecido(i))).length
+    + itens.filter(i => (outraNoQuase(i) && !i.outraCoisa) || (!emParecido(i) && ((i.outraCoisa === 'entre' && !i.entreConta)
+        || (i.outraCoisa === 'outra_receita' && !catsReceita.some(r => r.id === i.catId))))).length
 
   async function registrar() {
     if (!currentUnit?.id || !contaId) return
-    if (!recProntas.length && !despProntas.length && !reclassProntas.length && !entreProntas.length && !rendProntas.length && !faturaProntas.length && !repasseProntas.length && !confirmados.length && !exatosParaConciliar.length) {
+    if (!recProntas.length && !despProntas.length && !reclassProntas.length && !entreProntas.length && !rendProntas.length && !receitaProntas.length && !emprestimoProntas.length && !faturaProntas.length && !repasseProntas.length && !confirmados.length && !exatosParaConciliar.length) {
       return toast('Nada pronto pra registrar', 'error')
     }
     if (ehCartao && despProntas.length && !vencimento) return toast('Escolha a fatura (o vencimento) dessas compras', 'error')
@@ -934,6 +941,40 @@ export default function ColarExtratoModal({
         if (error) throw new Error(`Rendimentos: ${error.message}${entrouRec ? ` (${entrouRec} registros JÁ entraram)` : ''}`)
         entrouRec += rows.length
         ;((novos as { id: string }[] | null) || []).forEach((m, k) => conc(rendProntas[k], [{ origem: 'movimento', origem_id: m.id }], 'novo'))
+      }
+      // OUTRA RECEITA (mig 171): lançamento com valor NEGATIVO (em fin_lancamentos o valor é o
+      // que sai do caixa) numa conta de receita — a vw_caixa faz entrar, a DRE mostra positivo.
+      if (receitaProntas.length) {
+        const rows = receitaProntas.map(i => {
+          const cat = categorias.find(c => c.id === i.catId)
+          const cc = cat?.fin_contas
+          return {
+            unidade_id: (conj.conjunto && i.dono) || currentUnit.id, categoria_id: i.catId,
+            conta_id: cat?.fin_conta_id || null, conta_codigo: cc?.codigo || null, conta_nome: cc?.nome || null,
+            natureza: cc?.natureza || 'opex',
+            descricao: null, observacoes: i.descricao,
+            valor: -Math.abs(i.valor), data_competencia: i.data, data_caixa: i.data,
+            fornecedor_nome: fornecedorDe(i.descricao) || null, conta_pagamento_id: contaId,
+            metodo_pagamento: metodoDe(i.descricao) || 'pix', rateio_meses: 1, origem: 'manual',
+            criado_por_nome: userName || null, status: 'aprovado',
+            aprovado_por: user?.id || null, aprovado_por_nome: userName || null, aprovado_em: agora,
+          }
+        })
+        const { data: novos, error } = await supabase.from('fin_lancamentos').insert(rows).select('id')
+        if (error) throw new Error(`Outras receitas: ${error.message}${entrouRec ? ` (${entrouRec} registros JÁ entraram)` : ''}`)
+        entrouRec += rows.length
+        ;((novos as { id: string }[] | null) || []).forEach((m, k) => conc(receitaProntas[k], [{ origem: 'lancamento', origem_id: m.id }], 'novo'))
+      }
+      // EMPRÉSTIMO dado / devolvido (mig 171): movimento, fora da DRE
+      if (emprestimoProntas.length) {
+        const rows = emprestimoProntas.map(i => ({
+          unidade_id: currentUnit.id, tipo: i.outraCoisa as string, conta_id: contaId, conta_destino_id: null,
+          data: i.data, valor: Math.abs(i.valor), descricao: i.descricao, criado_por_nome: userName || null,
+        }))
+        const { data: novos, error } = await supabase.from('fin_movimentos').insert(rows).select('id')
+        if (error) throw new Error(`Empréstimos: ${error.message}${entrouRec ? ` (${entrouRec} registros JÁ entraram)` : ''}`)
+        entrouRec += rows.length
+        ;((novos as { id: string }[] | null) || []).forEach((m, k) => conc(emprestimoProntas[k], [{ origem: 'movimento', origem_id: m.id }], 'novo'))
       }
       // PAGAMENTO DE FATURA: o banco diz a data e o valor; a fatura (cartão + vencimento) já bateu.
       for (const i of faturaProntas) {
@@ -1070,7 +1111,32 @@ export default function ColarExtratoModal({
         }
         if (error) toast(`Registrado, mas a conciliação não foi gravada: ${error.message}`, 'error')
       }
-      toast(`${recProntas.length} receitas a prazo · ${entreProntas.length} entre contas · ${despProntas.length} despesas${rendProntas.length ? ` · ${rendProntas.length} ${rendProntas.length === 1 ? 'rendimento' : 'rendimentos'}` : ''}${reclassProntas.length ? ` · ${reclassProntas.length} classificadas` : ''}${faturaProntas.length ? ` · ${faturaProntas.length} ${faturaProntas.length === 1 ? 'fatura paga' : 'faturas pagas'}` : ''}${repasseProntas.length ? ` · ${repasseProntas.length} ${repasseProntas.length === 1 ? 'repasse pago' : 'repasses pagos'}` : ''} · ${concs.length} conciliados`, 'success')
+      // A LINHA DO BANCO SEM PAR (mig 171, regra do Lucas: "tudo tem que bater com o saldo do
+      // banco"): o que não virou registro nem conciliação fica guardado no A conferir — menos
+      // fatura e repasse (módulo próprio) e o par saída+estorno do mesmo dia (se anulam).
+      {
+        const sobra = linhasSemPar
+        if (sobra.length) {
+          const ds = sobra.map(i => i.data).sort()
+          const { data: ja } = await supabase.from('fin_extrato_pendentes')
+            .select('fitid, data_banco, valor_banco, texto_banco').eq('conta_id', contaId)
+            .gte('data_banco', ds[0]).lte('data_banco', ds[ds.length - 1]).limit(5000)
+          const existentes = (ja as { fitid: string | null; data_banco: string; valor_banco: number; texto_banco: string | null }[] | null) || []
+          const mesma = (i: Item) => existentes.some(e => e.data_banco === i.data && Math.abs(Number(e.valor_banco) - i.valor) < 0.005
+            && (i.fitid && e.fitid ? e.fitid === i.fitid : (e.texto_banco || '') === i.descricao))
+          const motivo = (i: Item) => i.outraCoisa === 'fora' ? 'deixada_de_fora' : i.outraCoisa === 'contrato' ? 'pagamento_de_contrato'
+            : (i.destino === 'despesa' || i.destino === 'receita') ? 'desmarcada' : null
+          const novas = sobra.filter(i => !mesma(i)).map(i => ({
+            conta_id: contaId, data_banco: i.data, valor_banco: i.valor, texto_banco: i.descricao,
+            fitid: i.fitid || null, motivo: motivo(i), criado_por_nome: userName || null,
+          }))
+          if (novas.length) {
+            const { error } = await supabase.from('fin_extrato_pendentes').insert(novas)
+            if (error) toast(`Registrado, mas as ${novas.length} linhas sem par não foram guardadas: ${error.message}`, 'error')
+          }
+        }
+      }
+      toast(`${recProntas.length} receitas a prazo · ${entreProntas.length} entre contas · ${despProntas.length} despesas${rendProntas.length ? ` · ${rendProntas.length} ${rendProntas.length === 1 ? 'rendimento' : 'rendimentos'}` : ''}${reclassProntas.length ? ` · ${reclassProntas.length} classificadas` : ''}${faturaProntas.length ? ` · ${faturaProntas.length} ${faturaProntas.length === 1 ? 'fatura paga' : 'faturas pagas'}` : ''}${repasseProntas.length ? ` · ${repasseProntas.length} ${repasseProntas.length === 1 ? 'repasse pago' : 'repasses pagos'}` : ''}${receitaProntas.length ? ` · ${receitaProntas.length} ${receitaProntas.length === 1 ? 'outra receita' : 'outras receitas'}` : ''}${emprestimoProntas.length ? ` · ${emprestimoProntas.length} ${emprestimoProntas.length === 1 ? 'empréstimo' : 'empréstimos'}` : ''} · ${concs.length} conciliados`, 'success')
       onRegistrou()
       onClose()
     } catch (e) {
@@ -1517,10 +1583,13 @@ export default function ColarExtratoModal({
       : entrada
       ? [{ v: 'contrato', t: onde === 'quase' ? 'pagamento de outro contrato' : 'pagamento de contrato' },
          ...(permiteReceitas ? [{ v: 'receita' as const, t: 'recebimento de maquininha' }] : []),
+         ...(catsReceita.length ? [{ v: 'outra_receita' as const, t: 'outra receita' }] : []),
+         { v: 'emprestimo_devolvido', t: 'devolução de empréstimo' },
          { v: 'entre', t: 'transferência interna entre contas' },
          { v: 'rendimento', t: 'rendimento da conta' },
          { v: 'fora', t: onde === 'quase' ? 'deixar de fora por enquanto' : 'deixar de fora' }]
       : [{ v: 'despesa', t: 'despesa nova' },
+         { v: 'emprestimo_concedido', t: 'empréstimo concedido' },
          { v: 'entre', t: 'transferência interna entre contas' },
          { v: 'fora', t: onde === 'quase' ? 'deixar de fora por enquanto' : 'deixar de fora' }]
     const definir = (o: OutraCoisa) => {
@@ -1530,6 +1599,9 @@ export default function ColarExtratoModal({
       else if (o === 'rendimento') muda(i.n, { ...base, destino: 'fora', marcado: false, rendimento: true })
       else if (o === 'entre') muda(i.n, { ...base, destino: 'fora', marcado: false })
       else if (o === 'contrato') muda(i.n, { ...base, destino: 'fora', marcado: false, motivoFora: 'pagamento de contrato — registre o pagamento no contrato e coloque este arquivo de novo' })
+      // outra receita: a categoria é do ramo Receitas (só uma folha? já vem escolhida)
+      else if (o === 'outra_receita') muda(i.n, { ...base, destino: 'fora', marcado: false, catId: catsReceita.length === 1 ? catsReceita[0].id : (catsReceita.some(r => r.id === i.catId) ? i.catId : '') })
+      else if (o === 'emprestimo_devolvido' || o === 'emprestimo_concedido') muda(i.n, { ...base, destino: 'fora', marcado: false })
       else muda(i.n, { ...base, destino: 'fora', marcado: false, motivoFora: 'deixada de fora por você' })
     }
     return (
@@ -1558,6 +1630,21 @@ export default function ColarExtratoModal({
           </span>
         )}
         {escolha === 'rendimento' && <span className="text-xs text-emerald-500">entra como <b>Rendimento</b> ao registrar</span>}
+        {escolha === 'outra_receita' && (
+          <span className="flex flex-wrap items-center gap-1.5 text-xs">
+            <select value={catsReceita.some(r => r.id === i.catId) ? i.catId : ''} onChange={e => muda(i.n, { catId: e.target.value })}
+                    className={`input-field text-xs py-1 ${i.catId ? 'text-[var(--brand-500)] font-medium' : ''}`}>
+              <option value="">— qual receita? —</option>
+              {catsReceita.map(r => <option key={r.id} value={r.id}>{caminhoDe(r.id)}</option>)}
+            </select>
+            {catsReceita.some(r => r.id === i.catId)
+              ? <span className="text-[var(--surface-500)]">entra no caixa e na DRE, em Outras receitas</span>
+              : <span className="text-amber-500">escolha a receita para registrar</span>}
+          </span>
+        )}
+        {(escolha === 'emprestimo_devolvido' || escolha === 'emprestimo_concedido') && (
+          <span className="text-xs text-[var(--surface-500)]">{escolha === 'emprestimo_devolvido' ? 'entra' : 'sai'} no caixa como empréstimo — não é receita nem despesa, não vai pra DRE</span>
+        )}
         {escolha === 'contrato' && <span className="text-xs text-[var(--surface-500)]">nada é registrado agora: lance o pagamento no contrato e coloque este arquivo de novo</span>}
         {escolha === 'fora' && <span className="text-xs text-[var(--surface-500)]">fica de fora: nada é registrado nem conciliado</span>}
       </div>
@@ -1622,7 +1709,7 @@ export default function ColarExtratoModal({
   // ── o placar: banco × sistema × depois de registrar (conta corrente) ──
   const depois = placar
     ? Math.round((placar.sistema
-        + [...recProntas, ...despProntas, ...entreProntas, ...rendProntas, ...faturaProntas, ...repasseProntas].reduce((a, i) => a + i.valor, 0)
+        + [...recProntas, ...despProntas, ...entreProntas, ...rendProntas, ...receitaProntas, ...emprestimoProntas, ...faturaProntas, ...repasseProntas].reduce((a, i) => a + i.valor, 0)
         + confirmados.reduce((a, i) => {
             const r = i.parecido!.candidatos[i.parecido!.escolhido]
             return a + (r.ajustavel ? i.valor - r.valor : 0)
@@ -1659,11 +1746,22 @@ export default function ColarExtratoModal({
     recProntas.length ? `${recProntas.length} ${recProntas.length === 1 ? 'recebimento' : 'recebimentos'}` : '',
     entreProntas.length ? `${entreProntas.length} entre contas` : '',
     rendProntas.length ? `${rendProntas.length} ${rendProntas.length === 1 ? 'rendimento' : 'rendimentos'}` : '',
+    receitaProntas.length ? `${receitaProntas.length} ${receitaProntas.length === 1 ? 'outra receita' : 'outras receitas'}` : '',
+    emprestimoProntas.length ? `${emprestimoProntas.length} ${emprestimoProntas.length === 1 ? 'empréstimo' : 'empréstimos'}` : '',
     despProntas.length ? `${despProntas.length} ${despProntas.length === 1 ? 'despesa' : 'despesas'}` : '',
     faturaProntas.length ? `${faturaProntas.length} ${faturaProntas.length === 1 ? 'pagamento de fatura' : 'pagamentos de fatura'}` : '',
     repasseProntas.length ? `${repasseProntas.length} ${repasseProntas.length === 1 ? 'pagamento de repasse' : 'pagamentos de repasse'}` : '',
   ].filter(Boolean).join(' e ')
-  const conferir = exatosParaConciliar.length + confirmados.length + recProntas.length + entreProntas.length + rendProntas.length + despProntas.length + faturaProntas.length + repasseProntas.length
+  /** A LINHA DO BANCO SEM PAR (mig 171): o que não vira registro nem conciliação — fica guardado
+   *  no A conferir. Fora: cartão, fatura e repasse (módulo próprio), e saída+estorno do mesmo dia. */
+  const linhasSemPar = ehCartao ? [] : (() => {
+    const entrou = new Set([...recProntas, ...despProntas, ...reclassProntas, ...entreProntas, ...rendProntas,
+      ...receitaProntas, ...emprestimoProntas, ...faturaProntas, ...repasseProntas, ...confirmados, ...exatosParaConciliar].map(i => i.n))
+    return itens.filter(i => !entrou.has(i.n) && !i.jaNoSistema && !i.jaConciliada
+      && !(i.parecido && i.parecido.escolhido >= 0) && !i.faturaPgto && !i.repassePgto
+      && !(i.valor < 0 && quitacaoDe(i.descricao)) && !(i.motivoFora || '').startsWith('estornado'))
+  })()
+  const conferir = exatosParaConciliar.length + confirmados.length + recProntas.length + entreProntas.length + rendProntas.length + receitaProntas.length + emprestimoProntas.length + despProntas.length + faturaProntas.length + repasseProntas.length
 
   return (
     <Modal
@@ -1679,6 +1777,7 @@ export default function ColarExtratoModal({
               marcar {conferir} {conferir === 1 ? 'linha' : 'linhas'} como conferida{conferir === 1 ? '' : 's'}.
             </>}
             {pendentes > 0 && <span className="text-amber-500"> Falta decidir {pendentes}.</span>}
+            {linhasSemPar.length > 0 && <span className="block text-rose-500 mt-0.5">{linhasSemPar.length} {linhasSemPar.length === 1 ? 'linha do banco fica' : 'linhas do banco ficam'} sem par e {linhasSemPar.length === 1 ? 'vai' : 'vão'} para o A conferir, até alguém registrar ou descartar.</span>}
             {semCategoria.length > 0 && <span className="block text-amber-500 mt-0.5">⚠ {semCategoria.length} {semCategoria.length === 1 ? 'lançamento vai' : 'lançamentos vão'} sem categoria. Tudo bem, pode lançar: classifique pela tela ({ehCartao ? 'Livro-Caixa › Faturas do cartão' : 'Livro-Caixa › Sem categoria'}) ou reimporte o arquivo para classificar.{ehCartao ? ' A fatura só fica pronta pra pagar com todos os lançamentos classificados.' : ''}</span>}
             {/* a fatura não bateu (16/10/2026, Lucas): nada de tirar a pessoa da tela — diz o que fazer e que o resto já fica salvo */}
             {faturaDifere.length > 0 && <span className="block text-amber-500 mt-0.5">⚠ {faturaDifere.length === 1 ? 'O pagamento acima (fatura ou repasse) não vai' : `Os ${faturaDifere.length} pagamentos acima (fatura ou repasse) não vão`} ser conciliado{faturaDifere.length === 1 ? '' : 's'} agora. Pode registrar o resto tranquilo: o que você salvar agora já fica classificado. Depois de acertar, coloque este arquivo do banco de novo, e só esse pagamento vai aparecer para conciliar.</span>}

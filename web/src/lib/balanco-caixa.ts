@@ -20,6 +20,8 @@
 //
 // Função pura: quem busca é o BalancoMes (VisaoBlocos.tsx).
 
+import { RAIZ_RECEITAS } from './categoria-receita.ts'
+
 export const SEM_CATEGORIA = 'Sem categoria'
 
 /** O "Ajuste inicial" (abrir caixa, VisaoMesTab) é o saldo que a conta JÁ TINHA no dia em que
@@ -81,6 +83,8 @@ export function classificarCaixa(
     if (l.origem === 'lancamento') {
       // despesa paga direto da conta; valor positivo é estorno e abate o mesmo grupo
       const g = ctx.categoriaDe.get(l.origem_id)
+      // mig 171: OUTRA RECEITA — lançamento do ramo Receitas (gravado negativo: entra no caixa)
+      if (g === RAIZ_RECEITAS) { por(ent, 'Outras receitas', it(v, 'editar')); continue }
       por(sai, g || SEM_CATEGORIA, it(-v, 'editar'))
       continue
     }
@@ -111,6 +115,13 @@ export function classificarCaixa(
     if (tipo === 'rendimento') { if (v >= 0) por(ent, 'Rendimentos', it(v, null)); else por(sai, SEM_CATEGORIA, it(-v, 'extrato')); continue }
     if (tipo === 'amortizacao' || tipo === 'devolucao_aporte') {
       if (v < 0) por(sai, tipo === 'amortizacao' ? 'Empréstimos pagos' : 'Aportes devolvidos', it(-v, null)); else por(ent, SEM_CATEGORIA, it(v, 'extrato'))
+      continue
+    }
+    // mig 171: empréstimo DADO pela unidade (sai) e a devolução dele (entra) — fora da DRE
+    if (tipo === 'emprestimo_concedido' || tipo === 'emprestimo_devolvido') {
+      if (tipo === 'emprestimo_concedido' && v < 0) por(sai, 'Empréstimos concedidos', it(-v, null))
+      else if (tipo === 'emprestimo_devolvido' && v >= 0) por(ent, 'Empréstimos devolvidos', it(v, null))
+      else if (v >= 0) por(ent, SEM_CATEGORIA, it(v, 'extrato')); else por(sai, SEM_CATEGORIA, it(-v, 'extrato'))
       continue
     }
     if (tipo === 'transferencia' && m) {
