@@ -112,7 +112,9 @@ export async function reconhecerCobranca(
       conta_codigo: contaReemb.codigo,
       conta_nome: contaReemb.nome,
       natureza: contaReemb.natureza,
-      valor: c.categoria_id ? -Math.abs(c.valor) : c.valor,
+      // sempre NEGATIVO: com categoria é dedução da despesa (mig 166); sem, é receita na 9.1.01 —
+      // e desde a mig 171 receita em fin_lancamentos é gravada negativa (a DRE inverte). Achado da Ouro.
+      valor: -Math.abs(c.valor),
       data_competencia: c.data,
       data_caixa: null,
       descricao: c.categoria_id

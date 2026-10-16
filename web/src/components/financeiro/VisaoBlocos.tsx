@@ -739,6 +739,7 @@ export function AConferir({ bruto, mes, onEditar, onImportarConta, onLancar, onE
   const [lidos, setPendentes] = useState<Pendente[]>([])
   const [descartando, setDescartando] = useState<string | null>(null)
   const [motivoDescarte, setMotivoDescarte] = useState('')
+  const [erroDescarte, setErroDescarte] = useState<string | null>(null)
   const contasDoCaixa = useMemo(() => (bruto ? [...bruto.saldo.keys()].sort().join(',') : ''), [bruto])
   useEffect(() => {
     if (!sb || !contasDoCaixa) return
@@ -756,7 +757,8 @@ export function AConferir({ bruto, mes, onEditar, onImportarConta, onLancar, onE
       status: 'descartada', motivo_descarte: motivoDescarte.trim(),
       resolvida_em: new Date().toISOString(), resolvida_por_nome: userName || null,
     }).eq('id', id).eq('status', 'aberta')
-    if (!error) { setPendentes(ps => ps.filter(x => x.id !== id)); setDescartando(null); setMotivoDescarte('') }
+    if (error) { setErroDescarte(error.message); return }
+    setErroDescarte(null); setPendentes(ps => ps.filter(x => x.id !== id)); setDescartando(null); setMotivoDescarte('')
   }
   const itens = atual ? [...atual.entradas.map(g => ({ g, e: true })), ...atual.saidas.map(g => ({ g, e: false }))]
     .flatMap(({ g, e }) => g.itens.map(i => ({ ...i, grupo: g.nome, entrada: e }))) : []
@@ -828,7 +830,8 @@ export function AConferir({ bruto, mes, onEditar, onImportarConta, onLancar, onE
                         <input autoComplete="off" value={motivoDescarte} onChange={e => setMotivoDescarte(e.target.value)} placeholder="Por que descartar? (ex.: já lançado à mão em outra conta)"
                                className="input-field text-xs py-1 flex-1 min-w-[180px]" />
                         <button onClick={() => void descartar(x.id)} disabled={!motivoDescarte.trim()} className="text-[11px] text-rose-500 hover:underline disabled:opacity-40">descartar</button>
-                        <button onClick={() => setDescartando(null)} className="text-[11px] text-[var(--surface-500)] hover:underline">cancelar</button>
+                        <button onClick={() => { setDescartando(null); setErroDescarte(null) }} className="text-[11px] text-[var(--surface-500)] hover:underline">cancelar</button>
+                        {erroDescarte && <span className="w-full text-[11px] text-red-500">Não descartou: {erroDescarte}</span>}
                       </div>
                     )}
                   </div>

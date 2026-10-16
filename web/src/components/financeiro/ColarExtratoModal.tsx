@@ -1118,10 +1118,17 @@ export default function ColarExtratoModal({
         const sobra = linhasSemPar
         if (sobra.length) {
           const ds = sobra.map(i => i.data).sort()
-          const { data: ja } = await supabase.from('fin_extrato_pendentes')
-            .select('fitid, data_banco, valor_banco, texto_banco').eq('conta_id', contaId)
-            .gte('data_banco', ds[0]).lte('data_banco', ds[ds.length - 1]).limit(5000)
-          const existentes = (ja as { fitid: string | null; data_banco: string; valor_banco: number; texto_banco: string | null }[] | null) || []
+          // paginado: o PostgREST corta em 1000 — uma que escapasse quebraria o insert no índice único (Ouro)
+          type PE = { fitid: string | null; data_banco: string; valor_banco: number; texto_banco: string | null }
+          const existentes: PE[] = []
+          for (let off = 0; ; off += 1000) {
+            const { data: ja } = await supabase.from('fin_extrato_pendentes')
+              .select('fitid, data_banco, valor_banco, texto_banco').eq('conta_id', contaId)
+              .gte('data_banco', ds[0]).lte('data_banco', ds[ds.length - 1]).order('id').range(off, off + 999)
+            const pg = (ja as PE[] | null) || []
+            existentes.push(...pg)
+            if (pg.length < 1000) break
+          }
           const mesma = (i: Item) => existentes.some(e => e.data_banco === i.data && Math.abs(Number(e.valor_banco) - i.valor) < 0.005
             && (i.fitid && e.fitid ? e.fitid === i.fitid : (e.texto_banco || '') === i.descricao))
           const motivo = (i: Item) => i.outraCoisa === 'fora' ? 'deixada_de_fora' : i.outraCoisa === 'contrato' ? 'pagamento_de_contrato'
