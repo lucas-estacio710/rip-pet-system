@@ -162,6 +162,8 @@ export function naoEDespesa(descricao: string): string | null {
 export function ehRendimento(descricao: string, valor: number): boolean {
   if (valor <= 0) return false
   const t = normTexto(descricao)
+  // "RESGATE RENDIMENTO" / "APLICACAO" é dinheiro mudando de lugar (entre contas), não rendimento
+  if (/\bRESGATE\b|\bAPLICACAO\b/.test(t)) return false
   return /\bRENDIMENTOS?\b|\bREND\s+(PAGO|APLIC)|\bRENTABILIDADE\b/.test(t)
 }
 

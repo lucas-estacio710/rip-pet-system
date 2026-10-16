@@ -22,4 +22,6 @@ test('Itaú: rendimento automático da conta vira rendimento sozinho; aluguel de
   assert.equal(ehRendimento('RENDIMENTOS REND PAGO APLIC AUT MAIS', -0.02), false)
   assert.equal(ehRendimento('REMUNERACAO POS', 10), false)
   assert.equal(ehRendimento('PIX RECEBIDO MARIA', 100), false)
+  assert.equal(ehRendimento('RESGATE RENDIMENTO CDB', 500), false)
+  assert.equal(ehRendimento('RESGATE APLICACAO AUT', 500), false)
 })
