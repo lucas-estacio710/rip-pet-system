@@ -1131,6 +1131,8 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
       <LancamentosEspeciaisModal
         aberto={especiaisAberto}
         inicial={especiaisInicial}
+        // o "Fatura do cartão" do + abre direto no Conferir fatura (16/10/2026); vindo do extrato (repasse), segue o `inicial`
+        abrirEm={especiaisInicial ? undefined : 'fatura'}
         onClose={() => { setEspeciaisAberto(false); setEspeciaisInicial(null) }}
         onRegistrou={() => { void carregar(); setVersaoColar(v => v + 1) }}
       />
