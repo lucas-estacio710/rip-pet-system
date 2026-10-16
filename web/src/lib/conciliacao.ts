@@ -30,7 +30,8 @@
 // SJ, 16/10/2026 (BRAD): o Ricardo mandou UM Pix de 650 no sábado 05/09 e o contrato tem
 // 400 + 250 nesse dia; o Itaú só lançou em 08/09 (feriado no meio). Duas folgas novas:
 //   · a DATA QUE O ITAÚ ESCREVE no texto ("PIX RECEBIDO RICARDO05/09 …") vale como data
-//     do Pix nas passadas exata e de contrato (`dataDoTexto`, até 7 dias antes);
+//     do Pix nas passadas exata e de contrato (`dataDoTexto`, até 7 dias antes) — mas o
+//     par que SÓ bate por ela é "provável": vai pro Quase lá, a pessoa confirma (Lucas);
 //   · a SOMA DE UM CONTRATO dentro da janela, com o nome de quem pagou batendo com o
 //     tutor, vira UM candidato "provável" (as partes juntas, `partes`) — vai pro Quase lá.
 
@@ -107,6 +108,15 @@ export function conciliar(
   // só no extrato de conta: na fatura do cartão "PARC 02/10" é parcela, não data (achado da Ouro)
   const doTexto = new Map(linhas.map(l => [l.n, opts.dataNoTexto === false ? null : dataDoTexto(l.descricao, l.data)]))
   const mesmoDia = (l: LinhaBancoMin, d: string) => d === l.data || d === doTexto.get(l.n)
+  // casou pela data do TEXTO (não a do banco)? então é dedução nossa: provável, não exato
+  const peloTexto = (l: LinhaBancoMin, rs: RegistroSistema[]) => rs.some(r => r.data !== l.data)
+  // as partes de um contrato viram UM candidato (o Quase lá escolhe um só)
+  const juntar = (partes: RegistroSistema[]): RegistroSistema => ({
+    chave: partes.map(r => r.chave).join('+'), data: partes[0].data,
+    valor: Math.round(partes.reduce((a, r) => a + r.valor, 0) * 100) / 100,
+    rotulo: `${partes[0].rotulo} (${partes.length} pagamentos)`, contrato: partes[0].contrato,
+    refs: partes.flatMap(r => r.refs), ajustavel: null, partes: partes.map(r => r.chave),
+  })
 
   // 1) exato — em TODAS as linhas antes de qualquer folga: uma folga não pode
   //    levar o registro que era o par exato de outra linha. Com mais de um
@@ -120,7 +130,7 @@ export function conciliar(
     const peloNome = cs.length > 1 ? cs.filter(x => nomeBate(l.descricao, x.contrato)) : cs
     if (peloNome.length !== 1) { adiadas.push(l); continue }
     usado.add(peloNome[0].chave)
-    pares.set(l.n, { tipo: 'exato', candidatos: [peloNome[0]] })
+    pares.set(l.n, { tipo: peloTexto(l, peloNome) ? 'provavel' : 'exato', candidatos: [peloNome[0]] })
   }
 
   // 2) soma dos pagamentos de um contrato no mesmo dia
@@ -135,7 +145,7 @@ export function conciliar(
       for (const partes of porContrato.values()) {
         if (partes.length > 1 && igual(partes.reduce((a, r) => a + r.valor, 0), l.valor)) {
           partes.forEach(r => usado.add(r.chave))
-          pares.set(l.n, { tipo: 'contrato', candidatos: partes })
+          pares.set(l.n, peloTexto(l, partes) ? { tipo: 'provavel', candidatos: [juntar(partes)] } : { tipo: 'contrato', candidatos: partes })
           break
         }
       }
@@ -146,7 +156,7 @@ export function conciliar(
   for (const l of adiadas) {
     if (pares.has(l.n)) continue
     const r = exatosDe(l)[0]
-    if (r) { usado.add(r.chave); pares.set(l.n, { tipo: 'exato', candidatos: [r] }) }
+    if (r) { usado.add(r.chave); pares.set(l.n, { tipo: peloTexto(l, [r]) ? 'provavel' : 'exato', candidatos: [r] }) }
   }
 
   // 2b) soma de um contrato DENTRO DA JANELA, com o nome batendo: um candidato só (as
@@ -163,13 +173,7 @@ export function conciliar(
       for (const partes of porContrato.values()) {
         if (partes.length < 2 || !igual(partes.reduce((a, r) => a + r.valor, 0), l.valor)) continue
         partes.forEach(r => usado.add(r.chave))
-        const juntos: RegistroSistema = {
-          chave: partes.map(r => r.chave).join('+'), data: partes[0].data,
-          valor: Math.round(partes.reduce((a, r) => a + r.valor, 0) * 100) / 100,
-          rotulo: `${partes[0].rotulo} (${partes.length} pagamentos)`, contrato: partes[0].contrato,
-          refs: partes.flatMap(r => r.refs), ajustavel: null, partes: partes.map(r => r.chave),
-        }
-        pares.set(l.n, { tipo: 'provavel', candidatos: [juntos] })
+        pares.set(l.n, { tipo: 'provavel', candidatos: [juntar(partes)] })
         break
       }
     }

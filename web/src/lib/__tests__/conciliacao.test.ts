@@ -42,11 +42,18 @@ test('nomeBate usa as 3 letras do tutor no código', () => {
 const BRAD = 'SJ260827INDRICBRAAE BRAD'
 const pixRicardo = { n: 1, data: '2026-09-08', valor: 650, descricao: 'PIX RECEBIDO RICARDO05/09 RICARDO LUIZ GARCIA LUZ 448.179.788-64' }
 
-test('Itaú: a data escrita no texto vale como o dia do Pix (soma do contrato casa)', () => {
+test('Itaú: a data escrita no texto acha a soma do contrato, mas vai pro Quase lá (provável)', () => {
   assert.equal(dataDoTexto(pixRicardo.descricao, pixRicardo.data), '2026-09-05')
   const pares = conciliar([pixRicardo], [pag('p', BRAD, 400, '2026-09-05'), pag('c', BRAD, 250, '2026-09-05')])
+  assert.equal(pares.get(1)?.tipo, 'provavel')
+  assert.equal(pares.get(1)?.candidatos.length, 1)
+  assert.equal(pares.get(1)?.candidatos[0].valor, 650)
+})
+
+test('na data do BANCO a soma do contrato continua automática', () => {
+  const linha = { ...pixRicardo, data: '2026-09-05' }
+  const pares = conciliar([linha], [pag('p', BRAD, 400, '2026-09-05'), pag('c', BRAD, 250, '2026-09-05')])
   assert.equal(pares.get(1)?.tipo, 'contrato')
-  assert.equal(pares.get(1)?.candidatos.length, 2)
 })
 
 test('dataDoTexto: só data de verdade, até 7 dias antes do banco', () => {
@@ -80,6 +87,6 @@ test('soma em dias diferentes SEM o nome batendo não casa', () => {
 test('fatura do cartão (dataNoTexto: false): "PARC 02/10" não vira data', () => {
   const linha = { n: 1, data: '2026-10-05', valor: -100, descricao: 'LOJA X PARC 02/10' }
   const reg: RegistroSistema = { chave: 'x', data: '2026-10-02', valor: -100, rotulo: 'compra', contrato: null, refs: [{ origem: 'lancamento', origem_id: 'x' }], ajustavel: 'x' }
-  assert.equal(conciliar([linha], [reg]).get(1)?.tipo, 'exato')                       // conta: usa a data do texto
+  assert.equal(conciliar([linha], [reg]).get(1)?.tipo, 'provavel')                    // conta: acha pela data do texto, confirma
   assert.equal(conciliar([linha], [reg], { dataNoTexto: false }).get(1)?.tipo, 'provavel') // cartão: só a folga
 })
