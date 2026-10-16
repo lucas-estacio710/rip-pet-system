@@ -210,7 +210,8 @@ export function BalancoMes({ bruto, mes, marco = null, onEditar, onLancar, onExt
   // Contas disponíveis primeiro e marcada por padrão (15/10/2026, Lucas): o dinheiro que paga as contas
   const [modo, setModo] = useState<'todas' | 'disponiveis'>('disponiveis')
   // cada grupo da ponte abre e mostra as linhas dele (14/10/2026); o "Sem categoria" nasce aberto
-  const [abertos, setAbertos] = useState<Set<string>>(new Set([`s:${SEM_CATEGORIA}`, `e:${SEM_CATEGORIA}`]))
+  // o "Sem categoria" nasce FECHADO (16/10/2026, Lucas): o mesmo detalhe está logo abaixo, no A conferir
+  const [abertos, setAbertos] = useState<Set<string>>(new Set())
   // descrição numa linha; clique/toque abre o texto inteiro (14/10/2026)
   const [textoAberto, setTextoAberto] = useState<Set<string>>(new Set())
   const cores = useCoresContas()
@@ -307,7 +308,7 @@ export function BalancoMes({ bruto, mes, marco = null, onEditar, onLancar, onExt
                   </div>
                   {aberto && b.itens && (
                     <div className={`ml-4 my-1 min-w-0 overflow-hidden rounded-[8px] border ${sem ? 'border-amber-500/40 bg-amber-500/5' : 'border-[var(--surface-200)]'} divide-y divide-[var(--surface-200)]`}>
-                      {sem && <p className="px-2.5 py-1.5 text-[11px] text-amber-600">Dinheiro que andou sem estar lançado com categoria. Resolva cada um pelo botão da linha.</p>}
+                      {sem && <p className="px-2.5 py-1.5 text-[11px] text-amber-600">Valores que apareceram no extrato mas não foram classificados ainda. Resolva cada um pelo botão da linha.</p>}
                       {b.itens.map((it, k) => {
                         // atalho SÓ no "Sem categoria" (14/10/2026, Lucas): no que já está categorizado,
                         // abrir daqui só servia pra mudar conta/data/categoria sem querer
@@ -696,6 +697,20 @@ function SeloFatura({ estado, conciliada }: { estado: EstadoFatura; conciliada: 
 // A CONFERIR (14/10/2026) — substitui o card "Lançamentos": não repete o Balanço, é a FILA do que
 // falta resolver no caixa do mês. (1) o que entrou no caixa e ainda não bateu com o extrato
 // (pré-lançamento), por conta, com o atalho de importar o extrato dela; (2) o "Sem categoria".
+/** "7 lançamentos em Clientes (Pix e dinheiro) não foram encontrados no extrato do Itaú" —
+ *  com mais de um grupo: "7 lançamentos (5 em Clientes…, 2 em Pessoal) …" (16/10/2026, Lucas). */
+function fraseNaoBateu(its: { grupo: string }[], conta: string): string {
+  const porGrupo = new Map<string, number>()
+  for (const i of its) porGrupo.set(i.grupo, (porGrupo.get(i.grupo) || 0) + 1)
+  const n = its.length
+  const lanc = `${n} ${n === 1 ? 'lançamento' : 'lançamentos'}`
+  const grupos = [...porGrupo].sort((a, b) => b[1] - a[1])
+  const onde = grupos.length === 1
+    ? `${lanc} em ${grupos[0][0]}`
+    : `${lanc} (${grupos.map(([g, k]) => `${k} em ${g}`).join(', ')})`
+  return `${onde} ${n === 1 ? 'está no sistema mas não foi encontrado' : 'estão no sistema mas não foram encontrados'} no extrato do ${conta}`
+}
+
 export function AConferir({ bruto, mes, onEditar, onImportarConta, onLancar, onExtrato, letra }: {
   bruto: Bruto | null; mes: string
   letra?: (unidadeId: string | null | undefined) => string
@@ -747,15 +762,16 @@ export function AConferir({ bruto, mes, onEditar, onImportarConta, onLancar, onE
             <div key={conta} className="rounded-[8px] border border-sky-500/40">
               <div className="flex items-center gap-2 px-2.5 py-1.5 border-b border-sky-500/30 bg-sky-500/5">
                 <span className="text-[12.5px] font-semibold text-[var(--surface-800)] flex-1 min-w-0 truncate">{nome(conta)}</span>
-                <span className="text-[11px] text-sky-600 shrink-0">{its.length} sem bater com o extrato</span>
                 {onImportarConta && <button onClick={() => onImportarConta(conta)} className="text-[11px] text-[var(--brand-500)] hover:underline shrink-0 whitespace-nowrap">importar extrato ›</button>}
               </div>
+              <p className="px-2.5 py-1.5 text-[11.5px] leading-snug text-sky-600 border-b border-sky-500/20">{fraseNaoBateu(its, nome(conta))}</p>
               <div className="divide-y divide-[var(--surface-200)]">{its.map(linha)}</div>
             </div>
           ))}
           {sem.length > 0 && (
             <div className="rounded-[8px] border border-amber-500/40">
               <div className="px-2.5 py-1.5 border-b border-amber-500/30 bg-amber-500/5 text-[12.5px] font-semibold text-amber-600">{SEM_CATEGORIA} ({sem.length})</div>
+              <p className="px-2.5 py-1.5 text-[11.5px] leading-snug text-amber-600 border-b border-amber-500/20">Valores que apareceram no extrato mas não foram classificados ainda.</p>
               <div className="divide-y divide-[var(--surface-200)]">{sem.map(linha)}</div>
             </div>
           )}
