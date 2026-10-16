@@ -15,6 +15,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ChevronRight, Trash2 } from 'lucide-react'
 import { fmtBRL } from '@/lib/financeiro'
+import { hojeLocal } from '@/lib/date-local'
 import { filtroContasDe } from '@/hooks/useCaixaConjunto'
 import { EtiquetaUnidade } from './DonoLancamento'
 import { classificarCaixa, SEM_CATEGORIA, type BalancoCaixa, type CompraFatura, type ItemCaixa, type LinhaCaixa, type MovInfo } from '@/lib/balanco-caixa'
@@ -273,7 +274,8 @@ export function BalancoMes({ bruto, mes, marco = null, onEditar, onLancar, onExt
           <div><span className="block text-xs text-[var(--surface-500)]">Saiu das contas</span>
             <span className="block text-mono text-2xl tabular-nums text-[var(--surface-900)]" title={fmtBRL(atual.saiu)}>{brlK(atual.saiu)}</span>
             <Delta atual={atual.saiu} antes={antes ? antes.saiu : null} inverte /></div>
-          <div><span className="block text-xs text-[var(--surface-500)]">Sobrou no caixa</span>
+          {/* mês em curso fala no presente (16/10/2026, Lucas): o mês ainda não fechou */}
+          <div><span className="block text-xs text-[var(--surface-500)]">{mes === hojeLocal().slice(0, 7) ? 'Sobrando no caixa, por enquanto' : 'Sobrou no caixa'}</span>
             <span className={`block text-mono text-2xl tabular-nums ${sobrou >= 0 ? 'text-emerald-500' : 'text-red-400'}`} title={fmtBRL(sobrou)}>{sobrou < 0 ? '−' : ''}{brlK(sobrou)}</span>
             <Delta atual={sobrou} antes={antes ? c2(antes.entrou - antes.saiu) : null} /></div>
         </div>
