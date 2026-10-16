@@ -147,6 +147,9 @@ type Item = LinhaExtrato & {
   rendimento?: boolean
   /** A mesma linha (ID do banco) já foi conciliada noutra importação — vai pra "Já conciliadas antes". */
   jaConciliada?: boolean
+  /** A linha do banco está conciliada com registros que somam MAIS que ela (16/10/2026, SJ: o
+   *  Pix de −316 ligado a uma despesa sem categoria E à devolução do contrato). Guarda a soma. */
+  duplicada?: number
 }
 
 /** Crédito na fatura: "+ R$ 1,20" (Inter) ou texto de estorno/reembolso. No
@@ -354,6 +357,7 @@ export default function ColarExtratoModal({
     })
     if (!linhas.length) { setItens([]); return toast('Nenhuma linha com data e valor no texto colado', 'error') }
     setLendo(true)
+    setPlacar(null)   // o da leitura anterior (outra conta/unidade) ficava na tela até a conta nova chegar
     const datas = linhas.map(l => l.data).sort()
     const ini = datas[0], fim = datas[datas.length - 1]
     const maqIds = maquininhas.map(m => m.id)
@@ -434,8 +438,50 @@ export default function ColarExtratoModal({
       for (const x of (sc as { id: string }[] | null) || []) semCatJa.add(x.id)
     }
 
+    // LINHA JÁ CONCILIADA (16/10/2026, SJ: um Pix de −316 ficou ligado a uma despesa sem
+    // categoria E à devolução lançada depois no contrato — o casamento não olhava o que já
+    // estava conciliado). A conciliação gravada manda: a linha do banco fica com OS registros
+    // dela, e registro já ligado a uma linha nunca casa com outra. Mesma linha = mesmo ID do
+    // banco com mesma data e valor (o Itaú reaproveita o ID, ver fitidVisto) ou, no texto
+    // colado, mesma data + valor + texto.
+    type CC = { origem: Ref['origem']; origem_id: string; fitid?: string | null; data_banco: string; valor_banco: number; texto_banco: string | null }
+    let concGrav: CC[] = []
+    {
+      const sel = (comFitid: boolean) => supabase.from('fin_conciliacoes')
+        .select(`origem, origem_id, data_banco, valor_banco, texto_banco${comFitid ? ', fitid' : ''}`)
+        .eq('conta_id', contaId).gte('data_banco', iniJ).lte('data_banco', fimJ).limit(5000)
+      let r = await sel(true)
+      if (r.error && /fitid/i.test(r.error.message)) r = await sel(false)   // sem a mig 158
+      concGrav = (r.data as unknown as CC[] | null) || []
+    }
+    const refKey = (x: { origem: string; origem_id: string }) => `${x.origem}-${x.origem_id}`
+    const regDaRef = new Map<string, RegistroSistema>()
+    for (const r of registros) for (const x of r.refs) regDaRef.set(refKey(x), r)
+    const tomados = new Set<string>()
+    for (const c of concGrav) { const r = regDaRef.get(refKey(c)); if (r) tomados.add(r.chave) }
+    const donosDe = new Map<number, RegistroSistema[]>()
+    const usadas = new Set<CC>()
+    for (const l of linhas) {
+      const mesma = (c: CC) => !usadas.has(c) && Math.abs(Number(c.valor_banco) - l.valor) < 0.005
+        && (c.data_banco || '').slice(0, 10) === l.data
+        && (l.fitid && c.fitid ? c.fitid === l.fitid : (c.texto_banco || '').trim() === l.descricao.trim())
+      const regs: RegistroSistema[] = []
+      let soma = 0
+      for (const c of concGrav.filter(mesma)) {
+        const r = regDaRef.get(refKey(c))
+        if (!r) continue
+        // sem ID do banco, duas linhas iguais no mesmo dia dividem as conciliações: cada uma
+        // pega até somar o próprio valor. Com ID, pega todas — e a soma maior denuncia duplicata.
+        if (!l.fitid && regs.length && Math.abs(soma - l.valor) < 0.005) break
+        usadas.add(c)
+        if (!regs.includes(r)) { regs.push(r); soma = Math.round((soma + r.valor) * 100) / 100 }
+      }
+      if (regs.length) donosDe.set(l.n, regs)
+    }
+
     // Os quatro níveis (exato · contrato · provável · ambíguo) — lib/conciliacao.
-    const pares = conciliar(linhas, registros, {
+    // Só com o que ainda não foi conciliado, dos dois lados.
+    const pares = conciliar(linhas.filter(l => !donosDe.has(l.n)), registros.filter(r => !tomados.has(r.chave)), {
       janelaDias: JANELA_DIAS, toleranciaCambio: ehCartao ? TOLERANCIA_CAMBIO : 0, porContrato: !ehCartao,
     })
     const exatoDe = (n: number) => { const p = pares.get(n); return p && (p.tipo === 'exato' || p.tipo === 'contrato') ? p : null }
@@ -594,6 +640,19 @@ export default function ColarExtratoModal({
         partes: [] as Parte[], meses: 1, outras: [] as ParaUnidade[],
         entreConta: '', entreHist: false, estorno: false, estornoDe: '',
         jaConciliada: mesmaLinhaJaImportada(l),
+      }
+      // 0) já conciliada: fica com os registros dela (e avisa se eles somam mais que a linha)
+      const donos = donosDe.get(l.n)
+      if (donos) {
+        const soma = Math.round(donos.reduce((a, d) => a + d.valor, 0) * 100) / 100
+        const sobra = Math.abs(soma - l.valor) >= 0.005
+        const semCatDono = !sobra && donos.length === 1 && donos[0].ajustavel && semCatJa.has(donos[0].ajustavel) ? donos[0].ajustavel : null
+        if (semCatDono) {
+          return { ...base, destino: 'despesa' as Destino, exatos: donos, reclassificar: semCatDono, jaConciliada: true,
+                   estornoDe: 'já lançada, sem categoria' }
+        }
+        return { ...base, destino: 'fora' as Destino, marcado: false, jaConciliada: true, exatos: donos,
+                 jaNoSistema: donos.map(d => d.rotulo).join(' + '), ...(sobra ? { duplicada: soma } : {}) }
       }
       // 1) já está no sistema?
       const par = exatoDe(l.n)
@@ -1517,7 +1576,8 @@ export default function ColarExtratoModal({
   /** CONCILIADOS AUTOMATICAMENTE (16/10/2026, Lucas): o par exato no sistema — concilia ao registrar.
    *  JÁ CONCILIADAS ANTES: a mesma linha (ID do banco) já veio noutra importação. Duas seções no topo, fechadas. */
   const encontradas = itens.filter(i => !!i.jaNoSistema && !emParecido(i) && !i.jaConciliada)
-  const jaAntes = itens.filter(i => !!i.jaNoSistema && !emParecido(i) && !!i.jaConciliada)
+  const jaAntes = itens.filter(i => !!i.jaNoSistema && !emParecido(i) && !!i.jaConciliada && i.duplicada === undefined)
+  const duplicadas = itens.filter(i => i.duplicada !== undefined)
   const ignoradas = fora.filter(i => !i.jaNoSistema && !i.faturaPgto && !i.repassePgto)
   const pgtosDeFatura = fora.filter(i => !i.jaNoSistema && (i.faturaPgto || i.repassePgto))
   const frasePronto = [
@@ -1720,10 +1780,28 @@ export default function ColarExtratoModal({
             )
           })()}
 
+          {duplicadas.length > 0 && (
+            <section className="flex flex-col gap-2.5">
+              {cabecaSecao(<span className="text-amber-500">⚠ Conciliada em dobro</span>,
+                'a linha do banco está ligada a registros que somam mais que ela — um deles está sobrando: exclua o que não vale e coloque o arquivo de novo')}
+              {caixaLinhas(duplicadas.map(i => (
+                <div key={i.n} className={`${grade} py-2.5 border-b border-[var(--surface-100)] last:border-0`}>
+                  <span className="text-amber-500 text-xs" aria-hidden="true">⚠</span>
+                  <span className="text-xs text-[var(--surface-400)]">{dataCurta(i.data)}</span>
+                  <span className="text-sm text-[var(--surface-600)] truncate" title={i.original}>{i.descricao}</span>
+                  <span className="col-span-4 col-start-3 sm:col-span-1 sm:col-start-auto row-start-2 sm:row-start-auto text-xs text-amber-500">
+                    ligada a {i.exatos.map(r => `${r.rotulo} (${fmtBRL(Math.abs(r.valor))})`).join(' e ')} — somam {fmtBRL(Math.abs(i.duplicada!))}
+                  </span>
+                  <span className={`text-right text-mono text-sm tabular-nums ${valorCor(i.valor)}`}>{valorTxt(i.valor)}</span>
+                </div>
+              )))}
+            </section>
+          )}
+
           {encontradas.length > 0 && (
             <section className="flex flex-col gap-2.5">
               {cabecaSecao(<span className="text-emerald-500">© Conciliados automaticamente</span>,
-                `${encontradas.length} ${encontradas.length === 1 ? 'linha bateu' : 'linhas bateram'} com o que já está no sistema — conciliam ao registrar`, undefined,
+                `${encontradas.length} ${encontradas.length === 1 ? 'linha bateu' : 'linhas bateram'} com um registro do sistema que ainda não estava conciliado — conciliam ao registrar (cancelar não grava nada)`, undefined,
                 <button type="button" onClick={() => setEncontradasAberto(v => !v)} className="ml-auto text-sm text-[var(--brand-500)] hover:underline">
                   {encontradasAberto ? 'esconder' : 'ver quais'}
                 </button>)}
@@ -1733,8 +1811,8 @@ export default function ColarExtratoModal({
 
           {jaAntes.length > 0 && (
             <section className="flex flex-col gap-2.5">
-              {cabecaSecao(<span className="text-emerald-500">✓ Já conciliadas antes</span>,
-                `${jaAntes.length} ${jaAntes.length === 1 ? 'linha deste arquivo já veio' : 'linhas deste arquivo já vieram'} em outra importação — nada a fazer`, undefined,
+              {cabecaSecao(<span className="text-emerald-500">✓ Encontramos</span>,
+                `${jaAntes.length} ${jaAntes.length === 1 ? 'linha já está classificada e conciliada' : 'linhas já estão classificadas e conciliadas'} — nada a fazer`, undefined,
                 <button type="button" onClick={() => setJaAntesAberto(v => !v)} className="ml-auto text-sm text-[var(--brand-500)] hover:underline">
                   {jaAntesAberto ? 'esconder' : 'ver quais'}
                 </button>)}
