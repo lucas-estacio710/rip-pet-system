@@ -46,6 +46,9 @@ export default function ConferirRepasse({ mes, podeConferir }: { mes: string; po
   const [acertos, setAcertos] = useState<Acerto[]>([])
   const [petsAbertos, setPetsAbertos] = useState(false)
   const [busca, setBusca] = useState('')
+  // nome/tutor truncados; o clique no pet abre inteiro (16/10/2026) — o valor fica perto do nome
+  const [abertos, setAbertos] = useState<Set<string>>(new Set())
+  const alterna = (id: string) => setAbertos(xs => { const n = new Set(xs); if (n.has(id)) n.delete(id); else n.add(id); return n })
   // CLASSIFICAR (16/10/2026, Lucas): Data · Nome · Lacre · Ind/Col · Valor; clicar de novo inverte
   const [ordem, setOrdem] = useState<{ por: Ordem; desc: boolean }>({ por: 'data', desc: false })
   const [gravando, setGravando] = useState(false)
@@ -231,13 +234,13 @@ export default function ConferirRepasse({ mes, podeConferir }: { mes: string; po
                   const desc = calcularAbatimento(i)
                   return (
                     // IND verde · COL roxo — as cores do resto do CRM (detalhe do contrato, grupos de encaminhamento)
-                    <div key={i.contrato_id} className={`py-1.5 pl-2.5 pr-1 grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 items-baseline border-l-[3px] rounded-r-[6px] ${i.tipo_cremacao === 'individual' ? 'border-emerald-500 bg-emerald-500/5' : i.tipo_cremacao === 'coletiva' ? 'border-violet-500 bg-violet-500/5' : 'border-[var(--surface-300)]'}`}>
-                      <span className="min-w-0 truncate text-sm text-[var(--surface-800)]">
+                    <div key={i.contrato_id} onClick={() => alterna(i.contrato_id)} className={`cursor-pointer py-1.5 pl-2.5 pr-1 grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 items-baseline border-l-[3px] rounded-r-[6px] ${i.tipo_cremacao === 'individual' ? 'border-emerald-500 bg-emerald-500/5' : i.tipo_cremacao === 'coletiva' ? 'border-violet-500 bg-violet-500/5' : 'border-[var(--surface-300)]'}`}>
+                      <span className={`min-w-0 text-sm text-[var(--surface-800)] ${abertos.has(i.contrato_id) ? 'whitespace-normal break-words' : 'truncate'}`}>
                         {i.numero_lacre && <span className="text-mono text-[11px] text-[var(--surface-400)] mr-1.5">{i.numero_lacre}</span>}
                         {i.pet_nome || '—'}
                       </span>
                       <span className="text-mono text-sm tabular-nums text-[var(--surface-800)] text-right">{fmtBRL(calcularValorFinal(i))}</span>
-                      <span className="min-w-0 truncate text-[11.5px] text-[var(--surface-500)]">
+                      <span className={`min-w-0 text-[11.5px] text-[var(--surface-500)] ${abertos.has(i.contrato_id) ? 'whitespace-normal break-words' : 'truncate'}`}>
                         <span className={`font-semibold ${i.tipo_cremacao === 'individual' ? 'text-emerald-500' : i.tipo_cremacao === 'coletiva' ? 'text-violet-400' : ''}`}>{i.tipo_cremacao === 'individual' ? 'IND' : i.tipo_cremacao === 'coletiva' ? 'COL' : '—'}</span> · {ddmm(i.data_acolhimento)} · {i.tutor_nome || '—'}
                       </span>
                       <span className="text-[11px] text-right text-amber-500">{desc > 0 ? `− ${fmtBRL(desc)}${i.deflator_motivo ? ` · ${i.deflator_motivo}` : ''}` : ''}</span>

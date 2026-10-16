@@ -28,6 +28,7 @@ import EmptyState from '@/components/ui/EmptyState'
 import Modal from '@/components/ui/Modal'
 import LancamentosTab from '@/components/financeiro/LancamentosTab'
 import ConferirRepasse from '@/components/financeiro/ConferirRepasse'
+import ConferirFatura from '@/components/financeiro/ConferirFatura'
 import DRETab from '@/components/financeiro/DRETab'
 import ContasTab from '@/components/financeiro/ContasTab'
 import CaixaTab from '@/components/financeiro/CaixaTab'
@@ -84,6 +85,8 @@ export default function FinanceiroPage() {
   const [editarLancId, setEditarLancId] = useState<string | null>(null)
   // QUITAR O REPASSE sem sair do Financeiro: o repasse do mês num popup.
   const [repasseAberto, setRepasseAberto] = useState(false)
+  // FATURA DO CARTÃO (16/10/2026): a fatura em formato de fatura — anteriores, compras, pagamentos
+  const [faturaAberta, setFaturaAberta] = useState(false)
   // o repasse que se PAGA num mês é o do mês anterior (regra: 1 mês depois)
   const [repasseMes, setRepasseMes] = useState(mesDeHoje)
   const abrirRepasse = useCallback((ref?: string) => {
@@ -118,6 +121,7 @@ export default function FinanceiroPage() {
   // useCallback: o Livro-Caixa recarrega quando estes mudam — sem memo, laço.
   const lancar = useCallback((acao: AcaoLancar) => {
     setMenuLancar(false)
+    if (acao === 'quitacao') { setFaturaAberta(true); return }
     setContaImportar(null)
     setDespesaInicial(null)
     setComando(acao)
@@ -250,6 +254,13 @@ export default function FinanceiroPage() {
         />
       )}
 
+      {/* FATURA DO CARTÃO (16/10/2026) — ANTES dos popups das abas: o Modal não usa portal (z-50 igual pra
+          todos, ganha quem vem depois), e o "classificar" da compra abre o Editar lançamento POR CIMA dela. */}
+      <Modal isOpen={faturaAberta} onClose={() => setFaturaAberta(false)} title="Fatura do cartão" size="lg">
+        <ConferirFatura podeLancar={pode.quitacao} onEditar={temLanc ? setEditarLancId : undefined}
+          onImportarConta={pode.importar ? (contaId => { setFaturaAberta(false); setContaImportar(contaId); setComando('importar') }) : undefined} />
+      </Modal>
+
       {/* As antigas abas, montadas SÓ com os popups (o "+" e o Livro-Caixa os abrem). */}
       {temLanc && (
         <LancamentosTab mes={mes} soModais somenteLeitura={!canEdit(TELA, 'btn_lancamento_editar') || !canEdit(TELA, TELA)}
@@ -267,7 +278,7 @@ export default function FinanceiroPage() {
 
       {/* CONFERIR O REPASSE (16/10/2026): a tela simples da unidade — total, pets, descontos e acertos, e o
           "Conferi". Nada de planilha: quem edita é a Matriz, em /repasse. O pagamento entra pela Conciliação. */}
-      <Modal isOpen={repasseAberto} onClose={() => setRepasseAberto(false)} title={`Repasse de ${rotuloMesLongo(repasseMes)}`} size="wide">
+      <Modal isOpen={repasseAberto} onClose={() => setRepasseAberto(false)} title={`Repasse de ${rotuloMesLongo(repasseMes)}`} size="lg">
         <div className="mb-3 flex items-center gap-2">
           <span className="text-xs text-[var(--surface-500)]">cremações de</span>
           <SeletorMes mes={repasseMes} onMes={setRepasseMes} />

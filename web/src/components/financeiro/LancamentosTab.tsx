@@ -938,7 +938,9 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
   const total = lancamentos.reduce((s, l) => s + Number(l.valor || 0), 0)
 
   return (
-    <div className="animate-fade-in space-y-3">
+    // só popups: SEM a animação — `animate-fade-in` cria contexto de empilhamento e prendia o "Editar
+    // lançamento" ATRÁS de popups da página (o da Fatura do cartão, 16/10/2026), z-50 contra z-50
+    <div className={soModais ? undefined : 'animate-fade-in space-y-3'}>
       {!soModais && (<>
       {/* ACERTOS ENTRE UNIDADES — fica no topo porque uma cobrança que ninguém
           vê não é cobrança. Recarrega quando um lançamento emite uma nova.
