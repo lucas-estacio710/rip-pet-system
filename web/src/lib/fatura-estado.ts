@@ -90,6 +90,12 @@ export function situacaoParcial(f: FaturaResumo): string {
  * Liga cada fatura paga em parte à SEGUINTE do mesmo cartão: a seguinte recebe o resto
  * (`carregado`) e a anterior deixa de esperar pagamento (`restoNaSeguinte`). Só a imediatamente
  * seguinte — é ela que o banco cobra. Devolve cópias; a lista precisa trazer a fatura anterior.
+ *
+ * ⚠️ Só passa quando o PDF da seguinte PROVA que o banco trouxe o resto (total do PDF − compras
+ * ≥ resto; o que sobrar além são os juros, que aparecem como compra a lançar). Sem o PDF — ou se
+ * o resto foi pago antes do fechamento — ele continua devido NA DE ORIGEM, e o 2º pagamento bate
+ * com ela. (Achado da Ouro, 16/10/2026: compra nova já cai no próximo vencimento, então "existe
+ * uma seguinte" não prova nada.)
  */
 export function encadearFaturas(faturas: FaturaResumo[]): FaturaResumo[] {
   const xs = faturas.map(f => ({ ...f }))
@@ -100,7 +106,8 @@ export function encadearFaturas(faturas: FaturaResumo[]): FaturaResumo[] {
     for (let i = 0; i + 1 < fs.length; i++) {
       const a = fs[i], b = fs[i + 1]
       const resto = c2(valorDaFatura(a) - a.pago)
-      if (a.pago > 0.005 && resto >= 0.005) { b.carregado = c2((b.carregado || 0) + resto); a.restoNaSeguinte = b.venc }
+      const trouxe = b.totalPdf !== null && c2(b.totalPdf - b.soma - (b.carregado || 0)) >= resto - 0.005
+      if (a.pago > 0.005 && resto >= 0.005 && trouxe) { b.carregado = c2((b.carregado || 0) + resto); a.restoNaSeguinte = b.venc }
     }
   }
   return xs

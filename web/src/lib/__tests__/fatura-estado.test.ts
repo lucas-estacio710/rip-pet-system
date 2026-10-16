@@ -62,6 +62,24 @@ test('parcial: o resto vai pra fatura seguinte, que fecha com soma + carregado',
   assert.match(situacaoParcial(a), /o resto \(R\$ 6\.771,26\) foi para a fatura de 10\/11/)
   assert.equal(estadoDaFatura(b, '2026-11-01'), 'pronta_pagar')                        // fecha com o PDF
   assert.equal(casarPagamentoFatura(-9971.26, '2026-11-10', [a, b])?.tipo, 'bate')
+  // juros ainda não lançados: o PDF traz resto + juros → passa o resto e os juros aparecem como compra a lançar
+  const [, b2] = encadearFaturas([out, inter({ venc: '2026-11-10', soma: 3000, totalPdf: 9971.26 })])
+  assert.equal(b2.carregado, 6771.26)
+  assert.match(pendenciasDaFatura(b2)[0], /faltam R\$ 200,00 em compras/)
+})
+
+test('parcial: sem o PDF da seguinte (ou se ela não trouxe o resto), o resto segue devido na de origem', () => {
+  const out = inter({ pago: 1000 })
+  const novSemPdf = inter({ venc: '2026-11-10', soma: 300, totalPdf: null })          // compra nova já no próximo vencimento
+  const [a, b] = encadearFaturas([out, novSemPdf])
+  assert.equal(a.restoNaSeguinte, undefined)
+  assert.equal(b.carregado, undefined)
+  assert.equal(faltaPagar(a), 6771.26)
+  // pagou o resto antes do fechamento: o 2º pagamento bate com a de origem, mesmo com a seguinte na lista
+  assert.equal(casarPagamentoFatura(-6771.26, '2026-10-20', [a, b])?.tipo === 'bate' && casarPagamentoFatura(-6771.26, '2026-10-20', [a, b])!.fatura.venc, '2026-10-10')
+  // o PDF da seguinte NÃO trouxe o resto (já pago): não encadeia
+  const [a2] = encadearFaturas([out, inter({ venc: '2026-11-10', soma: 300, totalPdf: 300 })])
+  assert.equal(a2.restoNaSeguinte, undefined)
 })
 
 test('a linha do saldo anterior na fatura seguinte não é compra', async () => {

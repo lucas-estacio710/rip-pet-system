@@ -548,7 +548,7 @@ export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades, onEditar
       const { data: cs } = await sb.from('contas').select('id, nome, tipo, produto').or(filtroContasDe(unidades?.length ? unidades : [uid])).eq('ativo', true).eq('legado', false)
       const cards = ((cs as { id: string; nome: string; tipo: string | null; produto: string | null }[] | null) || []).filter(c => c.tipo === 'cartao' || c.produto === 'cartao_credito')
       const ids = cards.map(c => c.id)
-      let lista: Compra[] = []
+      const lista: Compra[] = []
       const ok = new Set<string>(), pgc = new Set<string>(), pg = new Map<string, number>()
       // o mês ANTERIOR também: a fatura paga em parte passa o resto pra deste (encadearFaturas)
       const [aA, aM] = mes.split('-').map(Number)
@@ -558,12 +558,17 @@ export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades, onEditar
         const { data: sbk } = await sb.from('fin_saldos_banco').select('conta_id, data, saldo').eq('origem', 'fatura').in('conta_id', ids)
           .gte('data', desde).lte('data', fimDoMes(mes))
         for (const r of (sbk as { conta_id: string; data: string; saldo: number }[] | null) || []) tb.set(`${r.conta_id}|${r.data.slice(0, 10)}`, c2(-Number(r.saldo)))
-        const [{ data: ls }, { data: mv }] = await Promise.all([
-          sb.from('fin_lancamentos').select('id, valor, data_competencia, data_caixa, fornecedor_nome, observacoes, conta_pagamento_id, categoria_id')
-            .in('conta_pagamento_id', ids).neq('status', 'rejeitado').gte('data_caixa', desde).lte('data_caixa', fimDoMes(mes)).limit(1000),
+        // dois meses de compras: pagina (o PostgREST corta em 1000 linhas e a fatura sairia faltando)
+        for (let off = 0; ; off += 1000) {
+          const { data: ls } = await sb.from('fin_lancamentos').select('id, valor, data_competencia, data_caixa, fornecedor_nome, observacoes, conta_pagamento_id, categoria_id')
+            .in('conta_pagamento_id', ids).neq('status', 'rejeitado').gte('data_caixa', desde).lte('data_caixa', fimDoMes(mes)).order('id').range(off, off + 999)
+          const arr = (ls as Compra[] | null) || []
+          lista.push(...arr)
+          if (arr.length < 1000) break
+        }
+        const [{ data: mv }] = await Promise.all([
           sb.from('fin_movimentos').select('id, conta_id, conta_destino_id, fatura_vencimento, valor').eq('tipo', 'fatura_cartao').in('conta_destino_id', ids).not('fatura_vencimento', 'is', null),
         ])
-        lista = (ls as Compra[] | null) || []
         const movs = (mv as { id: string; conta_id: string | null; conta_destino_id: string; fatura_vencimento: string; valor: number }[] | null) || []
         const chaveMov = new Map(movs.map(p => [p.id, `${p.conta_destino_id}|${p.fatura_vencimento.slice(0, 10)}`]))
         for (const m of movs) { const k = chaveMov.get(m.id)!; pg.set(k, c2((pg.get(k) || 0) + Number(m.valor))) }
