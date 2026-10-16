@@ -28,7 +28,7 @@ import Modal from '@/components/ui/Modal'
 import CobrancasCard from './CobrancasCard'
 import ReceitasPrazoTab from './ReceitasPrazoTab'
 import ColarExtratoModal from './ColarExtratoModal'
-import LancamentosEspeciaisModal, { type QuitacaoInicial } from './LancamentosEspeciaisModal'
+import LancamentosEspeciaisModal from './LancamentosEspeciaisModal'
 import UnderlineTabs from '@/components/ui/UnderlineTabs'
 import { criarIndice, sugerir, type Indice } from '@/lib/similaridade'
 import { buscarCategorias } from '@/lib/busca-categoria'
@@ -192,7 +192,7 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
       }
       setAberto(true)
     }
-    else if (comando === 'quitacao') { setEspeciaisInicial(null); setEspeciaisAberto(true) }
+    else if (comando === 'quitacao') setEspeciaisAberto(true)
     onComandoFeito?.()
   }, [comando]) // eslint-disable-line react-hooks/exhaustive-deps
   // A faixa de receitas tem chave FLS própria (`obj_fin_receitas_prazo`): é uma
@@ -327,7 +327,6 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
   const [versaoColar, setVersaoColar] = useState(0)
   const [especiaisAberto, setEspeciaisAberto] = useState(false)   // pagar repasse / fatura
   // Vindo do Colar: a linha do banco já diz valor, data e conta (null = aberto pelo botão).
-  const [especiaisInicial, setEspeciaisInicial] = useState<QuitacaoInicial | null>(null)
 
   const catSelecionada = categorias.find(c => c.id === catId)
 
@@ -1124,16 +1123,15 @@ export default function LancamentosTab({ mes, somenteLeitura = false, comando = 
         mes={mes}
         permiteReceitas={veReceitas}
         onRegistrou={() => { void carregar(); setVersaoColar(v => v + 1) }}
-        onQuitar={q => { setColarAberto(false); setEspeciaisInicial(q); setEspeciaisAberto(true) }}
         contaInicial={contaImportar}
       />
 
       <LancamentosEspeciaisModal
         aberto={especiaisAberto}
-        inicial={especiaisInicial}
-        // o "Fatura do cartão" do + abre direto no Conferir fatura (16/10/2026); vindo do extrato (repasse), segue o `inicial`
-        abrirEm={especiaisInicial ? undefined : 'fatura'}
-        onClose={() => { setEspeciaisAberto(false); setEspeciaisInicial(null) }}
+        // o "Fatura do cartão" do + abre direto no Conferir fatura (16/10/2026). Fatura e repasse não se
+        // pagam mais daqui nem pelo atalho do extrato: o pagamento nasce na Conciliação com Extrato.
+        abrirEm="fatura"
+        onClose={() => setEspeciaisAberto(false)}
         onRegistrou={() => { void carregar(); setVersaoColar(v => v + 1) }}
       />
 

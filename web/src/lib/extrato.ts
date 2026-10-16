@@ -149,7 +149,7 @@ export function naoEDespesa(descricao: string): string | null {
   // já entra sozinho pelo acolhimento (mig 114). `fin_empresas` não tem razão
   // social pra casar, então vai pela marca no texto; a pessoa pode reclassificar.
   if (/\bRIP\s*PET\b|\bPRINA\b/.test(t)) {
-    return 'pagamento a empresa do grupo — se for repasse, registre em + Lançar › Quitação; se for acerto, na aba Acertos do Repasse'
+    return 'pagamento a empresa do grupo — nenhum repasse em aberto: se for acerto, lance na aba Acertos do Repasse'
   }
   return null
 }

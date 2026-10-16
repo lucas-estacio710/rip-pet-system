@@ -286,7 +286,7 @@ export function ContasDoMesWidget({ itens, pronto, temContas, podeLancar, onPagu
             <span className="text-mono text-[13px] tabular-nums text-[var(--surface-800)]">{x.conta.valor_varia && !x.conta.repasse ? '~' : ''}{num(x.valor)}</span>
             {podeLancar ? (
               <button onClick={() => onPaguei(x)} className="text-[13px] font-semibold px-2.5 py-1 rounded-[10px] border border-[var(--brand-500)]/60 text-[var(--brand-500)] hover:bg-[var(--brand-500)] hover:text-white">
-                {x.conta.repasse ? 'Quitar' : 'Lançar'}
+                {x.conta.repasse ? 'Conferir' : 'Lançar'}
               </button>
             ) : <span />}
           </div>
@@ -422,7 +422,7 @@ export function CalendarioHoje({ itens, ano, mes0, podeLancar, onPaguei, onGeren
                   <span className="text-mono text-sm tabular-nums text-[var(--surface-800)]">{x.conta.valor_varia && !x.pago ? '~' : ''}{num(x.pago?.valor ?? x.valor)}</span>
                   {podeLancar && !x.pago && !x.conta.id.startsWith('receber-') && (
                     <button onClick={() => { setDiaAberto(null); onPaguei(x) }} className="text-[13px] font-semibold px-2.5 py-1 rounded-[10px] border border-[var(--brand-500)]/60 text-[var(--brand-500)] hover:bg-[var(--brand-500)] hover:text-white">
-                      {x.conta.repasse ? 'Quitar' : 'Lançar'}
+                      {x.conta.repasse ? 'Conferir' : 'Lançar'}
                     </button>
                   )}
                 </div>

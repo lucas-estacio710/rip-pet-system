@@ -243,6 +243,8 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
     // (o vencimento que vinha preenchido). Pelo Importar extrato a data já chega
     // certa, a da linha do banco (`inicial`).
     setValor(r ? paraDigitos(r.aPagar) : ''); setData('')
+    // REPASSE (16/10/2026): igual à fatura — o pagamento nasce na Conciliação; aqui só conta sem extrato
+    setOrigemId(semExtrato[0]?.id || '')
   }
   // ABRIR DIRETO (sem valor vindo do banco): terminada a carga, cai no pagamento pedido.
   useEffect(() => {
@@ -291,6 +293,7 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
   async function pagarRepasse() {
     if (!currentUnit?.id) return
     if (!origemId || !destinoMatrizId) return toast('Escolha as duas contas', 'error')
+    if (!semExtrato.some(c => c.id === origemId)) return toast('Conta com extrato: o pagamento entra pela Conciliação com Extrato, da linha do banco.', 'error')
     if (!v) return toast('Informe o valor pago', 'error')
     if (repasseId === 'sem' && !mesSem) return toast('Diga de qual mês é esse repasse', 'error')
     if (!repasseId) return toast('Escolha o repasse', 'error')
@@ -394,7 +397,7 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
     <div>
       <label className="text-xs text-[var(--surface-500)] block mb-1">Saiu da conta</label>
       <select value={origemId} onChange={e => setOrigemId(e.target.value)} className="input text-sm w-full">
-        {correntes.map(c => <option key={c.id} value={c.id}>{c.preferencial_recebimento ? '⭐ ' : ''}{rotuloConta(cores, c.id, c.nome)}</option>)}
+        {semExtrato.map(c => <option key={c.id} value={c.id}>{rotuloConta(cores, c.id, c.nome)}</option>)}
       </select>
     </div>
   )
@@ -403,8 +406,8 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
     <Modal
       isOpen={aberto}
       onClose={onClose}
-      title={tela === 'menu' ? 'Quitação' : tela === 'repasse' ? 'Pagamento de repasse' : 'Conferir fatura de cartão'}
-      footer={tela === 'menu' ? undefined : tela === 'fatura' && !semExtrato.length ? (
+      title={tela === 'menu' ? 'Quitação' : tela === 'repasse' ? 'Paguei o repasse (conta sem extrato)' : 'Conferir fatura de cartão'}
+      footer={tela === 'menu' ? undefined : !semExtrato.length ? (
         <div className="flex justify-between gap-2 w-full">
           <button onClick={() => setTela('menu')} className="btn-secondary text-sm inline-flex items-center gap-1">
             <ChevronLeft className="h-4 w-4" /> Voltar
@@ -417,7 +420,7 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
           </button>
           <button onClick={() => void (tela === 'repasse' ? pagarRepasse() : pagarFatura())}
                   disabled={salvando} className="btn-primary text-sm">
-            {salvando ? <><Loader2 className="h-4 w-4 animate-spin" /> Registrando…</> : tela === 'fatura' ? 'Paguei (conta sem extrato)' : 'Confirmar pagamento'}
+            {salvando ? <><Loader2 className="h-4 w-4 animate-spin" /> Registrando…</> : 'Paguei (conta sem extrato)'}
           </button>
         </div>
       )}
@@ -458,6 +461,11 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
         </div>
       ) : tela === 'repasse' ? (
         <div className="space-y-3">
+          <p className="text-[12px] text-[var(--surface-500)]">
+            {semExtrato.length
+              ? 'Só para pagamento feito com conta sem extrato (Dinheiro). Pagamento pelo banco entra pela Conciliação com Extrato, da linha do Pix pra Matriz.'
+              : 'O pagamento do repasse entra pela Conciliação com Extrato, da linha do Pix pra Matriz. Para conferir o repasse: + Lançar › Repasse.'}
+          </p>
           <div>
             <label className="text-xs text-[var(--surface-500)] block mb-1">Qual repasse</label>
             <select value={repasseId}

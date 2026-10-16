@@ -27,7 +27,7 @@ import { useFieldPermission } from '@/hooks/useFieldPermission'
 import EmptyState from '@/components/ui/EmptyState'
 import Modal from '@/components/ui/Modal'
 import LancamentosTab from '@/components/financeiro/LancamentosTab'
-import RepasseTab from '@/components/financeiro/RepasseTab'
+import ConferirRepasse from '@/components/financeiro/ConferirRepasse'
 import DRETab from '@/components/financeiro/DRETab'
 import ContasTab from '@/components/financeiro/ContasTab'
 import CaixaTab from '@/components/financeiro/CaixaTab'
@@ -265,14 +265,14 @@ export default function FinanceiroPage() {
         <ContasTab somenteLeitura={!canEdit(TELA, 'btn_contas_editar')} />
       </Modal>
 
-      {/* QUITAR O REPASSE: o repasse do mês (pets, acertos, resumo) só pra conferir,
-          e o Confirmar pagamento. Quem edita o repasse é a Matriz, em /repasse. */}
+      {/* CONFERIR O REPASSE (16/10/2026): a tela simples da unidade — total, pets, descontos e acertos, e o
+          "Conferi". Nada de planilha: quem edita é a Matriz, em /repasse. O pagamento entra pela Conciliação. */}
       <Modal isOpen={repasseAberto} onClose={() => setRepasseAberto(false)} title={`Repasse de ${rotuloMesLongo(repasseMes)}`} size="wide">
         <div className="mb-3 flex items-center gap-2">
           <span className="text-xs text-[var(--surface-500)]">cremações de</span>
           <SeletorMes mes={repasseMes} onMes={setRepasseMes} />
         </div>
-        <RepasseTab mes={repasseMes} somenteLeitura soDaUnidade podeConfirmarPagamento={pode.quitacao} />
+        <ConferirRepasse mes={repasseMes} podeConferir={pode.quitacao} />
       </Modal>
 
       {/* O "+" FLUTUANTE (14/10/2026): sempre à mão, no canto inferior direito; no

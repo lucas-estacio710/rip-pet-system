@@ -261,9 +261,9 @@ export default function VisaoMesTab({ mes, verResultado, verCaixa, verRepasse, v
     for (const rep of reps) {
       const jaPago = c2(pagoDe.get(rep.id) || 0)
       lista.push({
-        chave: `rep-${rep.id}`, titulo: `Quitar o repasse de ${rotulo(rep.mes_referencia.slice(0, 7))}`,
+        chave: `rep-${rep.id}`, titulo: `Conferir o repasse de ${rotulo(rep.mes_referencia.slice(0, 7))}`,
         detalhe: `${rep.status === 'aberto' ? 'a Matriz ainda pode mexer' : 'fechado pela Matriz'} · ${rep.qtd_pets} pets${jaPago ? ` · pago ${fmtBRL(jaPago)}` : ''}`,
-        valor: c2(Number(rep.total_liquido) - jaPago), acao: 'Quitar', atencao: true,
+        valor: c2(Number(rep.total_liquido) - jaPago), acao: 'Conferir', atencao: true,
         onClick: () => onIr('repasse'),
       })
     }

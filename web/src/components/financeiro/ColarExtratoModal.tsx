@@ -42,6 +42,8 @@ import { conciliar, semPar, type RegistroSistema, type Ref } from '@/lib/concili
 import { ehOFX, lerOFX, textoDoArquivo, mesmoBanco, type ExtratoOFX } from '@/lib/ofx'
 import { textoDoPdf } from '@/lib/fatura-pdf'
 import { casarPagamentoFatura, encadearFaturas, type CasamentoFatura, type FaturaResumo } from '@/lib/fatura-estado'
+import { casarPagamentoRepasse, faltaRepasse, rotuloRef, type CasamentoRepasse, type RepasseResumo } from '@/lib/repasse-estado'
+import { carregarRepassesDaUnidade } from '@/lib/repasse-carregar'
 import { useCaixaConjunto } from '@/hooks/useCaixaConjunto'
 import { reconhecerCobranca } from '@/lib/reconhecer-cobranca'
 
@@ -135,6 +137,11 @@ type Item = LinhaExtrato & {
   /** PAGAMENTO PARCIAL (16/10/2026): o banco pagou menos que a fatura conferida e a pessoa
    *  confirmou que foi parcial — grava assim mesmo; o resto vai pra fatura seguinte. */
   parcialFatura?: boolean
+  /** PAGAMENTO DE REPASSE (16/10/2026): o Pix pra Matriz ligado ao repasse em aberto — mesma régua
+   *  da fatura (lib/repasse-estado.ts). `parcialRepasse`: pagou uma parte, o resto fica em aberto. */
+  repassePgto?: CasamentoRepasse | null
+  conciliarRepasse?: boolean
+  parcialRepasse?: boolean
 }
 
 /** Crédito na fatura: "+ R$ 1,20" (Inter) ou texto de estorno/reembolso. No
@@ -152,7 +159,7 @@ const chaveEntre = (d: string) => (fornecedorDe(d) || d).normalize('NFD').toLowe
   .replace(/[^a-z ]/g, ' ').replace(/ +/g, ' ').trim()
 
 export default function ColarExtratoModal({
-  aberto, onClose, categorias, folhas, caminhoDe, mes, onRegistrou, permiteReceitas = true, onQuitar, contaInicial,
+  aberto, onClose, categorias, folhas, caminhoDe, mes, onRegistrou, permiteReceitas = true, contaInicial,
 }: {
   aberto: boolean
   onClose: () => void
@@ -163,9 +170,6 @@ export default function ColarExtratoModal({
   onRegistrou: () => void
   /** FLS `obj_fin_receitas_prazo`: escondida a faixa, o colar não cria receita a prazo. */
   permiteReceitas?: boolean
-  /** Linha que é quitação (repasse à Matriz, fatura de cartão): abre o pagamento
-   *  em Lançamentos especiais já preenchido com valor, data e conta da linha. */
-  onQuitar?: (q: { tipo: 'repasse' | 'fatura'; valor: number; data: string; contaId: string }) => void
   /** Abrir já nesta conta ("Importar extrato desta conta", em Contas e Faturas). */
   contaInicial?: string | null
 }) {
@@ -201,6 +205,8 @@ export default function ColarExtratoModal({
   const [repassesAbertos, setRepassesAbertos] = useState<RepasseRow[]>([])
   // CONTAS DE ACOMPANHAMENTO (14/10/2026): a despesa que paga uma delas ganha
   // destaque e já nasce ligada (conta_fixa_id) — o calendário fica verde sozinho.
+  /** a conta da Matriz que recebe o repasse (a preferencial; senão a primeira corrente) */
+  const [contaMatriz, setContaMatriz] = useState('')
   const [contasFixas, setContasFixas] = useState<{ id: string; nome: string; categoria_id: string | null; valor: number; repasse: boolean }[]>([])
   useEffect(() => {
     if (!aberto || !currentUnit?.id) return
@@ -302,11 +308,19 @@ export default function ColarExtratoModal({
   }, [contaId, ofx, texto]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /** A linha que paga fatura e não está no sistema ganha a fatura dela (uma fatura serve a uma linha só). */
-  function comPagamentoDeFatura(faturas: FaturaResumo[], xs: Item[]): Item[] {
-    if (!faturas.length) return xs
+  function comPagamentoDeFatura(faturas: FaturaResumo[], xs: Item[], repasses: RepasseResumo[] = []): Item[] {
+    if (!faturas.length && !repasses.length) return xs
     const usadas = new Set<string>()
     return xs.map(i => {
-      if (i.jaNoSistema || i.parecido || i.valor >= 0 || quitacaoDe(i.descricao) !== 'fatura') return i
+      if (i.jaNoSistema || i.parecido || i.valor >= 0) return i
+      const q = quitacaoDe(i.descricao)
+      if (q === 'repasse' && repasses.length) {
+        const c = casarPagamentoRepasse(i.valor, repasses.filter(r => !usadas.has(r.id)))
+        if (!c) return i
+        if (c.tipo === 'bate') usadas.add(c.repasse.id)
+        return { ...i, destino: 'fora' as Destino, marcado: false, entreConta: '', repassePgto: c, conciliarRepasse: c.tipo === 'bate' }
+      }
+      if (q !== 'fatura' || !faturas.length) return i
       const c = casarPagamentoFatura(i.valor, i.data, faturas.filter(f => !usadas.has(`${f.cartaoId}|${f.venc}`)))
       if (!c) return i
       if (c.tipo === 'bate') usadas.add(`${c.fatura.cartaoId}|${c.fatura.venc}`)
@@ -549,6 +563,20 @@ export default function ColarExtratoModal({
       }
       faturasAbertas = encadearFaturas([...mapa.values()])
     }
+    // PAGAMENTO DE REPASSE: os repasses da unidade e a conta da Matriz que recebe
+    let repassesPgto: RepasseResumo[] = []
+    if (!ehCartao && currentUnit?.id && linhas.some(l => l.valor < 0 && quitacaoDe(l.descricao) === 'repasse')) {
+      repassesPgto = await carregarRepassesDaUnidade(supabase, currentUnit.id)
+      const { data: mz } = await supabase.from('unidades').select('id').eq('is_matriz', true).limit(1)
+      const mzId = (mz as { id: string }[] | null)?.[0]?.id
+      if (mzId) {
+        const { data: cm } = await supabase.from('contas').select('id, produto, tipo, preferencial_recebimento')
+          .eq('unidade_id', mzId).eq('ativo', true).eq('legado', false).order('nome')
+        const ok = ((cm as { id: string; produto: string | null; tipo: string | null; preferencial_recebimento: boolean | null }[] | null) || [])
+          .filter(c => c.produto !== 'maquininha' && c.tipo !== 'cartao' && c.produto !== 'cartao_credito')
+        setContaMatriz((ok.find(c => c.preferencial_recebimento) || ok[0])?.id || '')
+      }
+    }
 
     setItens(comPagamentoDeFatura(faturasAbertas, linhas.map(l => {
       const base = {
@@ -644,7 +672,7 @@ export default function ColarExtratoModal({
         item.parecido = { tipo: folga.tipo, candidatos: folga.candidatos, escolhido: folga.tipo === 'provavel' ? 0 : -2 }
       }
       return item
-    })))
+    }), repassesPgto))
     // Fatura: o cabeçalho traz vencimento e total — preenche a fatura (se ainda
     // não escolhida) e guarda o total pra conferir a soma das compras.
     const cab = ehCartao ? cabecalhoFatura(texto) : null
@@ -725,7 +753,9 @@ export default function ColarExtratoModal({
   const entreProntas = fora.filter(i => !i.jaNoSistema && i.entreConta)
   /** pagamentos de fatura que batem e ficaram marcados: viram o pagamento, já conciliado */
   const faturaProntas = fora.filter(i => !i.jaNoSistema && (i.faturaPgto?.tipo === 'bate' ? !!i.conciliarFatura : i.faturaPgto?.tipo === 'difere' && i.faturaPgto.podeParcial && !!i.parcialFatura))
-  const faturaDifere = fora.filter(i => !i.jaNoSistema && i.faturaPgto?.tipo === 'difere' && !i.parcialFatura)
+  const repasseProntas = fora.filter(i => !i.jaNoSistema && (i.repassePgto?.tipo === 'bate' ? !!i.conciliarRepasse : i.repassePgto?.tipo === 'difere' && i.repassePgto.podeParcial && !!i.parcialRepasse))
+  /** fatura ou repasse que não fecha e não foi marcado parcial: só o aviso, a linha fica sem conciliar */
+  const faturaDifere = fora.filter(i => !i.jaNoSistema && ((i.faturaPgto?.tipo === 'difere' && !i.parcialFatura) || (i.repassePgto?.tipo === 'difere' && !i.parcialRepasse)))
   /** Pra onde o dinheiro pode ter ido: as outras contas da casa (sem maquininha e cartão). */
   const contasEntre = contas.filter(c => c.id !== contaId && c.produto !== 'maquininha' && c.tipo !== 'cartao')
   const pendentes = receitas.filter(i => i.marcado && !(i.opId || maquininhaLote) || (i.marcado && !i.mov)).length
@@ -734,7 +764,7 @@ export default function ColarExtratoModal({
 
   async function registrar() {
     if (!currentUnit?.id || !contaId) return
-    if (!recProntas.length && !despProntas.length && !reclassProntas.length && !entreProntas.length && !faturaProntas.length && !confirmados.length && !exatosParaConciliar.length) {
+    if (!recProntas.length && !despProntas.length && !reclassProntas.length && !entreProntas.length && !faturaProntas.length && !repasseProntas.length && !confirmados.length && !exatosParaConciliar.length) {
       return toast('Nada pronto pra registrar', 'error')
     }
     if (ehCartao && despProntas.length && !vencimento) return toast('Escolha a fatura (o vencimento) dessas compras', 'error')
@@ -817,6 +847,29 @@ export default function ColarExtratoModal({
         if (error) throw new Error(`Pagamento da fatura ${f.cartaoNome}: ${error.message}${entrouRec ? ` (${entrouRec} registros JÁ entraram)` : ''}`)
         entrouRec++
         conc(i, [{ origem: 'movimento', origem_id: (mv as { id: string }).id }], 'novo')
+      }
+      // PAGAMENTO DE REPASSE: transferência pra Matriz com o repasse_id (mig 159); se quita, marca pago
+      for (const i of repasseProntas) {
+        const r = i.repassePgto!.repasse
+        if (!contaMatriz) throw new Error('Nenhuma conta da Matriz para receber o repasse (aba Contas da Matriz).')
+        const parte = i.repassePgto!.tipo === 'difere'
+        const { data: mv, error } = await supabase.from('fin_movimentos').insert({
+          unidade_id: currentUnit.id, tipo: 'transferencia',
+          conta_id: contaId, conta_destino_id: contaMatriz,
+          data: i.data, valor: Math.abs(i.valor), repasse_id: r.id,
+          descricao: `Repasse ${rotuloRef(r.ref)}${parte ? ' (parte)' : ''} · ${currentUnit.nome}`,
+          criado_por_nome: userName || null,
+        }).select('id').single()
+        if (error) throw new Error(`Pagamento do repasse de ${rotuloRef(r.ref)}: ${error.message}${entrouRec ? ` (${entrouRec} registros JÁ entraram)` : ''}`)
+        entrouRec++
+        const movId = (mv as { id: string }).id
+        conc(i, [{ origem: 'movimento', origem_id: movId }], 'novo')
+        if (faltaRepasse(r) - Math.abs(i.valor) < 0.005) {
+          const { error: e2 } = await supabase.from('fin_repasses').update({
+            status: 'pago', pago_em: `${i.data}T12:00:00-03:00`, pago_por: user?.id || null, pago_movimento_id: movId,
+          }).eq('id', r.id)
+          if (e2) throw new Error(`O pagamento entrou, mas o repasse não foi marcado como pago: ${e2.message}`)
+        }
       }
       for (const i of reclassProntas) {
         const cat = categorias.find(c => c.id === i.catId)
@@ -916,7 +969,7 @@ export default function ColarExtratoModal({
         }
         if (error) toast(`Registrado, mas a conciliação não foi gravada: ${error.message}`, 'error')
       }
-      toast(`${recProntas.length} receitas a prazo · ${entreProntas.length} entre contas · ${despProntas.length} despesas${reclassProntas.length ? ` · ${reclassProntas.length} classificadas` : ''}${faturaProntas.length ? ` · ${faturaProntas.length} ${faturaProntas.length === 1 ? 'fatura paga' : 'faturas pagas'}` : ''} · ${concs.length} conciliados`, 'success')
+      toast(`${recProntas.length} receitas a prazo · ${entreProntas.length} entre contas · ${despProntas.length} despesas${reclassProntas.length ? ` · ${reclassProntas.length} classificadas` : ''}${faturaProntas.length ? ` · ${faturaProntas.length} ${faturaProntas.length === 1 ? 'fatura paga' : 'faturas pagas'}` : ''}${repasseProntas.length ? ` · ${repasseProntas.length} ${repasseProntas.length === 1 ? 'repasse pago' : 'repasses pagos'}` : ''} · ${concs.length} conciliados`, 'success')
       onRegistrou()
       onClose()
     } catch (e) {
@@ -1301,7 +1354,7 @@ export default function ColarExtratoModal({
         <span className="text-xs text-[var(--surface-400)]">{dataCurta(i.data)}</span>
         <span className="text-sm text-[var(--surface-500)] truncate" title={i.original}>{i.descricao}</span>
         <span className="col-span-4 col-start-3 sm:col-span-1 sm:col-start-auto row-start-2 sm:row-start-auto flex flex-wrap items-center gap-2 min-w-0">
-          {!i.entreConta && !i.faturaPgto && <span className="text-xs text-[var(--surface-400)]">{i.motivoFora || 'ignorada'}</span>}
+          {!i.entreConta && !i.faturaPgto && !i.repassePgto && <span className="text-xs text-[var(--surface-400)]">{i.motivoFora || 'ignorada'}</span>}
           {i.faturaPgto?.tipo === 'bate' && (
             <label className="flex items-center gap-1.5 text-xs text-[var(--surface-700)] cursor-pointer">
               <input type="checkbox" checked={!!i.conciliarFatura} onChange={e => muda(i.n, { conciliarFatura: e.target.checked })} />
@@ -1317,11 +1370,20 @@ export default function ColarExtratoModal({
               <span>Foi pagamento parcial da fatura <b>{i.faturaPgto.fatura.cartaoNome}</b> de {dataCurta(i.faturaPgto.fatura.venc)}: o resto vai para a próxima → <span className="text-emerald-500 font-medium">© conciliar</span></span>
             </label>
           )}
-          {quit === 'repasse' && onQuitar && (
-            <button type="button" onClick={() => onQuitar({ tipo: quit, valor: Math.abs(i.valor), data: i.data, contaId })}
-                    className="text-xs font-medium px-2.5 py-1 rounded-[var(--radius-md)] border border-[var(--brand-500)] text-[var(--brand-500)] hover:bg-[var(--brand-500)] hover:text-white">
-              {quit === 'repasse' ? 'Pagar repasse' : 'Pagar fatura'}
-            </button>
+          {i.repassePgto?.tipo === 'bate' && (
+            <label className="flex items-center gap-1.5 text-xs text-[var(--surface-700)] cursor-pointer">
+              <input type="checkbox" checked={!!i.conciliarRepasse} onChange={e => muda(i.n, { conciliarRepasse: e.target.checked })} />
+              <span>É o <b>repasse de {rotuloRef(i.repassePgto.repasse.ref)}</b> · <span className="text-mono">{fmtBRL(Math.abs(i.valor))}</span> → <span className="text-emerald-500 font-medium">© conciliar</span></span>
+            </label>
+          )}
+          {i.repassePgto?.tipo === 'difere' && (
+            <span className="block w-full text-[11.5px] leading-snug text-amber-500">⚠ {i.repassePgto.aviso}</span>
+          )}
+          {i.repassePgto?.tipo === 'difere' && i.repassePgto.podeParcial && (
+            <label className="flex items-center gap-1.5 text-xs text-[var(--surface-700)] cursor-pointer">
+              <input type="checkbox" checked={!!i.parcialRepasse} onChange={e => muda(i.n, { parcialRepasse: e.target.checked })} />
+              <span>Foi uma parte do <b>repasse de {rotuloRef(i.repassePgto.repasse.ref)}</b>: o resto continua em aberto → <span className="text-emerald-500 font-medium">© conciliar</span></span>
+            </label>
           )}
           {!quit && !i.entreConta && (
             <button type="button" onClick={() => muda(i.n, { destino: i.valor < 0 ? 'despesa' : (permiteReceitas ? 'receita' : 'fora'), marcado: true, motivoFora: null })}
@@ -1401,7 +1463,7 @@ export default function ColarExtratoModal({
   // ── o placar: banco × sistema × depois de registrar (conta corrente) ──
   const depois = placar
     ? Math.round((placar.sistema
-        + [...recProntas, ...despProntas, ...entreProntas, ...faturaProntas].reduce((a, i) => a + i.valor, 0)
+        + [...recProntas, ...despProntas, ...entreProntas, ...faturaProntas, ...repasseProntas].reduce((a, i) => a + i.valor, 0)
         + confirmados.reduce((a, i) => {
             const r = i.parecido!.candidatos[i.parecido!.escolhido]
             return a + (r.ajustavel ? i.valor - r.valor : 0)
@@ -1420,15 +1482,16 @@ export default function ColarExtratoModal({
       })()
     : ''
   const encontradas = itens.filter(i => !!i.jaNoSistema && !emParecido(i))
-  const ignoradas = fora.filter(i => !i.jaNoSistema && !i.faturaPgto)
-  const pgtosDeFatura = fora.filter(i => !i.jaNoSistema && i.faturaPgto)
+  const ignoradas = fora.filter(i => !i.jaNoSistema && !i.faturaPgto && !i.repassePgto)
+  const pgtosDeFatura = fora.filter(i => !i.jaNoSistema && (i.faturaPgto || i.repassePgto))
   const frasePronto = [
     recProntas.length ? `${recProntas.length} ${recProntas.length === 1 ? 'recebimento' : 'recebimentos'}` : '',
     entreProntas.length ? `${entreProntas.length} entre contas` : '',
     despProntas.length ? `${despProntas.length} ${despProntas.length === 1 ? 'despesa' : 'despesas'}` : '',
     faturaProntas.length ? `${faturaProntas.length} ${faturaProntas.length === 1 ? 'pagamento de fatura' : 'pagamentos de fatura'}` : '',
+    repasseProntas.length ? `${repasseProntas.length} ${repasseProntas.length === 1 ? 'pagamento de repasse' : 'pagamentos de repasse'}` : '',
   ].filter(Boolean).join(' e ')
-  const conferir = exatosParaConciliar.length + confirmados.length + recProntas.length + entreProntas.length + despProntas.length + faturaProntas.length
+  const conferir = exatosParaConciliar.length + confirmados.length + recProntas.length + entreProntas.length + despProntas.length + faturaProntas.length + repasseProntas.length
 
   return (
     <Modal
@@ -1446,7 +1509,7 @@ export default function ColarExtratoModal({
             {pendentes > 0 && <span className="text-amber-500"> Falta decidir {pendentes}.</span>}
             {semCategoria.length > 0 && <span className="block text-amber-500 mt-0.5">⚠ {semCategoria.length} {semCategoria.length === 1 ? 'lançamento vai' : 'lançamentos vão'} sem categoria. Tudo bem, pode lançar: classifique pela tela ({ehCartao ? 'Livro-Caixa › Faturas do cartão' : 'Livro-Caixa › Sem categoria'}) ou reimporte o arquivo para classificar.{ehCartao ? ' A fatura só fica pronta pra pagar com todos os lançamentos classificados.' : ''}</span>}
             {/* a fatura não bateu (16/10/2026, Lucas): nada de tirar a pessoa da tela — diz o que fazer e que o resto já fica salvo */}
-            {faturaDifere.length > 0 && <span className="block text-amber-500 mt-0.5">⚠ {faturaDifere.length === 1 ? 'O pagamento de fatura acima não vai' : `Os ${faturaDifere.length} pagamentos de fatura acima não vão`} ser conciliado{faturaDifere.length === 1 ? '' : 's'} agora. Pode registrar o resto tranquilo: o que você salvar agora já fica classificado. Depois de acertar a fatura, coloque este arquivo do banco de novo, e só esse pagamento vai aparecer para conciliar.</span>}
+            {faturaDifere.length > 0 && <span className="block text-amber-500 mt-0.5">⚠ {faturaDifere.length === 1 ? 'O pagamento acima (fatura ou repasse) não vai' : `Os ${faturaDifere.length} pagamentos acima (fatura ou repasse) não vão`} ser conciliado{faturaDifere.length === 1 ? '' : 's'} agora. Pode registrar o resto tranquilo: o que você salvar agora já fica classificado. Depois de acertar, coloque este arquivo do banco de novo, e só esse pagamento vai aparecer para conciliar.</span>}
           </span>
           <button onClick={() => { setItens([]); setPlacar(null); setOfx(null) }} className="btn-secondary text-sm">{ehCartao ? 'Enviar outro PDF' : 'Enviar outro arquivo'}</button>
           <button onClick={() => void registrar()} disabled={salvando || conferir === 0} className="btn-primary text-sm">
@@ -1641,7 +1704,7 @@ export default function ColarExtratoModal({
 
           {pgtosDeFatura.length > 0 && (
             <section className="flex flex-col gap-2.5">
-              {cabecaSecao('Pagamento de fatura', 'o banco pagou uma fatura do cartão: bateu, é só conciliar')}
+              {cabecaSecao('Pagamento de fatura e repasse', 'o banco pagou uma fatura do cartão ou o repasse da Matriz: bateu, é só conciliar')}
               {caixaLinhas(pgtosDeFatura.map(i => linhaFora(i)))}
             </section>
           )}
