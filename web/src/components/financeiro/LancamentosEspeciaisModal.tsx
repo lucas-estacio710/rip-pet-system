@@ -27,8 +27,9 @@ import Modal from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
 import { useUnit } from '@/contexts/UnitContext'
 import { fmtBRL, fmtData, hojeISO, colarValorBR } from '@/lib/financeiro'
+import { estadoDaFatura, pendenciasDaFatura, ROTULO_ESTADO, type EstadoFatura, type FaturaResumo } from '@/lib/fatura-estado'
 
-type Conta = { id: string; nome: string; produto: string | null; tipo: string | null; preferencial_recebimento: boolean | null }
+type Conta = { id: string; nome: string; produto: string | null; tipo: string | null; preferencial_recebimento: boolean | null; conciliavel?: boolean | null }
 type Repasse = {
   id: string; mes_referencia: string; status: string; qtd_pets: number
   total_bruto: number; total_deflator: number; total_liquido: number
@@ -37,7 +38,7 @@ type Repasse = {
    *  `aPagar` já é o que falta, pra todo lugar que o usa mostrar o certo. */
   pago: number; total: number; aPagar: number
 }
-type Fatura = { venc: string; total: number; itens: { data: string; valor: number; nome: string }[] }
+type Fatura = { venc: string; total: number; itens: { data: string; valor: number; nome: string }[]; semCat: number; totalPdf: number | null }
 type Tela = 'menu' | 'repasse' | 'fatura'
 
 const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
@@ -86,6 +87,10 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
   const [valor, setValor] = useState('')
 
   const correntes = contas.filter(c => c.produto !== 'maquininha' && c.tipo !== 'cartao' && c.produto !== 'cartao_credito')
+  /** CONFERIR FATURA (16/10/2026, Lucas): fatura não se pré-lança — o pagamento nasce na Conciliação
+   *  com Extrato, da linha do banco. Só conta SEM extrato (Dinheiro, contas.conciliavel = false)
+   *  ainda registra o "Paguei" aqui, porque ali nunca chega OFX. */
+  const semExtrato = correntes.filter(c => c.conciliavel === false)
   const cartoes = contas.filter(c => c.tipo === 'cartao' || c.produto === 'cartao_credito')
   const [inicialAplicado, setInicialAplicado] = useState(false)
   // "a carga desta abertura terminou" — `carregando` sozinho não serve: no
@@ -131,7 +136,7 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
     setCarregando(true)
     const uid = currentUnit.id
     const [{ data: cs }, { data: mz }, { data: rs }] = await Promise.all([
-      supabase.from('contas').select('id, nome, produto, tipo, preferencial_recebimento')
+      supabase.from('contas').select('id, nome, produto, tipo, preferencial_recebimento, conciliavel')
         .or(`unidade_id.eq.${uid},unidades_extras.cs.{${uid}}`).eq('ativo', true).eq('legado', false).order('nome'),
       supabase.from('unidades').select('id').eq('is_matriz', true).limit(1),
       // Em aberto: nem pago, nem cancelado, nem já quitado por movimento. Inclui
@@ -181,23 +186,28 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
     // menos as já quitadas por um movimento fatura_cartao com aquele vencimento.
     const cartIds = contasU.filter(c => c.tipo === 'cartao' || c.produto === 'cartao_credito').map(c => c.id)
     if (cartIds.length) {
-      const [{ data: ls }, { data: pg }] = await Promise.all([
+      const [{ data: ls }, { data: pg }, { data: tbs }] = await Promise.all([
         supabase.from('fin_lancamentos')
-          .select('conta_pagamento_id, data_caixa, data_competencia, valor, fornecedor_nome, fin_categorias(nome)')
+          .select('conta_pagamento_id, data_caixa, data_competencia, valor, fornecedor_nome, categoria_id, fin_categorias(nome)')
           .in('conta_pagamento_id', cartIds).neq('status', 'rejeitado').not('data_caixa', 'is', null),
         supabase.from('fin_movimentos').select('conta_destino_id, fatura_vencimento')
           .eq('tipo', 'fatura_cartao').in('conta_destino_id', cartIds).not('fatura_vencimento', 'is', null),
+        // o total que o PDF da fatura diz (o Importar grava; sem PDF, informa-se aqui)
+        supabase.from('fin_saldos_banco').select('conta_id, data, saldo').eq('origem', 'fatura').in('conta_id', cartIds),
       ])
+      const totaisPdf = new Map(((tbs as { conta_id: string; data: string; saldo: number }[] | null) || [])
+        .map(t => [`${t.conta_id}|${t.data.slice(0, 10)}`, Math.round(-Number(t.saldo) * 100) / 100]))
       const pagas = new Set(((pg as { conta_destino_id: string; fatura_vencimento: string }[] | null) || [])
         .map(p => `${p.conta_destino_id}|${p.fatura_vencimento}`))
-      type L = { conta_pagamento_id: string; data_caixa: string; data_competencia: string; valor: number; fornecedor_nome: string | null; fin_categorias: { nome: string } | null }
+      type L = { conta_pagamento_id: string; data_caixa: string; data_competencia: string; valor: number; fornecedor_nome: string | null; categoria_id: string | null; fin_categorias: { nome: string } | null }
       const mapa: Record<string, Record<string, Fatura>> = {}
       for (const l of (ls as unknown as L[] | null) || []) {
         const venc = l.data_caixa.slice(0, 10)
         if (pagas.has(`${l.conta_pagamento_id}|${venc}`)) continue
         const porVenc = (mapa[l.conta_pagamento_id] ||= {})
-        const f = (porVenc[venc] ||= { venc, total: 0, itens: [] })
-        f.total += Number(l.valor || 0)
+        const f = (porVenc[venc] ||= { venc, total: 0, itens: [], semCat: 0, totalPdf: totaisPdf.get(`${l.conta_pagamento_id}|${venc}`) ?? null })
+        f.total = Math.round((f.total + Number(l.valor || 0)) * 100) / 100
+        if (!l.categoria_id) f.semCat++
         f.itens.push({ data: l.data_competencia, valor: Number(l.valor || 0), nome: l.fornecedor_nome || l.fin_categorias?.nome || '—' })
       }
       setFaturasPorCartao(Object.fromEntries(Object.entries(mapa).map(([k, v]) =>
@@ -232,10 +242,27 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
     const f = c ? (faturasPorCartao[c.id] || [])[0] : undefined
     setFaturaVenc(f?.venc || ''); setValor(f ? paraDigitos(f.total) : '')
     setData('')
+    setOrigemId(semExtrato[0]?.id || '')
   }
 
   const repasseSel = repasses.find(r => r.id === repasseId)
   const faturaSel = (faturasPorCartao[cartaoId] || []).find(f => f.venc === faturaVenc)
+  const resumoDe = (cartao: string, f: Fatura): FaturaResumo => ({
+    cartaoId: cartao, cartaoNome: cartoes.find(c => c.id === cartao)?.nome || 'Cartão', venc: f.venc,
+    soma: f.total, totalPdf: f.totalPdf, semCat: f.semCat, paga: false, pagaConciliada: false,
+  })
+  const resumoSel = faturaSel ? resumoDe(cartaoId, faturaSel) : null
+  const estadoSel: EstadoFatura | null = resumoSel ? estadoDaFatura(resumoSel, hojeISO()) : null
+  // SEM O PDF: o total informado à mão vai pro mesmo lugar que o Importar grava (fin_saldos_banco)
+  const [totalManual, setTotalManual] = useState('')
+  async function salvarTotal() {
+    if (!faturaSel || !cartaoId || !emNumero(totalManual)) return toast('Informe o total da fatura', 'error')
+    const { error } = await supabase.from('fin_saldos_banco').upsert(
+      { conta_id: cartaoId, data: faturaSel.venc, saldo: -emNumero(totalManual), origem: 'fatura', criado_por_nome: userName || null },
+      { onConflict: 'conta_id,data' })
+    if (error) return toast(`Não gravou o total: ${error.message}`, 'error')
+    toast('Total da fatura guardado', 'success'); setTotalManual(''); void carregar()
+  }
   const v = emNumero(valor)
   const esperado = tela === 'repasse' ? repasseSel?.aPagar : faturaSel?.total
   const diferenca = esperado !== undefined ? Math.round((v - esperado) * 100) / 100 : 0
@@ -297,6 +324,7 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
   async function pagarFatura() {
     if (!currentUnit?.id) return
     if (!origemId || !cartaoId || !faturaVenc) return toast('Escolha a conta, o cartão e a fatura', 'error')
+    if (!semExtrato.some(c => c.id === origemId)) return toast('Conta com extrato: o pagamento entra pela Conciliação com Extrato, da linha do banco.', 'error')
     if (!v) return toast('Informe o valor pago', 'error')
     if (!data) return toast('Informe quando o pagamento saiu do banco', 'error')
     // FATURA SÓ SE QUITA CLASSIFICADA (15/10/2026, Lucas): compra sem categoria na fatura trava o
@@ -358,15 +386,21 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
     <Modal
       isOpen={aberto}
       onClose={onClose}
-      title={tela === 'menu' ? 'Quitação' : tela === 'repasse' ? 'Pagamento de repasse' : 'Pagamento de fatura de cartão'}
-      footer={tela === 'menu' ? undefined : (
+      title={tela === 'menu' ? 'Quitação' : tela === 'repasse' ? 'Pagamento de repasse' : 'Conferir fatura de cartão'}
+      footer={tela === 'menu' ? undefined : tela === 'fatura' && !semExtrato.length ? (
+        <div className="flex justify-between gap-2 w-full">
+          <button onClick={() => setTela('menu')} className="btn-secondary text-sm inline-flex items-center gap-1">
+            <ChevronLeft className="h-4 w-4" /> Voltar
+          </button>
+        </div>
+      ) : (
         <div className="flex justify-between gap-2 w-full">
           <button onClick={() => setTela('menu')} className="btn-secondary text-sm inline-flex items-center gap-1">
             <ChevronLeft className="h-4 w-4" /> Voltar
           </button>
           <button onClick={() => void (tela === 'repasse' ? pagarRepasse() : pagarFatura())}
                   disabled={salvando} className="btn-primary text-sm">
-            {salvando ? <><Loader2 className="h-4 w-4 animate-spin" /> Registrando…</> : 'Confirmar pagamento'}
+            {salvando ? <><Loader2 className="h-4 w-4 animate-spin" /> Registrando…</> : tela === 'fatura' ? 'Paguei (conta sem extrato)' : 'Confirmar pagamento'}
           </button>
         </div>
       )}
@@ -392,10 +426,15 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
                   className="w-full text-left card p-3 hover:border-[var(--brand-500)] transition-colors flex items-center gap-3 disabled:opacity-50">
             <CreditCard className="h-5 w-5 text-[var(--brand-500)] shrink-0" />
             <span className="flex-1">
-              <span className="block text-sm text-[var(--surface-800)]">Pagamento de fatura de cartão</span>
+              <span className="block text-sm text-[var(--surface-800)]">Conferir fatura de cartão</span>
               <span className="block text-[11px] text-[var(--surface-500)]">
                 {!cartoes.length ? 'nenhum cartão cadastrado (aba Contas)'
-                  : `${Object.values(faturasPorCartao).reduce((a, f) => a + f.length, 0)} fatura(s) em aberto`}
+                  : (() => {
+                      const est = Object.entries(faturasPorCartao).flatMap(([c, fs]) => fs.map(f => estadoDaFatura(resumoDe(c, f), hojeISO())))
+                      if (!est.length) return 'nenhuma fatura em aberto'
+                      const n = (e: EstadoFatura) => est.filter(x => x === e).length
+                      return [n('em_aberto') && `${n('em_aberto')} em aberto`, n('pronta_pagar') && `${n('pronta_pagar')} pronta pra pagar`, n('pronta_conciliar') && `${n('pronta_conciliar')} pronta pra conciliar`].filter(Boolean).join(' · ')
+                    })()}
               </span>
             </span>
           </button>
@@ -523,15 +562,47 @@ export default function LancamentosEspeciaisModal({ aberto, onClose, onRegistrou
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-2">
-            {contaOrigem}
-            <div>
-              <label className="text-xs text-[var(--surface-500)] block mb-1">Saiu do banco em</label>
-              <input type="date" value={data} onChange={e => setData(e.target.value)} className="input text-sm w-full"
-                     style={!data ? { borderColor: '#f59e0b' } : undefined} />
+          {resumoSel && estadoSel && (
+            <div className={`rounded-[var(--radius-md)] border p-3 text-sm space-y-1 ${estadoSel === 'em_aberto' ? 'border-amber-500/40 bg-amber-500/5' : 'border-sky-500/40 bg-sky-500/5'}`}>
+              <p className={`font-semibold ${estadoSel === 'em_aberto' ? 'text-amber-500' : 'text-sky-500'}`}>
+                {estadoSel === 'em_aberto' ? ROTULO_ESTADO[estadoSel] : `✓ ${ROTULO_ESTADO[estadoSel]} · ${fmtBRL(resumoSel.totalPdf ?? resumoSel.soma)}`}
+              </p>
+              {estadoSel === 'em_aberto'
+                ? pendenciasDaFatura(resumoSel).map(t => <p key={t} className="text-[12px] text-[var(--surface-600)]">· {t}</p>)
+                : <p className="text-[12px] text-[var(--surface-600)]">
+                    {estadoSel === 'pronta_pagar' ? 'Tudo conferido. Pague no banco até o vencimento.' : 'Tudo conferido e já venceu.'}
+                    {' '}Quando o arquivo do banco (OFX) chegar na Conciliação com Extrato, a linha do pagamento já aparece ligada a esta fatura: é só conciliar.
+                  </p>}
+              {resumoSel.totalPdf === null && (
+                <div className="flex flex-wrap items-end gap-2 pt-1">
+                  <div>
+                    <label className="text-[11px] text-[var(--surface-500)] block mb-0.5">Sem o PDF? Total da fatura</label>
+                    <input inputMode="numeric" value={totalManual ? emTexto(totalManual) : ''} placeholder="0,00"
+                           onChange={e => setTotalManual(soDigitos(e.target.value))} className="input text-sm text-mono w-36" />
+                  </div>
+                  <button onClick={() => void salvarTotal()} className="btn-secondary text-sm">Guardar total</button>
+                </div>
+              )}
             </div>
-          </div>
-          {campoValor}
+          )}
+
+          {semExtrato.length > 0 && (<>
+            <p className="text-[11px] text-[var(--surface-500)] pt-1">Pagou com uma conta sem extrato? Registre aqui:</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-[var(--surface-500)] block mb-1">Saiu da conta</label>
+                <select value={origemId} onChange={e => setOrigemId(e.target.value)} className="input text-sm w-full">
+                  {semExtrato.map(c => <option key={c.id} value={c.id}>{rotuloConta(cores, c.id, c.nome)}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-[var(--surface-500)] block mb-1">Pago em</label>
+                <input type="date" value={data} onChange={e => setData(e.target.value)} className="input text-sm w-full"
+                       style={!data ? { borderColor: '#f59e0b' } : undefined} />
+              </div>
+            </div>
+            {campoValor}
+          </>)}
         </div>
       )}
     </Modal>

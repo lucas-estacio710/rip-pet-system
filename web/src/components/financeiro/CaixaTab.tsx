@@ -550,8 +550,8 @@ export default function CaixaTab({ mes, somenteLeitura = false, comando = null, 
                     {Number(s.saldo) < 0 ? 'fatura em aberto' : 'sem fatura'}
                   </span>
                   {Number(s.saldo) < 0 && (
-                    <span className="text-[10px] text-[var(--surface-400)]" title="+ Lançar › Quitação › Pagamento de fatura">
-                      · paga em + Lançar › Quitação
+                    <span className="text-[10px] text-[var(--surface-400)]" title="o pagamento entra pela Conciliação com Extrato, da linha do banco">
+                      · paga pela Conciliação com Extrato
                     </span>
                   )}
                 </div>

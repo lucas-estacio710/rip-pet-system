@@ -16,6 +16,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { ChevronRight, Trash2 } from 'lucide-react'
 import { fmtBRL } from '@/lib/financeiro'
 import { hojeLocal } from '@/lib/date-local'
+import { estadoDaFatura, pendenciasDaFatura, ROTULO_ESTADO, type EstadoFatura } from '@/lib/fatura-estado'
 import { filtroContasDe } from '@/hooks/useCaixaConjunto'
 import { EtiquetaUnidade } from './DonoLancamento'
 import { classificarCaixa, SEM_CATEGORIA, type BalancoCaixa, type CompraFatura, type ItemCaixa, type LinhaCaixa, type MovInfo } from '@/lib/balanco-caixa'
@@ -530,6 +531,8 @@ export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades, onEditar
   const [cartoes, setCartoes] = useState<{ id: string; nome: string }[]>([])
   const [compras, setCompras] = useState<Compra[] | null>(null)
   const [pagas, setPagas] = useState<Set<string>>(new Set())
+  /** faturas cujo pagamento está ligado a uma linha do banco (o © é só do banco) */
+  const [pagasConc, setPagasConc] = useState<Set<string>>(new Set())
   const versaoFin = useFinanceiroVersao()
   const [conc, setConc] = useState<Set<string>>(new Set())
   // O TOTAL QUE A FATURA DIZ (15/10/2026): o Importar grava o cabeçalho do PDF em fin_saldos_banco
@@ -544,7 +547,8 @@ export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades, onEditar
       const { data: cs } = await sb.from('contas').select('id, nome, tipo, produto').or(filtroContasDe(unidades?.length ? unidades : [uid])).eq('ativo', true).eq('legado', false)
       const cards = ((cs as { id: string; nome: string; tipo: string | null; produto: string | null }[] | null) || []).filter(c => c.tipo === 'cartao' || c.produto === 'cartao_credito')
       const ids = cards.map(c => c.id)
-      let lista: Compra[] = [], pg = new Set<string>(), ok = new Set<string>()
+      let lista: Compra[] = [], pg = new Set<string>()
+      const ok = new Set<string>(), pgc = new Set<string>()
       const tb = new Map<string, number>()
       if (ids.length) {
         const { data: sbk } = await sb.from('fin_saldos_banco').select('conta_id, data, saldo').eq('origem', 'fatura').in('conta_id', ids)
@@ -553,16 +557,26 @@ export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades, onEditar
         const [{ data: ls }, { data: mv }] = await Promise.all([
           sb.from('fin_lancamentos').select('id, valor, data_competencia, data_caixa, fornecedor_nome, observacoes, conta_pagamento_id, categoria_id')
             .in('conta_pagamento_id', ids).neq('status', 'rejeitado').gte('data_caixa', `${mes}-01`).lte('data_caixa', fimDoMes(mes)).limit(1000),
-          sb.from('fin_movimentos').select('conta_destino_id, fatura_vencimento').eq('tipo', 'fatura_cartao').in('conta_destino_id', ids).not('fatura_vencimento', 'is', null),
+          sb.from('fin_movimentos').select('id, conta_id, conta_destino_id, fatura_vencimento').eq('tipo', 'fatura_cartao').in('conta_destino_id', ids).not('fatura_vencimento', 'is', null),
         ])
         lista = (ls as Compra[] | null) || []
-        pg = new Set(((mv as { conta_destino_id: string; fatura_vencimento: string }[] | null) || []).map(p => `${p.conta_destino_id}|${p.fatura_vencimento.slice(0, 10)}`))
+        const movs = (mv as { id: string; conta_id: string | null; conta_destino_id: string; fatura_vencimento: string }[] | null) || []
+        const chaveMov = new Map(movs.map(p => [p.id, `${p.conta_destino_id}|${p.fatura_vencimento.slice(0, 10)}`]))
+        pg = new Set(chaveMov.values())
+        // paga por conta sem extrato (Dinheiro): não há o que conciliar — conta como conferida (lib/conferido.ts)
+        const naoConc = await buscarNaoConciliaveis(sb)
+        for (const m of movs) if (m.conta_id && naoConc?.has(m.conta_id)) pgc.add(chaveMov.get(m.id)!)
+        const idsMov = [...chaveMov.keys()]
+        for (let i = 0; i < idsMov.length; i += 200) {
+          const { data: cm } = await sb.from('fin_conciliacoes').select('origem_id').eq('origem', 'movimento').in('origem_id', idsMov.slice(i, i + 200))
+          for (const c of (cm as { origem_id: string }[] | null) || []) pgc.add(chaveMov.get(c.origem_id)!)
+        }
         for (let i = 0; i < lista.length; i += 200) {
           const { data: cc } = await sb.from('fin_conciliacoes').select('origem_id').eq('origem', 'lancamento').in('origem_id', lista.slice(i, i + 200).map(l => l.id))
           for (const c of (cc as { origem_id: string }[] | null) || []) ok.add(c.origem_id)
         }
       }
-      if (vivo) { setCartoes(cards.map(c => ({ id: c.id, nome: c.nome }))); setCompras(lista); setPagas(pg); setConc(ok); setTotalBanco(tb) }
+      if (vivo) { setCartoes(cards.map(c => ({ id: c.id, nome: c.nome }))); setCompras(lista); setPagas(pg); setConc(ok); setTotalBanco(tb); setPagasConc(pgc) }
     })()
     return () => { vivo = false }
   }, [sb, uid, mes, unidades, versaoFin])
@@ -603,6 +617,10 @@ export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades, onEditar
           const doBanco = totalBanco.get(k)
           const falta = doBanco !== undefined ? c2(doBanco - f.total) : 0   // > 0: compra que a fatura cobra e não foi lançada
           const divergente = Math.abs(falta) >= 0.005
+          // ESTADO (16/10/2026, lib/fatura-estado.ts): em aberto · pronta pra pagar · pronta pra conciliar · paga
+          const resumo = { cartaoId: f.cartao, cartaoNome: nomeCartao(f.cartao), venc: f.venc, soma: f.total, totalPdf: doBanco ?? null, semCat: nSemCat, paga, pagaConciliada: pagasConc.has(k) }
+          const estado = estadoDaFatura(resumo, hojeLocal())
+          const pend = estado === 'em_aberto' ? pendenciasDaFatura(resumo) : []
           return (
             <div key={k} className="mt-3 rounded-[10px] border border-[var(--surface-200)] overflow-hidden" style={estiloConta(cores.get(f.cartao))}>
               <button onClick={() => setAberto(aberto === k ? null : k)} className="w-full grid grid-cols-[16px_1fr_auto] gap-2 items-center px-3 py-2.5 text-left">
@@ -610,11 +628,10 @@ export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades, onEditar
                 <span className="min-w-0 flex flex-col">
                   <span className="text-sm text-[var(--surface-800)] truncate">{nomeCartao(f.cartao)} · vence {f.venc.slice(8, 10)}/{f.venc.slice(5, 7)}</span>
                   <span className="text-[11px] text-[var(--surface-500)]">
-                    {f.itens.length} compras · {nConc === f.itens.length && !divergente ? <span className="text-emerald-500">✓ todas conferidas com a fatura</span> : nConc < f.itens.length ? <span className="text-amber-500">{f.itens.length - nConc} em pré-lançamento</span> : <span>conferidas</span>}
-                    {divergente && <span className="text-red-400"> · a fatura é de {fmtBRL(doBanco!)}: {falta > 0 ? `faltam ${fmtBRL(falta)} em compras` : `${fmtBRL(-falta)} lançados a mais`}</span>}
-                    {paga ? <span className="text-emerald-500"> · paga</span> : null}
-                    {nSemCat > 0 && <span className="text-amber-500"> · {nSemCat} sem categoria: classifique antes de quitar</span>}
+                    <SeloFatura estado={estado} conciliada={pagasConc.has(k)} /> · {f.itens.length} compras{nConc === f.itens.length && !divergente ? ' · ✓ todas na fatura' : nConc < f.itens.length ? <span className="text-amber-500"> · {f.itens.length - nConc} fora do PDF</span> : null}
+                    {divergente && <span className="text-red-400"> · a fatura é de {fmtBRL(doBanco!)}</span>}
                   </span>
+                  {pend.map(t => <span key={t} className="text-[11px] text-amber-500">· {t}</span>)}
                 </span>
                 <span className="text-mono text-sm tabular-nums text-[var(--surface-900)]">{num(f.total)}</span>
               </button>
@@ -623,8 +640,9 @@ export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades, onEditar
                   {f.itens.sort((a, b) => a.data_competencia.localeCompare(b.data_competencia)).map(l => (
                     <div key={l.id} onClick={onEditar ? () => onEditar(l.id) : undefined}
                          className={`grid grid-cols-[14px_40px_1fr_auto] gap-2 py-1 text-[12px] border-t border-[var(--surface-100)] ${onEditar ? 'cursor-pointer hover:bg-[var(--surface-50)]' : ''}`}>
-                      <span className="flex items-center" title={conc.has(l.id) ? 'conferida com a fatura' : 'pré-lançamento — falta conferir com a fatura'}>
-                        {conc.has(l.id) ? <b className="text-[12px] font-bold leading-none text-emerald-500">©</b> : <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />}
+                      {/* ✓ = bateu com uma linha do PDF da fatura. O © é só do banco (16/10/2026). */}
+                      <span className="flex items-center" title={conc.has(l.id) ? 'está no PDF da fatura' : 'ainda não bateu com o PDF da fatura'}>
+                        {conc.has(l.id) ? <span className="text-[12px] leading-none text-emerald-500">✓</span> : <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />}
                       </span>
                       <span className="text-mono text-[var(--surface-400)]">{l.data_competencia.slice(8, 10)}/{l.data_competencia.slice(5, 7)}</span>
                       <span className="truncate text-[var(--surface-600)]" title={l.observacoes || ''}>
@@ -640,6 +658,16 @@ export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades, onEditar
           )
         })}
     </div>
+  )
+}
+
+/** O selo do estado da fatura — o © só aparece quando o pagamento bateu com o banco. */
+function SeloFatura({ estado, conciliada }: { estado: EstadoFatura; conciliada: boolean }) {
+  const cor: Record<EstadoFatura, string> = { em_aberto: 'text-amber-500', pronta_pagar: 'text-sky-500', pronta_conciliar: 'text-sky-500', paga: conciliada ? 'text-emerald-500' : 'text-sky-500' }
+  return (
+    <span className={`font-semibold ${cor[estado]}`}>
+      {estado === 'paga' ? (conciliada ? '© Paga' : 'Paga · falta conciliar') : estado === 'em_aberto' ? ROTULO_ESTADO[estado] : `✓ ${ROTULO_ESTADO[estado]}`}
+    </span>
   )
 }
 

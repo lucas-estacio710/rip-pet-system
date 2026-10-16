@@ -138,7 +138,7 @@ export function fornecedorDe(descricao: string): string {
 export function naoEDespesa(descricao: string): string | null {
   const t = normTexto(descricao)
   if (!ehCompraNoDebito(t) && /FATURA\s+(DO\s+)?CART(AO|OES)|PAGAMENTO\s+(DE\s+)?FATURA/.test(t)) {
-    return 'pagamento de fatura de cartão — as despesas já estão no cartão; registre em + Lançar › Quitação'
+    return 'pagamento de fatura de cartão — nenhuma fatura em aberto vence perto desta data: importe o PDF da fatura (Livro-Caixa › Faturas do cartão) e coloque este arquivo de novo'
   }
   if (/\bAPLICACAO\b|\bRESGATE\b/.test(t) && !/\bIOF\b/.test(t)) {
     return 'aplicação/resgate — dinheiro mudando de lugar, não é despesa'
