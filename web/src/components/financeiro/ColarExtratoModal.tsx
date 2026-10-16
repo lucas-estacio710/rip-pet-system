@@ -1449,7 +1449,8 @@ export default function ColarExtratoModal({
     const quit = i.valor < 0 ? quitacaoDe(i.descricao) : null
     const rend = !!i.rendimento && !i.entreConta && !i.jaNoSistema
     // o "O que é?" — não em pagamento de fatura/repasse nem no rendimento automático (tem o "não é rendimento")
-    const escolhe = !quit && !i.faturaPgto && !i.repassePgto && !i.jaNoSistema && !(rend && !i.outraCoisa)
+    // pagamento da própria fatura (no cartão) tem módulo dedicado: sem "O que é?" — um clique viraria estorno do valor cheio (Ouro)
+    const escolhe = !quit && !i.faturaPgto && !i.repassePgto && !i.jaNoSistema && !(rend && !i.outraCoisa) && !(ehCartao && ehPagamentoDaFatura(i.descricao))
     return (
       <div key={i.n} className="py-2.5 border-b border-[var(--surface-100)] last:border-0">
       <div className={grade}>
