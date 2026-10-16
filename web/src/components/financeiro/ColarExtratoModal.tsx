@@ -41,7 +41,7 @@ import { buscarCategorias, sugerirPorSinonimo, type CategoriaBuscavel } from '@/
 import { conciliar, semPar, type RegistroSistema, type Ref } from '@/lib/conciliacao'
 import { ehOFX, lerOFX, textoDoArquivo, mesmoBanco, type ExtratoOFX } from '@/lib/ofx'
 import { textoDoPdf } from '@/lib/fatura-pdf'
-import { casarPagamentoFatura, type CasamentoFatura, type FaturaResumo } from '@/lib/fatura-estado'
+import { casarPagamentoFatura, encadearFaturas, type CasamentoFatura, type FaturaResumo } from '@/lib/fatura-estado'
 import { useCaixaConjunto } from '@/hooks/useCaixaConjunto'
 import { reconhecerCobranca } from '@/lib/reconhecer-cobranca'
 
@@ -132,6 +132,9 @@ type Item = LinhaExtrato & {
    *  do que falta, sem tirar ninguém da tela. `conciliarFatura`: a caixinha do 'bate'. */
   faturaPgto?: CasamentoFatura | null
   conciliarFatura?: boolean
+  /** PAGAMENTO PARCIAL (16/10/2026): o banco pagou menos que a fatura conferida e a pessoa
+   *  confirmou que foi parcial — grava assim mesmo; o resto vai pra fatura seguinte. */
+  parcialFatura?: boolean
 }
 
 /** Crédito na fatura: "+ R$ 1,20" (Inter) ou texto de estorno/reembolso. No
@@ -513,7 +516,8 @@ export default function ColarExtratoModal({
     const cartoesU = contas.filter(c => c.tipo === 'cartao' || c.produto === 'cartao_credito')
     if (pgtosFatura.length && cartoesU.length) {
       const dts = pgtosFatura.map(l => l.data).sort()
-      const desde = new Date(Date.parse(dts[0]) - 10 * 86400000).toISOString().slice(0, 10)
+      // 45 dias pra trás: traz também a fatura anterior, cujo resto (se paga em parte) vem pra esta
+      const desde = new Date(Date.parse(dts[0]) - 45 * 86400000).toISOString().slice(0, 10)
       const ate = new Date(Date.parse(dts[dts.length - 1]) + 25 * 86400000).toISOString().slice(0, 10)
       const ids = cartoesU.map(c => c.id)
       const ls: { conta_pagamento_id: string; data_caixa: string; valor: number; categoria_id: string | null }[] = []
@@ -526,19 +530,24 @@ export default function ColarExtratoModal({
       }
       const [{ data: tb }, { data: mv }] = await Promise.all([
         supabase.from('fin_saldos_banco').select('conta_id, data, saldo').eq('origem', 'fatura').in('conta_id', ids).gte('data', desde).lte('data', ate),
-        supabase.from('fin_movimentos').select('conta_destino_id, fatura_vencimento').eq('tipo', 'fatura_cartao').in('conta_destino_id', ids).gte('fatura_vencimento', desde).lte('fatura_vencimento', ate),
+        supabase.from('fin_movimentos').select('conta_destino_id, fatura_vencimento, valor').eq('tipo', 'fatura_cartao').in('conta_destino_id', ids).gte('fatura_vencimento', desde).lte('fatura_vencimento', ate),
       ])
-      const pagas = new Set(((mv as { conta_destino_id: string; fatura_vencimento: string }[] | null) || []).map(m => `${m.conta_destino_id}|${m.fatura_vencimento.slice(0, 10)}`))
+      // o que já foi pago de cada fatura: a SOMA dos pagamentos (paga em parte = menos que o total)
+      const pagas = new Map<string, number>()
+      for (const m of (mv as { conta_destino_id: string; fatura_vencimento: string; valor: number }[] | null) || []) {
+        const k = `${m.conta_destino_id}|${m.fatura_vencimento.slice(0, 10)}`
+        pagas.set(k, Math.round(((pagas.get(k) || 0) + Number(m.valor)) * 100) / 100)
+      }
       const totais = new Map(((tb as { conta_id: string; data: string; saldo: number }[] | null) || []).map(t => [`${t.conta_id}|${t.data.slice(0, 10)}`, Math.round(-Number(t.saldo) * 100) / 100]))
       const mapa = new Map<string, FaturaResumo>()
       for (const l of ls) {
         const venc = l.data_caixa.slice(0, 10), k = `${l.conta_pagamento_id}|${venc}`
-        const f = mapa.get(k) || { cartaoId: l.conta_pagamento_id, cartaoNome: cartoesU.find(c => c.id === l.conta_pagamento_id)?.nome || 'Cartão', venc, soma: 0, totalPdf: totais.get(k) ?? null, semCat: 0, paga: pagas.has(k), pagaConciliada: false }
+        const f = mapa.get(k) || { cartaoId: l.conta_pagamento_id, cartaoNome: cartoesU.find(c => c.id === l.conta_pagamento_id)?.nome || 'Cartão', venc, soma: 0, totalPdf: totais.get(k) ?? null, semCat: 0, pago: pagas.get(k) || 0, pagaConciliada: false }
         f.soma = Math.round((f.soma + Number(l.valor)) * 100) / 100
         if (!l.categoria_id) f.semCat++
         mapa.set(k, f)
       }
-      faturasAbertas = [...mapa.values()]
+      faturasAbertas = encadearFaturas([...mapa.values()])
     }
 
     setItens(comPagamentoDeFatura(faturasAbertas, linhas.map(l => {
@@ -715,8 +724,8 @@ export default function ColarExtratoModal({
   const travadas = despesas.filter(i => !i.reclassificar && i.marcado && !despProntas.includes(i))
   const entreProntas = fora.filter(i => !i.jaNoSistema && i.entreConta)
   /** pagamentos de fatura que batem e ficaram marcados: viram o pagamento, já conciliado */
-  const faturaProntas = fora.filter(i => !i.jaNoSistema && i.faturaPgto?.tipo === 'bate' && i.conciliarFatura)
-  const faturaDifere = fora.filter(i => !i.jaNoSistema && i.faturaPgto?.tipo === 'difere')
+  const faturaProntas = fora.filter(i => !i.jaNoSistema && (i.faturaPgto?.tipo === 'bate' ? !!i.conciliarFatura : i.faturaPgto?.tipo === 'difere' && i.faturaPgto.podeParcial && !!i.parcialFatura))
+  const faturaDifere = fora.filter(i => !i.jaNoSistema && i.faturaPgto?.tipo === 'difere' && !i.parcialFatura)
   /** Pra onde o dinheiro pode ter ido: as outras contas da casa (sem maquininha e cartão). */
   const contasEntre = contas.filter(c => c.id !== contaId && c.produto !== 'maquininha' && c.tipo !== 'cartao')
   const pendentes = receitas.filter(i => i.marcado && !(i.opId || maquininhaLote) || (i.marcado && !i.mov)).length
@@ -797,12 +806,12 @@ export default function ColarExtratoModal({
       }
       // PAGAMENTO DE FATURA: o banco diz a data e o valor; a fatura (cartão + vencimento) já bateu.
       for (const i of faturaProntas) {
-        const f = (i.faturaPgto as Extract<CasamentoFatura, { tipo: 'bate' }>).fatura
+        const f = i.faturaPgto!.fatura
         const { data: mv, error } = await supabase.from('fin_movimentos').insert({
           unidade_id: currentUnit.id, tipo: 'fatura_cartao',
           conta_id: contaId, conta_destino_id: f.cartaoId,
           data: i.data, valor: Math.abs(i.valor), fatura_vencimento: f.venc,
-          descricao: `Fatura ${f.cartaoNome} · vence ${f.venc.slice(8, 10)}/${f.venc.slice(5, 7)}/${f.venc.slice(0, 4)}`,
+          descricao: `Fatura ${f.cartaoNome}${i.faturaPgto!.tipo === 'difere' ? ' (pagamento parcial)' : ''} · vence ${f.venc.slice(8, 10)}/${f.venc.slice(5, 7)}/${f.venc.slice(0, 4)}`,
           criado_por_nome: userName || null,
         }).select('id').single()
         if (error) throw new Error(`Pagamento da fatura ${f.cartaoNome}: ${error.message}${entrouRec ? ` (${entrouRec} registros JÁ entraram)` : ''}`)
@@ -1301,6 +1310,12 @@ export default function ColarExtratoModal({
           )}
           {i.faturaPgto?.tipo === 'difere' && (
             <span className="block w-full text-[11.5px] leading-snug text-amber-500">⚠ {i.faturaPgto.aviso}</span>
+          )}
+          {i.faturaPgto?.tipo === 'difere' && i.faturaPgto.podeParcial && (
+            <label className="flex items-center gap-1.5 text-xs text-[var(--surface-700)] cursor-pointer">
+              <input type="checkbox" checked={!!i.parcialFatura} onChange={e => muda(i.n, { parcialFatura: e.target.checked })} />
+              <span>Foi pagamento parcial da fatura <b>{i.faturaPgto.fatura.cartaoNome}</b> de {dataCurta(i.faturaPgto.fatura.venc)}: o resto vai para a próxima → <span className="text-emerald-500 font-medium">© conciliar</span></span>
+            </label>
           )}
           {quit === 'repasse' && onQuitar && (
             <button type="button" onClick={() => onQuitar({ tipo: quit, valor: Math.abs(i.valor), data: i.data, contaId })}

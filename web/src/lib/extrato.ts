@@ -176,7 +176,12 @@ export function foraDoCartao(descricao: string): string | null {
   // ⚠️ Não excluir por "COMPRA": a fatura do Inter põe "Compra à vista" na coluna
   // Tipo até da linha do pagamento ("PAGAMENTO ON LINE · OUTROS · Compra à vista").
   if (/^(PAGAMENTO|PAGTO|PGTO)|PAGAMENTO\s+(ON\s*LINE|EFETUADO|RECEBIDO|(DE\s+|DA\s+)?FATURA)|DEBITO\s+AUTOMATICO/.test(t)) {
-    return 'pagamento da fatura — já entra como Pagamento de fatura (Lançamentos especiais)'
+    return 'pagamento da fatura — entra pela Conciliação com Extrato da conta que pagou'
+  }
+  // PAGAMENTO PARCIAL (16/10/2026): o resto da fatura anterior volta na seguinte como uma linha —
+  // não é compra (já está lançada na fatura de origem). Os juros/IOF sobre ele SÃO despesa.
+  if (/SALDO\s+(DA\s+FATURA\s+)?ANTERIOR|SALDO\s+(EM\s+)?ATRASO|SALDO\s+REMANESCENTE|SALDO\s+FINANCIADO|FATURA\s+ANTERIOR/.test(t)) {
+    return 'saldo da fatura anterior — o resto de um pagamento parcial, já lançado na fatura de origem'
   }
   if (/ESTORNO|CREDITO\s+(DE\s+)?COMPRA|REEMBOLSO|CASHBACK|AJUSTE\s+A\s+CREDITO/.test(t)) {
     return 'estorno/crédito no cartão — abate a fatura, não é compra; confira'

@@ -16,7 +16,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { ChevronRight, Trash2 } from 'lucide-react'
 import { fmtBRL } from '@/lib/financeiro'
 import { hojeLocal } from '@/lib/date-local'
-import { estadoDaFatura, pendenciasDaFatura, ROTULO_ESTADO, type EstadoFatura } from '@/lib/fatura-estado'
+import { estadoDaFatura, pendenciasDaFatura, encadearFaturas, situacaoParcial, ROTULO_ESTADO, type EstadoFatura, type FaturaResumo } from '@/lib/fatura-estado'
 import { filtroContasDe } from '@/hooks/useCaixaConjunto'
 import { EtiquetaUnidade } from './DonoLancamento'
 import { classificarCaixa, SEM_CATEGORIA, type BalancoCaixa, type CompraFatura, type ItemCaixa, type LinhaCaixa, type MovInfo } from '@/lib/balanco-caixa'
@@ -530,8 +530,9 @@ export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades, onEditar
   const cores = useCoresContas()
   const [cartoes, setCartoes] = useState<{ id: string; nome: string }[]>([])
   const [compras, setCompras] = useState<Compra[] | null>(null)
-  const [pagas, setPagas] = useState<Set<string>>(new Set())
-  /** faturas cujo pagamento está ligado a uma linha do banco (o © é só do banco) */
+  /** cartão|vencimento → soma dos pagamentos (paga em parte = menos que o total, 16/10/2026) */
+  const [pagas, setPagas] = useState<Map<string, number>>(new Map())
+  /** faturas com TODOS os pagamentos ligados a uma linha do banco (o © é só do banco) */
   const [pagasConc, setPagasConc] = useState<Set<string>>(new Set())
   const versaoFin = useFinanceiroVersao()
   const [conc, setConc] = useState<Set<string>>(new Set())
@@ -547,30 +548,36 @@ export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades, onEditar
       const { data: cs } = await sb.from('contas').select('id, nome, tipo, produto').or(filtroContasDe(unidades?.length ? unidades : [uid])).eq('ativo', true).eq('legado', false)
       const cards = ((cs as { id: string; nome: string; tipo: string | null; produto: string | null }[] | null) || []).filter(c => c.tipo === 'cartao' || c.produto === 'cartao_credito')
       const ids = cards.map(c => c.id)
-      let lista: Compra[] = [], pg = new Set<string>()
-      const ok = new Set<string>(), pgc = new Set<string>()
+      let lista: Compra[] = []
+      const ok = new Set<string>(), pgc = new Set<string>(), pg = new Map<string, number>()
+      // o mês ANTERIOR também: a fatura paga em parte passa o resto pra deste (encadearFaturas)
+      const [aA, aM] = mes.split('-').map(Number)
+      const desde = `${aM === 1 ? aA - 1 : aA}-${String(aM === 1 ? 12 : aM - 1).padStart(2, '0')}-01`
       const tb = new Map<string, number>()
       if (ids.length) {
         const { data: sbk } = await sb.from('fin_saldos_banco').select('conta_id, data, saldo').eq('origem', 'fatura').in('conta_id', ids)
-          .gte('data', `${mes}-01`).lte('data', fimDoMes(mes))
+          .gte('data', desde).lte('data', fimDoMes(mes))
         for (const r of (sbk as { conta_id: string; data: string; saldo: number }[] | null) || []) tb.set(`${r.conta_id}|${r.data.slice(0, 10)}`, c2(-Number(r.saldo)))
         const [{ data: ls }, { data: mv }] = await Promise.all([
           sb.from('fin_lancamentos').select('id, valor, data_competencia, data_caixa, fornecedor_nome, observacoes, conta_pagamento_id, categoria_id')
-            .in('conta_pagamento_id', ids).neq('status', 'rejeitado').gte('data_caixa', `${mes}-01`).lte('data_caixa', fimDoMes(mes)).limit(1000),
-          sb.from('fin_movimentos').select('id, conta_id, conta_destino_id, fatura_vencimento').eq('tipo', 'fatura_cartao').in('conta_destino_id', ids).not('fatura_vencimento', 'is', null),
+            .in('conta_pagamento_id', ids).neq('status', 'rejeitado').gte('data_caixa', desde).lte('data_caixa', fimDoMes(mes)).limit(1000),
+          sb.from('fin_movimentos').select('id, conta_id, conta_destino_id, fatura_vencimento, valor').eq('tipo', 'fatura_cartao').in('conta_destino_id', ids).not('fatura_vencimento', 'is', null),
         ])
         lista = (ls as Compra[] | null) || []
-        const movs = (mv as { id: string; conta_id: string | null; conta_destino_id: string; fatura_vencimento: string }[] | null) || []
+        const movs = (mv as { id: string; conta_id: string | null; conta_destino_id: string; fatura_vencimento: string; valor: number }[] | null) || []
         const chaveMov = new Map(movs.map(p => [p.id, `${p.conta_destino_id}|${p.fatura_vencimento.slice(0, 10)}`]))
-        pg = new Set(chaveMov.values())
-        // paga por conta sem extrato (Dinheiro): não há o que conciliar — conta como conferida (lib/conferido.ts)
+        for (const m of movs) { const k = chaveMov.get(m.id)!; pg.set(k, c2((pg.get(k) || 0) + Number(m.valor))) }
+        // conciliado = bateu com o banco OU saiu de conta sem extrato (Dinheiro) — lib/conferido.ts
+        const movConc = new Set<string>()
         const naoConc = await buscarNaoConciliaveis(sb)
-        for (const m of movs) if (m.conta_id && naoConc?.has(m.conta_id)) pgc.add(chaveMov.get(m.id)!)
+        for (const m of movs) if (m.conta_id && naoConc?.has(m.conta_id)) movConc.add(m.id)
         const idsMov = [...chaveMov.keys()]
         for (let i = 0; i < idsMov.length; i += 200) {
           const { data: cm } = await sb.from('fin_conciliacoes').select('origem_id').eq('origem', 'movimento').in('origem_id', idsMov.slice(i, i + 200))
-          for (const c of (cm as { origem_id: string }[] | null) || []) pgc.add(chaveMov.get(c.origem_id)!)
+          for (const c of (cm as { origem_id: string }[] | null) || []) movConc.add(c.origem_id)
         }
+        // a fatura só é © quando TODOS os pagamentos dela estão conciliados
+        for (const k of new Set(chaveMov.values())) if (movs.every(m => chaveMov.get(m.id) !== k || movConc.has(m.id))) pgc.add(k)
         for (let i = 0; i < lista.length; i += 200) {
           const { data: cc } = await sb.from('fin_conciliacoes').select('origem_id').eq('origem', 'lancamento').in('origem_id', lista.slice(i, i + 200).map(l => l.id))
           for (const c of (cc as { origem_id: string }[] | null) || []) ok.add(c.origem_id)
@@ -592,6 +599,16 @@ export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades, onEditar
     return [...m.entries()].sort((a, b) => a[1].venc.localeCompare(b[1].venc))
   }, [compras])
   const nomeCartao = (id: string) => cartoes.find(c => c.id === id)?.nome || 'Cartão'
+  // ESTADO (16/10/2026, lib/fatura-estado.ts), com o mês anterior junto pra encadear o resto da paga em parte
+  const resumos = useMemo(() => {
+    const xs: FaturaResumo[] = faturas.map(([k, f]) => ({
+      cartaoId: f.cartao, cartaoNome: cartoes.find(c => c.id === f.cartao)?.nome || 'Cartão', venc: f.venc, soma: f.total,
+      totalPdf: totalBanco.get(k) ?? null, semCat: f.itens.filter(i => !i.categoria_id).length,
+      pago: pagas.get(k) || 0, pagaConciliada: pagasConc.has(k),
+    }))
+    return new Map(encadearFaturas(xs).map(r => [`${r.cartaoId}|${r.venc}`, r]))
+  }, [faturas, cartoes, totalBanco, pagas, pagasConc])
+  const faturasDoMes = faturas.filter(([, f]) => f.venc.startsWith(mes))
 
   return (
     <div className="card p-4 flex flex-col">
@@ -609,16 +626,13 @@ export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades, onEditar
       </div>
       {compras === null ? <p className="text-sm text-[var(--surface-500)] py-4">carregando…</p>
         : !cartoes.length ? <p className="text-sm text-[var(--surface-500)] py-4">Nenhum cartão cadastrado.</p>
-        : !faturas.length ? <p className="text-sm text-[var(--surface-500)] py-4">Nenhuma fatura vence neste mês.</p>
-        : faturas.map(([k, f]) => {
-          const paga = pagas.has(k)
+        : !faturasDoMes.length ? <p className="text-sm text-[var(--surface-500)] py-4">Nenhuma fatura vence neste mês.</p>
+        : faturasDoMes.map(([k, f]) => {
           const nConc = f.itens.filter(i => conc.has(i.id)).length
-          const nSemCat = f.itens.filter(i => !i.categoria_id).length
           const doBanco = totalBanco.get(k)
           const falta = doBanco !== undefined ? c2(doBanco - f.total) : 0   // > 0: compra que a fatura cobra e não foi lançada
           const divergente = Math.abs(falta) >= 0.005
-          // ESTADO (16/10/2026, lib/fatura-estado.ts): em aberto · pronta pra pagar · pronta pra conciliar · paga
-          const resumo = { cartaoId: f.cartao, cartaoNome: nomeCartao(f.cartao), venc: f.venc, soma: f.total, totalPdf: doBanco ?? null, semCat: nSemCat, paga, pagaConciliada: pagasConc.has(k) }
+          const resumo = resumos.get(k)!
           const estado = estadoDaFatura(resumo, hojeLocal())
           const pend = estado === 'em_aberto' ? pendenciasDaFatura(resumo) : []
           return (
@@ -628,7 +642,8 @@ export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades, onEditar
                 <span className="min-w-0 flex flex-col">
                   <span className="text-sm text-[var(--surface-800)] truncate">{nomeCartao(f.cartao)} · vence {f.venc.slice(8, 10)}/{f.venc.slice(5, 7)}</span>
                   <span className="text-[11px] text-[var(--surface-500)]">
-                    <SeloFatura estado={estado} conciliada={pagasConc.has(k)} /> · {f.itens.length} compras{nConc === f.itens.length && !divergente ? ' · ✓ todas na fatura' : nConc < f.itens.length ? <span className="text-amber-500"> · {f.itens.length - nConc} fora do PDF</span> : null}
+                    <SeloFatura estado={estado} conciliada={pagasConc.has(k)} />{estado === 'paga_parte' && <span className="text-[var(--surface-500)]"> ({situacaoParcial(resumo)})</span>}
+                    {resumo.carregado ? <span className="text-[var(--surface-500)]"> · inclui {fmtBRL(resumo.carregado)} da fatura anterior</span> : null} · {f.itens.length} compras{nConc === f.itens.length && !divergente ? ' · ✓ todas na fatura' : nConc < f.itens.length ? <span className="text-amber-500"> · {f.itens.length - nConc} fora do PDF</span> : null}
                     {divergente && <span className="text-red-400"> · a fatura é de {fmtBRL(doBanco!)}</span>}
                   </span>
                   {pend.map(t => <span key={t} className="text-[11px] text-amber-500">· {t}</span>)}
@@ -663,10 +678,10 @@ export function FaturasDoMes({ sb, uid, mes, onImportarConta, unidades, onEditar
 
 /** O selo do estado da fatura — o © só aparece quando o pagamento bateu com o banco. */
 function SeloFatura({ estado, conciliada }: { estado: EstadoFatura; conciliada: boolean }) {
-  const cor: Record<EstadoFatura, string> = { em_aberto: 'text-amber-500', pronta_pagar: 'text-sky-500', pronta_conciliar: 'text-sky-500', paga: conciliada ? 'text-emerald-500' : 'text-sky-500' }
+  const cor: Record<EstadoFatura, string> = { em_aberto: 'text-amber-500', pronta_pagar: 'text-sky-500', pronta_conciliar: 'text-sky-500', paga_parte: 'text-amber-500', paga: conciliada ? 'text-emerald-500' : 'text-sky-500' }
   return (
     <span className={`font-semibold ${cor[estado]}`}>
-      {estado === 'paga' ? (conciliada ? '© Paga' : 'Paga · falta conciliar') : estado === 'em_aberto' ? ROTULO_ESTADO[estado] : `✓ ${ROTULO_ESTADO[estado]}`}
+      {estado === 'paga' ? (conciliada ? '© Paga' : 'Paga · falta conciliar') : estado === 'em_aberto' || estado === 'paga_parte' ? ROTULO_ESTADO[estado] : `✓ ${ROTULO_ESTADO[estado]}`}
     </span>
   )
 }
