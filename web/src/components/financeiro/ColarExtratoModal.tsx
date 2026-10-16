@@ -1509,7 +1509,7 @@ export default function ColarExtratoModal({
             </span>
           ) : (
             <button type="button" onClick={() => setAbertos(a => new Set(a).add(i.n))}
-                    className="text-[11px] text-[var(--brand-500)] hover:underline">é de outra conta da casa?</button>
+                    className="text-[11px] text-[var(--brand-500)] hover:underline">é transferência interna entre contas?</button>
           ))}
         </span>
         <span className={`text-right text-mono text-sm tabular-nums ${i.entreConta || rend ? valorCor(i.valor) : 'text-[var(--surface-400)]'}`}>{valorTxt(i.valor)}</span>
@@ -1528,11 +1528,11 @@ export default function ColarExtratoModal({
     const opcoes: { v: OutraCoisa; t: string }[] = entrada
       ? [{ v: 'contrato', t: 'pagamento de outro contrato' },
          ...(permiteReceitas ? [{ v: 'receita' as const, t: 'recebimento de maquininha' }] : []),
-         { v: 'entre', t: 'veio de outra conta da casa' },
+         { v: 'entre', t: 'transferência interna entre contas' },
          { v: 'rendimento', t: 'rendimento da conta' },
          { v: 'fora', t: 'deixar de fora por enquanto' }]
       : [{ v: 'despesa', t: 'despesa nova' },
-         { v: 'entre', t: 'foi para outra conta da casa' },
+         { v: 'entre', t: 'transferência interna entre contas' },
          { v: 'fora', t: 'deixar de fora por enquanto' }]
     const definir = (o: OutraCoisa) => {
       const base = { outraCoisa: o, rendimento: false, entreConta: '', motivoFora: null as string | null }
