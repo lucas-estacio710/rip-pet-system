@@ -19,7 +19,7 @@ import { hojeLocal } from '@/lib/date-local'
 import { estadoDaFatura, pendenciasDaFatura, encadearFaturas, situacaoParcial, ROTULO_ESTADO, type EstadoFatura, type FaturaResumo } from '@/lib/fatura-estado'
 import { filtroContasDe } from '@/hooks/useCaixaConjunto'
 import { EtiquetaUnidade } from './DonoLancamento'
-import { classificarCaixa, SEM_CATEGORIA, type BalancoCaixa, type CompraFatura, type ItemCaixa, type LinhaCaixa, type MovInfo } from '@/lib/balanco-caixa'
+import { classificarCaixa, ehAberturaDeConta, SEM_CATEGORIA, type BalancoCaixa, type CompraFatura, type ItemCaixa, type LinhaCaixa, type MovInfo } from '@/lib/balanco-caixa'
 import { useCoresContas, rotuloConta, estiloConta } from '@/lib/cor-conta'
 import { ContaComBolinha } from './ContaComBolinha'
 
@@ -62,16 +62,18 @@ export function caixaDoMes(bruto: Bruto | null, mes: string, modo: 'todas' | 'di
   const contas = new Set([...bruto.saldo.keys()].filter(id => modo === 'todas' || !bruto.reservas.has(id)))
   if (!contas.size) return { porMes: new Map(), inicio: 0, fim: 0, semContas: true, nomeConta: bruto.nomeConta }
   const ctx = { contasCaixa: contas, ...bruto.base, guardadas: modo === 'disponiveis' ? bruto.reservas : undefined }
+  // o Ajuste inicial é o saldo que a conta já tinha: entra no "Começou com", não no mês
   const linhas = bruto.linhas.filter(l => contas.has(l.conta_id))
+  const doMes = linhas.filter(l => !ehAberturaDeConta(l))
   const porMes = new Map<string, BalancoCaixa>()
   for (let k = -5; k <= 0; k++) {
     const m = somaMes(mes, k)
-    porMes.set(m, classificarCaixa(linhas.filter(l => l.data.slice(0, 7) === m), ctx))
+    porMes.set(m, classificarCaixa(doMes.filter(l => l.data.slice(0, 7) === m), ctx))
   }
   const atual = [...contas].reduce((a, id) => a + (bruto.saldo.get(id) || 0), 0)
   const fm = fimDoMes(mes)
   const depois = linhas.filter(l => l.data > fm).reduce((a, l) => a + Number(l.valor), 0)
-  const noMes = linhas.filter(l => l.data.slice(0, 7) === mes).reduce((a, l) => a + Number(l.valor), 0)
+  const noMes = doMes.filter(l => l.data.slice(0, 7) === mes).reduce((a, l) => a + Number(l.valor), 0)
   const fim = c2(atual - depois)
   return { porMes, inicio: c2(fim - noMes), fim, semContas: false, nomeConta: bruto.nomeConta }
 }
@@ -301,7 +303,7 @@ export function BalancoMes({ bruto, mes, marco = null, onEditar, onLancar, onExt
                     <span className="relative h-3.5 rounded bg-[var(--surface-100)] overflow-hidden">
                       <span className="absolute top-0 bottom-0 rounded" style={{ left: `${(lo / escala) * 100}%`, width: `${Math.max(0.5, ((hi - lo) / escala) * 100)}%`, background: b.cor }} />
                     </span>
-                    <span className="text-mono tabular-nums text-[var(--surface-700)] w-[92px] text-right">{b.sinal} {num(b.forte ? b.ate : b.ate - b.de)}</span>
+                    <span className="text-mono tabular-nums text-[var(--surface-700)] w-[92px] text-right">{b.sinal} {b.forte && b.ate < -0.005 ? '−' : ''}{num(b.forte ? b.ate : b.ate - b.de)}</span>
                   </div>
                   {aberto && b.itens && (
                     <div className={`ml-4 my-1 min-w-0 overflow-hidden rounded-[8px] border ${sem ? 'border-amber-500/40 bg-amber-500/5' : 'border-[var(--surface-200)]'} divide-y divide-[var(--surface-200)]`}>

@@ -10,7 +10,8 @@
 //     ninguém lançou vai pra "Sem categoria";
 //   · o REPASSE pago à Matriz é custo de cremação → grupo "Cremação";
 //   · transferência entre duas contas do caixa não é nada (o dinheiro só mudou de bolso);
-//   · ajuste de saldo (inclusive o "Ajuste inicial") fica À PARTE.
+//   · ajuste de saldo fica À PARTE; o "Ajuste inicial"/"Abertura de caixa" é o saldo que a conta
+//     já tinha — vai pro "Começou com" (ehAberturaDeConta, filtrado em caixaDoMes).
 //
 // 🔴 REGRA DO LUCAS (14/10/2026): "o que está categorizado — foi LANÇADO, nomeado direitinho —
 // entra no balanço; o que não está fica em 'Sem categoria'", abrindo pra ver o que é e onde, e
@@ -20,6 +21,15 @@
 // Função pura: quem busca é o BalancoMes (VisaoBlocos.tsx).
 
 export const SEM_CATEGORIA = 'Sem categoria'
+
+/** O "Ajuste inicial" (abrir caixa, VisaoMesTab) é o saldo que a conta JÁ TINHA no dia em que
+ *  começou: no Balanço ele é o "Começou com", não um ajuste do mês (SJ, 16/10/2026: abriu com
+ *  −785,46 e o mês aparecia começando em zero, com o negativo no fim como "Ajustes de saldo"). */
+export const ehAberturaDeConta = (l: Pick<LinhaCaixa, 'origem' | 'descricao'>) => {
+  // dois nomes pra mesma coisa: "Ajuste inicial · X" (VisaoMesTab) e "Abertura de caixa · X" (CaixaTab)
+  const d = (l.descricao || '').trim().toLowerCase()
+  return l.origem === 'movimento' && (d.startsWith('ajuste inicial') || d.startsWith('abertura de caixa'))
+}
 
 export type LinhaCaixa = { conta_id: string; data: string; tipo: string; valor: number; origem: string; origem_id: string; descricao?: string | null; unidade_id?: string | null }
 export type MovInfo = { tipo: string; conta_id: string | null; conta_destino_id: string | null; repasse: boolean }

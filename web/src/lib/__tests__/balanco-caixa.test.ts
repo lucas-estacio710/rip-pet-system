@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { classificarCaixa, SEM_CATEGORIA, type LinhaCaixa, type MovInfo } from '../balanco-caixa.ts'
+import { classificarCaixa, ehAberturaDeConta, SEM_CATEGORIA, type LinhaCaixa, type MovInfo } from '../balanco-caixa.ts'
 
 const L = (conta_id: string, valor: number, origem: string, origem_id: string, descricao = ''): LinhaCaixa =>
   ({ conta_id, data: '2026-10-05', tipo: '', valor, origem, origem_id, descricao })
@@ -92,4 +92,14 @@ test('mig 168: rendimento entra; pagar empréstimo e devolver aporte saem, cada 
   ]) })
   assert.deepEqual(b.entradas.map(g => [g.nome, g.valor]), [['Rendimentos', 21.61]])
   assert.deepEqual(b.saidas.map(g => [g.nome, g.valor]), [['Empréstimos pagos', 1000], ['Aportes devolvidos', 500]])
+})
+
+test('o Ajuste inicial é a abertura da conta (vai pro "Começou com"); outro ajuste não', () => {
+  assert.equal(ehAberturaDeConta({ origem: 'movimento', descricao: 'Ajuste inicial · Itaú' }), true)
+  assert.equal(ehAberturaDeConta({ origem: 'movimento', descricao: 'Ajuste de saldo · Itaú' }), false)
+  assert.equal(ehAberturaDeConta({ origem: 'movimento', descricao: 'Abertura de caixa · Conta Inter' }), true)
+  assert.equal(ehAberturaDeConta({ origem: 'movimento', descricao: 'Abertura de caixa — Inter Investimentos' }), true)
+  assert.equal(ehAberturaDeConta({ origem: 'movimento', descricao: 'ajuste de rendimentos' }), false)
+  assert.equal(ehAberturaDeConta({ origem: 'lancamento', descricao: 'Ajuste inicial' }), false)
+  assert.equal(ehAberturaDeConta({ origem: 'movimento', descricao: null }), false)
 })
