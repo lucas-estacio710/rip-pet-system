@@ -445,14 +445,22 @@ export default function ColarExtratoModal({
     // banco com mesma data e valor (o Itaú reaproveita o ID, ver fitidVisto) ou, no texto
     // colado, mesma data + valor + texto.
     type CC = { origem: Ref['origem']; origem_id: string; fitid?: string | null; data_banco: string; valor_banco: number; texto_banco: string | null }
-    let concGrav: CC[] = []
+    const concGrav: CC[] = []
     {
-      const sel = (comFitid: boolean) => supabase.from('fin_conciliacoes')
-        .select(`origem, origem_id, data_banco, valor_banco, texto_banco${comFitid ? ', fitid' : ''}`)
-        .eq('conta_id', contaId).gte('data_banco', iniJ).lte('data_banco', fimJ).limit(5000)
-      let r = await sel(true)
-      if (r.error && /fitid/i.test(r.error.message)) r = await sel(false)   // sem a mig 158
-      concGrav = (r.data as unknown as CC[] | null) || []
+      // PAGINADO: o PostgREST corta em 1000 linhas mesmo com limit maior, e a conciliação que
+      // ficasse de fora voltaria a casar — reabrindo o dobro sem aviso (achado da Ouro).
+      const sel = (comFitid: boolean, off: number) => supabase.from('fin_conciliacoes')
+        .select(`id, origem, origem_id, data_banco, valor_banco, texto_banco${comFitid ? ', fitid' : ''}`)
+        .eq('conta_id', contaId).gte('data_banco', iniJ).lte('data_banco', fimJ)
+        .order('id').range(off, off + 999)
+      let comFitid = true
+      for (let off = 0; ; off += 1000) {
+        let r = await sel(comFitid, off)
+        if (r.error && comFitid && /fitid/i.test(r.error.message)) { comFitid = false; r = await sel(false, off) }   // sem a mig 158
+        const arr = (r.data as unknown as CC[] | null) || []
+        concGrav.push(...arr)
+        if (arr.length < 1000) break
+      }
     }
     const refKey = (x: { origem: string; origem_id: string }) => `${x.origem}-${x.origem_id}`
     const regDaRef = new Map<string, RegistroSistema>()
