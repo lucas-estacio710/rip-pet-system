@@ -1586,7 +1586,9 @@ export default function ColarExtratoModal({
   const encontradas = itens.filter(i => !!i.jaNoSistema && !emParecido(i) && !i.jaConciliada)
   const jaAntes = itens.filter(i => !!i.jaNoSistema && !emParecido(i) && !!i.jaConciliada && i.duplicada === undefined)
   const duplicadas = itens.filter(i => i.duplicada !== undefined)
-  const ignoradas = fora.filter(i => !i.jaNoSistema && !i.faturaPgto && !i.repassePgto)
+  // o rendimento automático vai pro "Conciliados automaticamente" (16/10/2026, Lucas): entra sozinho, como o par exato
+  const ignoradas = fora.filter(i => !i.jaNoSistema && !i.faturaPgto && !i.repassePgto && !rendProntas.includes(i))
+  const autoN = encontradas.length + rendProntas.length
   const pgtosDeFatura = fora.filter(i => !i.jaNoSistema && (i.faturaPgto || i.repassePgto))
   const frasePronto = [
     recProntas.length ? `${recProntas.length} ${recProntas.length === 1 ? 'recebimento' : 'recebimentos'}` : '',
@@ -1806,14 +1808,17 @@ export default function ColarExtratoModal({
             </section>
           )}
 
-          {encontradas.length > 0 && (
+          {autoN > 0 && (
             <section className="flex flex-col gap-2.5">
               {cabecaSecao(<span className="text-emerald-500">© Conciliados automaticamente</span>,
-                `${encontradas.length} ${encontradas.length === 1 ? 'linha bateu' : 'linhas bateram'} com um registro do sistema que ainda não estava conciliado — conciliam ao registrar (cancelar não grava nada)`, undefined,
+                `${[
+                  encontradas.length ? `${encontradas.length} ${encontradas.length === 1 ? 'linha bateu' : 'linhas bateram'} com um registro do sistema` : '',
+                  rendProntas.length ? `${rendProntas.length} ${rendProntas.length === 1 ? 'rendimento da conta entra' : 'rendimentos da conta entram'} sozinho${rendProntas.length === 1 ? '' : 's'}` : '',
+                ].filter(Boolean).join(' · ')} — conciliam ao registrar (cancelar não grava nada)`, undefined,
                 <button type="button" onClick={() => setEncontradasAberto(v => !v)} className="ml-auto text-sm text-[var(--brand-500)] hover:underline">
                   {encontradasAberto ? 'esconder' : 'ver quais'}
                 </button>)}
-              {encontradasAberto && caixaLinhas(encontradas.map(i => linhaEncontrada(i)))}
+              {encontradasAberto && caixaLinhas([...encontradas.map(i => linhaEncontrada(i)), ...rendProntas.map(i => linhaFora(i))])}
             </section>
           )}
 
@@ -1883,7 +1888,7 @@ export default function ColarExtratoModal({
 
           {ignoradas.length > 0 && (
             <section className="flex flex-col gap-2.5">
-              {cabecaSecao('Fora', 'não vira despesa — pagamentos têm o lugar deles; entre contas vira transferência; rendimento da conta entra sozinho')}
+              {cabecaSecao('Fora', 'não vira despesa — pagamentos têm o lugar deles; entre contas vira transferência')}
               {caixaLinhas(ignoradas.map(i => linhaFora(i)))}
             </section>
           )}
