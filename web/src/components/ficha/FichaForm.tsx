@@ -668,7 +668,7 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
           {/* Line progress */}
           <div className="absolute top-5 left-0 h-0.5 bg-blue-500 transition-all duration-300" style={{ width: `${((step - 1) / 2) * 100}%` }} />
 
-          {['Tutor', 'Pet', 'Confirmar'].map((label, i) => {
+          {['Responsável', 'Pet', 'Confirmar'].map((label, i) => {
             const num = i + 1
             const isActive = step === num
             const isDone = step > num
@@ -703,7 +703,7 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
                   <p className="text-blue-700/90">Para agilizar, já preenchemos os dados do seu cadastro. Confira se estão corretos — você pode ajustar o que precisar — e siga com as informações do pet.</p>
                 </div>
               )}
-              <h2 className="text-lg font-bold text-slate-800 pb-3 border-b-2 border-slate-100">Dados do Tutor</h2>
+              <h2 className="text-lg font-bold text-slate-800 pb-3 border-b-2 border-slate-100">Dados do Responsável</h2>
 
               <div>
                 <label className={labelClass}>{form.tipoDocumento === 'cnpj' ? 'Razão Social / Nome Fantasia' : 'Nome Completo'} <span className="text-red-400">*</span></label>
@@ -716,14 +716,14 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
               <div>
                 {form.outrosTutores.length === 0 ? (
                   <button type="button" onClick={addOutroTutor} className="text-sm text-blue-600 font-medium hover:text-blue-800 hover:underline">
-                    + Adicionar outros nomes de tutores ao certificado
+                    + Adicionar outros nomes de responsáveis ao certificado
                   </button>
                 ) : (
                   <>
                     <label className="text-sm font-medium text-slate-600 mb-2 block">Outros nomes no certificado</label>
                     {form.outrosTutores.map((t, i) => (
                       <div key={i} className="flex gap-2 mb-2">
-                        <input className="flex-1 px-3 py-2 rounded-lg border-2 border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 [color-scheme:light] outline-none focus:border-blue-500 bg-white" value={t} onChange={e => updateOutroTutor(i, e.target.value)} placeholder={`Nome do tutor ${i + 2}`} />
+                        <input className="flex-1 px-3 py-2 rounded-lg border-2 border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 [color-scheme:light] outline-none focus:border-blue-500 bg-white" value={t} onChange={e => updateOutroTutor(i, e.target.value)} placeholder={`Nome do responsável ${i + 2}`} />
                         <button type="button" onClick={() => removeOutroTutor(i)} className="text-red-400 hover:text-red-600 text-sm px-2">Remover</button>
                       </div>
                     ))}
@@ -1086,7 +1086,7 @@ function FichaFormContent({ config, modoPreventivo }: { config: FichaUnidadeConf
               {/* Review */}
               <div className="space-y-4">
                 <div className="bg-slate-50 rounded-xl p-4 space-y-1.5">
-                  <h3 className="text-sm font-bold text-blue-700 mb-2">Dados do Tutor</h3>
+                  <h3 className="text-sm font-bold text-blue-700 mb-2">Dados do Responsável</h3>
                   <p className="text-sm"><span className="font-medium text-slate-600">Nome:</span> <span className="text-slate-800">{form.nomeCompleto}</span></p>
                   {form.outrosTutores.filter(Boolean).length > 0 && (
                     <p className="text-sm"><span className="font-medium text-slate-600">Outros:</span> <span className="text-slate-800">{form.outrosTutores.filter(Boolean).join(', ')}</span></p>
