@@ -97,14 +97,15 @@ export function nomeBate(descricaoBanco: string | undefined, contrato: string | 
 export function conciliar(
   linhas: LinhaBancoMin[],
   registros: RegistroSistema[],
-  opts: { janelaDias?: number; toleranciaCambio?: number; porContrato?: boolean } = {},
+  opts: { janelaDias?: number; toleranciaCambio?: number; porContrato?: boolean; dataNoTexto?: boolean } = {},
 ): Map<number, ParConciliacao> {
   const janela = opts.janelaDias ?? 5
   const tol = opts.toleranciaCambio ?? 0
   const usado = new Set<string>()
   const pares = new Map<number, ParConciliacao>()
   // o mesmo dia: a data do banco ou a que o banco escreveu no texto
-  const doTexto = new Map(linhas.map(l => [l.n, dataDoTexto(l.descricao, l.data)]))
+  // só no extrato de conta: na fatura do cartão "PARC 02/10" é parcela, não data (achado da Ouro)
+  const doTexto = new Map(linhas.map(l => [l.n, opts.dataNoTexto === false ? null : dataDoTexto(l.descricao, l.data)]))
   const mesmoDia = (l: LinhaBancoMin, d: string) => d === l.data || d === doTexto.get(l.n)
 
   // 1) exato — em TODAS as linhas antes de qualquer folga: uma folga não pode

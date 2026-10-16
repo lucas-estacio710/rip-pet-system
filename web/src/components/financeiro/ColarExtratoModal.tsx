@@ -490,7 +490,7 @@ export default function ColarExtratoModal({
     // Os quatro níveis (exato · contrato · provável · ambíguo) — lib/conciliacao.
     // Só com o que ainda não foi conciliado, dos dois lados.
     const pares = conciliar(linhas.filter(l => !donosDe.has(l.n)), registros.filter(r => !tomados.has(r.chave)), {
-      janelaDias: JANELA_DIAS, toleranciaCambio: ehCartao ? TOLERANCIA_CAMBIO : 0, porContrato: !ehCartao,
+      janelaDias: JANELA_DIAS, toleranciaCambio: ehCartao ? TOLERANCIA_CAMBIO : 0, porContrato: !ehCartao, dataNoTexto: !ehCartao,
     })
     const exatoDe = (n: number) => { const p = pares.get(n); return p && (p.tipo === 'exato' || p.tipo === 'contrato') ? p : null }
 

@@ -76,3 +76,10 @@ test('soma em dias diferentes SEM o nome batendo não casa', () => {
   const pares = conciliar([linha], [pag('p', BRAD, 400, '2026-09-05'), pag('c', BRAD, 250, '2026-09-06')])
   assert.equal(pares.get(1), undefined)
 })
+
+test('fatura do cartão (dataNoTexto: false): "PARC 02/10" não vira data', () => {
+  const linha = { n: 1, data: '2026-10-05', valor: -100, descricao: 'LOJA X PARC 02/10' }
+  const reg: RegistroSistema = { chave: 'x', data: '2026-10-02', valor: -100, rotulo: 'compra', contrato: null, refs: [{ origem: 'lancamento', origem_id: 'x' }], ajustavel: 'x' }
+  assert.equal(conciliar([linha], [reg]).get(1)?.tipo, 'exato')                       // conta: usa a data do texto
+  assert.equal(conciliar([linha], [reg], { dataNoTexto: false }).get(1)?.tipo, 'provavel') // cartão: só a folga
+})
