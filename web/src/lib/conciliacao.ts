@@ -26,6 +26,13 @@
 // espera a passada do contrato e só depois leva o que sobrou.
 //   3. provavel  — um único candidato dentro da folga;
 //   4. ambiguo   — mais de um candidato: a tela lista e a pessoa escolhe.
+//
+// SJ, 16/10/2026 (BRAD): o Ricardo mandou UM Pix de 650 no sábado 05/09 e o contrato tem
+// 400 + 250 nesse dia; o Itaú só lançou em 08/09 (feriado no meio). Duas folgas novas:
+//   · a DATA QUE O ITAÚ ESCREVE no texto ("PIX RECEBIDO RICARDO05/09 …") vale como data
+//     do Pix nas passadas exata e de contrato (`dataDoTexto`, até 7 dias antes);
+//   · a SOMA DE UM CONTRATO dentro da janela, com o nome de quem pagou batendo com o
+//     tutor, vira UM candidato "provável" (as partes juntas, `partes`) — vai pro Quase lá.
 
 export type Ref = { origem: 'pagamento' | 'lancamento' | 'movimento'; origem_id: string }
 
@@ -39,6 +46,9 @@ export type RegistroSistema = {
   refs: Ref[]                    // o que vira conciliação
   /** Lançamento único, que pode receber o valor/data do banco ao confirmar. */
   ajustavel: string | null
+  /** Soma de pagamentos de um contrato (folga de dias): as chaves das partes, pra que
+   *  nenhuma apareça em "não veio" e nenhuma case com outra linha. */
+  partes?: string[]
 }
 
 export type ParConciliacao = {
@@ -52,6 +62,26 @@ const DIA = 86400000
 export const diasEntre = (a: string, b: string) =>
   Math.round(Math.abs(Date.parse(a.slice(0, 10)) - Date.parse(b.slice(0, 10))) / DIA)
 const igual = (a: number, b: number) => Math.abs(a - b) < 0.005
+
+/** A data que o banco escreve no texto ("PIX RECEBIDO RICARDO05/09 RICARDO …", Itaú): o dia
+ *  do Pix, quando o lançamento caiu depois (fim de semana, feriado). Só vale se for uma data
+ *  de verdade, no máximo 7 dias ANTES da data do banco. null = o texto não diz. */
+export function dataDoTexto(descricao: string | undefined, dataBanco: string): string | null {
+  if (!descricao) return null
+  for (const m of descricao.matchAll(/(\d{2})\/(\d{2})(?!\/?\d)/g)) {
+    const dia = Number(m[1]), mes = Number(m[2])
+    if (dia < 1 || dia > 31 || mes < 1 || mes > 12) continue
+    const ano = Number(dataBanco.slice(0, 4))
+    for (const a of [ano, ano - 1]) {
+      const iso = `${a}-${m[2]}-${m[1]}`
+      const t = Date.parse(iso), b = Date.parse(dataBanco.slice(0, 10))
+      if (Number.isNaN(t) || new Date(t).getUTCDate() !== dia) continue
+      const d = Math.round((b - t) / DIA)
+      if (d >= 0 && d <= 7) return iso
+    }
+  }
+  return null
+}
 
 /** O pagador do banco bate com o tutor do contrato? O código é
  *  {UNID}{AAMMDD}{IND|COL}{TTT}{PPP}{XX} — TTT são as 3 letras do tutor. */
@@ -73,12 +103,15 @@ export function conciliar(
   const tol = opts.toleranciaCambio ?? 0
   const usado = new Set<string>()
   const pares = new Map<number, ParConciliacao>()
+  // o mesmo dia: a data do banco ou a que o banco escreveu no texto
+  const doTexto = new Map(linhas.map(l => [l.n, dataDoTexto(l.descricao, l.data)]))
+  const mesmoDia = (l: LinhaBancoMin, d: string) => d === l.data || d === doTexto.get(l.n)
 
   // 1) exato — em TODAS as linhas antes de qualquer folga: uma folga não pode
   //    levar o registro que era o par exato de outra linha. Com mais de um
   //    candidato, o nome desempata; sem desempate, a linha ESPERA (1b).
   const exatosDe = (l: LinhaBancoMin) =>
-    registros.filter(x => !usado.has(x.chave) && x.data === l.data && igual(x.valor, l.valor))
+    registros.filter(x => !usado.has(x.chave) && mesmoDia(l, x.data) && igual(x.valor, l.valor))
   const adiadas: LinhaBancoMin[] = []
   for (const l of linhas) {
     const cs = exatosDe(l)
@@ -95,7 +128,7 @@ export function conciliar(
       if (pares.has(l.n)) continue
       const porContrato = new Map<string, RegistroSistema[]>()
       for (const r of registros) {
-        if (usado.has(r.chave) || !r.contrato || r.data !== l.data) continue
+        if (usado.has(r.chave) || !r.contrato || !mesmoDia(l, r.data)) continue
         porContrato.set(r.contrato, [...(porContrato.get(r.contrato) || []), r])
       }
       for (const partes of porContrato.values()) {
@@ -113,6 +146,32 @@ export function conciliar(
     if (pares.has(l.n)) continue
     const r = exatosDe(l)[0]
     if (r) { usado.add(r.chave); pares.set(l.n, { tipo: 'exato', candidatos: [r] }) }
+  }
+
+  // 2b) soma de um contrato DENTRO DA JANELA, com o nome batendo: um candidato só (as
+  //     partes juntas), sempre "provável" — a pessoa confirma no Quase lá.
+  if (opts.porContrato !== false) {
+    for (const l of linhas) {
+      if (pares.has(l.n) || !l.descricao) continue
+      const porContrato = new Map<string, RegistroSistema[]>()
+      for (const r of registros) {
+        if (usado.has(r.chave) || !r.contrato || Math.sign(r.valor) !== Math.sign(l.valor)) continue
+        if (diasEntre(r.data, l.data) > janela || !nomeBate(l.descricao, r.contrato)) continue
+        porContrato.set(r.contrato, [...(porContrato.get(r.contrato) || []), r])
+      }
+      for (const partes of porContrato.values()) {
+        if (partes.length < 2 || !igual(partes.reduce((a, r) => a + r.valor, 0), l.valor)) continue
+        partes.forEach(r => usado.add(r.chave))
+        const juntos: RegistroSistema = {
+          chave: partes.map(r => r.chave).join('+'), data: partes[0].data,
+          valor: Math.round(partes.reduce((a, r) => a + r.valor, 0) * 100) / 100,
+          rotulo: `${partes[0].rotulo} (${partes.length} pagamentos)`, contrato: partes[0].contrato,
+          refs: partes.flatMap(r => r.refs), ajustavel: null, partes: partes.map(r => r.chave),
+        }
+        pares.set(l.n, { tipo: 'provavel', candidatos: [juntos] })
+        break
+      }
+    }
   }
 
   // 3/4) folga — candidatos de mesmo sinal, dentro da janela de dias, com valor
@@ -158,6 +217,7 @@ export function conciliar(
 /** Registros que estavam no período/fatura e não casaram com linha nenhuma. */
 export function semPar(registros: RegistroSistema[], pares: Map<number, ParConciliacao>, escolhidos: string[] = []): RegistroSistema[] {
   const tomados = new Set<string>(escolhidos)
-  for (const p of pares.values()) if (p.tipo !== 'ambiguo') p.candidatos.forEach(c => tomados.add(c.chave))
+  for (const p of pares.values()) if (p.tipo !== 'ambiguo') p.candidatos.forEach(c => (c.partes || [c.chave]).forEach(k => tomados.add(k)))
+  for (const k of escolhidos) k.split('+').forEach(x => tomados.add(x))
   return registros.filter(r => !tomados.has(r.chave))
 }
