@@ -150,7 +150,12 @@ type Item = LinhaExtrato & {
   /** A linha do banco está conciliada com registros que somam MAIS que ela (16/10/2026, SJ: o
    *  Pix de −316 ligado a uma despesa sem categoria E à devolução do contrato). Guarda a soma. */
   duplicada?: number
+  /** "É OUTRA COISA" no Quase lá (16/10/2026, Lucas: "me preocupa inferências"): a pessoa diz
+   *  ali mesmo o que a linha é — o sistema não escolhe outra seção por ela. Sem escolha = pendente. */
+  outraCoisa?: OutraCoisa
 }
+
+type OutraCoisa = 'contrato' | 'receita' | 'entre' | 'rendimento' | 'despesa' | 'fora'
 
 /** Crédito na fatura: "+ R$ 1,20" (Inter) ou texto de estorno/reembolso. No
  *  OFX o sinal é confiável: positivo que não é o pagamento da fatura.
@@ -799,6 +804,8 @@ export default function ColarExtratoModal({
   const muda = (n: number, patch: Partial<Item>) => setItens(xs => xs.map(x => (x.n === n ? { ...x, ...patch } : x)))
 
   const emParecido = (i: Item) => !!i.parecido && i.parecido.escolhido !== -1
+  /** "é outra coisa": a linha continua DESENHADA no Quase lá, com a escolha dela ali */
+  const outraNoQuase = (i: Item) => !!i.parecido && i.parecido.escolhido === -1
   const parecidos = itens.filter(emParecido)
   const receitas = itens.filter(i => !emParecido(i) && !i.jaNoSistema && i.destino === 'receita')
   const despesas = itens.filter(i => !emParecido(i) && !i.jaNoSistema && i.destino === 'despesa')
@@ -842,6 +849,7 @@ export default function ColarExtratoModal({
   const pendentes = receitas.filter(i => i.marcado && !(i.opId || maquininhaLote) || (i.marcado && !i.mov)).length
     + travadas.length
     + parecidos.filter(i => i.parecido!.escolhido === -2).length
+    + itens.filter(i => outraNoQuase(i) && (!i.outraCoisa || (i.outraCoisa === 'entre' && !i.entreConta))).length
 
   async function registrar() {
     if (!currentUnit?.id || !contaId) return
@@ -1512,7 +1520,29 @@ export default function ColarExtratoModal({
   /** "QUASE LÁ" — a linha do banco e os candidatos do sistema. */
   function linhaParecida(i: Item) {
     const p = i.parecido!
-    const escolher = (k: number) => muda(i.n, { parecido: { ...p, escolhido: k } })
+    // "é outra coisa" zera o que o sistema tinha deduzido: a pessoa escolhe abaixo
+    const escolher = (k: number) => muda(i.n, k === -1
+      ? { parecido: { ...p, escolhido: k }, outraCoisa: undefined, destino: 'fora', marcado: false, rendimento: false, entreConta: '', motivoFora: null }
+      : { parecido: { ...p, escolhido: k }, outraCoisa: undefined })
+    const entrada = i.valor > 0
+    const opcoes: { v: OutraCoisa; t: string }[] = entrada
+      ? [{ v: 'contrato', t: 'pagamento de outro contrato' },
+         ...(permiteReceitas ? [{ v: 'receita' as const, t: 'recebimento de maquininha' }] : []),
+         { v: 'entre', t: 'veio de outra conta da casa' },
+         { v: 'rendimento', t: 'rendimento da conta' },
+         { v: 'fora', t: 'deixar de fora por enquanto' }]
+      : [{ v: 'despesa', t: 'despesa nova' },
+         { v: 'entre', t: 'foi para outra conta da casa' },
+         { v: 'fora', t: 'deixar de fora por enquanto' }]
+    const definir = (o: OutraCoisa) => {
+      const base = { outraCoisa: o, rendimento: false, entreConta: '', motivoFora: null as string | null }
+      if (o === 'despesa') muda(i.n, { ...base, destino: 'despesa', marcado: true })
+      else if (o === 'receita') muda(i.n, { ...base, destino: 'receita', marcado: true, mov: i.mov || (movimentoDe(i.descricao, i.valor) || '') })
+      else if (o === 'rendimento') muda(i.n, { ...base, destino: 'fora', marcado: false, rendimento: true })
+      else if (o === 'entre') muda(i.n, { ...base, destino: 'fora', marcado: false })
+      else if (o === 'contrato') muda(i.n, { ...base, destino: 'fora', marcado: false, motivoFora: 'pagamento de outro contrato — registre o pagamento no contrato certo e coloque este arquivo de novo' })
+      else muda(i.n, { ...base, destino: 'fora', marcado: false, motivoFora: 'deixada de fora por você' })
+    }
     return (
       <div key={i.n} className="py-2.5 border-b border-[var(--surface-100)] last:border-0">
         <div className={grade}>
@@ -1538,8 +1568,37 @@ export default function ColarExtratoModal({
           })}
           <label className="flex items-center gap-2 text-sm cursor-pointer">
             <input type="radio" name={`par-${i.n}`} checked={p.escolhido === -1} onChange={() => escolher(-1)} className="accent-[var(--brand-500)]" />
-            <span className="text-[var(--surface-500)]">é outra coisa — lançar como novo</span>
+            <span className="text-[var(--surface-500)]">não, é outra coisa</span>
           </label>
+          {p.escolhido === -1 && (
+            <div className="ml-6 flex flex-col gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className={`text-xs ${i.outraCoisa ? 'text-[var(--surface-500)]' : 'text-amber-500 font-medium'}`}>O que é, então?</span>
+                {opcoes.map(o => (
+                  <button key={o.v} type="button" onClick={() => definir(o.v)}
+                          className={`px-2.5 py-0.5 rounded-full border text-xs ${i.outraCoisa === o.v ? 'border-[var(--brand-500)] text-[var(--brand-500)] font-medium' : 'border-[var(--surface-300)] text-[var(--surface-600)] hover:border-[var(--brand-500)]'}`}>
+                    {o.t}
+                  </button>
+                ))}
+              </div>
+              {/* o que falta completar, ali mesmo */}
+              {(i.outraCoisa === 'despesa' || i.outraCoisa === 'receita') && <div className="-ml-6 sm:-ml-[86px]">{linhaNova(i)}</div>}
+              {i.outraCoisa === 'entre' && (
+                <span className="flex flex-wrap items-center gap-1.5 text-xs">
+                  <span className="text-[var(--surface-500)]">{entrada ? 'veio de' : 'foi para'}</span>
+                  <select value={i.entreConta} onChange={e => muda(i.n, { entreConta: e.target.value, entreHist: false })}
+                          className={`input-field text-xs py-1 ${i.entreConta ? 'text-[var(--brand-500)] font-medium' : ''}`}>
+                    <option value="">— escolha a conta —</option>
+                    {contasEntre.map(c => <option key={c.id} value={c.id}>{rotuloConta(cores, c.id, c.nome)}</option>)}
+                  </select>
+                  {!i.entreConta && <span className="text-amber-500">escolha a conta para registrar</span>}
+                </span>
+              )}
+              {i.outraCoisa === 'rendimento' && <span className="text-xs text-emerald-500">entra como <b>Rendimento</b> ao registrar</span>}
+              {i.outraCoisa === 'contrato' && <span className="text-xs text-[var(--surface-500)]">nada é registrado agora: lance o pagamento no contrato certo e coloque este arquivo de novo</span>}
+              {i.outraCoisa === 'fora' && <span className="text-xs text-[var(--surface-500)]">fica de fora: nada é registrado nem conciliado</span>}
+            </div>
+          )}
         </div>
       </div>
     )
@@ -1587,8 +1646,12 @@ export default function ColarExtratoModal({
   const jaAntes = itens.filter(i => !!i.jaNoSistema && !emParecido(i) && !!i.jaConciliada && i.duplicada === undefined)
   const duplicadas = itens.filter(i => i.duplicada !== undefined)
   // o rendimento automático vai pro "Conciliados automaticamente" (16/10/2026, Lucas): entra sozinho, como o par exato
-  const ignoradas = fora.filter(i => !i.jaNoSistema && !i.faturaPgto && !i.repassePgto && !rendProntas.includes(i))
-  const autoN = encontradas.length + rendProntas.length
+  const ignoradas = fora.filter(i => !i.jaNoSistema && !i.faturaPgto && !i.repassePgto && !rendProntas.includes(i) && !outraNoQuase(i))
+  const quaseVis = itens.filter(i => !!i.parecido)
+  const recVis = receitas.filter(i => !outraNoQuase(i))
+  const despVis = despesas.filter(i => !outraNoQuase(i))
+  const rendAuto = rendProntas.filter(i => !outraNoQuase(i))
+  const autoN = encontradas.length + rendAuto.length
   const pgtosDeFatura = fora.filter(i => !i.jaNoSistema && (i.faturaPgto || i.repassePgto))
   const frasePronto = [
     recProntas.length ? `${recProntas.length} ${recProntas.length === 1 ? 'recebimento' : 'recebimentos'}` : '',
@@ -1813,12 +1876,12 @@ export default function ColarExtratoModal({
               {cabecaSecao(<span className="text-emerald-500">© Conciliados automaticamente</span>,
                 `${[
                   encontradas.length ? `${encontradas.length} ${encontradas.length === 1 ? 'linha bateu' : 'linhas bateram'} com um registro do sistema` : '',
-                  rendProntas.length ? `${rendProntas.length} ${rendProntas.length === 1 ? 'rendimento da conta entra' : 'rendimentos da conta entram'} sozinho${rendProntas.length === 1 ? '' : 's'}` : '',
+                  rendAuto.length ? `${rendAuto.length} ${rendAuto.length === 1 ? 'rendimento da conta entra' : 'rendimentos da conta entram'} sozinho${rendAuto.length === 1 ? '' : 's'}` : '',
                 ].filter(Boolean).join(' · ')} — conciliam ao registrar (cancelar não grava nada)`, undefined,
                 <button type="button" onClick={() => setEncontradasAberto(v => !v)} className="ml-auto text-sm text-[var(--brand-500)] hover:underline">
                   {encontradasAberto ? 'esconder' : 'ver quais'}
                 </button>)}
-              {encontradasAberto && caixaLinhas([...encontradas.map(i => linhaEncontrada(i)), ...rendProntas.map(i => linhaFora(i))])}
+              {encontradasAberto && caixaLinhas([...encontradas.map(i => linhaEncontrada(i)), ...rendAuto.map(i => linhaFora(i))])}
             </section>
           )}
 
@@ -1833,11 +1896,11 @@ export default function ColarExtratoModal({
             </section>
           )}
 
-          {parecidos.length > 0 && (
+          {quaseVis.length > 0 && (
             <section className="flex flex-col gap-2.5">
               {cabecaSecao(<span className="text-amber-500">Quase lá</span>,
                 `parece um lançamento seu com data${ehCartao ? ' ou câmbio' : ''} um pouco diferente — confirme`)}
-              {caixaLinhas(parecidos.map(i => linhaParecida(i)))}
+              {caixaLinhas(quaseVis.map(i => linhaParecida(i)))}
             </section>
           )}
 
@@ -1849,9 +1912,9 @@ export default function ColarExtratoModal({
             </section>
           )}
 
-          {receitas.length > 0 && (
+          {recVis.length > 0 && (
             <section className="flex flex-col gap-2.5">
-              {cabecaSecao('Recebimentos de cartão', `${receitas.length} ${receitas.length === 1 ? 'linha nova' : 'linhas novas'} · a maquininha depositou`, somaRec,
+              {cabecaSecao('Recebimentos de cartão', `${recVis.length} ${recVis.length === 1 ? 'linha nova' : 'linhas novas'} · a maquininha depositou`, somaRec,
                 maquininhas.length > 1 ? (
                   <span className="flex items-center gap-2 text-sm text-[var(--surface-500)]">
                     todas da
@@ -1864,13 +1927,13 @@ export default function ColarExtratoModal({
                 ) : maquininhas.length === 0 ? (
                   <span className="text-sm text-amber-500">nenhuma maquininha cadastrada — aba Contas</span>
                 ) : undefined)}
-              {caixaLinhas(receitas.map(i => linhaNova(i)))}
+              {caixaLinhas(recVis.map(i => linhaNova(i)))}
             </section>
           )}
 
-          {despesas.length > 0 && (
+          {despVis.length > 0 && (
             <section className="flex flex-col gap-2.5">
-              {cabecaSecao('Despesas', `${despesas.length} ${despesas.length === 1 ? 'linha nova' : 'linhas novas'}`, somaDesp)}
+              {cabecaSecao('Despesas', `${despVis.length} ${despVis.length === 1 ? 'linha nova' : 'linhas novas'}`, somaDesp)}
               {/* caixa conjunto: marcar todas de uma vez, depois ajustar as exceções na linha */}
               {conj.conjunto && (
                 <div className="flex flex-wrap items-center gap-2 text-[12px] text-[var(--surface-600)]">
@@ -1882,7 +1945,7 @@ export default function ColarExtratoModal({
                   {despesas.some(i => i.marcado && !i.dono) && <span className="text-amber-500">{despesas.filter(i => i.marcado && !i.dono).length} sem dona</span>}
                 </div>
               )}
-              {caixaLinhas(despesas.map(i => linhaNova(i)))}
+              {caixaLinhas(despVis.map(i => linhaNova(i)))}
             </section>
           )}
 
