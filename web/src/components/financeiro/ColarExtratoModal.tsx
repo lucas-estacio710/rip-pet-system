@@ -1226,6 +1226,8 @@ export default function ColarExtratoModal({
     }
     const folha = (id: string) => caminhoDe(id).split(' › ').pop() || ''
     if (i.reclassificar) return { tipo: 'feito', texto: `Já no sistema · ${i.catId ? folha(i.catId) : 'sem categoria'}`, fixo: true }
+    // saída e estorno do mesmo dia se anulam: já resolvida, nada a decidir (achado da Ouro)
+    if (!i.outraCoisa && (i.motivoFora || '').startsWith('estornado')) return { tipo: 'fora', texto: 'Estornada no mesmo dia', fixo: true }
     switch (escolhaDe(i)) {
       case 'despesa': {
         const base = `${i.estorno ? 'Estorno' : 'Despesa'} · ${i.catId ? folha(i.catId) : 'sem categoria'}`
@@ -1341,7 +1343,7 @@ export default function ColarExtratoModal({
     const p = i.parecido
     const quase = i.casa === 'quase' && !!p
     const escolha = escolhaDe(i)
-    const mostraMenu = !i.reclassificar && (!quase || p!.escolhido === -1)
+    const mostraMenu = !i.reclassificar && !estadoDe(i).fixo && (!quase || p!.escolhido === -1)
     const escolherPar = (k: number) => muda(i.n, k === -1
       ? { parecido: { ...p!, escolhido: -1 }, outraCoisa: undefined, destino: 'fora', marcado: false, rendimento: false, entreConta: '', motivoFora: null }
       : { parecido: { ...p!, escolhido: k }, outraCoisa: undefined })
@@ -1807,6 +1809,8 @@ export default function ColarExtratoModal({
   const quaseVis = daCasa('quase'), foraVis = daCasa('fora'), despVis = daCasa('despesa'), recVis = daCasa('receita')
   const rendAuto = daCasa('auto')
   const autoN = encontradas.length + rendAuto.length
+  /** rendimento desfeito pelo ✕ fica pendente: a seção não pode esconder (achado da Ouro) */
+  const autoPend = rendAuto.filter(i => estadoDe(i).tipo === 'pendente').length
   /** "mostrar só o que falta decidir" — a linha aberta continua à vista */
   const visiveis = (xs: Item[]) => (soPendentes ? xs.filter(i => linhaAberta === i.n || estadoDe(i).tipo === 'pendente') : xs)
   const decididas = (xs: Item[]) => xs.filter(i => estadoDe(i).tipo !== 'pendente').length
@@ -2156,9 +2160,9 @@ export default function ColarExtratoModal({
                   encontradas.length ? `${encontradas.length} ${encontradas.length === 1 ? 'linha bateu' : 'linhas bateram'} com o sistema` : '',
                   rendAuto.length ? `${rendAuto.length} ${rendAuto.length === 1 ? 'rendimento da conta' : 'rendimentos da conta'}` : '',
                 ].filter(Boolean).join(' · ') + ' — ficam conferidos ao registrar',
-                undefined, abreFecha(encontradasAberto, () => setEncontradasAberto(v => !v)))}
-              {encontradasAberto && encontradas.length > 0 && caixaLinhas(encontradas.map(i => linhaEncontrada(i)))}
-              {encontradasAberto && rendAuto.length > 0 && caixaDecisao(rendAuto.map(i => linha(i)))}
+                undefined, autoPend > 0 ? <span className="ml-auto text-xs text-amber-500">{autoPend} sem decisão</span> : abreFecha(encontradasAberto, () => setEncontradasAberto(v => !v)))}
+              {(encontradasAberto || autoPend > 0) && encontradas.length > 0 && caixaLinhas(encontradas.map(i => linhaEncontrada(i)))}
+              {(encontradasAberto || autoPend > 0) && rendAuto.length > 0 && caixaDecisao(rendAuto.map(i => linha(i)))}
             </section>
           )}
 
