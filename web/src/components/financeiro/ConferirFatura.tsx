@@ -197,6 +197,8 @@ export default function ConferirFatura({ podeLancar, onImportarConta, onEditar }
   async function registrarPagamento() {
     if (!currentUnit?.id) return
     if (!pg.conta || !pg.data || !emNumero(pg.valor)) return toast('Informe a conta, a data e o valor', 'error')
+    // a mesma trava da quitação antiga (19f0504): fatura em aberto (compra sem categoria, PDF faltando) não se paga
+    if (estadoDaFatura(r, hoje) === 'em_aberto') return toast('A fatura ainda está em aberto: resolva o que falta antes de registrar o pagamento.', 'error')
     setGravando(true)
     const { error } = await supabase.from('fin_movimentos').insert({
       unidade_id: currentUnit.id, tipo: 'fatura_cartao', conta_id: pg.conta, conta_destino_id: cartaoId,
@@ -332,7 +334,7 @@ export default function ConferirFatura({ podeLancar, onImportarConta, onEditar }
           <button onClick={() => void salvarTotal()} className="underline hover:text-[var(--surface-700)]">guardar</button>
         </div>
       )}
-      {podeLancar && semExtrato.length > 0 && faltaPagar(r) >= 0.005 && (
+      {podeLancar && semExtrato.length > 0 && faltaPagar(r) >= 0.005 && estado !== 'em_aberto' && (
         pagarAberto ? (
           <div className="flex flex-wrap items-end gap-2 text-[12px] text-[var(--surface-500)] border-t border-[var(--surface-100)] pt-2">
             <select value={pg.conta} onChange={e => setPg(x => ({ ...x, conta: e.target.value }))} className="input text-[12px] py-0.5" aria-label="Conta sem extrato">
