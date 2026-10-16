@@ -375,13 +375,19 @@ export function CalendarioHoje({ itens, ano, mes0, podeLancar, onPaguei, onGeren
     const s = `${ref}-${String(d).padStart(2, '0')}`
     const doDia = porDia.get(s) || []
     const ehHoje = s === hoje
+    // QUADRADO COM NOME (16/10/2026, Lucas): contorno em cada dia, o número pequeno no canto e,
+    // por conta, a bolinha do status + o nome truncado; passou de 4, "+N contas" (o clique abre o dia).
     cel.push(
       <button key={s} onClick={() => setDiaAberto(s)}
-              className={`aspect-square sm:aspect-auto sm:h-11 rounded-[9px] flex flex-col items-center justify-center gap-1 text-[13px] tabular-nums transition-colors ${ehHoje ? 'bg-blue-500/20 ring-2 ring-blue-500 text-blue-400 font-bold' : 'text-[var(--surface-700)] hover:bg-[var(--surface-100)]'} ${diaUtil(s) ? '' : 'opacity-60'}`}>
-        <span>{d}</span>
-        <span className="flex gap-0.5 h-1.5">
-          {doDia.slice(0, 4).map(x => <span key={x.conta.id} className={`h-1.5 w-1.5 rounded-full ${BOLA[corDaConta(x, hoje)]}`} />)}
-        </span>
+              className={`min-h-16 min-w-0 rounded-[8px] border p-1 flex flex-col items-stretch gap-[1px] text-left transition-colors ${ehHoje ? 'border-blue-500 bg-blue-500/10 ring-1 ring-blue-500' : 'border-[var(--surface-200)] hover:bg-[var(--surface-100)]'} ${diaUtil(s) ? '' : 'opacity-60'}`}>
+        <span className={`text-[9.5px] leading-none tabular-nums ${ehHoje ? 'text-blue-400 font-bold' : 'text-[var(--surface-500)]'}`}>{d}</span>
+        {doDia.slice(0, 4).map(x => (
+          <span key={x.conta.id} className="flex items-center gap-1 min-w-0" title={x.conta.nome}>
+            <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${BOLA[corDaConta(x, hoje)]}`} />
+            <span className="truncate text-[9.5px] leading-tight text-[var(--surface-700)]">{x.conta.nome}</span>
+          </span>
+        ))}
+        {doDia.length > 4 && <span className="text-[9.5px] leading-tight text-[var(--brand-500)] truncate">+{doDia.length - 4} {doDia.length - 4 === 1 ? 'conta' : 'contas'}</span>}
       </button>,
     )
   }
