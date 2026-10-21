@@ -19,13 +19,12 @@
 // Repasse (repasse=true): paga se houve pagamento de repasse (fin_movimentos com
 // repasse_id) no mês; o valor é o que falta do(s) repasse(s) em aberto.
 
-import { conferidoNoBanco, buscarNaoConciliaveis, CONFERIDO_A_MAO } from '@/lib/conferido'
+import { conferidoNoBanco, buscarNaoConciliaveis } from '@/lib/conferido'
 import { useFinanceiroVersao } from '@/lib/financeiro-eventos'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import Modal from '@/components/ui/Modal'
-import { useUnit } from '@/contexts/UnitContext'
 import { vencimentoNoMes, porQueNaoUtil, nomeFeriado, descreverRegra, diaUtil, type Vencimento } from '@/lib/vencimentos'
 import type { ContaFixa } from './ContaFixaModal'
 
@@ -338,23 +337,9 @@ export function CalendarioHoje({ itens, ano, mes0, podeLancar, onPaguei, onGeren
       .sort((a, b) => Number(b.mesmaCat) - Number(a.mesmaCat) || (ref ? Math.abs(a.valor - ref) - Math.abs(b.valor - ref) : a.data.localeCompare(b.data)))
     setCands(lista.slice(0, 8))
   }
-  // CONFERI NO EXTRATO (amarelo, 14/10/2026): o pré-lançamento está no banco — grava a
-  // conciliação à mão (como='escolhido'), igual à que o Lançar OFX grava.
-  const { userName } = useUnit()
-  const [conferindo, setConferindo] = useState<string | null>(null)
-  const conferir = async (x: ContaNoMes) => {
-    if (!sb || !x.pago?.itens) return
-    const falta = x.pago.itens.filter(i => !i.conciliado && i.conta)
-    if (!falta.length) return
-    setConferindo(x.conta.id)
-    const { error } = await sb.from('fin_conciliacoes').upsert(falta.map(i => ({
-      conta_id: i.conta, origem: i.origem, origem_id: i.id, data_banco: i.data, valor_banco: -Math.abs(i.valor),
-      texto_banco: CONFERIDO_A_MAO, como: 'escolhido', criado_por_nome: userName || null,
-    })), { onConflict: 'conta_id,origem,origem_id' })
-    setConferindo(null)
-    if (error) return
-    setDiaAberto(null); onMudou?.()
-  }
+  // SEM "CONFERI NO EXTRATO" (21/10/2026, Lucas): conta com extrato só se confere pelo
+  // extrato (mig 169). O botão gravava uma conciliação sem a linha do banco e, no OFX seguinte,
+  // a linha de verdade virava despesa nova — o salário de ST entrou duas vezes.
   const associar = async (contaId: string, lancId: string) => {
     if (!sb) return
     const { error } = await sb.from('fin_lancamentos').update({ conta_fixa_id: contaId }).eq('id', lancId)
@@ -426,14 +411,8 @@ export function CalendarioHoje({ itens, ano, mes0, podeLancar, onPaguei, onGeren
                     </button>
                   )}
                 </div>
-                {podeLancar && c === 'amarelo' && sb && !x.conta.id.startsWith('receber-') && x.pago?.itens?.some(i => !i.conciliado && i.conta) && (
-                  <div className="mb-2 ml-5 flex flex-wrap items-center gap-2">
-                    <span className="text-[11px] text-[var(--surface-500)]">{x.pago.itens.filter(i => !i.conciliado).map(i => `${i.data.slice(8, 10)}/${i.data.slice(5, 7)} · −${num(i.valor)}`).join(' + ')}</span>
-                    <button onClick={() => void conferir(x)} disabled={conferindo === x.conta.id}
-                            className="text-[12px] font-semibold px-2 py-0.5 rounded-[8px] border border-emerald-500/60 text-emerald-500 hover:bg-emerald-500 hover:text-white disabled:opacity-50">
-                      {conferindo === x.conta.id ? 'gravando…' : '✓ Conferi no extrato'}
-                    </button>
-                  </div>
+                {c === 'amarelo' && !x.conta.id.startsWith('receber-') && x.pago?.itens?.some(i => !i.conciliado && i.conta) && (
+                  <p className="mb-2 ml-5 text-[11px] text-[var(--surface-500)]">Fica verde quando o extrato do banco for importado.</p>
                 )}
                 {podeLancar && c === 'vermelho' && !x.conta.repasse && sb && (
                   assocDe === x.conta.id ? (
