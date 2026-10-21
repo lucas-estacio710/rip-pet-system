@@ -46,6 +46,7 @@ import { casarPagamentoRepasse, faltaRepasse, rotuloRef, type CasamentoRepasse, 
 import { carregarRepassesDaUnidade } from '@/lib/repasse-carregar'
 import { useCaixaConjunto } from '@/hooks/useCaixaConjunto'
 import { reconhecerCobranca } from '@/lib/reconhecer-cobranca'
+import { CONFERIDO_A_MAO, ehConferidoAMao } from '@/lib/conferido'
 
 type ContaRow = { id: string; nome: string; produto: string | null; tipo: string | null; preferencial_recebimento: boolean | null; instituicao?: string | null; conciliavel?: boolean | null }
 type Cat = {
@@ -486,7 +487,11 @@ export default function ColarExtratoModal({
         let r = await sel(comFitid, off)
         if (r.error && comFitid && /fitid/i.test(r.error.message)) { comFitid = false; r = await sel(false, off) }   // sem a mig 158
         const arr = (r.data as unknown as CC[] | null) || []
-        concGrav.push(...arr)
+        // O "CONFERIDO À MÃO NO CALENDÁRIO" (ContasDoMes) não é linha do banco: não segura o
+        // registro. Se segurasse, a linha de verdade do extrato ficava sem par e virava despesa
+        // nova — o salário do Ezequiel entrou duas vezes em ST (20/10/2026). Fica livre para
+        // casar, e o registrar troca a marca pelo texto e o ID do banco.
+        concGrav.push(...arr.filter(c => !(!c.fitid && ehConferidoAMao(c.texto_banco))))
         if (arr.length < 1000) break
       }
     }
@@ -1127,6 +1132,23 @@ export default function ColarExtratoModal({
             .upsert(concs.map(c => { const sem = { ...c }; delete sem.fitid; return sem }), { onConflict: 'conta_id,origem,origem_id', ignoreDuplicates: true }))
         }
         if (error) toast(`Registrado, mas a conciliação não foi gravada: ${error.message}`, 'error')
+        // O que estava "conferido à mão no calendário" ganha agora a linha do banco de verdade
+        // (o upsert acima ignora a linha que já existe).
+        else {
+          const ids = [...new Set(concs.map(c => c.origem_id))]
+          for (let k = 0; k < ids.length; k += 150) {
+            const { data: mao } = await supabase.from('fin_conciliacoes').select('origem, origem_id')
+              .eq('conta_id', contaId).is('fitid', null).like('texto_banco', `${CONFERIDO_A_MAO}%`).in('origem_id', ids.slice(k, k + 150))
+            for (const m of (mao as { origem: string; origem_id: string }[] | null) || []) {
+              const c = concs.find(x => x.origem === m.origem && x.origem_id === m.origem_id)
+              if (!c) continue
+              await supabase.from('fin_conciliacoes').update({
+                data_banco: c.data_banco, valor_banco: c.valor_banco, texto_banco: c.texto_banco, como: c.como,
+                ...(c.fitid ? { fitid: c.fitid } : {}),
+              }).eq('conta_id', contaId).eq('origem', m.origem).eq('origem_id', m.origem_id)
+            }
+          }
+        }
       }
       // A LINHA DO BANCO SEM PAR (mig 171, regra do Lucas: "tudo tem que bater com o saldo do
       // banco"): o que não virou registro nem conciliação fica guardado no A conferir — menos

@@ -11,6 +11,12 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+/** A marca que o calendário (ContasDoMes) grava em fin_conciliacoes.texto_banco quando a pessoa
+ *  confere à mão. NÃO é linha do banco: o Importar extrato deixa o registro livre para casar com
+ *  a linha de verdade e troca a marca pelo texto e o ID do banco (20/10/2026). */
+export const CONFERIDO_A_MAO = 'conferido à mão no calendário'
+export const ehConferidoAMao = (texto: string | null | undefined) => !!texto && texto.startsWith('conferido à mão')
+
 export type CtxConferido = {
   /** conta → data da 1ª linha conciliada */
   inicio: Map<string, string>

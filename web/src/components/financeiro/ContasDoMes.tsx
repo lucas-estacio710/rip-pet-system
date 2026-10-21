@@ -19,7 +19,7 @@
 // Repasse (repasse=true): paga se houve pagamento de repasse (fin_movimentos com
 // repasse_id) no mês; o valor é o que falta do(s) repasse(s) em aberto.
 
-import { conferidoNoBanco, buscarNaoConciliaveis } from '@/lib/conferido'
+import { conferidoNoBanco, buscarNaoConciliaveis, CONFERIDO_A_MAO } from '@/lib/conferido'
 import { useFinanceiroVersao } from '@/lib/financeiro-eventos'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -349,7 +349,7 @@ export function CalendarioHoje({ itens, ano, mes0, podeLancar, onPaguei, onGeren
     setConferindo(x.conta.id)
     const { error } = await sb.from('fin_conciliacoes').upsert(falta.map(i => ({
       conta_id: i.conta, origem: i.origem, origem_id: i.id, data_banco: i.data, valor_banco: -Math.abs(i.valor),
-      texto_banco: 'conferido à mão no calendário', como: 'escolhido', criado_por_nome: userName || null,
+      texto_banco: CONFERIDO_A_MAO, como: 'escolhido', criado_por_nome: userName || null,
     })), { onConflict: 'conta_id,origem,origem_id' })
     setConferindo(null)
     if (error) return
