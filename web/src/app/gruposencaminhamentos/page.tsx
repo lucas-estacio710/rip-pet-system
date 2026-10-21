@@ -65,7 +65,7 @@
  *     são os 7 grupos na mesma lista, então a sigla é justamente o que distingue as conversas.
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useSyncExternalStore } from 'react'
 import Link from 'next/link'
 import {
   ChevronLeft, ChevronRight, ArrowLeft, Users, MessageCircle, X,
@@ -1111,33 +1111,109 @@ function LightboxFicha({ ficha, escala, onFechar }: {
       {erro && <p className="mt-2 text-xs text-red-300">{erro}</p>}
      </div>
 
-      {/* Nó de captura: em escala 1:1 (a miniatura visível está sob `transform: scale`),
-          renderizado de verdade porque largura e altura do arquivo saem do layout dele.
-          🔴 **`visibility: hidden`**, e não "escondido atrás do overlay": este nó é FILHO do
-          overlay, então o `zIndex` dele vale dentro do overlay e ele era pintado POR CIMA —
-          a 2ª ficha no canto superior esquerdo do celular (10/10/2026). O
-          `lib/ficha-download.ts` serializa só ESTE nó, então o ancestral oculto não vai junto
-          e o arquivo sai visível. */}
+      <CapturaFicha ficha={ficha.ficha} capturaRef={capturaRef} />
+    </div>
+  )
+}
+
+// ============================================
+// Nó de captura (o que vira PNG/PDF) — usado pelo lightbox e pelo ⤴ da conversa
+// ============================================
+function CapturaFicha({ ficha, capturaRef }: { ficha: FichaContratoData; capturaRef: React.RefObject<HTMLDivElement | null> }) {
+  // Em escala 1:1 (a miniatura visível está sob `transform: scale`), renderizado de verdade
+  // porque largura e altura do arquivo saem do layout dele.
+  // 🔴 **`visibility: hidden`**, e não "escondido atrás do overlay": no lightbox este nó é FILHO
+  // do overlay, então o `zIndex` dele vale dentro do overlay e ele era pintado POR CIMA — a 2ª
+  // ficha no canto superior esquerdo do celular (10/10/2026). O `lib/ficha-download.ts`
+  // serializa só ESTE nó, então o ancestral oculto não vai junto e o arquivo sai visível.
+  return (
+    <div
+      aria-hidden="true"
+      style={{ position: 'fixed', top: 0, left: 0, visibility: 'hidden', pointerEvents: 'none' }}
+    >
+      {/* `padding` branco = margem do arquivo baixado. `textSizeAdjust: 100%` desliga o
+          "aumento automático de texto" do Chrome Android, que age em bloco mais largo que a
+          tela (este tem 444px) e mudaria a altura medida pro tamanho da imagem.
+          🔴 `width: DOC_W + 24` com `boxSizing` EXPLÍCITO (10/10/2026): era `width: DOC_W` +
+          padding 12, e o preflight do Tailwind (border-box) deixava o nó com 420px — a imagem
+          nascia com 420 e a folha de 420 começava em 12, então os 12px da direita (borda e fim
+          do código de autenticação) ficavam fora. Corte reproduzido em Chromium de desktop
+          também. O `boxSizing` inline garante a mesma medida na página e dentro do SVG, onde
+          o preflight não chega. */}
       <div
-        aria-hidden="true"
-        style={{ position: 'fixed', top: 0, left: 0, visibility: 'hidden', pointerEvents: 'none' }}
+        ref={capturaRef}
+        style={{ width: DOC_W + 24, boxSizing: 'border-box', padding: 12, background: '#fff', WebkitTextSizeAdjust: '100%', textSizeAdjust: '100%' }}
       >
-        {/* `padding` branco = margem do arquivo baixado. `textSizeAdjust: 100%` desliga o
-            "aumento automático de texto" do Chrome Android, que age em bloco mais largo que a
-            tela (este tem 444px) e mudaria a altura medida pro tamanho da imagem.
-            🔴 `width: DOC_W + 24` com `boxSizing` EXPLÍCITO (10/10/2026): era `width: DOC_W` +
-            padding 12, e o preflight do Tailwind (border-box) deixava o nó com 420px — a imagem
-            nascia com 420 e a folha de 420 começava em 12, então os 12px da direita (borda e fim
-            do código de autenticação) ficavam fora. Corte reproduzido em Chromium de desktop
-            também. O `boxSizing` inline garante a mesma medida na página e dentro do SVG, onde
-            o preflight não chega. */}
-        <div
-          ref={capturaRef}
-          style={{ width: DOC_W + 24, boxSizing: 'border-box', padding: 12, background: '#fff', WebkitTextSizeAdjust: '100%', textSizeAdjust: '100%' }}
-        >
-          <FichaRemocaoDoc contrato={ficha.ficha} />
-        </div>
+        <FichaRemocaoDoc contrato={ficha} />
       </div>
+    </div>
+  )
+}
+
+// ============================================
+// ⤴ Compartilhar direto da conversa (21/10/2026, pedido do Lucas)
+// ============================================
+/**
+ * O mesmo Compartilhar do lightbox, sem precisar abrir a ficha: fica ao lado do balão, onde o
+ * WhatsApp põe a setinha de encaminhar. Estado LOCAL (mesmo motivo do `BotaoContatoRealizado`).
+ * O nó de captura só existe enquanto prepara — 40 fichas de uma viagem não viram 40 cópias
+ * 1:1 escondidas na página. Depois de pronta, a imagem fica guardada: se a geração passar da
+ * janela do toque (`'sem-toque'`), o 2º toque compartilha na hora.
+ */
+function BotaoCompartilharFicha({ ficha }: { ficha: FichaMsg }) {
+  const capturaRef = useRef<HTMLDivElement>(null)
+  const [montado, setMontado] = useState(false)
+  const [preparando, setPreparando] = useState(false)
+  const [pronto, setPronto] = useState<File | null>(null)
+  const [aviso, setAviso] = useState<string | null>(null)
+
+  async function compartilhar() {
+    if (preparando) return
+    setAviso(null)
+    try {
+      let arquivo = pronto
+      if (!arquivo) {
+        setPreparando(true)
+        setMontado(true)
+        preCarregarDownload()
+        // 2 quadros: o nó montar e o spinner ser PINTADO antes do trabalho pesado.
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
+        const el = capturaRef.current
+        if (!el) throw new Error('nó de captura não montou')
+        arquivo = await arquivoPngDaFicha(el, nomeDeArquivo('ficha', ficha.petNome, ficha.lacre))
+        setPronto(arquivo)
+        setPreparando(false)
+        setMontado(false)
+      }
+      const r = await compartilharArquivo(arquivo, legendaDaFicha(ficha))
+      if (r === 'sem-toque') setAviso('Pronta, toque de novo')
+    } catch (e) {
+      console.error('Erro ao compartilhar a ficha:', e)
+      setAviso('Falhou, abra a ficha')
+    } finally {
+      setPreparando(false)
+      setMontado(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-1 shrink-0">
+      <button
+        onClick={compartilhar}
+        disabled={preparando}
+        title="Compartilhar a imagem da ficha (WhatsApp, grupo…)"
+        aria-label={`Compartilhar a ficha de ${ficha.petNome}`}
+        className="flex items-center justify-center h-10 w-10 rounded-full shadow-sm hover:brightness-95 disabled:opacity-60 transition"
+        style={{ background: 'var(--zap-balao)', border: '1px solid var(--zap-balao-borda)', color: 'var(--zap-acao)' }}
+      >
+        {preparando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Share2 className="h-4 w-4" />}
+      </button>
+      {aviso && (
+        <span className="max-w-[72px] text-center text-[10px] leading-tight" style={{ color: 'var(--zap-balao-meta)' }} role="status">
+          {aviso}
+        </span>
+      )}
+      {montado && <CapturaFicha ficha={ficha.ficha} capturaRef={capturaRef} />}
     </div>
   )
 }
@@ -1455,6 +1531,8 @@ function ListaDeGrupos({ dia, grupos, unidadeAtualCodigo, onAbrir }: {
 // ============================================
 // A conversa do grupo
 // ============================================
+const semAssinatura = () => () => {}
+
 function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, podeMarcarContato, onMarcarContato, onSalvarObs, onVoltar, onAmpliar }: {
   grupo: EncGrupo
   fichas: FichaMsg[]
@@ -1469,6 +1547,9 @@ function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, podeM
 }) {
   const cor = UNIT_COLORS[grupo.codigo_unidade] || '#6366f1'
   const st = STATUS_ENC[grupo.status] || { rotulo: grupo.status, classe: 'bg-[var(--surface-100)] text-[var(--surface-500)] border-[var(--surface-200)]' }
+  // O ⤴ ao lado de cada ficha só existe onde o aparelho abre o menu Compartilhar com PNG
+  // (celular sim; no computador depende do sistema). No servidor, `false`.
+  const podeCompartilhar = useSyncExternalStore(semAssinatura, podeCompartilharPng, () => false)
 
   return (
     // Coluna estreita de propósito: a conversa é uma janela de chat, não uma tabela. Num
@@ -1551,7 +1632,7 @@ function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, podeM
             return (
               <div key={f.contratoId} className="space-y-1.5">
                 {/* ===== Mensagem 1: a foto da ficha ===== */}
-                <div className="flex">
+                <div className="flex items-center gap-2">
                   <div
                     className="max-w-[85%] rounded-lg rounded-tl-none p-1.5 shadow-sm"
                     style={{ background: 'var(--zap-balao)', border: '1px solid var(--zap-balao-borda)' }}
@@ -1631,6 +1712,7 @@ function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, podeM
                       )}
                     </div>
                   </div>
+                  {podeCompartilhar && <BotaoCompartilharFicha ficha={f} />}
                 </div>
 
                 {/* ===== Mensagem 2: o contato do tutor anexado ===== */}
