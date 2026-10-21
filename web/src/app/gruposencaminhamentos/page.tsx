@@ -981,6 +981,7 @@ export default function GruposEncaminhamentosPage() {
         <LightboxFicha
           key={fichaAmpliada.contratoId} // outra ficha = componente novo (não reaproveita a imagem pronta do Compartilhar)
           ficha={fichaAmpliada}
+          obs={obsPorContrato[fichaAmpliada.contratoId] || []}
           escala={escalaZoom}
           onFechar={() => setFichaAmpliada(null)}
         />
@@ -1064,12 +1065,14 @@ function FichaEscalada({ ficha, escala }: { ficha: FichaContratoData; escala: nu
  * formatado). Uma linha por item do array; dentro da linha os pedaços são separados por " · ",
  * o pedaço cuja variável vier vazia some (sem lacre → "RINGO · COL") e a linha que ficar vazia
  * também (sem telefone → só 2 linhas). Linhas 2 e 3 pedidas pelo Lucas em 21/10/2026.
+ * Entre as linhas vai uma linha em branco e, no fim, se houver, cada 🚨 observação da ficha
+ * (as mesmas mensagens de sirene da conversa) — pedido do Lucas, 22/10/2026.
  * ⚠️ Só chega como legenda no Android; no iPhone a imagem vai sem texto (ver
  * `compartilharArquivo` em lib/ficha-download.ts).
  */
 const LEGENDA_COMPARTILHAR = ['Lacre {lacre} · {pet} · {tipo}', '{agenda}', '{telefone}']
 
-function legendaDaFicha(f: FichaMsg): string {
+function legendaDaFicha(f: FichaMsg, obs: ObsMsg[] = []): string {
   const vars: Record<string, string> = {
     lacre: f.lacre || '',
     pet: f.petNome || '',
@@ -1082,12 +1085,14 @@ function legendaDaFicha(f: FichaMsg): string {
       .filter(pedaco => [...pedaco.matchAll(/\{(\w+)\}/g)].every(m => vars[m[1]]))
       .map(pedaco => pedaco.replace(/\{(\w+)\}/g, (_, k: string) => vars[k]))
       .join(' · '))
+    .concat(obs.map(o => `🚨 ${o.texto.trim()}`))
     .filter(Boolean)
-    .join('\n')
+    .join('\n\n')
 }
 
-function LightboxFicha({ ficha, escala, onFechar }: {
+function LightboxFicha({ ficha, obs, escala, onFechar }: {
   ficha: FichaMsg
+  obs: ObsMsg[]
   escala: number
   onFechar: () => void
 }) {
@@ -1123,7 +1128,7 @@ function LightboxFicha({ ficha, escala, onFechar }: {
         setPronto(arquivo)
         setBaixando(null)
       }
-      const r = await compartilharArquivo(arquivo, legendaDaFicha(ficha))
+      const r = await compartilharArquivo(arquivo, legendaDaFicha(ficha, obs))
       if (r === 'sem-toque') setAviso('Imagem pronta. Toque em Compartilhar de novo.')
     } catch (e) {
       console.error('Erro ao compartilhar a ficha:', e)
@@ -1272,7 +1277,7 @@ function CapturaFicha({ ficha, capturaRef }: { ficha: FichaContratoData; captura
  * 1:1 escondidas na página. Depois de pronta, a imagem fica guardada: se a geração passar da
  * janela do toque (`'sem-toque'`), o 2º toque compartilha na hora.
  */
-function BotaoCompartilharFicha({ ficha }: { ficha: FichaMsg }) {
+function BotaoCompartilharFicha({ ficha, obs }: { ficha: FichaMsg; obs: ObsMsg[] }) {
   const capturaRef = useRef<HTMLDivElement>(null)
   const [montado, setMontado] = useState(false)
   const [preparando, setPreparando] = useState(false)
@@ -1297,7 +1302,7 @@ function BotaoCompartilharFicha({ ficha }: { ficha: FichaMsg }) {
         setPreparando(false)
         setMontado(false)
       }
-      const r = await compartilharArquivo(arquivo, legendaDaFicha(ficha))
+      const r = await compartilharArquivo(arquivo, legendaDaFicha(ficha, obs))
       if (r === 'sem-toque') setAviso('Pronta, toque de novo')
     } catch (e) {
       console.error('Erro ao compartilhar a ficha:', e)
@@ -1891,7 +1896,7 @@ function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, podeM
                       )}
                     </div>
                   </div>
-                  {podeCompartilhar && <BotaoCompartilharFicha ficha={f} />}
+                  {podeCompartilhar && <BotaoCompartilharFicha ficha={f} obs={obsPorContrato[f.contratoId] || []} />}
                   {podeMarcarContato && (
                     <PainelGC f={f} grupo={grupo} onMarcarContato={onMarcarContato} onReceber={onReceber} onAbrirGC={onAbrirGC} />
                   )}
