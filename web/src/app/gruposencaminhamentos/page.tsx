@@ -69,16 +69,18 @@ import { useState, useEffect, useRef, useCallback, useSyncExternalStore } from '
 import Link from 'next/link'
 import {
   ChevronLeft, ChevronRight, ArrowLeft, Users, MessageCircle, X,
-  Phone, FileText, CheckCheck, Info, Download, Loader2, Copy, Check, UserPlus, Share2,
+  Phone, FileText, CheckCheck, Info, Download, Loader2, Copy, Check, UserPlus, Share2, MoreHorizontal,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
 import { dataLocal } from '@/lib/date-local'
 import { nomeParaAgenda, nomeDoContatoAtivo } from '@/lib/nome-agenda'
-import { linkChatDireto } from '@/lib/whatsapp-msg'
+import { linkChatDireto, linkAgendamentoDespedida } from '@/lib/whatsapp-msg'
 import { fmtTelefone, type FichaContratoData } from '@/components/fichas/FichaRemocao'
 import FichaRemocaoDoc, { DOC_W, DOC_MIN_H } from '@/components/fichas/FichaRemocaoDoc'
+import EsteiraGC from '@/components/contratos/pipeline/EsteiraGC'
+import GCAcaoModal from '@/components/contratos/gc/GCAcaoModal'
 import {
   baixarFichaPng, baixarFichaPdf, nomeDeArquivo, preCarregarDownload,
   podeCompartilharPng, arquivoPngDaFicha, compartilharArquivo,
@@ -119,6 +121,8 @@ type EncGrupo = {
   peso_total: number
   status: string
   observacoes: string | null
+  /** Unidade com `cb_cremacao_local` (PI): o pet já está no crematório, recebe sem viagem finalizada. */
+  cremacaoLocal: boolean
 }
 
 /** Uma ficha na conversa: o que o FichaRemocao precisa + o que o card de contato precisa. */
@@ -144,6 +148,36 @@ type FichaMsg = {
    */
   contatoStatus: string | null
   contatoEm: string | null
+  /** A linha de `contrato_gc` inteira (painel do GC da Matriz) — `null` antes do pet ir pra Pinda. */
+  gc: GCLinha | null
+  /** `contratos.data_leva_pinda` — o dia em que o relógio do GC começou (A Chamar / Provis.). */
+  dataIda: string | null
+  certificadoConfirmado: boolean
+  codigo: string
+}
+
+/** Colunas de `contrato_gc` que o `GCAcaoModal` lê e escreve. */
+const CAMPOS_GC = `contrato_id, etapa, contato_status, contato_tutor_em, contato_tutor_obs,
+    acompanhamento_confirmado, lacre_conferido, recebido_por, data_recebimento, data_agendamento,
+    data_cremacao, cremacao_por, cinzas_prontas, certificado_pronto, data_disponivel, observacoes_unidade`
+
+type GCLinha = {
+  contrato_id: string
+  etapa: string
+  contato_status: string | null
+  contato_tutor_em: string | null
+  contato_tutor_obs: string | null
+  acompanhamento_confirmado: string | null
+  lacre_conferido: boolean | null
+  recebido_por: string | null
+  data_recebimento: string | null
+  data_agendamento: string | null
+  data_cremacao: string | null
+  cremacao_por: string | null
+  cinzas_prontas: boolean
+  certificado_pronto: boolean
+  data_disponivel: string | null
+  observacoes_unidade: string | null
 }
 
 /**
@@ -224,13 +258,13 @@ const CAMPOS_FICHA = `
   id, codigo, numero_lacre, tipo_cremacao, tipo_plano, data_contrato, data_acolhimento, status,
   pet_nome, pet_especie, pet_raca, pet_cor, pet_idade_anos, pet_peso, pet_genero,
   certificado_nome_1, certificado_nome_2, certificado_nome_3, certificado_nome_4,
-  certificado_nome_5, certificado_nome_6, certificado_nome_7,
+  certificado_nome_5, certificado_nome_6, certificado_nome_7, certificado_confirmado, data_leva_pinda,
   local_coleta, clinica_coleta, observacoes, remocao_cidade, responsavel_user_id,
   tutor_nome, tutor_telefone, tutor_telefone2, tutor_telefone_nome, tutor_telefone2_nome,
   tutor_telefone_principal, tutor_endereco, tutor_bairro, tutor_cidade, tutor_cep,
   tutor:tutor_id ( nome, telefone, telefone2, telefone_principal, telefone_nome,
                    endereco, numero, complemento, bairro, cidade, estado, cep ),
-  contrato_gc ( contato_status, contato_tutor_em ),
+  contrato_gc ( ${CAMPOS_GC} ),
   estabelecimento:estabelecimento_id ( nome ),
   funcionario:funcionario_id ( nome ),
   executor:executado_por_funcionario_id ( nome )
@@ -259,6 +293,8 @@ type LinhaContrato = {
   certificado_nome_5: string | null
   certificado_nome_6: string | null
   certificado_nome_7: string | null
+  certificado_confirmado: boolean | null
+  data_leva_pinda: string | null
   local_coleta: string | null
   clinica_coleta: string | null
   observacoes: string | null
@@ -284,7 +320,7 @@ type LinhaContrato = {
   funcionario: { nome: string | null } | null
   executor: { nome: string | null } | null
   // Embed 1-1, mas o PostgREST devolve ARRAY quando não há constraint de unicidade declarada.
-  contrato_gc: { contato_status: string | null; contato_tutor_em: string | null }[] | { contato_status: string | null; contato_tutor_em: string | null } | null
+  contrato_gc: GCLinha[] | GCLinha | null
 }
 
 /** O embed 1-1 do PostgREST às vezes vem array, às vezes objeto. Normaliza. */
@@ -356,6 +392,10 @@ function montarFicha(c: LinhaContrato): FichaMsg {
     hora: horaDoAcolhimento(c.data_acolhimento),
     contatoStatus: gcDe(c)?.contato_status ?? null,
     contatoEm: gcDe(c)?.contato_tutor_em ?? null,
+    gc: gcDe(c),
+    dataIda: c.data_leva_pinda,
+    certificadoConfirmado: !!c.certificado_confirmado,
+    codigo: c.codigo,
   }
 }
 
@@ -499,7 +539,7 @@ export default function GruposEncaminhamentosPage() {
     async function carregar() {
       const { data, error } = await supabase
         .from('supindas')
-        .select('id, numero, data, responsavel, quantidade_pets, peso_total, status, observacoes, unidades(codigo, nome)')
+        .select('id, numero, data, responsavel, quantidade_pets, peso_total, status, observacoes, unidades(codigo, nome, modulos_ativos)')
         .order('data', { ascending: false })
 
       if (!vivo) return
@@ -509,7 +549,7 @@ export default function GruposEncaminhamentosPage() {
         return
       }
       setGrupos((data || []).map((e: Record<string, unknown>) => {
-        const u = e.unidades as { codigo?: string; nome?: string } | null
+        const u = e.unidades as { codigo?: string; nome?: string; modulos_ativos?: string[] | null } | null
         return {
           id: e.id as string,
           numero: e.numero as string,
@@ -521,6 +561,7 @@ export default function GruposEncaminhamentosPage() {
           peso_total: (e.peso_total as number) || 0,
           status: e.status as string,
           observacoes: (e.observacoes as string) || null,
+          cremacaoLocal: !!u?.modulos_ativos?.includes('cb_cremacao_local'),
         }
       }))
       setLoading(false)
@@ -650,9 +691,40 @@ export default function GruposEncaminhamentosPage() {
       return false
     }
     setFichas(prev => prev.map(f => f.contratoId === contratoId
-      ? { ...f, contatoStatus: linha.contato_status, contatoEm: linha.contato_tutor_em }
+      ? { ...f, contatoStatus: linha.contato_status, contatoEm: linha.contato_tutor_em, gc: f.gc ? { ...f.gc, ...linha } : f.gc }
       : f))
     return true
+  }, [supabase])
+
+  /**
+   * "Confirmar Recebimento" do painel do GC — o mesmo passo do `GCAcaoModal` (`etapa` →
+   * `recebido`, carimbo de agora), num clique porque não pede dado nenhum. Mesma trava do modal:
+   * só com a viagem com a ida finalizada (ou unidade com cremação local), e só a partir de
+   * `provisionado` — nunca rebaixa um GC que já andou em outra aba.
+   */
+  const receberPet = useCallback(async (contratoId: string): Promise<boolean> => {
+    const { data, error } = await supabase
+      .from('contrato_gc')
+      .update({ etapa: 'recebido', data_recebimento: new Date().toISOString() } as never)
+      .eq('contrato_id', contratoId)
+      .eq('etapa', 'provisionado')
+      .select(CAMPOS_GC)
+
+    if (error) { console.error('Erro ao confirmar recebimento:', error); return false }
+    const linha = (data || [])[0] as unknown as GCLinha | undefined
+    if (!linha) { console.warn('Nada atualizado — já recebido ou permissão negada.'); return false }
+    setFichas(prev => prev.map(f => f.contratoId === contratoId ? { ...f, gc: linha } : f))
+    return true
+  }, [supabase])
+
+  // Popup do GC (o mesmo do /gc). Ao salvar, relê a ficha inteira: o modal mexe no GC, nos
+  // nomes do certificado e nos dados do pet, e a ficha da conversa mostra os três.
+  const [gcAberto, setGcAberto] = useState<FichaMsg | null>(null)
+  const recarregarFicha = useCallback(async (contratoId: string) => {
+    const { data, error } = await supabase.from('contratos').select(CAMPOS_FICHA).eq('id', contratoId).maybeSingle()
+    if (error || !data) { if (error) console.error('Erro ao reler a ficha:', error); return }
+    const [nova] = await resolverColaboradores(supabase, [montarFicha(data as unknown as LinhaContrato)])
+    setFichas(prev => prev.map(f => f.contratoId === contratoId ? nova : f))
   }, [supabase])
 
   // ---- Carga das fichas do grupo aberto (on demand — nunca as 523 viagens de uma vez) ----
@@ -890,6 +962,8 @@ export default function GruposEncaminhamentosPage() {
           onSalvarObs={salvarObservacao}
           podeMarcarContato={podeMarcarContato}
           onMarcarContato={marcarContatoRealizado}
+          onReceber={receberPet}
+          onAbrirGC={setGcAberto}
           onVoltar={() => setEncAberto(null)}
           onAmpliar={setFichaAmpliada}
         />
@@ -909,6 +983,36 @@ export default function GruposEncaminhamentosPage() {
           ficha={fichaAmpliada}
           escala={escalaZoom}
           onFechar={() => setFichaAmpliada(null)}
+        />
+      )}
+
+      {/* ===== Popup do GC (Matriz) — o mesmo do /gc ===== */}
+      {gcAberto && encAberto && (
+        <GCAcaoModal
+          contratoId={gcAberto.contratoId}
+          contratoCodigo={gcAberto.codigo}
+          petNome={gcAberto.petNome}
+          tipoCremacao={gcAberto.tipoCremacao || 'individual'}
+          petEspecie={gcAberto.ficha.pet_especie}
+          petPeso={gcAberto.ficha.pet_peso}
+          petRaca={gcAberto.ficha.pet_raca}
+          petGenero={gcAberto.ficha.pet_genero}
+          petCor={gcAberto.ficha.pet_cor}
+          numeroLacre={gcAberto.lacre}
+          tutorNome={gcAberto.ficha.tutor_nome}
+          tutorTelefone={gcAberto.ficha.tutor_telefone}
+          tutorTelefone2={gcAberto.ficha.tutor_telefone2}
+          tutorTelefoneNome={gcAberto.ficha.tutor_telefone_nome}
+          tutorTelefone2Nome={gcAberto.ficha.tutor_telefone2_nome}
+          tutorTelefonePrincipal={gcAberto.ficha.tutor_telefone_principal}
+          certificadoNomesRaw={[gcAberto.ficha.certificado_nome_1, gcAberto.ficha.certificado_nome_2, gcAberto.ficha.certificado_nome_3, gcAberto.ficha.certificado_nome_4, gcAberto.ficha.certificado_nome_5, gcAberto.ficha.certificado_nome_6, gcAberto.ficha.certificado_nome_7].map(n => n ?? null)}
+          certificadoConfirmado={gcAberto.certificadoConfirmado}
+          onCertificadoSaved={() => { void recarregarFicha(gcAberto.contratoId) }}
+          supindaStatus={encAberto.status}
+          unidadeTemCremacaoLocal={encAberto.cremacaoLocal}
+          gcAtual={gcAberto.gc}
+          onClose={() => setGcAberto(null)}
+          onSaved={() => recarregarFicha(gcAberto.contratoId)}
         />
       )}
     </div>
@@ -1219,42 +1323,105 @@ function BotaoCompartilharFicha({ ficha }: { ficha: FichaMsg }) {
 }
 
 // ============================================
-// "Contato Realizado" — a primeira etapa do GC, marcada da conversa
+// Painel do GC da Matriz — ao lado da ficha (21/10/2026, opção "C" escolhida pelo Lucas)
 // ============================================
 /**
- * Botão próprio pra ter estado LOCAL de "salvando". Se o spinner morasse na `Conversa`, um
- * clique numa ficha piscaria as 39 outras da viagem.
+ * Substitui o antigo "Contato Realizado" do pé do card de contato: a esteira do GC (a MESMA do
+ * card do pipeline, `EsteiraGC`), um botão com o próximo passo que não pede dado nenhum, e o
+ * **⋯ GC**, que abre o `GCAcaoModal` — o mesmo popup do /gc. Agendar, cremar, certificado e
+ * finalizar só existem lá: as regras de cada passo moram num lugar só (duas cópias da mesma
+ * regra foi o incidente SP47).
  *
- * ⚠️ Não tem confirmação e não tem desfazer aqui — e é decisão, não esquecimento: é um
- * carimbo de "eu liguei", o estado só avança (`null` → `contatado` → `agendado`), e voltar
- * atrás é trabalho do GC, que é onde o resto da jornada do tutor vive. Um `confirm()` em cima
- * de uma ação de um clique que não perde nada seria atrito sem ganho.
+ * Passo rápido, na ordem: **Contato Realizado** (sem contato ainda) → **Confirmar Recebimento**
+ * (`provisionado` com a ida finalizada, ou unidade com cremação local — a mesma trava do modal).
+ * Sem `contrato_gc` (o pet ainda não foi pra Pinda) o painel não aparece.
+ *
+ * **Mensagem Agendamento** (pedido do Lucas, 21/10/2026): a MESMA mensagem de agendamento da
+ * despedida do popup do GC (`linkAgendamentoDespedida`, telefone e nome do contato ativo). Fica
+ * até a despedida ser agendada; depois disso, reagendar é pelo popup, que tem o botão também.
  */
-function BotaoContatoRealizado({ contratoId, onMarcar }: {
-  contratoId: string
-  onMarcar: (contratoId: string) => Promise<boolean>
+function PainelGC({ f, grupo, onMarcarContato, onReceber, onAbrirGC }: {
+  f: FichaMsg
+  grupo: EncGrupo
+  onMarcarContato: (contratoId: string) => Promise<boolean>
+  onReceber: (contratoId: string) => Promise<boolean>
+  onAbrirGC: (f: FichaMsg) => void
 }) {
+  const gc = f.gc
+  if (!gc) return null
+  const etapa = gc.etapa || 'provisionado'
+  const idaChegou = grupo.status === 'ida_finalizada' || grupo.status === 'finalizada' || grupo.cremacaoLocal
+
+  let passo: { rotulo: string; acao: () => Promise<boolean> } | null = null
+  if (!gc.contato_status) passo = { rotulo: 'Contato Realizado', acao: () => onMarcarContato(f.contratoId) }
+  else if (etapa === 'provisionado' && idaChegou) passo = { rotulo: 'Confirmar Recebimento', acao: () => onReceber(f.contratoId) }
+
+  const linkAgendar = gc.contato_status !== 'agendado'
+    ? linkAgendamentoDespedida({
+        telefone: f.ficha.tutor_telefone, telefoneApelido: f.ficha.tutor_telefone_nome,
+        telefone2: f.ficha.tutor_telefone2, telefone2Apelido: f.ficha.tutor_telefone2_nome,
+        telefonePrincipal: f.ficha.tutor_telefone_principal,
+        tutorNome: f.ficha.tutor_nome, petNome: f.petNome, petGenero: f.ficha.pet_genero,
+      })
+    : ''
+
+  return (
+    <div className="flex-1 min-w-[260px] max-w-sm space-y-1.5">
+      <EsteiraGC gc={gc} dataIda={f.dataIda} />
+      <div className="flex flex-wrap items-center gap-1.5">
+        {linkAgendar && (
+          <a
+            href={linkAgendar}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Mensagem de agendamento da despedida (a mesma do popup do GC)"
+            className="flex items-center justify-center gap-1.5 min-h-11 px-3 rounded-lg text-xs font-semibold text-white shadow-sm hover:brightness-110 transition"
+            style={{ background: '#25D366' }}
+          >
+            <MessageCircle className="h-4 w-4" />
+            Mensagem Agendamento
+          </a>
+        )}
+        {passo && <BotaoPassoGC key={passo.rotulo} rotulo={passo.rotulo} onClick={passo.acao} />}
+        <button
+          onClick={() => onAbrirGC(f)}
+          title="Abrir o GC deste pet (agendar, cremação, certificado, finalizar)"
+          className="flex items-center justify-center gap-1 min-h-11 px-3 rounded-lg border text-xs font-semibold hover:bg-black/5 transition-colors"
+          style={{ borderColor: 'var(--zap-balao-borda)', background: 'var(--zap-balao)', color: 'var(--zap-acao)' }}
+        >
+          <MoreHorizontal className="h-4 w-4" />
+          GC
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Estado LOCAL de "salvando": se o spinner morasse na `Conversa`, um clique numa ficha piscaria
+ * as 39 outras da viagem.
+ * ⚠️ Sem confirmação e sem desfazer — decisão, não esquecimento: é um carimbo ("eu liguei",
+ * "chegou"), o estado só avança, e voltar atrás é no popup do GC. Um `confirm()` em cima de uma
+ * ação de um clique que não perde nada seria atrito sem ganho.
+ */
+function BotaoPassoGC({ rotulo, onClick }: { rotulo: string; onClick: () => Promise<boolean> }) {
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState(false)
-
   return (
     <button
       onClick={async () => {
         if (salvando) return
         setSalvando(true); setErro(false)
-        const ok = await onMarcar(contratoId)
+        const ok = await onClick()
         setSalvando(false)
         if (!ok) setErro(true)
       }}
       disabled={salvando}
-      title="Registrar que a Matriz já falou com o tutor (1ª etapa do GC)"
-      className="flex flex-1 items-center justify-center gap-1.5 min-h-11 py-2 border-l text-xs font-semibold hover:bg-black/5 transition-colors disabled:opacity-50"
-      style={{ borderColor: 'var(--zap-balao-borda)', color: erro ? '#dc2626' : 'var(--zap-acao)' }}
+      className="flex flex-1 items-center justify-center gap-1.5 min-h-11 px-3 rounded-lg text-xs font-semibold text-white shadow-sm hover:brightness-110 disabled:opacity-60 transition"
+      style={{ background: erro ? '#dc2626' : 'var(--zap-acao)' }}
     >
-      {salvando
-        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        : <CheckCheck className="h-4 w-4" />}
-      {erro ? 'Falhou — tentar de novo' : 'Contato Realizado'}
+      {salvando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCheck className="h-4 w-4" />}
+      {erro ? 'Falhou — tentar de novo' : rotulo}
     </button>
   )
 }
@@ -1533,7 +1700,7 @@ function ListaDeGrupos({ dia, grupos, unidadeAtualCodigo, onAbrir }: {
 // ============================================
 const semAssinatura = () => () => {}
 
-function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, podeMarcarContato, onMarcarContato, onSalvarObs, onVoltar, onAmpliar }: {
+function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, podeMarcarContato, onMarcarContato, onReceber, onAbrirGC, onSalvarObs, onVoltar, onAmpliar }: {
   grupo: EncGrupo
   fichas: FichaMsg[]
   carregando: boolean
@@ -1541,6 +1708,8 @@ function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, podeM
   obsPorContrato: Record<string, ObsMsg[]>
   podeMarcarContato: boolean
   onMarcarContato: (contratoId: string) => Promise<boolean>
+  onReceber: (contratoId: string) => Promise<boolean>
+  onAbrirGC: (f: FichaMsg) => void
   onSalvarObs: (contratoId: string, texto: string) => Promise<boolean>
   onVoltar: () => void
   onAmpliar: (f: FichaMsg) => void
@@ -1631,8 +1800,10 @@ function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, podeM
             const linkZap = linkChatDireto(f.telefone)
             return (
               <div key={f.contratoId} className="space-y-1.5">
-                {/* ===== Mensagem 1: a foto da ficha ===== */}
-                <div className="flex items-center gap-2">
+                {/* ===== Mensagem 1: a foto da ficha (+ ⤴ e, pra Matriz, o painel do GC) =====
+                    `flex-wrap`: no computador o painel ocupa o vazio à direita do balão; no
+                    celular não cabe e desce pra linha de baixo. */}
+                <div className="flex flex-wrap items-center gap-2">
                   <div
                     className="max-w-[85%] rounded-lg rounded-tl-none p-1.5 shadow-sm"
                     style={{ background: 'var(--zap-balao)', border: '1px solid var(--zap-balao-borda)' }}
@@ -1713,6 +1884,9 @@ function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, podeM
                     </div>
                   </div>
                   {podeCompartilhar && <BotaoCompartilharFicha ficha={f} />}
+                  {podeMarcarContato && (
+                    <PainelGC f={f} grupo={grupo} onMarcarContato={onMarcarContato} onReceber={onReceber} onAbrirGC={onAbrirGC} />
+                  )}
                 </div>
 
                 {/* ===== Mensagem 2: o contato do tutor anexado ===== */}
@@ -1739,13 +1913,11 @@ function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, podeM
                       </span>
                       {f.nomeAgenda && <BotaoCopiarNome nome={f.nomeAgenda} />}
                     </div>
-                    {/* Pé do card de contato: Conversar | Contato Realizado.
+                    {/* Pé do card de contato: Conversar | Salvar contato. (O "Contato Realizado" que
+                        morava aqui foi pro painel do GC, ao lado da ficha — 21/10/2026.)
                         🔴 `min-h-11` (44px) e não `py-2`: medido em 23/09/2026, o botão saía com
                         **33px de altura** no celular, abaixo do mínimo de alvo de toque (44px
-                        iOS / 48dp Material) — e errar o toque aqui é ligar pro tutor errado.
-                        ⚠️ O "Contato Realizado" só aparece **pra Matriz, com a chave ligada e
-                        enquanto não houve contato** — as outras unidades só leem a bandeirinha
-                        na legenda da ficha. Ver `podeMarcarContato`. */}
+                        iOS / 48dp Material) — e errar o toque aqui é ligar pro tutor errado. */}
                     <div className="flex items-stretch border-t" style={{ borderColor: 'var(--zap-balao-borda)' }}>
                       {linkZap ? (
                         <a
@@ -1767,9 +1939,6 @@ function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, podeM
                         </span>
                       )}
                       {f.telefone && f.nomeAgenda && <BotaoSalvarContato nome={f.nomeAgenda} telefone={f.telefone} />}
-                      {podeMarcarContato && !f.contatoStatus && (
-                        <BotaoContatoRealizado contratoId={f.contratoId} onMarcar={onMarcarContato} />
-                      )}
                     </div>
                   </div>
                 </div>
