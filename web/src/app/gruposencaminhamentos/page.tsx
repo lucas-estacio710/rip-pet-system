@@ -1059,23 +1059,31 @@ function FichaEscalada({ ficha, escala }: { ficha: FichaContratoData; escala: nu
 // ============================================
 /**
  * Legenda que vai junto com a imagem no Compartilhar (11/10/2026, pedido do Lucas). Para mudar
- * o texto, mude SÓ este modelo. Variáveis: {lacre} {pet} {tipo} (IND/COL). Os pedaços são
- * separados por " · ", e o pedaço cuja variável vier vazia some (sem lacre → "RINGO · COL").
+ * o texto, mude SÓ este modelo. Variáveis: {lacre} {pet} {tipo} (IND/COL), {agenda} (o nome de
+ * agenda do contato ativo, o mesmo do card de contato) e {telefone} (o telefone ativo,
+ * formatado). Uma linha por item do array; dentro da linha os pedaços são separados por " · ",
+ * o pedaço cuja variável vier vazia some (sem lacre → "RINGO · COL") e a linha que ficar vazia
+ * também (sem telefone → só 2 linhas). Linhas 2 e 3 pedidas pelo Lucas em 21/10/2026.
  * ⚠️ Só chega como legenda no Android; no iPhone a imagem vai sem texto (ver
  * `compartilharArquivo` em lib/ficha-download.ts).
  */
-const LEGENDA_COMPARTILHAR = 'Lacre {lacre} · {pet} · {tipo}'
+const LEGENDA_COMPARTILHAR = ['Lacre {lacre} · {pet} · {tipo}', '{agenda}', '{telefone}']
 
 function legendaDaFicha(f: FichaMsg): string {
   const vars: Record<string, string> = {
     lacre: f.lacre || '',
     pet: f.petNome || '',
     tipo: f.tipoCremacao === 'individual' ? 'IND' : f.tipoCremacao === 'coletiva' ? 'COL' : '',
+    agenda: f.nomeAgenda || '',
+    telefone: fmtTelefone(f.telefone),
   }
-  return LEGENDA_COMPARTILHAR.split(' · ')
-    .filter(pedaco => [...pedaco.matchAll(/\{(\w+)\}/g)].every(m => vars[m[1]]))
-    .map(pedaco => pedaco.replace(/\{(\w+)\}/g, (_, k: string) => vars[k]))
-    .join(' · ')
+  return LEGENDA_COMPARTILHAR
+    .map(linha => linha.split(' · ')
+      .filter(pedaco => [...pedaco.matchAll(/\{(\w+)\}/g)].every(m => vars[m[1]]))
+      .map(pedaco => pedaco.replace(/\{(\w+)\}/g, (_, k: string) => vars[k]))
+      .join(' · '))
+    .filter(Boolean)
+    .join('\n')
 }
 
 function LightboxFicha({ ficha, escala, onFechar }: {
