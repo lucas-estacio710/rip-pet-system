@@ -1085,7 +1085,7 @@ function legendaDaFicha(f: FichaMsg, obs: ObsMsg[] = []): string {
       .filter(pedaco => [...pedaco.matchAll(/\{(\w+)\}/g)].every(m => vars[m[1]]))
       .map(pedaco => pedaco.replace(/\{(\w+)\}/g, (_, k: string) => vars[k]))
       .join(' · '))
-    .concat(obs.map(o => `🚨 ${o.texto.trim()}`))
+    .concat(obs.map(o => o.texto.trim()).filter(Boolean).map(t => `🚨 ${t}`))
     .filter(Boolean)
     .join('\n\n')
 }
