@@ -13,6 +13,7 @@ import { gerarContratoPDF, contratoFilename } from '@/lib/contrato-pdf'
 import { criarContratoDeFicha, ContratoValidationError } from '@/lib/criar-contrato-de-ficha'
 import { hojeLocal } from '@/lib/date-local'
 import { concluirTarefasPendentesDe } from '@/lib/atribuir-tarefa'
+import { pelinhoDoAcolhimento } from '@/lib/tarefas-rescaldo'
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ⚠️  MODAIS GÊMEOS — TratativaModal (este)  ⇄  AtivarModal
@@ -825,6 +826,14 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         if (errTarefa) {
           toast(`Contrato criado, mas a tarefa de remoção NÃO foi atribuída (${errTarefa.message}). Atribua pelo /tarefas.`, 'error')
         } else {
+          // Pelinho Inicial: o pelinho que o contrato acabou de ganhar vai junto pra quem acolhe.
+          if (currentUnit?.modulos_ativos?.includes('cb_pelinho_inicial') && ficha.unidade_id) {
+            try {
+              await pelinhoDoAcolhimento(supabase, { contratoId, unidadeId: ficha.unidade_id, atribuidoA: responsavelUserId, atribuidoPor: userAtual?.id || null, criarSeFaltar: false })
+            } catch (errPelinho) {
+              toast(`Remoção atribuída, mas o pelinho NÃO foi (${errPelinho instanceof Error ? errPelinho.message : 'erro'}). Atribua pelo /tarefas.`, 'error')
+            }
+          }
           await notificarAtribuicaoRemocao(responsavelUserId, ficha.nome_pet || 'um pet')
         }
       }

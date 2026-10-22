@@ -352,7 +352,9 @@ export async function criarContratoDeFicha(
   // com 1 pelinho em contrato_produtos, indistinguível de alguém tendo adicionado na hora pelo
   // PelinhoModal. Farol (contrato-tags.ts) e o pool de /tarefas leem contrato_produtos direto,
   // sem cache — não precisa de mais nada pra eles reagirem.
-  if (unidade.modulos_ativos.includes('cb_pelinho_inicial')) {
+  // PV NÃO (22/10/2026): o pet está vivo; o pelinho do PV nasce na ativação, já atribuído a
+  // quem vai acolher (`pelinhoDoAcolhimento`, chamado pelo AtivarModal).
+  if (unidade.modulos_ativos.includes('cb_pelinho_inicial') && !isPreventivo) {
     const { data: produtoPelinho } = await supabase
       .from('produtos').select('id, preco').eq('codigo', '0004')
       .single() as { data: { id: string; preco: number | null } | null }

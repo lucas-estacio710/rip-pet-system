@@ -29,7 +29,8 @@ import { hojeLocal, inputLocalParaIso } from '@/lib/date-local'
 import AtivacaoPVModal from '@/components/contratos/modals/AtivacaoPVModal'
 import FotoProva from '@/components/tarefas/FotoProva'
 import type { FotoComprimida } from '@/lib/comprimir-imagem'
-import { concluirTarefasOperacionais, reabrirTarefasOperacionais, registrarObservacaoContrato, formatarIdade } from '@/lib/atribuir-tarefa'
+import { concluirTarefasOperacionais, reabrirTarefasOperacionais, registrarObservacaoContrato, formatarIdade, atribuidoEhPosicao } from '@/lib/atribuir-tarefa'
+import { pelinhoDoAcolhimento, moverPelinhoComAcolhimento } from '@/lib/tarefas-rescaldo'
 import { lerObsEntrega, formatarPrevisao } from '@/lib/obs-entrega'
 import { enderecoParaNavegar, linksNavegacao } from '@/lib/card-pet'
 import { COLUNAS_ENDERECO_CLINICA, textoEnderecoClinica, linksDestino, type EnderecoClinica } from '@/lib/endereco-clinica'
@@ -863,6 +864,17 @@ export default function TarefasPage() {
   const [produtosPorId, setProdutosPorId] = useState<Record<string, ContratoProdutoResumo>>({})
   const [loadingMinhas, setLoadingMinhas] = useState(true)
   const [tarefaAberta, setTarefaAberta] = useState<TarefaGrupo | null>(null)
+  // Tarefa com uma POSIÇÃO pede "quem executou" mesmo quando outro login conclui (22/10/2026 —
+  // ver `atribuidoEhPosicao`). O mapa serve só pra tela; a conclusão confere de novo no clique.
+  const [posicaoPorUserId, setPosicaoPorUserId] = useState<Record<string, boolean>>({})
+  const atribuidoAbertoId = tarefaAberta?.atribuido_a
+  useEffect(() => {
+    if (!atribuidoAbertoId || isPosicao) return
+    let cancelado = false
+    atribuidoEhPosicao(supabase, atribuidoAbertoId).then(v => { if (!cancelado) setPosicaoPorUserId(m => ({ ...m, [atribuidoAbertoId]: v })) })
+    return () => { cancelado = true }
+  }, [supabase, atribuidoAbertoId, isPosicao])
+  const pedeExecutor = (t: { atribuido_a: string } | null) => isPosicao || (!!t && posicaoPorUserId[t.atribuido_a] === true)
 
   // Endereço da clínica CADASTRADA da remoção aberta (14/10/2026): o Waze/Maps recebia o NOME
   // da clínica e "CV Martins Fontes" virava a livraria. Busca só ao abrir o popup, 1x por clínica.
@@ -1038,7 +1050,9 @@ export default function TarefasPage() {
       toast('Informe a data da entrega', 'error')
       return
     }
-    if (isPosicao && !executadoPorFuncionarioId) {
+    const assina = isPosicao || await atribuidoEhPosicao(supabase, tarefa.atribuido_a)
+    if (assina && !executadoPorFuncionarioId) {
+      if (!pedeExecutor(tarefa)) setPosicaoPorUserId(m => ({ ...m, [tarefa.atribuido_a]: true }))
       toast('Informe quem executou', 'error')
       return
     }
@@ -1058,7 +1072,7 @@ export default function TarefasPage() {
       // produto já estava feito, o toast dizia "concluída" e a tarefa ficava órfã.
       await concluirTarefasOperacionais(supabase, tarefa.ids, {
         anotacao: anotacaoSimples.trim() || null,
-        executadoPorFuncionarioId: isPosicao ? (executadoPorFuncionarioId || null) : null,
+        executadoPorFuncionarioId: assina ? (executadoPorFuncionarioId || null) : null,
       })
 
       let contratoId = tarefa.contrato_id
@@ -1087,7 +1101,7 @@ export default function TarefasPage() {
       // Login atual é uma posição (dispositivo compartilhado) — assina quem de fato executou
       // (migration 137). Fica só em tarefas_operacionais: é por TAREFA, não é a mesma coisa
       // que contratos.executado_por_funcionario_id (que é só do acolhimento).
-      const nomeExecutor = isPosicao ? funcionariosUnidade.find(f => f.id === executadoPorFuncionarioId)?.nome : null
+      const nomeExecutor = assina ? funcionariosUnidade.find(f => f.id === executadoPorFuncionarioId)?.nome : null
 
       // Visualizar Tarefa (10/09/2026): "Gestão → Em Andamento" agora abre este mesmo popup
       // pra tarefa de QUALQUER pessoa, não só a própria — sem isso, um gerente regularizando
@@ -1239,7 +1253,11 @@ export default function TarefasPage() {
     if (!modoDataRemocao) { setErroRemocao('Escolha quando aconteceu o acolhimento: Agora ou outra data/hora'); return }
     if (modoDataRemocao === 'outra' && !dataHoraRemocaoManual) { setErroRemocao('Informe a data/hora da remoção'); return }
     if (modoDataRemocao === 'outra') { const e = erroDataAcolhimento(dataHoraRemocaoManual); if (e) { setErroRemocao(e); return } }
-    if (isPosicao && !executadoPorFuncionarioId) { setErroRemocao('Informe quem executou'); return }
+    const assina = isPosicao || await atribuidoEhPosicao(supabase, tarefa.atribuido_a)
+    if (assina && !executadoPorFuncionarioId) {
+      if (!pedeExecutor(tarefa)) setPosicaoPorUserId(m => ({ ...m, [tarefa.atribuido_a]: true }))
+      setErroRemocao('Informe quem executou'); return
+    }
     setConcluindoRemocao(true)
     setErroRemocao(null)
     try {
@@ -1252,7 +1270,7 @@ export default function TarefasPage() {
       await concluirTarefasOperacionais(supabase, [tarefa.id], {
         lacre: lacreRemocao.trim(),
         anotacao: anotacaoRemocao.trim() || null,
-        executadoPorFuncionarioId: isPosicao ? (executadoPorFuncionarioId || null) : null,
+        executadoPorFuncionarioId: assina ? (executadoPorFuncionarioId || null) : null,
       })
 
       const dataHoraFinal = modoDataRemocao === 'agora' ? new Date().toISOString() : inputLocalParaIso(dataHoraRemocaoManual)
@@ -1266,7 +1284,7 @@ export default function TarefasPage() {
         // Login atual é uma posição (dispositivo compartilhado) — quem de fato executou o
         // acolhimento (migration 137). criarContratoDeFicha lê isso e grava em
         // contratos.executado_por_funcionario_id.
-        executadoPorFuncionarioId: isPosicao ? (executadoPorFuncionarioId || null) : null,
+        executadoPorFuncionarioId: assina ? (executadoPorFuncionarioId || null) : null,
       }
       let contratoId: string
       try {
@@ -1291,7 +1309,14 @@ export default function TarefasPage() {
         throw errEfeito
       }
 
-      const nomeExecutor = isPosicao ? funcionariosUnidade.find(f => f.id === executadoPorFuncionarioId)?.nome : null
+      // Remoção ANTIGA (por ficha): o contrato nasce agora, com o pelinho do cb_pelinho_inicial —
+      // que vai pra quem estava com a remoção, como na Tratativa (decisão de 22/10/2026).
+      if (unidadeDaFicha(ficha)?.modulos_ativos?.includes('cb_pelinho_inicial')) {
+        await pelinhoDoAcolhimento(supabase, { contratoId, unidadeId: tarefa.unidade_id, atribuidoA: tarefa.atribuido_a, atribuidoPor: userId || null, criarSeFaltar: false })
+          .catch(e => toast(`Contrato criado, mas o pelinho não foi atribuído (${e instanceof Error ? e.message : 'erro'}).`, 'error'))
+      }
+
+      const nomeExecutor = assina ? funcionariosUnidade.find(f => f.id === executadoPorFuncionarioId)?.nome : null
 
       // Visualizar Tarefa (10/09/2026): mesmo racional de concluirTarefaSimples — "Gestão →
       // Em Andamento" pode abrir esta tela pra tarefa de outra pessoa.
@@ -1467,6 +1492,12 @@ export default function TarefasPage() {
         await supabase.from('contratos').update({
           responsavel_user_id: novoId, funcionario_id: null,
         } as never).eq('id', tarefa.contratoIdResolvido)
+        // O pelinho pendente com a mesma pessoa vai junto (decisão de 22/10/2026).
+        try {
+          await moverPelinhoComAcolhimento(supabase, { contratoId: tarefa.contratoIdResolvido, de: tarefa.atribuido_a, para: novoId, atribuidoPor: user?.id || null })
+        } catch (errPelinho) {
+          toast(`Acolhimento reatribuído, mas o pelinho ficou com ${nomeAntigo} (${errPelinho instanceof Error ? errPelinho.message : 'erro'}).`, 'error')
+        }
       }
 
       if (tarefa.tipo === 'remocao' && tarefa.ficha_id) {
@@ -2708,7 +2739,7 @@ export default function TarefasPage() {
                     />
                     {/* Login atual é uma posição (dispositivo compartilhado) — exige assinar
                         quem de fato executou (migration 137). */}
-                    {isPosicao && (
+                    {pedeExecutor(tarefaAberta) && (
                       <div>
                         <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Colaborador na posição <span className="text-red-400">*</span></label>
                         <select value={executadoPorFuncionarioId} onChange={e => setExecutadoPorFuncionarioId(e.target.value)} className="input w-full">
@@ -2720,7 +2751,7 @@ export default function TarefasPage() {
                     {erroRemocao && <p className="text-xs text-red-400">{erroRemocao}</p>}
                     <button
                       onClick={() => concluirRemocao(tarefaAberta, ficha)}
-                      disabled={concluindoRemocao || !lacreRemocao.trim() || !modoDataRemocao || (modoDataRemocao === 'outra' && !dataHoraRemocaoManual) || (isPosicao && !executadoPorFuncionarioId) || (tipoExigeFoto(tarefaAberta.tipo) && !fotoProva && !podeDispensarFoto)}
+                      disabled={concluindoRemocao || !lacreRemocao.trim() || !modoDataRemocao || (modoDataRemocao === 'outra' && !dataHoraRemocaoManual) || (pedeExecutor(tarefaAberta) && !executadoPorFuncionarioId) || (tipoExigeFoto(tarefaAberta.tipo) && !fotoProva && !podeDispensarFoto)}
                       className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-emerald-600 text-white font-semibold disabled:opacity-50"
                     >
                       {concluindoRemocao ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
@@ -2817,7 +2848,7 @@ export default function TarefasPage() {
                   />
                   {/* Login atual é uma posição (dispositivo compartilhado) — exige assinar
                       quem de fato executou (migration 137). */}
-                  {isPosicao && (
+                  {pedeExecutor(tarefaAberta) && (
                     <div>
                       <label className="block text-xs font-medium text-[var(--surface-600)] mb-1">Colaborador na posição <span className="text-red-400">*</span></label>
                       <select value={executadoPorFuncionarioId} onChange={e => setExecutadoPorFuncionarioId(e.target.value)} className="input w-full">
@@ -2828,7 +2859,7 @@ export default function TarefasPage() {
                   )}
                   <button
                     onClick={() => concluirTarefaSimples(tarefaAberta)}
-                    disabled={concluindoSimples || (temPedido(tarefaAberta) && !leuObservacao) || (tarefaAberta.tipo === 'entrega' && !modoDataEntrega) || (tarefaAberta.tipo === 'entrega' && modoDataEntrega === 'outra' && !dataEntregaManual) || (isPosicao && !executadoPorFuncionarioId) || (tipoExigeFoto(tarefaAberta.tipo) && !fotoProva && !podeDispensarFoto)}
+                    disabled={concluindoSimples || (temPedido(tarefaAberta) && !leuObservacao) || (tarefaAberta.tipo === 'entrega' && !modoDataEntrega) || (tarefaAberta.tipo === 'entrega' && modoDataEntrega === 'outra' && !dataEntregaManual) || (pedeExecutor(tarefaAberta) && !executadoPorFuncionarioId) || (tipoExigeFoto(tarefaAberta.tipo) && !fotoProva && !podeDispensarFoto)}
                     className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-emerald-600 text-white font-semibold disabled:opacity-50"
                   >
                     {concluindoSimples ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}

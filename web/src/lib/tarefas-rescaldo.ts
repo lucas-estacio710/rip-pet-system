@@ -97,6 +97,90 @@ export async function atribuirProdutos(
   } catch { /* push é best-effort */ }
 }
 
+/**
+ * Pelinho Inicial (`cb_pelinho_inicial`) + acolhimento — decisão do Lucas (22/10/2026): o
+ * pelinho nasce na mão de QUEM VAI ACOLHER, sem passar pelo "Pra atribuir". Vale pra remoção
+ * nova (Tratativa) e pra ativação de PV (o PV não ganha mais pelinho na contratação, só aqui).
+ *
+ * - `criarSeFaltar`: o contrato não tem pelinho nenhum (nem feito) → cria 1 (produto `0004`,
+ *   preço do catálogo, hoje R$ 0). Tendo qualquer um, não cria: o tutor pode ter comprado 2.
+ * - `atribuidoA`: os pelinhos NÃO feitos e sem tarefa pendente vão pra essa pessoa ou posição.
+ *   Ignora "Faz outras tarefas" de propósito — o pelinho é parte do acolhimento.
+ * Sem push próprio: quem chama já avisa do acolhimento, e o pelinho chega junto.
+ */
+export async function pelinhoDoAcolhimento(
+  sb: Supabase,
+  ctx: { contratoId: string; unidadeId: string; atribuidoA: string | null; atribuidoPor: string | null; criarSeFaltar: boolean },
+): Promise<void> {
+  const { data, error } = await sb.from('contrato_produtos')
+    .select('id, rescaldo_feito, produto:produtos!inner(rescaldo_tipo)')
+    .eq('contrato_id', ctx.contratoId)
+    .eq('produto.rescaldo_tipo', 'pelinho')
+  if (error) throw new Error(error.message)
+  const pelinhos = (data || []) as unknown as { id: string; rescaldo_feito: boolean | null }[]
+
+  if (pelinhos.length === 0 && ctx.criarSeFaltar) {
+    const { data: produto, error: errProd } = await sb.from('produtos').select('id, preco').eq('codigo', '0004')
+      .single() as { data: { id: string; preco: number | null } | null; error: { message: string } | null }
+    if (errProd || !produto) throw new Error(errProd?.message || 'Produto Pelinho (0004) não encontrado')
+    const { data: novo, error: errIns } = await sb.from('contrato_produtos').insert({
+      contrato_id: ctx.contratoId,
+      produto_id: produto.id,
+      quantidade: 1,
+      valor: produto.preco || 0,
+      separado: false,
+      is_reserva_pv: false,
+      rescaldo_feito: false,
+    } as never).select('id').single() as { data: { id: string } | null; error: { message: string } | null }
+    if (errIns || !novo) throw new Error(errIns?.message || 'Não consegui incluir o pelinho')
+    pelinhos.push({ id: novo.id, rescaldo_feito: false })
+  }
+
+  if (!ctx.atribuidoA) return
+  const abertos = pelinhos.filter(p => !p.rescaldo_feito).map(p => p.id)
+  if (abertos.length === 0) return
+  const { data: ocupados, error: errOc } = await sb.from('tarefas_operacionais')
+    .select('contrato_produto_id').in('contrato_produto_id', abertos).eq('status', 'pendente')
+  if (errOc) throw new Error(errOc.message)
+  const comTarefa = new Set(((ocupados || []) as { contrato_produto_id: string }[]).map(r => r.contrato_produto_id))
+  const livres = abertos.filter(id => !comTarefa.has(id))
+  if (livres.length === 0) return
+  const { error: errTar } = await sb.from('tarefas_operacionais').insert(livres.map(cpId => ({
+    unidade_id: ctx.unidadeId,
+    tipo: 'pelinho',
+    contrato_id: null,
+    contrato_produto_id: cpId,
+    atribuido_a: ctx.atribuidoA,
+    atribuido_por: ctx.atribuidoPor,
+  })) as never)
+  // 23505: alguém atribuiu no mesmo instante — o pelinho já está com alguém, nada a fazer.
+  if (errTar && (errTar as { code?: string }).code !== '23505') throw new Error(errTar.message)
+}
+
+/**
+ * Reatribuir o ACOLHIMENTO leva junto o pelinho que ainda está pendente com a mesma pessoa
+ * (decisão de 22/10/2026). Só mexe no que está com `de` — pelinho já passado a outra pessoa
+ * pela Gestão fica onde está.
+ */
+export async function moverPelinhoComAcolhimento(
+  sb: Supabase,
+  ctx: { contratoId: string; de: string; para: string; atribuidoPor: string | null },
+): Promise<void> {
+  const { data, error } = await sb.from('contrato_produtos')
+    .select('id, produto:produtos!inner(rescaldo_tipo)')
+    .eq('contrato_id', ctx.contratoId)
+    .eq('produto.rescaldo_tipo', 'pelinho')
+  if (error) throw new Error(error.message)
+  const ids = ((data || []) as { id: string }[]).map(r => r.id)
+  if (ids.length === 0) return
+  const { error: errUp } = await sb.from('tarefas_operacionais').update({
+    atribuido_a: ctx.para,
+    atribuido_por: ctx.atribuidoPor,
+    atribuido_em: new Date().toISOString(),
+  } as never).in('contrato_produto_id', ids).eq('tipo', 'pelinho').eq('status', 'pendente').eq('atribuido_a', ctx.de)
+  if (errUp) throw new Error(errUp.message)
+}
+
 export type ModeloDoItem = { id: string; nome: string; rescaldo_tipo: string | null }
 
 /**

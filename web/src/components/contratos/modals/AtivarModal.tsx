@@ -6,6 +6,7 @@ import { X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { enderecoDeRemocao, type LocalColeta } from '@/lib/endereco-remocao'
 import { useUnit } from '@/contexts/UnitContext'
+import { pelinhoDoAcolhimento } from '@/lib/tarefas-rescaldo'
 import AcolhimentoForm, { AcolhimentoData, ACOLHIMENTO_INICIAL } from '@/components/fichas/AcolhimentoForm'
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -184,6 +185,21 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
     && (temOperacional || !!acolhimento.dataHoraAcolhimento)
     && (acolhimento.semDataHora || !erroDataAcolhimento(acolhimento.dataHoraAcolhimento))
 
+  // Pelinho Inicial (22/10/2026): o PV não ganha mais pelinho na contratação (pet vivo) — ganha
+  // aqui, já com quem vai acolher (pessoa ou posição; na posição, quem fez assina na conclusão).
+  // Erro não desfaz a ativação: devolve o aviso pra mostrar depois de fechar.
+  async function pelinhoDaAtivacao(atribuidoA: string | null): Promise<string | null> {
+    const unidadeId = contrato.unidade_id || currentUnit?.id
+    if (!unidadeId || !currentUnit?.modulos_ativos?.includes('cb_pelinho_inicial')) return null
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      await pelinhoDoAcolhimento(supabase, { contratoId: contrato.id, unidadeId, atribuidoA, atribuidoPor: user?.id || null, criarSeFaltar: true })
+      return null
+    } catch (e) {
+      return `Ativação gravada, mas o pelinho não foi incluído/atribuído (${e instanceof Error ? e.message : 'erro'}). Confira no contrato.`
+    }
+  }
+
   async function salvarAtivacao() {
     const a = acolhimento
 
@@ -360,6 +376,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
             }).catch(() => {})
           }
         }
+        const avisoPelinho = await pelinhoDaAtivacao(atribuidoA)
 
         onSuccess?.({
           id: contrato.id,
@@ -371,6 +388,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
         })
 
         onClose()
+        if (avisoPelinho) alert(avisoPelinho)
         return
       }
 
@@ -401,6 +419,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
         .eq('id', contrato.id)
 
       if (error) throw error
+      const avisoPelinho = await pelinhoDaAtivacao(null)
 
       onSuccess?.({
         id: contrato.id,
@@ -411,6 +430,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
       })
 
       onClose()
+      if (avisoPelinho) alert(avisoPelinho)
     } catch (err) {
       console.error('Erro ao ativar contrato:', err)
       // Mensagem própria quando existe (ex.: "Ativação gravada, mas a tarefa NÃO foi atribuída")
