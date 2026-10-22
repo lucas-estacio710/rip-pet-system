@@ -9,7 +9,7 @@ import { baixarContratoPDF } from '@/lib/contrato-pdf-download'
 import FotoProva from '@/components/tarefas/FotoProva'
 import type { FotoComprimida } from '@/lib/comprimir-imagem'
 import { carregarExigeFoto, enviarFotoTarefa } from '@/lib/foto-tarefa'
-import { concluirTarefasOperacionais, reabrirTarefasOperacionais } from '@/lib/atribuir-tarefa'
+import { concluirTarefasOperacionais, reabrirTarefasOperacionais, atribuidoEhPosicao } from '@/lib/atribuir-tarefa'
 import { textoEnderecoClinica, linksDestino, type EnderecoClinica } from '@/lib/endereco-clinica'
 
 // ============================================================================
@@ -91,7 +91,12 @@ type Props = {
 
 export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, tarefaTipo = 'ativacao_pv' }: Props) {
   const supabase = createClient()
-  const { currentUnit, isPosicao, currentRole, isSuperAdmin } = useUnit()
+  const { currentUnit, isPosicao: loginEhPosicao, currentRole, isSuperAdmin } = useUnit()
+  // A assinatura vale pela TAREFA, não pelo login (22/10/2026): acolhimento atribuído a uma
+  // posição pede "quem executou" mesmo quando a gerência conclui por ela — 33 remoções de Pinda
+  // ficaram "(sem responsável)" no dashboard assim. `null` = ainda conferindo.
+  const [atribuidoPosicao, setAtribuidoPosicao] = useState<boolean | null>(null)
+  const isPosicao = loginEhPosicao || atribuidoPosicao === true
   const rotulo = tarefaTipo === 'ativacao_pv' ? 'Ativação de Preventivo' : 'Acolhimento'
   const concluidoTexto = tarefaTipo === 'ativacao_pv' ? 'concluída' : 'concluído'
 
@@ -134,17 +139,23 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
     setAnotacao('')
     setGerandoPdf(false)
 
-    supabase
-      .from('tarefas_operacionais')
-      .select('id')
-      .eq('contrato_id', contrato.id)
-      .eq('tipo', tarefaTipo)
-      .eq('status', 'pendente')
-      .maybeSingle()
-      .then(({ data }: { data: { id: string } | null }) => {
-        setTarefaId(data?.id || null)
-        setCarregando(false)
-      })
+    setAtribuidoPosicao(null)
+    Promise.all([
+      supabase
+        .from('tarefas_operacionais')
+        .select('id, atribuido_a')
+        .eq('contrato_id', contrato.id)
+        .eq('tipo', tarefaTipo)
+        .eq('status', 'pendente')
+        .maybeSingle(),
+      supabase.from('contratos').select('responsavel_user_id').eq('id', contrato.id).maybeSingle(),
+    ]).then(async ([{ data }, { data: c }]) => {
+      const t = data as { id: string; atribuido_a: string | null } | null
+      setTarefaId(t?.id || null)
+      setCarregando(false)
+      const uid = t?.atribuido_a || (c as { responsavel_user_id: string | null } | null)?.responsavel_user_id
+      setAtribuidoPosicao(await atribuidoEhPosicao(supabase, uid))
+    })
 
     if (unidadeId) {
       supabase.from('funcionarios').select('id, nome').eq('unidade_id', unidadeId).eq('ativo', true).order('nome')
@@ -161,7 +172,7 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
   if (!isOpen) return null
 
   const erroDataManual = modoData === 'outra' ? erroDataAcolhimento(dataHoraManual) : null
-  const podeConcluir = !!lacre.trim() && (modoData === 'agora' || (modoData === 'outra' && !!dataHoraManual && !erroDataManual)) && (!isPosicao || !!executadoPorFuncionarioId)
+  const podeConcluir = !!lacre.trim() && (modoData === 'agora' || (modoData === 'outra' && !!dataHoraManual && !erroDataManual)) && (loginEhPosicao || atribuidoPosicao !== null) && (!isPosicao || !!executadoPorFuncionarioId)
     && (!exigeFotoAqui || !!fotoProva || podeDispensarFoto)
 
   // Onde buscar o pet — mesma lógica da remoção normal (`tarefas/page.tsx`), adaptada pros

@@ -106,6 +106,30 @@ export async function reabrirTarefasOperacionais(sb: Supabase, ids: string[]): P
   if (error) throw new Error(error.message)
 }
 
+/**
+ * A tarefa está com uma POSIÇÃO (login de dispositivo compartilhado, mig 137)? Então quem
+ * concluir — a própria posição OU outro login (gerente/concierge "regularizando") — tem que
+ * dizer quem executou. Até 22/10/2026 só se perguntava quando o LOGIN era a posição, e 33
+ * remoções de Pinda concluídas pela gerência ficaram sem responsável no dashboard.
+ * `resolver_nomes_perfis` (mig 139) porque o RLS de `perfis` só mostra o próprio perfil.
+ * Na dúvida (erro da RPC) responde `true`: pedir a assinatura a mais é o lado seguro.
+ */
+const cachePosicao = new Map<string, Promise<boolean>>()
+export function atribuidoEhPosicao(sb: Supabase, userId: string | null | undefined): Promise<boolean> {
+  if (!userId) return Promise.resolve(false)
+  let p = cachePosicao.get(userId)
+  if (!p) {
+    p = Promise.resolve(
+      sb.rpc('resolver_nomes_perfis' as never, { p_user_ids: [userId] } as never)
+    ).then(({ data, error }) => {
+      if (error) { cachePosicao.delete(userId); return true }
+      return ((data || []) as { eh_posicao: boolean | null }[]).some(r => !!r.eh_posicao)
+    }, () => { cachePosicao.delete(userId); return true })
+    cachePosicao.set(userId, p)
+  }
+  return p
+}
+
 // O tipo "Observação da Unidade" era buscado a cada log; não muda em runtime.
 let tipoObservacaoId: Promise<string | null> | null = null
 
