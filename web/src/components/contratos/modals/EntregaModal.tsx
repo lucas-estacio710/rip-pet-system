@@ -41,6 +41,7 @@ export default function EntregaModal({ isOpen, onClose, contrato, onSuccess }: P
       alert('Selecione a data de entrega')
       return
     }
+    if (!confirm(`Confirmar a entrega de ${contrato.pet_nome}?\n\nO contrato passa para Finalizado.`)) return
 
     setSalvando(true)
 

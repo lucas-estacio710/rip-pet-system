@@ -1060,6 +1060,8 @@ export default function TarefasPage() {
       toast('Esta tarefa exige a Foto de Conclusão', 'error')
       return
     }
+    // Só a entrega muda status (Finalizado); rescaldo conclui sem pergunta extra.
+    if (tarefa.tipo === 'entrega' && !confirm(`Confirmar a entrega de ${tarefa.petNome}?\n\nO contrato passa para Finalizado.`)) return
     setConcluindoSimples(true)
     try {
       // A foto vai PRIMEIRO: o trigger do banco recusa a conclusão de tipo que exige foto
@@ -1258,6 +1260,7 @@ export default function TarefasPage() {
       if (!pedeExecutor(tarefa)) setPosicaoPorUserId(m => ({ ...m, [tarefa.atribuido_a]: true }))
       setErroRemocao('Informe quem executou'); return
     }
+    if (!confirm(`Confirmar o acolhimento de ${tarefa.petNome}?\n\nO contrato é criado e entra no pipeline.`)) return
     setConcluindoRemocao(true)
     setErroRemocao(null)
     try {

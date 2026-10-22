@@ -219,6 +219,7 @@ export default function AtivarModal({ isOpen, onClose, contrato, onSuccess }: Pr
       alert('Preencha os campos obrigatórios da ativação:\n\n• ' + faltando.join('\n• '))
       return
     }
+    if (!confirm(`Confirmar a ativação de ${contrato.pet_nome}?\n\nO preventivo sai de Preventivos e entra no fluxo de acolhimento.`)) return
 
     setSalvando(true)
 

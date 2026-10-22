@@ -3376,6 +3376,7 @@ ${petNome}`
       alert('Preencha a data e hora do acolhimento')
       return
     }
+    if (!confirm(`Confirmar a ativação de ${ativarContrato.pet_nome}?\n\nO preventivo passa para ${fluxoLocal ? 'Pinda' : 'Ativo'}.`)) return
 
     setSalvandoAtivacao(true)
 
@@ -3461,6 +3462,7 @@ ${petNome}`
 
     const ids = Array.from(selectedEntregas)
     const contSelecionados = contratos.filter(c => ids.includes(c.id))
+    if (!confirm(`Confirmar a entrega de ${ids.length} pet${ids.length !== 1 ? 's' : ''}?\n\n${ids.length !== 1 ? 'Passam' : 'Passa'} para Finalizado.`)) return
 
     setEntregaBatchLoading(true)
     try {
@@ -4106,6 +4108,9 @@ ${petNome}`
   async function confirmarEnvioParaMatriz() {
     if (!enviarModal || enviando) return
     const { id: supindaId, numero, data: dataViagem } = enviarModal
+    // 22/10/2026: a lista de conferência parecia "ver a viagem" e o Enviar gravou direto —
+    // PA26, RS23 e ST177 foram pra Matriz sem querer. Botão que muda status confirma antes.
+    if (!confirm(`Confirmar o envio do ${numero} para a Matriz?\n\n${enviarPets.length} pet${enviarPets.length !== 1 ? 's' : ''} passa${enviarPets.length !== 1 ? 'm' : ''} de Ativo para Pinda. Não é possível desfazer.`)) return
     setEnviando(true)
     try {
       // 🔴 RECONFERE no banco no instante do envio. A lista da tela pode ter minutos de
@@ -4229,6 +4234,8 @@ ${petNome}`
 
   async function finalizarVolta() {
     if (trazendo || trazerPets.length === 0) return
+    const nPres = trazerPets.filter(p => trazerPresencial.has(p.id)).length
+    if (!confirm(`Confirmar a volta de ${trazerPets.length} pet${trazerPets.length !== 1 ? 's' : ''} da Matriz?\n\n${trazerPets.length - nPres} passa${trazerPets.length - nPres !== 1 ? 'm' : ''} para Entrega${nPres > 0 ? ` e ${nPres} presencia${nPres !== 1 ? 'is' : 'l'} para Finalizado` : ''}.`)) return
     setTrazendo(true)
     try {
       // Reconfere no banco (mesma trava do envio): alguém pode ter movido um pet.

@@ -222,6 +222,7 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
 
   async function concluir() {
     if (!podeConcluir) return
+    if (!confirm(`Confirmar: ${rotulo} de ${contrato.pet_nome} ${concluidoTexto}?`)) return
     setSalvando(true)
     setErro(null)
 
