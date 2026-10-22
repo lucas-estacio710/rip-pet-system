@@ -4109,7 +4109,7 @@ ${petNome}`
     if (!enviarModal || enviando) return
     const { id: supindaId, numero, data: dataViagem } = enviarModal
     // 22/10/2026: a lista de conferência parecia "ver a viagem" e o Enviar gravou direto —
-    // PA26, RS23 e ST177 foram pra Matriz sem querer. Botão que muda status confirma antes.
+    // PA27, RS23 e ST177 foram pra Matriz sem querer. Botão que muda status confirma antes.
     if (!confirm(`Confirmar o envio do ${numero} para a Matriz?\n\n${enviarPets.length} pet${enviarPets.length !== 1 ? 's' : ''} passa${enviarPets.length !== 1 ? 'm' : ''} de Ativo para Pinda. Não é possível desfazer.`)) return
     setEnviando(true)
     try {
