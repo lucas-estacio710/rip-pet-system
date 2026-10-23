@@ -2153,8 +2153,8 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                 </div>
               )
             })() : (
-              <div className="grid grid-cols-7 gap-1.5 mb-2">
-                {[990, 1090, 1190, 1390, 1490, 1590, 1690].map(v => (
+              <div className="grid grid-cols-5 gap-1.5 mb-2">
+                {[890, 990, 1090, 1190, 1290, 1390, 1490, 1590, 1690].map(v => (
                   <button key={v} type="button" onClick={() => setValorPlano(String(v))}
                     className={`py-1.5 rounded-lg text-xs font-bold transition-all text-center ${
                       valorPlano === String(v)
