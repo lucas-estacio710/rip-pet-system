@@ -69,9 +69,10 @@ import { useState, useEffect, useRef, useCallback, useSyncExternalStore } from '
 import Link from 'next/link'
 import {
   ChevronLeft, ChevronRight, ArrowLeft, Users, MessageCircle, X,
-  Phone, FileText, CheckCheck, Info, Download, Loader2, Copy, Check, UserPlus, Share2, MoreHorizontal,
+  Phone, FileText, CheckCheck, Info, Download, Loader2, Copy, Check, UserPlus, Share2, MoreHorizontal, CameraOff,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { BUCKET_TAREFAS, listarFotosDasTarefas } from '@/lib/foto-tarefa'
 import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
 import { dataLocal } from '@/lib/date-local'
@@ -471,6 +472,8 @@ export default function GruposEncaminhamentosPage() {
   const [fichas, setFichas] = useState<FichaMsg[]>([])
   // Só as observações IMPORTANTES, por contrato. Ver `carregarObservacoes`.
   const [obsPorContrato, setObsPorContrato] = useState<Record<string, ObsMsg[]>>({})
+  // Foto do pet por contrato: url assinada · null = sem foto · ausente = ainda carregando
+  const [fotoPorContrato, setFotoPorContrato] = useState<Record<string, string | null>>({})
   const [carregandoFichas, setCarregandoFichas] = useState(false)
   const [fichaAmpliada, setFichaAmpliada] = useState<FichaMsg | null>(null)
 
@@ -585,6 +588,32 @@ export default function GruposEncaminhamentosPage() {
    * observação, só **168** têm alguma importante, mediana **1**, máximo 4, e apenas 7 passam
    * de 2 na mesma ficha. Por isso não há "ver anteriores" aqui: não há o que esconder.
    */
+  // A foto do pet é a foto-prova da tarefa de REMOÇÃO (mig 147: o lacre já na pata do pet).
+  // A tarefa nasce apontando pra FICHA, mas ao concluir passa a apontar pro CONTRATO criado
+  // (`ficha_id` fica nulo — conferido no banco em 26/10/2026), então busca por `contrato_id`.
+  // Bucket privado: url assinada, todas num pedido só (`createSignedUrls`).
+  // Unidade sem `cb_operacional` (não há tarefa) ou remoção sem foto (gerente pode concluir
+  // sem) = "sem foto".
+  const carregarFotos = useCallback(async (contratoIds: string[]) => {
+    setFotoPorContrato({})
+    if (contratoIds.length === 0) return
+    const { data: ts } = await supabase.from('tarefas_operacionais').select('id, contrato_id')
+      .eq('tipo', 'remocao').in('contrato_id', contratoIds) as { data: { id: string; contrato_id: string }[] | null }
+    const fotos = await listarFotosDasTarefas(supabase, (ts || []).map(t => t.id))
+    const pathDoContrato = new Map<string, string>()
+    for (const t of ts || []) {
+      const c = t.contrato_id, f = fotos[t.id]?.[0]
+      if (c && f && !pathDoContrato.has(c)) pathDoContrato.set(c, f.path)
+    }
+    const out = Object.fromEntries(contratoIds.map(id => [id, null])) as Record<string, string | null>
+    if (pathDoContrato.size) {
+      const { data: urls } = await supabase.storage.from(BUCKET_TAREFAS).createSignedUrls([...new Set(pathDoContrato.values())], 3600)
+      const urlDoPath = new Map((urls || []).filter(u => u.signedUrl).map(u => [u.path, u.signedUrl]))
+      for (const [c, path] of pathDoContrato) out[c] = urlDoPath.get(path) || null
+    }
+    setFotoPorContrato(out)
+  }, [supabase])
+
   const carregarObservacoes = useCallback(async (contratoIds: string[]) => {
     if (contratoIds.length === 0) { setObsPorContrato({}); return }
     const { data, error } = await supabase
@@ -747,9 +776,10 @@ export default function GruposEncaminhamentosPage() {
     }
     const montadas = ((data || []) as unknown as LinhaContrato[]).map(c => montarFicha(c))
     setFichas(await resolverColaboradores(supabase, montadas))
+    void carregarFotos(montadas.map(f => f.contratoId))
     await carregarObservacoes(montadas.map(f => f.contratoId))
     setCarregandoFichas(false)
-  }, [supabase, carregarObservacoes])
+  }, [supabase, carregarObservacoes, carregarFotos])
 
   // Fechar a ficha ampliada no Esc (é um lightbox, comportamento esperado)
   useEffect(() => {
@@ -959,6 +989,7 @@ export default function GruposEncaminhamentosPage() {
           carregando={carregandoFichas}
           escalaMini={escalaMini}
           obsPorContrato={obsPorContrato}
+          fotoPorContrato={fotoPorContrato}
           onSalvarObs={salvarObservacao}
           podeMarcarContato={podeMarcarContato}
           onMarcarContato={marcarContatoRealizado}
@@ -1713,12 +1744,13 @@ function ListaDeGrupos({ dia, grupos, unidadeAtualCodigo, onAbrir }: {
 // ============================================
 const semAssinatura = () => () => {}
 
-function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, podeMarcarContato, onMarcarContato, onReceber, onAbrirGC, onSalvarObs, onVoltar, onAmpliar }: {
+function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, fotoPorContrato, podeMarcarContato, onMarcarContato, onReceber, onAbrirGC, onSalvarObs, onVoltar, onAmpliar }: {
   grupo: EncGrupo
   fichas: FichaMsg[]
   carregando: boolean
   escalaMini: number
   obsPorContrato: Record<string, ObsMsg[]>
+  fotoPorContrato: Record<string, string | null>
   podeMarcarContato: boolean
   onMarcarContato: (contratoId: string) => Promise<boolean>
   onReceber: (contratoId: string) => Promise<boolean>
@@ -1732,6 +1764,13 @@ function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, podeM
   // O ⤴ ao lado de cada ficha só existe onde o aparelho abre o menu Compartilhar com PNG
   // (celular sim; no computador depende do sistema). No servidor, `false`.
   const podeCompartilhar = useSyncExternalStore(semAssinatura, podeCompartilharPng, () => false)
+  const [fotoAberta, setFotoAberta] = useState<{ url: string; pet: string } | null>(null)
+  useEffect(() => {
+    if (!fotoAberta) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFotoAberta(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [fotoAberta])
 
   return (
     // Coluna estreita de propósito: a conversa é uma janela de chat, não uma tabela. Num
@@ -1821,15 +1860,25 @@ function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, podeM
                     className="max-w-[85%] rounded-lg rounded-tl-none p-1.5 shadow-sm"
                     style={{ background: 'var(--zap-balao)', border: '1px solid var(--zap-balao-borda)' }}
                   >
-                    <button
-                      onClick={() => onAmpliar(f)}
-                      className="block relative rounded overflow-hidden group"
-                      title="Ver a ficha inteira"
-                    >
-                      {/* A miniatura É a ficha-documento em escala. Ver a nota do topo. */}
-                      <FichaEscalada ficha={f.ficha} escala={escalaMini} />
-                      <span className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
-                    </button>
+                    {/* Ficha e foto do pet LADO A LADO (26/10/2026, pedido do Lucas): a foto não
+                        ganha balão próprio pra não esticar a conversa na vertical. A foto estica
+                        até a altura da miniatura (`items-stretch`) e corta no centro. */}
+                    <div className="flex items-stretch gap-1.5">
+                      <button
+                        onClick={() => onAmpliar(f)}
+                        className="block relative rounded overflow-hidden group shrink-0"
+                        title="Ver a ficha inteira"
+                      >
+                        {/* A miniatura É a ficha-documento em escala. Ver a nota do topo. */}
+                        <FichaEscalada ficha={f.ficha} escala={escalaMini} />
+                        <span className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+                      </button>
+                      <FotoDoPet
+                        url={fotoPorContrato[f.contratoId]}
+                        largura={Math.round(DOC_W * escalaMini * 0.8)}
+                        onAbrir={url => setFotoAberta({ url, pet: f.petNome })}
+                      />
+                    </div>
                     {/* Legenda do "anexo": LACRE · nome do pet — pedido do Lucas em 23/09/2026.
                         O lacre lidera a linha porque é por ele que a operação identifica o pet
                         (mesma ordem do card de `/tarefas`, "5646 — MORCILLA"). Aqui ele sai
@@ -1968,6 +2017,38 @@ function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, podeM
           })
         )}
       </div>
+      {fotoAberta && (
+        <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4" onClick={() => setFotoAberta(null)}>
+          <button className="absolute top-3 right-3 h-11 w-11 rounded-full bg-white/10 text-white flex items-center justify-center" aria-label="Fechar">
+            <X className="h-5 w-5" />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element -- url assinada do Storage */}
+          <img src={fotoAberta.url} alt={`Foto de ${fotoAberta.pet}`} className="max-w-full max-h-[90dvh] rounded-lg object-contain" />
+        </div>
+      )}
     </div>
+  )
+}
+
+/** Foto do pet ao lado da miniatura da ficha. `undefined` = carregando · `null` = sem foto. */
+function FotoDoPet({ url, largura, onAbrir }: { url: string | null | undefined; largura: number; onAbrir: (url: string) => void }) {
+  const caixa = 'shrink-0 rounded overflow-hidden flex flex-col items-center justify-center gap-1 text-center'
+  if (url === undefined) {
+    return <div className={caixa} style={{ width: largura, background: 'var(--zap-balao-borda)', opacity: 0.5 }} />
+  }
+  if (url === null) {
+    return (
+      <div className={`${caixa} border border-dashed`} style={{ width: largura, borderColor: 'var(--zap-balao-meta)', color: 'var(--zap-balao-meta)' }}>
+        <CameraOff className="h-5 w-5" />
+        <span className="text-[11px] font-semibold leading-tight">sem foto</span>
+      </div>
+    )
+  }
+  return (
+    <button onClick={() => onAbrir(url)} className={`${caixa} relative group`} style={{ width: largura }} title="Ver a foto do pet">
+      {/* eslint-disable-next-line @next/next/no-img-element -- url assinada do Storage */}
+      <img src={url} alt="Foto do pet" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+      <span className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+    </button>
   )
 }
