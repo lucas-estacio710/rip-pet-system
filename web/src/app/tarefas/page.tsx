@@ -2383,31 +2383,33 @@ export default function TarefasPage() {
             ) : (() => {
               // Mesma montagem de "Minhas Tarefas" (27/10/2026, pedido do Lucas): Remoção ·
               // 💎 Personalizados agrupados por pet · Entrega por dia/período · Ativação PV — aqui
-              // com "Com fulano · há quanto tempo" e Reatribuir/Desatribuir em cada tarefa.
+              // com "com fulano há quanto tempo" e UM botão por tarefa (27/10/2026, igual ao
+              // pipeline): Desatribuir — a tarefa volta pra "Para Atribuir" e lá se passa pra outra
+              // pessoa. Remoção e Ativação de PV não têm pool pra voltar (cancelarAtribuicao
+              // recusa), então nelas o único botão é Reatribuir.
               type T = (typeof emAndamento)[number]
               const idade = (t: T) => comQuem(t.atribuido_a, operacionais.find(o => o.user_id === t.atribuido_a)?.nome, t.atribuido_em)
-              const botoes = (t: T, pequeno = false) => (
-                <div className={`flex ${pequeno ? 'gap-1' : 'flex-col items-stretch gap-2'} shrink-0`}>
+              const botoes = (t: T, pequeno = false) => {
+                const cls = `${pequeno ? 'px-2 py-1 rounded-md text-[11px]' : 'px-2.5 py-1.5 rounded-lg text-xs'} font-semibold text-white shrink-0`
+                return t.tipo === 'remocao' || t.tipo === 'ativacao_pv' ? (
                   <button
                     onClick={e => { e.stopPropagation(); setReatribuindoId(reatribuindoId === t.id ? null : t.id) }}
-                    className={`${pequeno ? 'px-2 py-1 rounded-md text-[11px]' : 'px-2.5 py-1.5 rounded-lg text-xs'} font-semibold text-white`}
+                    className={cls}
                     style={{ background: '#64748b' }}
                   >
                     Reatribuir
                   </button>
-                  {/* Remoção e Ativação de PV não voltam pra pool (cancelarAtribuicao recusa) — o botão era clique morto em ativacao_pv. */}
-                  {t.tipo !== 'remocao' && t.tipo !== 'ativacao_pv' && (
-                    <button
-                      onClick={e => { e.stopPropagation(); cancelarAtribuicao(t) }}
-                      disabled={cancelandoId === t.id}
-                      className={`${pequeno ? 'px-2 py-1 rounded-md text-[11px]' : 'px-2.5 py-1.5 rounded-lg text-xs'} font-semibold text-white bg-red-600 disabled:opacity-50`}
-                      title="Volta pro pool 'Pra atribuir', sem passar pra ninguém"
-                    >
-                      {cancelandoId === t.id ? '...' : 'Desatribuir'}
-                    </button>
-                  )}
-                </div>
-              )
+                ) : (
+                  <button
+                    onClick={e => { e.stopPropagation(); cancelarAtribuicao(t) }}
+                    disabled={cancelandoId === t.id}
+                    className={`${cls} bg-red-600 disabled:opacity-50`}
+                    title="Volta pro pool 'Para Atribuir', sem passar pra ninguém"
+                  >
+                    {cancelandoId === t.id ? '...' : 'Desatribuir'}
+                  </button>
+                )
+              }
               const seletor = (t: T) => reatribuindoId === t.id && (
                 <div className="mt-1.5 ml-1 flex gap-1.5" onClick={e => e.stopPropagation()}>
                   <select
