@@ -1385,6 +1385,9 @@ export default function TarefasPage() {
   // Previsão da Entrega no popup de atribuir (27/10/2026): nasce com a do CONTRATO (mig 172),
   // vai junto pra tarefa (`[Prev: …]`, que é o que o Operacional lê) e, se mudar, grava no contrato.
   const [previsaoAtribuicao, setPrevisaoAtribuicao] = useState<Record<string, { data: string; periodo: PeriodoEntrega | '' }>>({})
+  // Endereço alternativo da Entrega (mesmo "alterar" do pipeline): vai como `[End: …]` na tarefa.
+  // Sem chave = o do cadastro.
+  const [enderecoAtribuicao, setEnderecoAtribuicao] = useState<Record<string, string>>({})
   const [salvandoAtribuicao, setSalvandoAtribuicao] = useState(false)
   const [marcandoFeitoId, setMarcandoFeitoId] = useState<string | null>(null)
   // true só quando tarefaAberta foi criada agora mesmo pelo botão "Feito" do pool (rascunho
@@ -1784,7 +1787,7 @@ export default function TarefasPage() {
     const prevAntes = { data: contratoDaEntrega?.entrega_prevista || '', periodo: (contratoDaEntrega?.entrega_periodo || '') as PeriodoEntrega | '' }
     const prev = tipo === 'entrega' ? (previsaoAtribuicao[itemKey] ?? prevAntes) : null
     const observacao = prev
-      ? (montarObsEntrega({ prevData: prev.data || undefined, prevPeriodo: prev.periodo || undefined, texto: textoLivre }) || '')
+      ? (montarObsEntrega({ prevData: prev.data || undefined, prevPeriodo: prev.periodo || undefined, endereco: enderecoAtribuicao[itemKey], texto: textoLivre }) || '')
       : textoLivre
     setSalvandoAtribuicao(true)
     try {
@@ -1854,6 +1857,7 @@ export default function TarefasPage() {
       setAtribuirModalItem(null)
       setObservacaoAtribuicao(prev => { const n = { ...prev }; delete n[itemKey]; return n })
       setPrevisaoAtribuicao(prev => { const n = { ...prev }; delete n[itemKey]; return n })
+      setEnderecoAtribuicao(prev => { const n = { ...prev }; delete n[itemKey]; return n })
       await Promise.all([carregarPool(), carregarEmAndamento(), carregarMinhas()])
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Erro ao atribuir', 'error')
@@ -2517,27 +2521,53 @@ export default function TarefasPage() {
                   {item.lacre ? `${item.lacre} — ${item.petNome}` : item.petNome}
                 </p>
                 <p className="text-xs text-[var(--surface-500)]">{item.tutorNome}</p>
-                {item.enderecoResumo && <p className="text-xs text-[var(--surface-500)] mt-1">📍 {item.enderecoResumo}</p>}
+                {item.enderecoResumo && tipo !== 'entrega' && <p className="text-xs text-[var(--surface-500)] mt-1">📍 {item.enderecoResumo}</p>}
               </div>
 
-              {item.enderecoResumo && (
+              {tipo === 'entrega' && (() => {
+                const alt = enderecoAtribuicao[formKey]
+                return (
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--surface-400)]">Endereço</p>
+                    {alt !== undefined ? (
+                      <>
+                        <input value={alt} onChange={e => setEnderecoAtribuicao(prev => ({ ...prev, [formKey]: e.target.value }))}
+                          placeholder="Rua, nº, compl. · bairro · cidade" className="input text-sm w-full" style={{ fontSize: 16 }} />
+                        <button type="button" onClick={() => setEnderecoAtribuicao(prev => { const n = { ...prev }; delete n[formKey]; return n })}
+                          className="text-xs font-semibold underline text-[var(--surface-500)]">usar o do cadastro</button>
+                      </>
+                    ) : (
+                      <p className="text-sm text-[var(--surface-700)]">
+                        📍 {item.enderecoResumo || <span className="italic text-[var(--surface-400)]">Sem endereço no cadastro</span>}
+                        {' '}<button type="button" onClick={() => setEnderecoAtribuicao(prev => ({ ...prev, [formKey]: '' }))}
+                          className="text-xs font-semibold underline" style={{ color: '#7c3aed' }}>alterar</button>
+                      </p>
+                    )}
+                  </div>
+                )
+              })()}
+
+              {(() => {
+                const destino = (tipo === 'entrega' && enderecoAtribuicao[formKey]?.trim()) || item.enderecoResumo
+                return destino && (
                 <div className="grid grid-cols-2 gap-2">
                   <a
-                    href={`https://waze.com/ul?q=${encodeURIComponent(item.enderecoResumo)}&navigate=yes`}
+                    href={`https://waze.com/ul?q=${encodeURIComponent(destino)}&navigate=yes`}
                     target="_blank" rel="noopener noreferrer"
                     className="flex items-center justify-center gap-2 py-2 rounded-lg bg-sky-600 text-white text-xs font-semibold"
                   >
                     <MapPin className="h-3.5 w-3.5" />Waze
                   </a>
                   <a
-                    href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(item.enderecoResumo)}`}
+                    href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destino)}`}
                     target="_blank" rel="noopener noreferrer"
                     className="flex items-center justify-center gap-2 py-2 rounded-lg bg-emerald-600 text-white text-xs font-semibold"
                   >
                     <Navigation className="h-3.5 w-3.5" />Google Maps
                   </a>
                 </div>
-              )}
+                )
+              })()}
 
               <select
                 value={operacionalEscolhido[formKey] || ''}
@@ -2545,10 +2575,9 @@ export default function TarefasPage() {
                 className="input text-sm w-full"
               >
                 <option value="">Escolher quem vai fazer...</option>
+                {/* Só o nome, igual ao "Atribuir a…" do pipeline (27/10/2026, pedido do Lucas). */}
                 {operacionais.map(o => (
-                  <option key={o.user_id} value={o.user_id}>
-                    {o.nome || 'Sem nome'} ({o.role === 'operacional' ? 'Operacional' : o.role === 'gerente' ? 'Gerente' : o.role === 'super_admin' ? 'Admin' : 'Concierge'}) — {cargaPorPessoa[o.user_id] || 0} pendente{(cargaPorPessoa[o.user_id] || 0) === 1 ? '' : 's'}
-                  </option>
+                  <option key={o.user_id} value={o.user_id}>{o.nome || 'Sem nome'}</option>
                 ))}
               </select>
               {tipo === 'entrega' && (() => {
