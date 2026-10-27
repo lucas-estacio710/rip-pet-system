@@ -31,7 +31,8 @@ import FotoProva from '@/components/tarefas/FotoProva'
 import type { FotoComprimida } from '@/lib/comprimir-imagem'
 import { concluirTarefasOperacionais, reabrirTarefasOperacionais, registrarObservacaoContrato, formatarIdade, atribuidoEhPosicao } from '@/lib/atribuir-tarefa'
 import { pelinhoDoAcolhimento, moverPelinhoComAcolhimento } from '@/lib/tarefas-rescaldo'
-import { lerObsEntrega, formatarPrevisao } from '@/lib/obs-entrega'
+import { lerObsEntrega, formatarPrevisao, montarObsEntrega, type PeriodoEntrega } from '@/lib/obs-entrega'
+import ListaPorPrevisao from '@/components/tarefas/ListaPorPrevisao'
 import { enderecoParaNavegar, linksNavegacao } from '@/lib/card-pet'
 import { COLUNAS_ENDERECO_CLINICA, textoEnderecoClinica, linksDestino, type EnderecoClinica } from '@/lib/endereco-clinica'
 import { carregarExigeFoto, enviarFotoTarefa, listarFotosDasTarefas, urlAssinadaFoto, type ExigeFotoPorTipo } from '@/lib/foto-tarefa'
@@ -165,6 +166,9 @@ type ContratoResumo = {
   numero_lacre: string | null
   unidade_id: string
   data_acolhimento: string | null
+  // Previsão de entrega do CONTRATO (mig 172) — só o pool de Entrega busca.
+  entrega_prevista?: string | null
+  entrega_periodo?: PeriodoEntrega | null
   // Só preenchido em "Minhas Tarefas" (carregarMinhas) — pro badge/detalhe de saldo em aberto
   // na tarefa de Entrega. Pool não busca esses campos, ficam undefined lá.
   valor_plano?: number | null
@@ -378,7 +382,7 @@ const PLACEHOLDER_PEDIDO: Record<TarefaTipo, string> = {
 
 // Item do pool já agrupado por (tipo, contrato) — itemIds carrega os `contrato_produto_id`
 // (ou o `contrato.id` pra entrega) do grupo inteiro; quantidade > 1 vira o badge "×N" no card.
-type PoolItemData = { key: string; itemIds: string[]; quantidade: number; petNome: string; tutorNome: string; status: string; lacre: string | null; enderecoResumo?: string; dataAcolhimento?: string | null; notas?: string[] }
+type PoolItemData = { key: string; itemIds: string[]; quantidade: number; petNome: string; tutorNome: string; status: string; lacre: string | null; enderecoResumo?: string; dataAcolhimento?: string | null; notas?: string[]; prevData?: string; prevPeriodo?: PeriodoEntrega }
 
 // Os 4 tipos de rescaldo do mesmo pet viram 1 card só no pool ("Personalizados") — pedido do
 // Lucas (01/09/2026): "agrupa por pet se tiver mais de uma atividade". Entrega fica de fora
@@ -485,8 +489,9 @@ function PoolItem({ tipo, item, onAbrirAtribuir, onMarcarFeito, marcandoFeitoId 
       petNome={item.petNome}
       tutorNome={item.tutorNome}
       quantidade={item.quantidade}
-      linhaExtra={(item.enderecoResumo || !!item.notas?.length) ? (
+      linhaExtra={(item.enderecoResumo || !!item.notas?.length || item.prevData || item.prevPeriodo) ? (
         <>
+          {formatarPrevisao(item) && <p className="text-xs font-semibold text-violet-500 mt-0.5">{formatarPrevisao(item)}</p>}
           {item.enderecoResumo && <p className="text-xs text-[var(--surface-500)] line-clamp-2 mt-0.5">📍 {item.enderecoResumo}</p>}
           {item.notas?.map((n, i) => <p key={i} className="text-xs font-medium text-amber-600 line-clamp-2 mt-0.5">📝 {n}</p>)}
         </>
@@ -1377,6 +1382,9 @@ export default function TarefasPage() {
   const [atribuirModalItem, setAtribuirModalItem] = useState<{ tipo: TarefaTipo; item: PoolItemData } | null>(null)
   const [operacionalEscolhido, setOperacionalEscolhido] = useState<Record<string, string>>({})
   const [observacaoAtribuicao, setObservacaoAtribuicao] = useState<Record<string, string>>({})
+  // Previsão da Entrega no popup de atribuir (27/10/2026): nasce com a do CONTRATO (mig 172),
+  // vai junto pra tarefa (`[Prev: …]`, que é o que o Operacional lê) e, se mudar, grava no contrato.
+  const [previsaoAtribuicao, setPrevisaoAtribuicao] = useState<Record<string, { data: string; periodo: PeriodoEntrega | '' }>>({})
   const [salvandoAtribuicao, setSalvandoAtribuicao] = useState(false)
   const [marcandoFeitoId, setMarcandoFeitoId] = useState<string | null>(null)
   // true só quando tarefaAberta foi criada agora mesmo pelo botão "Feito" do pool (rascunho
@@ -1744,7 +1752,7 @@ export default function TarefasPage() {
     const idsRescaldoOcupados = (pendentesRescaldo || []).map((r: { contrato_produto_id: string | null }) => r.contrato_produto_id).filter(Boolean)
     setOperacionais(perfisAtribuiveis as { user_id: string; nome: string | null; role: string }[])
 
-    let qEntrega = supabase.from('contratos').select('id, codigo, pet_nome, tutor_nome, tutor_telefone, tutor_endereco, tutor_bairro, tutor_cidade, tutor:tutores(endereco, numero, complemento, bairro, cidade, cep), status, numero_lacre, unidade_id, data_acolhimento')
+    let qEntrega = supabase.from('contratos').select('id, codigo, pet_nome, tutor_nome, tutor_telefone, tutor_endereco, tutor_bairro, tutor_cidade, tutor:tutores(endereco, numero, complemento, bairro, cidade, cep), status, numero_lacre, unidade_id, data_acolhimento, entrega_prevista, entrega_periodo')
       .eq('unidade_id', currentUnit.id).in('status', ['retorno', 'pendente'])
       .order('data_acolhimento', { ascending: false, nullsFirst: false }) // pet mais novo primeiro
     if (idsEntregaOcupados.length > 0) qEntrega = qEntrega.not('id', 'in', `(${idsEntregaOcupados.join(',')})`)
@@ -1770,7 +1778,14 @@ export default function TarefasPage() {
   async function atribuir(tipo: TarefaTipo, origem: { contratoId?: string; contratoProdutoIds?: string[]; unidadeId: string }, itemKey: string) {
     const operacionalId = operacionalEscolhido[itemKey]
     if (!operacionalId) return
-    const observacao = (observacaoAtribuicao[itemKey] || '').trim()
+    const textoLivre = (observacaoAtribuicao[itemKey] || '').trim()
+    // Entrega: a previsão entra no texto da tarefa no formato do pipeline (lib/obs-entrega).
+    const contratoDaEntrega = tipo === 'entrega' ? poolEntrega.find(c => c.id === origem.contratoId) : undefined
+    const prevAntes = { data: contratoDaEntrega?.entrega_prevista || '', periodo: (contratoDaEntrega?.entrega_periodo || '') as PeriodoEntrega | '' }
+    const prev = tipo === 'entrega' ? (previsaoAtribuicao[itemKey] ?? prevAntes) : null
+    const observacao = prev
+      ? (montarObsEntrega({ prevData: prev.data || undefined, prevPeriodo: prev.periodo || undefined, texto: textoLivre }) || '')
+      : textoLivre
     setSalvandoAtribuicao(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
@@ -1795,6 +1810,11 @@ export default function TarefasPage() {
           throw new Error('Este item já tem uma tarefa pendente (foi atribuído agora há pouco, ou o contrato ainda tem o acolhimento em aberto). Atualizei a lista.')
         }
         throw new Error(error.message)
+      }
+      if (prev && origem.contratoId && (prev.data !== prevAntes.data || prev.periodo !== prevAntes.periodo)) {
+        const { error: errPrev } = await supabase.from('contratos')
+          .update({ entrega_prevista: prev.data || null, entrega_periodo: prev.periodo || null } as never).eq('id', origem.contratoId)
+        if (errPrev) toast(`Atribuída, mas a previsão não foi salva no contrato: ${errPrev.message}`, 'error')
       }
 
       const petNome = origem.contratoId
@@ -1833,6 +1853,7 @@ export default function TarefasPage() {
       toast('Tarefa atribuída!', 'success')
       setAtribuirModalItem(null)
       setObservacaoAtribuicao(prev => { const n = { ...prev }; delete n[itemKey]; return n })
+      setPrevisaoAtribuicao(prev => { const n = { ...prev }; delete n[itemKey]; return n })
       await Promise.all([carregarPool(), carregarEmAndamento(), carregarMinhas()])
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Erro ao atribuir', 'error')
@@ -1922,6 +1943,8 @@ export default function TarefasPage() {
     key: c.id, itemIds: [c.id], quantidade: 1, petNome: c.pet_nome, tutorNome: c.tutor_nome, status: c.status, lacre: c.numero_lacre,
     enderecoResumo: enderecoParaNavegar(c.tutor, { endereco: c.tutor_endereco, bairro: c.tutor_bairro, cidade: c.tutor_cidade }) || undefined,
     dataAcolhimento: c.data_acolhimento,
+    prevData: c.entrega_prevista || undefined,
+    prevPeriodo: c.entrega_periodo || undefined,
   }))
   const poolItensPorTipo: Record<TarefaTipo, PoolItemData[]> = {
     entrega: poolEntregaMapeado.filter(item => item.status !== 'pendente'),
@@ -2072,7 +2095,7 @@ export default function TarefasPage() {
                 ))}
               </PersonalizadosGroup>
               <TipoGroup tipo="entrega" count={(minhasPorTipo.entrega || []).length} defaultAberto={false}>
-                {(minhasPorTipo.entrega || []).map(t => {
+                <ListaPorPrevisao itens={minhasPorTipo.entrega || []} previsao={t => lerObsEntrega(t.observacao_atribuicao)} render={t => {
                   const contrato = t.contrato_id ? contratosPorId[t.contrato_id] : null
                   const petNome = contrato?.pet_nome || t.petNome
                   const tutorNome = contrato?.tutor_nome || t.tutorNome
@@ -2104,10 +2127,10 @@ export default function TarefasPage() {
                       onClick={() => abrirTarefaMinhas(t)}
                     />
                   )
-                })}
+                }} />
               </TipoGroup>
               <TipoGroup tipo="entrega_pendente" count={(minhasPorTipo.entrega_pendente || []).length} defaultAberto={false}>
-                {(minhasPorTipo.entrega_pendente || []).map(t => {
+                <ListaPorPrevisao itens={minhasPorTipo.entrega_pendente || []} previsao={t => lerObsEntrega(t.observacao_atribuicao)} render={t => {
                   const contrato = t.contrato_id ? contratosPorId[t.contrato_id] : null
                   const petNome = contrato?.pet_nome || t.petNome
                   const tutorNome = contrato?.tutor_nome || t.tutorNome
@@ -2139,7 +2162,7 @@ export default function TarefasPage() {
                       onClick={() => abrirTarefaMinhas(t)}
                     />
                   )
-                })}
+                }} />
               </TipoGroup>
               <TipoGroup tipo="ativacao_pv" count={(minhasPorTipo.ativacao_pv || []).length} defaultAberto={false}>
                 {(minhasPorTipo.ativacao_pv || []).map(t => (
@@ -2271,7 +2294,7 @@ export default function TarefasPage() {
                   ))}
                 </PersonalizadosGroup>
                 <TipoGroup tipo="entrega" count={poolItensPorTipo.entrega.length} defaultAberto={false}>
-                  {poolItensPorTipo.entrega.map(item => (
+                  <ListaPorPrevisao itens={poolItensPorTipo.entrega} previsao={item => ({ prevData: item.prevData, prevPeriodo: item.prevPeriodo })} render={item => (
                     <PoolItem
                       key={item.key}
                       tipo="entrega"
@@ -2280,10 +2303,10 @@ export default function TarefasPage() {
                       onMarcarFeito={poolItem => marcarFeitoDireto('entrega', { contratoId: poolItem.key, unidadeId: currentUnit!.id }, `entrega:${poolItem.key}`)}
                       marcandoFeitoId={marcandoFeitoId}
                     />
-                  ))}
+                  )} />
                 </TipoGroup>
                 <TipoGroup tipo="entrega_pendente" count={poolItensPorTipo.entrega_pendente.length} defaultAberto={false}>
-                  {poolItensPorTipo.entrega_pendente.map(item => (
+                  <ListaPorPrevisao itens={poolItensPorTipo.entrega_pendente} previsao={item => ({ prevData: item.prevData, prevPeriodo: item.prevPeriodo })} render={item => (
                     <PoolItem
                       key={item.key}
                       tipo="entrega_pendente"
@@ -2292,7 +2315,7 @@ export default function TarefasPage() {
                       onMarcarFeito={poolItem => marcarFeitoDireto('entrega', { contratoId: poolItem.key, unidadeId: currentUnit!.id }, `entrega_pendente:${poolItem.key}`)}
                       marcandoFeitoId={marcandoFeitoId}
                     />
-                  ))}
+                  )} />
                 </TipoGroup>
               </>
             )}
@@ -2308,7 +2331,9 @@ export default function TarefasPage() {
             ) : (
               ORDEM_TIPOS.map(tipo => (
                 <TipoGroup key={tipo} tipo={tipo} count={(andamentoPorTipo[tipo] || []).length}>
-                  {(andamentoPorTipo[tipo] || []).map(t => {
+                  {(() => {
+                  const lista = andamentoPorTipo[tipo] || []
+                  const card = (t: (typeof lista)[number]) => {
                     const horasParado = (Date.now() - new Date(t.atribuido_em).getTime()) / (1000 * 60 * 60)
                     const corIdade = horasParado > 48 ? 'text-red-500' : horasParado > 24 ? 'text-amber-500' : 'text-[var(--surface-400)]'
                     const nomeAtual = operacionais.find(o => o.user_id === t.atribuido_a)?.nome || '—'
@@ -2371,7 +2396,12 @@ export default function TarefasPage() {
                         )}
                       </div>
                     )
-                  })}
+                  }
+                  // Entregas: por dia e período da previsão (27/10/2026), igual à etapa Entrega do pipeline.
+                  return tipo === 'entrega' || tipo === 'entrega_pendente'
+                    ? <ListaPorPrevisao itens={lista} previsao={t => lerObsEntrega(t.observacao_atribuicao)} render={card} />
+                    : lista.map(card)
+                  })()}
                 </TipoGroup>
               ))
             )}
@@ -2521,6 +2551,25 @@ export default function TarefasPage() {
                   </option>
                 ))}
               </select>
+              {tipo === 'entrega' && (() => {
+                const pv = previsaoAtribuicao[formKey] ?? { data: item.prevData || '', periodo: item.prevPeriodo || '' }
+                const mudar = (n: Partial<typeof pv>) => setPrevisaoAtribuicao(prev => ({ ...prev, [formKey]: { ...pv, ...n } }))
+                return (
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--surface-400)]">Previsão</p>
+                    <input type="date" value={pv.data} onChange={e => mudar({ data: e.target.value })} className="input text-sm w-full" style={{ fontSize: 16 }} />
+                    <div className="flex gap-1">
+                      {([['manha', 'Manhã'], ['tarde', 'Tarde'], ['dia_todo', 'Dia todo']] as [PeriodoEntrega, string][]).map(([v, rot]) => (
+                        <button key={v} type="button" onClick={() => mudar({ periodo: pv.periodo === v ? '' : v })}
+                          className="flex-1 h-8 rounded-md text-xs font-semibold border"
+                          style={pv.periodo === v ? { background: 'rgba(124,58,237,.14)', borderColor: '#7c3aed', color: '#7c3aed' } : { borderColor: 'var(--surface-300)', color: 'var(--surface-500)' }}>
+                          {rot}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
               <textarea
                 value={observacaoAtribuicao[formKey] || ''}
                 onChange={e => setObservacaoAtribuicao(prev => ({ ...prev, [formKey]: e.target.value }))}
