@@ -152,7 +152,9 @@ export default function FarolPopup({ aberto, onFechar, tags, animar, onFarol, te
                 direita={f.tipo === 'sistema'
                   ? <span className="pl-chip-nao">✓ {f.texto}</span>
                   : f.tipo === 'feito'
-                  ? <>{f.texto && <span className="flex-none text-[12px] font-black px-1.5 py-0.5 rounded" style={{ background: '#ea580c', color: '#fff' }}>{f.texto}</span>}<Ok animar={animar} atraso={(feitoIdx++) * 90} /></>
+                  ? <>{f.texto && (f.id === 'encaminhamento'
+                      ? <span className="flex-none text-[12px] font-black px-1.5 py-0.5 rounded" style={{ background: '#ea580c', color: '#fff' }}>{f.texto}</span>
+                      : <span className="text-[12px] font-semibold text-[var(--surface-500)] truncate min-w-0">{f.texto}</span>)}<Ok animar={animar} atraso={(feitoIdx++) * 90} /></>
                   : <span className="pl-chip-nao">{f.texto}</span>}
               />
             ))}

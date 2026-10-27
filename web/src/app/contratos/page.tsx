@@ -68,6 +68,9 @@ import GraficosViagem from '@/components/contratos/pipeline/GraficosViagem'
 import TrazerDaMatriz from '@/components/contratos/pipeline/TrazerDaMatriz'
 import AdicionarPetsViagem from '@/components/contratos/pipeline/AdicionarPetsViagem'
 import { carregarTarefaEntrega } from '@/lib/tarefa-entrega'
+import { lerObsEntrega, formatarPrevisao, type PeriodoEntrega } from '@/lib/obs-entrega'
+import { agruparProgramacao } from '@/lib/programacao-entrega'
+import { nomesDePerfis } from '@/lib/cache-pessoas'
 import { useToast } from '@/components/ui/Toast'
 import { usePopupHistory } from '@/hooks/usePopupHistory'
 import { concluirTarefasPendentesDe, reabrirTarefasOperacionais, podeMarcarFeitoSemFoto } from '@/lib/atribuir-tarefa'
@@ -929,6 +932,40 @@ function ContratosContent() {
     supabase.from('fontes_conhecimento').select('id, nome')
       .then(({ data }) => setNomeDaFonte(Object.fromEntries(((data || []) as { id: string; nome: string }[]).map(f => [f.id, f.nome]))))
   }, [encPipeline, supabase])
+
+  // 📬 Programar entrega (27/10/2026): a tarefa de entrega PENDENTE de cada contrato da etapa
+  // Entrega/Pendente — quem está com ela e a previsão. Ter tarefa = programado: o pet sai do pool
+  // e entra no dia da previsão (lib/programacao-entrega), e o farol 📬 fica feito.
+  // `undefined` = ainda carregando (a lista não se divide antes de saber).
+  const [programadas, setProgramadas] = useState<Record<string, { com: string; prevData?: string; prevPeriodo?: string }> | undefined>(undefined)
+  const idsDaRota = encPipeline && (statusFiltro === 'retorno' || statusFiltro === 'pendente')
+    ? contratos.filter(c => c.status === 'retorno' || c.status === 'pendente').map(c => c.id).sort().join(',')
+    : ''
+  useEffect(() => {
+    // Recarga (farol mudou, pet saiu da lista) mantém o mapa anterior até chegar o novo — senão a
+    // lista se juntaria e se dividiria de novo a cada atribuição.
+    if (!idsDaRota) { setProgramadas(undefined); return }
+    let vivo = true
+    const linhas: { contrato_id: string; atribuido_a: string; observacao_atribuicao: string | null }[] = []
+    consultaEmLotes(
+      idsDaRota.split(','),
+      (lote, de, ate) => supabase.from('tarefas_operacionais')
+        .select('contrato_id, atribuido_a, observacao_atribuicao')
+        .eq('tipo', 'entrega').eq('status', 'pendente').in('contrato_id', lote)
+        .order('id').range(de, ate) as unknown as PromiseLike<{ data: typeof linhas | null; error: unknown }>,
+      (_ids, data) => { linhas.push(...data) },
+    ).then(async () => {
+      const nomes = await nomesDePerfis(supabase, linhas.map(l => l.atribuido_a))
+      if (!vivo) return
+      const out: Record<string, { com: string; prevData?: string; prevPeriodo?: string }> = {}
+      for (const l of linhas) {
+        const o = lerObsEntrega(l.observacao_atribuicao)
+        out[l.contrato_id] = { com: nomes[l.atribuido_a] || 'alguém', prevData: o.prevData, prevPeriodo: o.prevPeriodo }
+      }
+      setProgramadas(out)
+    }).catch(() => { if (vivo) setProgramadas({}) })
+    return () => { vivo = false }
+  }, [idsDaRota, farolEntregaVer, supabase])
 
   // P-29: o ✓ de personalizado/pelinho some pra quem não pode concluir sem foto (concierge numa
   // unidade com o Operacional). Config lida 1× — é a mesma do trigger da mig 147.
@@ -4440,13 +4477,21 @@ ${petNome}`
         sublabel: c.supinda?.numero ? String(c.supinda.numero) : undefined,
       }] : []),
       ...computeAllTags({ ...c, indicacaoFonteId, temOperacional: unidadeTemOperacional(c.unidade_id) }).filter(t => t.id !== 'protocolo'),
-      // 📬 Registrar entrega (2.9): último da ordem, só na Entrega/Pendente. Fora do
-      // computeAllTags de propósito (senão iria pro detalhe, /tutores e PI).
-      ...((c.status === 'retorno' || c.status === 'pendente') ? [{
-        id: 'entrega', emoji: '📬', label: 'Registrar entrega',
-        state: (entregaCom ? 'in_progress' : 'pending') as ComputedTag['state'],
-        tooltip: entregaCom ? `Com ${entregaCom}` : 'A entregar',
-      }] : []),
+      // 📬 Programar entrega (2.9; ex-"Registrar entrega", renomeado em 27/10/2026): último da
+      // ordem, só na Entrega/Pendente. Fora do computeAllTags de propósito (senão iria pro
+      // detalhe, /tutores e PI). ATRIBUIR é o que conclui o farol — a entrega em si fecha o
+      // contrato (✓ Concluir dentro da mesma tela, que segue abrindo com o farol feito).
+      ...((c.status === 'retorno' || c.status === 'pendente') ? (() => {
+        const prog = programadas?.[c.id]
+        const com = prog?.com ?? entregaCom
+        const prev = prog ? formatarPrevisao({ prevData: prog.prevData, prevPeriodo: prog.prevPeriodo as PeriodoEntrega | undefined }) : null
+        return [{
+          id: 'entrega', emoji: '📬', label: 'Programar entrega',
+          state: (com ? 'completed' : 'pending') as ComputedTag['state'],
+          tooltip: com ? `Com ${com}` : 'A programar',
+          sublabel: com ? [com, prev ? prev.replace('📅 ', '') : 'sem data'].join(' · ') : undefined,
+        }]
+      })() : []),
     ]
   }
 
@@ -4470,7 +4515,7 @@ ${petNome}`
     let feitos = tags.filter(t => estadoConcluido(t.state)).length
     let pendentes = tags.filter(t => estadoPendente(t.state)).length
     if (encPipeline && c.status === 'ativo' && !c.aguardando_acolhimento) { if (c.supinda_id) feitos++; else pendentes++ }
-    if (c.status === 'retorno' || c.status === 'pendente') pendentes++
+    if (c.status === 'retorno' || c.status === 'pendente') { if (programadas?.[c.id]) feitos++; else pendentes++ }
     return { feitos, pendentes }
   }
 
@@ -5243,10 +5288,40 @@ ${petNome}`
                   return d.length === 8 ? parseInt(d, 10) : Number.MAX_SAFE_INTEGER // sem CEP vai pro fim
                 }
                 const porRota = [...lista].sort((a, b) => cepNum(a) - cepNum(b))
+                // 27/10/2026: em cima o POOL (ninguém programou a entrega); embaixo "Programado",
+                // um sub-grupo por dia da previsão (atrasados primeiro, "Sem data" no fim).
+                // Antes do mapa chegar (`programadas` undefined) a lista fica corrida.
+                const { pool, dias } = programadas
+                  ? agruparProgramacao(porRota, c => programadas[c.id] ?? null, hojeLocal())
+                  : { pool: porRota, dias: [] }
+                const nProgramados = dias.reduce((s2, d) => s2 + d.itens.length, 0)
+                const cardRota = (c: Contrato) => <div key={c.id}>{renderFn(c, renderEnderecoEntrega(c))}</div>
                 return (
                   <div className="space-y-2">
-                    {porRota.map(c => (
-                      <div key={c.id}>{renderFn(c, renderEnderecoEntrega(c))}</div>
+                    {nProgramados > 0 && pool.length > 0 && (
+                      <div className="pl-faixa" style={{ '--pl-c': '#f59e0b' } as React.CSSProperties}>
+                        📬 A programar · {pool.length}
+                      </div>
+                    )}
+                    {pool.map(cardRota)}
+                    {nProgramados > 0 && (
+                      <div className="flex items-center gap-2 pt-4 pb-1">
+                        <CalendarClock className="h-4 w-4 flex-shrink-0 text-[#16a34a]" />
+                        <span className="text-[13px] font-black uppercase tracking-wider text-[#16a34a]">Programado · {nProgramados}</span>
+                        <div className="flex-1 h-px bg-[#16a34a]/40" />
+                      </div>
+                    )}
+                    {dias.map(d => (
+                      <Fragment key={d.chave}>
+                        <div className={`flex items-center gap-2 pt-2 pl-1 text-[12px] font-bold ${d.atrasado ? 'text-red-500' : d.hoje ? 'text-[#16a34a]' : 'text-[var(--surface-500)]'}`}>
+                          {d.atrasado && <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />}
+                          <span>{d.rotulo}</span>
+                          <span className="font-semibold text-[var(--surface-400)]">· {d.itens.length}</span>
+                          {d.atrasado && <span className="font-semibold text-[11px] text-red-400">não concluída no sistema</span>}
+                          <div className="flex-1 h-px bg-[var(--surface-200)]" />
+                        </div>
+                        {d.itens.map(cardRota)}
+                      </Fragment>
                     ))}
                   </div>
                 )
@@ -8207,7 +8282,7 @@ ${petNome}`
               })(),
             } : popupHist.nivel >= 2 && farolTela === 'entrega' ? {
               emoji: '📬',
-              titulo: 'Registrar entrega',
+              titulo: 'Programar entrega',
               conteudo: (
                 <EntregaTela
                   contratoId={c.id}

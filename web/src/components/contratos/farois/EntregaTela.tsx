@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * 📬 Registrar entrega — 2º nível do popup de pendências, ORQUESTRADOR da tarefa de entrega
+ * 📬 Programar entrega (ex-"Registrar entrega", 27/10/2026) — 2º nível do popup de pendências, ORQUESTRADOR da tarefa de entrega
  * (fase 2.9 do docs/PLAYBOOK_REDESENHO_PIPELINE.md; D10 e itens 37/39).
  *
  * Bloco 🚚 Realizar entrega (só com `cb_operacional` da unidade DO CONTRATO):

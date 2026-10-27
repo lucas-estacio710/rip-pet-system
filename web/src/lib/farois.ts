@@ -36,8 +36,8 @@ function textoNaoTem(id: string): string {
 }
 
 function textoPendente(tag: ComputedTag): string {
-  // 📬 Registrar entrega (2.9): o texto vem pronto — "A entregar" ou "Com Juliana" (D10).
-  if (tag.id === 'entrega') return tag.tooltip || 'A entregar'
+  // 📬 Programar entrega (2.9): pendente = ninguém com a tarefa ainda — "A programar".
+  if (tag.id === 'entrega') return tag.tooltip || 'A programar'
   // 🚐 Encaminhamento (2.13b): "Sem viagem" ou "Sem lacre" (P-13), vindo pronto no tooltip.
   if (tag.id === 'encaminhamento') return tag.tooltip || 'Sem viagem'
   if (tag.state === 'alert') return 'Em aberto'
@@ -57,8 +57,9 @@ function textoPendente(tag: ComputedTag): string {
 export function farolParaLista(tag: ComputedTag): FarolLista | null {
   if (tag.state === 'hidden') return null
   if (tag.state === 'sistema') return { id: tag.id, emoji: tag.emoji, label: tag.label, tipo: 'sistema', texto: 'Finalizado pelo sistema' }
-  // Concluída mostra só o ✓ — exceto o 🚐, que mostra a viagem ("ST172", item 17).
-  if (tag.state === 'completed') return { id: tag.id, emoji: tag.emoji, label: tag.label, tipo: 'feito', texto: tag.id === 'encaminhamento' ? (tag.sublabel || null) : null }
+  // Concluída mostra só o ✓ — exceto o 🚐, que mostra a viagem ("ST172", item 17), e o 📬, que
+  // mostra com quem e pra quando ("Juliana · 28/10 · Tarde", 27/10/2026).
+  if (tag.state === 'completed') return { id: tag.id, emoji: tag.emoji, label: tag.label, tipo: 'feito', texto: tag.id === 'encaminhamento' || tag.id === 'entrega' ? (tag.sublabel || null) : null }
   if (tag.state === 'rejected') return { id: tag.id, emoji: tag.emoji, label: tag.label, tipo: 'nao_tem', texto: textoNaoTem(tag.id) }
   return { id: tag.id, emoji: tag.emoji, label: tag.label, tipo: 'pendente', texto: textoPendente(tag) }
 }
