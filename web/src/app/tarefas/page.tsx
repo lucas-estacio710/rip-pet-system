@@ -134,6 +134,27 @@ function temPedido(t: { observacao_atribuicao: string | null; notasProduto?: str
   return pedidoDaTarefa(t.observacao_atribuicao).exigeCiencia || !!t.notasProduto?.length
 }
 
+/** "com fulano há 3h", logo depois do título da tarefa — o nome na cor fixa da pessoa
+ *  (lib/cor-pessoa). Em "Minhas Tarefas" é sempre o próprio nome, redundante de propósito
+ *  (pedido do Lucas, 27/10/2026). Função, não componente: lê a hora atual (Date.now). */
+function comQuem(id: string | null | undefined, nome: string | null | undefined, desde: string) {
+  const horas = (Date.now() - new Date(desde).getTime()) / (1000 * 60 * 60)
+  const cor = horas > 48 ? 'text-red-500' : horas > 24 ? 'text-amber-500' : 'text-[var(--surface-400)]'
+  const idade = formatarIdade(horas)
+  return <>com <span className="font-semibold" style={{ color: corDaPessoa(id) }}>{nome || '—'}</span> <span className={cor}>{idade === 'agora' ? 'agora' : `há ${idade}`}</span></>
+}
+
+/** Observação de quem atribuiu + nota do item (mig 154), à vista no card — em toda lista de
+ *  tarefa aberta, de todo perfil; Finalizadas não (27/10/2026). Previsão e endereço já têm linha própria. */
+function ObsNoCard({ t, pequeno = false }: { t: { observacao_atribuicao: string | null; notasProduto?: string[] }; pequeno?: boolean }) {
+  const texto = lerObsEntrega(t.observacao_atribuicao).texto
+  const linhas = [...(texto ? [texto] : []), ...(t.notasProduto || [])]
+  if (linhas.length === 0) return null
+  return <>{linhas.map((l, i) => (
+    <p key={i} className={`${pequeno ? 'text-[10px]' : 'text-xs'} font-medium text-amber-600 line-clamp-2 mt-0.5`}>📝 {l}</p>
+  ))}</>
+}
+
 function pedidoLegivel(obs: string | null | undefined): string {
   const p = pedidoDaTarefa(obs)
   return [p.texto, p.previsao ? `previsão ${p.previsao.replace('📅 ', '')}` : null, p.endereco ? `endereço: ${p.endereco}` : null].filter(Boolean).join(' · ')
@@ -308,8 +329,10 @@ function TipoGroup({ tipo, count, children, defaultAberto = true }: { tipo: Tare
 // extra opcional) em qualquer lugar da página: pool, em andamento, concluídas, minhas tarefas.
 // `onClick` = cartão inteiro é o botão (uso em "Minhas Tarefas"); sem `onClick` = linha estática
 // com `acao` (botão Atribuir/Reatribuir/Desfazer) à direita.
-function TarefaCard({ tipo, statusBadge, unidadeId, lacre, petNome, tutorNome, quantidade, linhaExtra, acao, onClick }: {
+function TarefaCard({ tipo, statusBadge, unidadeId, lacre, petNome, tutorNome, quantidade, linhaExtra, acao, onClick, comQuem: com }: {
   tipo: TarefaTipo
+  /** "com fulano há 4h", logo depois do título da tarefa (27/10/2026). */
+  comQuem?: React.ReactNode
   statusBadge?: string
   unidadeId?: string | null
   lacre?: string | null
@@ -325,9 +348,10 @@ function TarefaCard({ tipo, statusBadge, unidadeId, lacre, petNome, tutorNome, q
   const conteudo = (
     <>
       <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-1 text-xs font-bold uppercase tracking-wide" style={{ color: info.cor }}>
+        <p className="flex items-center gap-1 text-xs font-bold uppercase tracking-wide min-w-0" style={{ color: info.cor }}>
           <Icon className="h-3.5 w-3.5 shrink-0" style={{ color: info.cor }} />
-          {info.label}
+          <span className="shrink-0">{info.label}</span>
+          {com && <span className="normal-case tracking-normal font-medium text-[var(--surface-500)] truncate min-w-0">{com}</span>}
         </p>
         <p className="text-sm font-semibold text-[var(--surface-800)] truncate flex items-center gap-1.5">
           {statusBadge && <StatusBadge status={statusBadge} unidadeId={unidadeId} />}
@@ -602,9 +626,10 @@ function PetPoolCard({ petGroup, onAbrirAtribuir, onMarcarFeito, marcandoFeitoId
 
 // Card de 1 pet em "Minhas Tarefas" — os 4 rescaldos já atribuídos a mim pro mesmo pet juntos;
 // cada tipo abre a conclusão só dele (mesmo card de detalhe/conclusão de sempre).
-function PetMinhasCard({ petGroup, onAbrirTarefa }: {
+function PetMinhasCard({ petGroup, onAbrirTarefa, eu }: {
   petGroup: PetMinhasGroup
   onAbrirTarefa: (t: TarefaGrupo) => void
+  eu: { id: string | null | undefined; nome: string | null | undefined }
 }) {
   return (
     <div className="rounded-xl border border-[var(--surface-200)] p-3 space-y-2">
@@ -627,9 +652,13 @@ function PetMinhasCard({ petGroup, onAbrirTarefa }: {
               style={{ background: info.cor + '0d' }}
             >
               <Icon className="h-3.5 w-3.5 shrink-0" style={{ color: info.cor }} />
-              <span className="text-xs font-semibold flex-1 truncate" style={{ color: info.cor }}>
-                {info.label}{t.quantidade > 1 ? ` ×${t.quantidade}` : ''}
-              </span>
+              <div className="flex-1 min-w-0">
+                <span className="text-xs truncate block" style={{ color: info.cor }}>
+                  <span className="font-semibold">{info.label}{t.quantidade > 1 ? ` ×${t.quantidade}` : ''}</span>
+                  {' '}<span className="text-[var(--surface-500)]">{comQuem(eu.id, eu.nome, t.atribuido_em)}</span>
+                </span>
+                <ObsNoCard t={t} pequeno />
+              </div>
               {temPedido(t) && <span className="text-sm shrink-0" title="Tem pedido específico">📝</span>}
             </button>
           )
@@ -1993,6 +2022,7 @@ export default function TarefasPage() {
   const andamentoPorTipo = agruparPorTipo(ordenarPorAcolhimento(emAndamento), chaveExibicao)
   const concluidasPorTipo = agruparPorTipo(ordenarPorAcolhimento(concluidasRecentes), chaveExibicao)
   const concluidasPetGroups = ordenarPorAcolhimento(agruparPorPet(concluidasRecentes.filter(t => TIPOS_PERSONALIZADOS.includes(t.tipo))))
+  const eu = { id: userId, nome: userName }
   const andamentoPetGroups = ordenarPorAcolhimento(agruparPorPet(emAndamento.filter(t => TIPOS_PERSONALIZADOS.includes(t.tipo))))
 
   function abrirTarefaMinhas(t: TarefaGrupo) {
@@ -2097,6 +2127,10 @@ export default function TarefasPage() {
                       petNome={petNome}
                       tutorNome={tutorNome}
                       quantidade={t.quantidade}
+                      comQuem={comQuem(eu.id, eu.nome, t.atribuido_em)}
+                      linhaExtra={<>
+                        <ObsNoCard t={t} />
+                      </>}
                       acao={temPedido(t) ? <span className="text-base shrink-0" title="Tem pedido específico">📝</span> : undefined}
                       onClick={() => abrirTarefaMinhas(t)}
                     />
@@ -2105,7 +2139,7 @@ export default function TarefasPage() {
               </TipoGroup>
               <PersonalizadosGroup count={minhasPetGroups.reduce((soma, g) => soma + g.itens.length, 0)} defaultAberto={false}>
                 {minhasPetGroups.map(petGroup => (
-                  <PetMinhasCard key={petGroup.contratoId} petGroup={petGroup} onAbrirTarefa={abrirTarefaMinhas} />
+                  <PetMinhasCard key={petGroup.contratoId} petGroup={petGroup} onAbrirTarefa={abrirTarefaMinhas} eu={eu} />
                 ))}
               </PersonalizadosGroup>
               <TipoGroup tipo="entrega" count={(minhasPorTipo.entrega || []).length} defaultAberto={false}>
@@ -2126,12 +2160,12 @@ export default function TarefasPage() {
                       petNome={petNome}
                       tutorNome={tutorNome}
                       quantidade={t.quantidade}
-                      linhaExtra={(enderecoCompleto || pedido.previsao) ? (
-                        <>
-                          {pedido.previsao && <p className="text-xs font-semibold text-violet-500 mt-0.5">{pedido.previsao}</p>}
-                          {enderecoCompleto && <p className="text-xs text-[var(--surface-500)] line-clamp-2 mt-0.5">📍 {enderecoCompleto}{endAlterado && <span className="ml-1 font-semibold text-amber-500">(alterado)</span>}</p>}
-                        </>
-                      ) : undefined}
+                      comQuem={comQuem(eu.id, eu.nome, t.atribuido_em)}
+                      linhaExtra={<>
+                        {pedido.previsao && <p className="text-xs font-semibold text-violet-500 mt-0.5">{pedido.previsao}</p>}
+                        {enderecoCompleto && <p className="text-xs text-[var(--surface-500)] line-clamp-2 mt-0.5">📍 {enderecoCompleto}{endAlterado && <span className="ml-1 font-semibold text-amber-500">(alterado)</span>}</p>}
+                        <ObsNoCard t={t} />
+                      </>}
                       acao={(pedido.exigeCiencia || saldo > 0) ? (
                         <div className="flex flex-col items-end gap-1 shrink-0">
                           {pedido.exigeCiencia && <span className="text-base" title="Tem pedido específico">📝</span>}
@@ -2161,12 +2195,12 @@ export default function TarefasPage() {
                       petNome={petNome}
                       tutorNome={tutorNome}
                       quantidade={t.quantidade}
-                      linhaExtra={(enderecoCompleto || pedido.previsao) ? (
-                        <>
-                          {pedido.previsao && <p className="text-xs font-semibold text-violet-500 mt-0.5">{pedido.previsao}</p>}
-                          {enderecoCompleto && <p className="text-xs text-[var(--surface-500)] line-clamp-2 mt-0.5">📍 {enderecoCompleto}{endAlterado && <span className="ml-1 font-semibold text-amber-500">(alterado)</span>}</p>}
-                        </>
-                      ) : undefined}
+                      comQuem={comQuem(eu.id, eu.nome, t.atribuido_em)}
+                      linhaExtra={<>
+                        {pedido.previsao && <p className="text-xs font-semibold text-violet-500 mt-0.5">{pedido.previsao}</p>}
+                        {enderecoCompleto && <p className="text-xs text-[var(--surface-500)] line-clamp-2 mt-0.5">📍 {enderecoCompleto}{endAlterado && <span className="ml-1 font-semibold text-amber-500">(alterado)</span>}</p>}
+                        <ObsNoCard t={t} />
+                      </>}
                       acao={(pedido.exigeCiencia || saldo > 0) ? (
                         <div className="flex flex-col items-end gap-1 shrink-0">
                           {pedido.exigeCiencia && <span className="text-base" title="Tem pedido específico">📝</span>}
@@ -2187,6 +2221,10 @@ export default function TarefasPage() {
                     unidadeId={t.unidade_id}
                     petNome={t.petNome}
                     tutorNome={t.tutorNome}
+                    comQuem={comQuem(eu.id, eu.nome, t.atribuido_em)}
+                    linhaExtra={<>
+                      <ObsNoCard t={t} />
+                    </>}
                     acao={temPedido(t) ? <span className="text-base shrink-0" title="Tem pedido específico">📝</span> : undefined}
                     onClick={() => abrirTarefaMinhas(t)}
                   />
@@ -2214,14 +2252,14 @@ export default function TarefasPage() {
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
-                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)}{colaboradorSuffix(t)}</p>}
+                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · <span className="font-semibold" style={{ color: corDaPessoa(eu.id) }}>{eu.nome || '—'}</span>{colaboradorSuffix(t)}</p>}
                       onClick={() => setTarefaRecibo(t)}
                     />
                   ))}
                 </TipoGroup>
                 <PersonalizadosGroup count={minhasConcluidasPetGroups.reduce((soma, g) => soma + g.itens.length, 0)} defaultAberto={false}>
                   {minhasConcluidasPetGroups.map(petGroup => (
-                    <PetConcluidasCard key={petGroup.contratoId} petGroup={petGroup} onAbrirRecibo={setTarefaRecibo} funcionarioNomePorId={funcionarioNomePorId} />
+                    <PetConcluidasCard key={petGroup.contratoId} petGroup={petGroup} onAbrirRecibo={setTarefaRecibo} nomePorId={eu.id ? { [eu.id]: eu.nome || '—' } : undefined} funcionarioNomePorId={funcionarioNomePorId} />
                   ))}
                 </PersonalizadosGroup>
                 <TipoGroup tipo="entrega" count={(minhasConcluidasPorTipo.entrega || []).length} defaultAberto={false}>
@@ -2233,7 +2271,7 @@ export default function TarefasPage() {
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
-                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)}{colaboradorSuffix(t)}</p>}
+                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · <span className="font-semibold" style={{ color: corDaPessoa(eu.id) }}>{eu.nome || '—'}</span>{colaboradorSuffix(t)}</p>}
                       onClick={() => setTarefaRecibo(t)}
                     />
                   ))}
@@ -2247,7 +2285,7 @@ export default function TarefasPage() {
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
-                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)}{colaboradorSuffix(t)}</p>}
+                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · <span className="font-semibold" style={{ color: corDaPessoa(eu.id) }}>{eu.nome || '—'}</span>{colaboradorSuffix(t)}</p>}
                       onClick={() => setTarefaRecibo(t)}
                     />
                   ))}
@@ -2260,7 +2298,7 @@ export default function TarefasPage() {
                       lacre={t.lacreContrato || t.lacre}
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}
-                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)}{colaboradorSuffix(t)}</p>}
+                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · <span className="font-semibold" style={{ color: corDaPessoa(eu.id) }}>{eu.nome || '—'}</span>{colaboradorSuffix(t)}</p>}
                       onClick={() => setTarefaRecibo(t)}
                     />
                   ))}
@@ -2347,11 +2385,7 @@ export default function TarefasPage() {
               // 💎 Personalizados agrupados por pet · Entrega por dia/período · Ativação PV — aqui
               // com "Com fulano · há quanto tempo" e Reatribuir/Desatribuir em cada tarefa.
               type T = (typeof emAndamento)[number]
-              const idade = (t: T) => {
-                const horas = (Date.now() - new Date(t.atribuido_em).getTime()) / (1000 * 60 * 60)
-                const cor = horas > 48 ? 'text-red-500' : horas > 24 ? 'text-amber-500' : 'text-[var(--surface-400)]'
-                return <>Com <span className="font-semibold" style={{ color: corDaPessoa(t.atribuido_a) }}>{operacionais.find(o => o.user_id === t.atribuido_a)?.nome || '—'}</span> · <span className={cor}>{formatarIdade(horas)}</span></>
-              }
+              const idade = (t: T) => comQuem(t.atribuido_a, operacionais.find(o => o.user_id === t.atribuido_a)?.nome, t.atribuido_em)
               const botoes = (t: T, pequeno = false) => (
                 <div className={`flex ${pequeno ? 'gap-1' : 'flex-col items-stretch gap-2'} shrink-0`}>
                   <button
@@ -2413,10 +2447,11 @@ export default function TarefasPage() {
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
+                      comQuem={idade(t)}
                       linhaExtra={<>
                         {pedido?.previsao && <p className="text-xs font-semibold text-violet-500 mt-0.5">{pedido.previsao}</p>}
                         {end?.endereco && <p className="text-xs text-[var(--surface-500)] line-clamp-2 mt-0.5">📍 {end.endereco}{end.alterado && <span className="ml-1 font-semibold text-amber-500">(alterado)</span>}</p>}
-                        <p className="text-xs text-[var(--surface-500)] truncate mt-0.5">{idade(t)}</p>
+                        <ObsNoCard t={t} />
                       </>}
                       onClick={() => abrirTarefaMinhas(t)}
                       acao={<div className="flex items-start gap-1.5 shrink-0">
@@ -2467,10 +2502,11 @@ export default function TarefasPage() {
                                 >
                                   <Icon className="h-3.5 w-3.5 shrink-0" style={{ color: info.cor }} />
                                   <div className="flex-1 min-w-0">
-                                    <span className="text-xs font-semibold truncate block" style={{ color: info.cor }}>
-                                      {info.label}{t.quantidade > 1 ? ` ×${t.quantidade}` : ''}{temPedido(t) ? ' 📝' : ''}
+                                    <span className="text-xs truncate block" style={{ color: info.cor }}>
+                                      <span className="font-semibold">{info.label}{t.quantidade > 1 ? ` ×${t.quantidade}` : ''}</span>
+                                      {' '}<span className="text-[var(--surface-500)]">{idade(t)}</span>
                                     </span>
-                                    <span className="text-[10px] text-[var(--surface-500)] truncate block">{idade(t)}</span>
+                                    <ObsNoCard t={t} pequeno />
                                   </div>
                                   {botoes(t, true)}
                                 </div>
