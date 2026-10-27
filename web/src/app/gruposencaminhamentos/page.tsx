@@ -75,6 +75,7 @@ import { createClient } from '@/lib/supabase/client'
 import { BUCKET_TAREFAS, listarFotosDasTarefas } from '@/lib/foto-tarefa'
 import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
+import { useVoltarFecha } from '@/hooks/usePopupHistory'
 import { dataLocal } from '@/lib/date-local'
 import { nomeParaAgenda, nomeDoContatoAtivo } from '@/lib/nome-agenda'
 import { linkChatDireto, linkAgendamentoDespedida } from '@/lib/whatsapp-msg'
@@ -1765,12 +1766,7 @@ function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, fotoP
   // (celular sim; no computador depende do sistema). No servidor, `false`.
   const podeCompartilhar = useSyncExternalStore(semAssinatura, podeCompartilharPng, () => false)
   const [fotoAberta, setFotoAberta] = useState<{ url: string; pet: string } | null>(null)
-  useEffect(() => {
-    if (!fotoAberta) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFotoAberta(null) }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [fotoAberta])
+  const fecharFoto = useCallback(() => setFotoAberta(null), [])
 
   return (
     // Coluna estreita de propósito: a conversa é uma janela de chat, não uma tabela. Num
@@ -2017,15 +2013,110 @@ function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, fotoP
           })
         )}
       </div>
-      {fotoAberta && (
-        <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4" onClick={() => setFotoAberta(null)}>
-          <button className="absolute top-3 right-3 h-11 w-11 rounded-full bg-white/10 text-white flex items-center justify-center" aria-label="Fechar">
-            <X className="h-5 w-5" />
-          </button>
-          {/* eslint-disable-next-line @next/next/no-img-element -- url assinada do Storage */}
-          <img src={fotoAberta.url} alt={`Foto de ${fotoAberta.pet}`} className="max-w-full max-h-[90dvh] rounded-lg object-contain" />
-        </div>
-      )}
+      {fotoAberta && <FotoAmpliada url={fotoAberta.url} pet={fotoAberta.pet} onFechar={fecharFoto} />}
+    </div>
+  )
+}
+
+/**
+ * Foto do pet em tela cheia (26/10/2026, pedido do Lucas): botão voltar do celular fecha
+ * (`useVoltarFecha`), X sempre visível e zoom de pinça.
+ * 🔴 O zoom é NOSSO, não do navegador: o `viewport` do app tem `maximumScale: 1`, que desliga a
+ * pinça nativa. `touch-action: none` entrega os toques pra cá; pinça amplia (1–5×), um dedo
+ * arrasta quando ampliada, toque duplo alterna 1× ↔ 2,5×. Tocar fora fecha só sem gesto no meio.
+ */
+function FotoAmpliada({ url, pet, onFechar }: { url: string; pet: string; onFechar: () => void }) {
+  const [aberto, setAberto] = useState(true)
+  useVoltarFecha(aberto, onFechar)
+  const fechar = () => setAberto(false)
+  useEffect(() => { if (!aberto) onFechar() }, [aberto, onFechar])
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setAberto(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  const [vista, setVista] = useState({ s: 1, x: 0, y: 0 })
+  const dedos = useRef(new Map<number, { x: number; y: number }>())
+  const inicio = useRef<{ dist: number; s: number; x: number; y: number; px: number; py: number } | null>(null)
+  const mexeu = useRef(false)
+  const ultimoToque = useRef(0)
+  const [gesto, setGesto] = useState(false)
+
+  const recomecar = (v: { s: number; x: number; y: number }) => {
+    const ps = [...dedos.current.values()]
+    if (ps.length >= 2) {
+      inicio.current = { dist: Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y) || 1, s: v.s, x: v.x, y: v.y, px: 0, py: 0 }
+    } else if (ps.length === 1) {
+      inicio.current = { dist: 0, s: v.s, x: v.x, y: v.y, px: ps[0].x, py: ps[0].y }
+    } else inicio.current = null
+  }
+  const onDown = (e: React.PointerEvent) => {
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId) } catch { /* ponteiro já solto */ }
+    dedos.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    if (dedos.current.size === 1) mexeu.current = false
+    setGesto(true)
+    recomecar(vista)
+  }
+  const onMove = (e: React.PointerEvent) => {
+    if (!dedos.current.has(e.pointerId) || !inicio.current) return
+    dedos.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    const ps = [...dedos.current.values()], i = inicio.current
+    if (ps.length >= 2) {
+      const d = Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y)
+      mexeu.current = true
+      setVista(v => ({ ...v, s: Math.min(5, Math.max(1, i.s * d / i.dist)) }))
+    } else if (vista.s > 1) {
+      const dx = e.clientX - i.px, dy = e.clientY - i.py
+      if (Math.abs(dx) + Math.abs(dy) > 4) mexeu.current = true
+      setVista(v => ({ ...v, x: i.x + dx, y: i.y + dy }))
+    } else if (Math.abs(e.clientX - i.px) + Math.abs(e.clientY - i.py) > 8) mexeu.current = true
+  }
+  const onUp = (e: React.PointerEvent) => {
+    dedos.current.delete(e.pointerId)
+    if (dedos.current.size === 0) setGesto(false)
+    const v = vista.s <= 1.02 ? { s: 1, x: 0, y: 0 } : vista
+    if (v !== vista) setVista(v)
+    recomecar(v)
+    if (dedos.current.size > 0 || mexeu.current) return
+    const agora = Date.now()
+    if (agora - ultimoToque.current < 300) {
+      ultimoToque.current = 0
+      setVista(vista.s > 1 ? { s: 1, x: 0, y: 0 } : { s: 2.5, x: 0, y: 0 })
+      return
+    }
+    ultimoToque.current = agora
+    // Toque simples FORA da foto fecha (espera o duplo não chegar)
+    const naFoto = (e.target as HTMLElement).tagName === 'IMG'
+    if (!naFoto && vista.s === 1) setTimeout(() => { if (ultimoToque.current === agora) fechar() }, 300)
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] bg-black/90 flex items-center justify-center overflow-hidden select-none"
+      style={{ touchAction: 'none' }}
+      onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element -- url assinada do Storage */}
+      <img
+        src={url} alt={`Foto de ${pet}`} draggable={false}
+        className="max-w-[96vw] max-h-[86dvh] rounded-lg object-contain"
+        style={{ transform: `translate(${vista.x}px, ${vista.y}px) scale(${vista.s})`, transition: gesto ? 'none' : 'transform 150ms ease-out' }}
+      />
+      {/* O X fica abaixo da área segura do celular (notch) e por cima de tudo */}
+      <button
+        onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()}
+        onClick={fechar}
+        className="absolute right-3 h-12 w-12 rounded-full bg-white/90 text-black shadow-lg flex items-center justify-center"
+        style={{ top: 'calc(env(safe-area-inset-top, 0px) + 12px)' }}
+        aria-label="Fechar foto"
+      >
+        <X className="h-6 w-6" />
+      </button>
+      <span className="absolute bottom-4 left-1/2 -translate-x-1/2 text-xs text-white/70 pointer-events-none whitespace-nowrap"
+        style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 14px)' }}>
+        {pet} · pinça ou toque duplo para ampliar
+      </span>
     </div>
   )
 }
