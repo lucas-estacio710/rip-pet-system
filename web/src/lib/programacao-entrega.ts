@@ -1,10 +1,11 @@
 // ============================================================================
 // Etapa Entrega/Pendente do pipeline novo (`obj_enc_pipeline`): a lista se divide em
 //   1. o POOL — pets sem tarefa de entrega (ninguém programou ainda), em cima;
-//   2. "Programado" — pets com a tarefa atribuída, em sub-grupos pelo DIA DA PREVISÃO
-//      (o `[Prev: …]` de `observacao_atribuicao`, lib/obs-entrega), mais "Sem data".
-// Pedido do Lucas em 27/10/2026. Atribuir a entrega é o que tira o pet do pool: o farol
-// "📬 Programar entrega" (ex-"Registrar entrega") fica feito nesse momento.
+//   2. "Programado" — pets com a tarefa atribuída OU com previsão (mig 172: a previsão é do
+//      contrato e independe de atribuição), em sub-grupos pelo DIA DA PREVISÃO e, dentro de cada
+//      dia, pelo PERÍODO (Manhã · Tarde · Dia todo · Sem período). Atribuído sem data → "Sem data".
+// Pedido do Lucas em 27/10/2026. O farol "📬 Programar entrega" (ex-"Registrar entrega") fica
+// feito só com a ATRIBUIÇÃO — previsão sem responsável continua pendente.
 //
 // Ordem dos dias: cronológica — o que ficou para trás e não foi concluído no sistema (Há 3 dias,
 // Ontem) vem antes de Hoje, porque é o mais urgente; "Sem data" fecha a lista.
@@ -16,6 +17,13 @@ export type Programacao = {
   prevData?: string
   /** 'manha' | 'tarde' | 'dia_todo' */
   prevPeriodo?: string
+}
+
+export type GrupoPeriodo<T> = {
+  /** 'manha' | 'tarde' | 'dia_todo' | 'sem_periodo' */
+  chave: string
+  rotulo: string
+  itens: T[]
 }
 
 export type GrupoDia = {
@@ -30,7 +38,12 @@ export type GrupoDia = {
 
 const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 const SEMANA = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb']
-const ORDEM_PERIODO: Record<string, number> = { manha: 0, tarde: 1, dia_todo: 2 }
+const PERIODOS: { chave: string; rotulo: string }[] = [
+  { chave: 'manha', rotulo: 'Manhã' },
+  { chave: 'tarde', rotulo: 'Tarde' },
+  { chave: 'dia_todo', rotulo: 'Dia todo' },
+  { chave: 'sem_periodo', rotulo: 'Sem período' },
+]
 
 function diasEntre(deIso: string, ateIso: string): number {
   const de = Date.UTC(+deIso.slice(0, 4), +deIso.slice(5, 7) - 1, +deIso.slice(8, 10))
@@ -53,30 +66,38 @@ export function rotuloDoDia(iso: string, hoje: string): string {
 /**
  * Separa os itens em pool (sem programação) e programados por dia.
  * `prog(item)` devolve a programação do item, ou `null` quando não há tarefa de entrega.
- * Dentro de cada dia: Manhã → Tarde → Dia todo → sem período, mantendo a ordem recebida no empate.
+ * Dentro de cada dia: Manhã → Tarde → Dia todo → Sem período (só os que têm pet), mantendo a
+ * ordem recebida dentro de cada período.
  */
 export function agruparProgramacao<T>(
   itens: T[],
   prog: (item: T) => Programacao | null,
   hoje: string,
-): { pool: T[]; dias: (GrupoDia & { itens: T[] })[] } {
+): { pool: T[]; dias: (GrupoDia & { itens: T[]; periodos: GrupoPeriodo<T>[] })[] } {
   const pool: T[] = []
-  const porDia = new Map<string, { item: T; ordem: number; i: number }[]>()
-  itens.forEach((item, i) => {
+  const porDia = new Map<string, { item: T; periodo: string }[]>()
+  for (const item of itens) {
     const p = prog(item)
-    if (!p) { pool.push(item); return }
+    if (!p) { pool.push(item); continue }
     const chave = p.prevData && /^\d{4}-\d{2}-\d{2}$/.test(p.prevData) ? p.prevData : 'sem_data'
-    const ordem = p.prevPeriodo != null && p.prevPeriodo in ORDEM_PERIODO ? ORDEM_PERIODO[p.prevPeriodo] : 3
+    const periodo = PERIODOS.some(x => x.chave === p.prevPeriodo) && p.prevPeriodo !== 'sem_periodo' ? p.prevPeriodo! : 'sem_periodo'
     if (!porDia.has(chave)) porDia.set(chave, [])
-    porDia.get(chave)!.push({ item, ordem, i })
-  })
+    porDia.get(chave)!.push({ item, periodo })
+  }
   const chaves = [...porDia.keys()].sort((a, b) => (a === 'sem_data' ? 1 : b === 'sem_data' ? -1 : a.localeCompare(b)))
-  const dias = chaves.map(chave => ({
-    chave,
-    rotulo: chave === 'sem_data' ? 'Sem data' : rotuloDoDia(chave, hoje),
-    atrasado: chave !== 'sem_data' && chave < hoje,
-    hoje: chave === hoje,
-    itens: porDia.get(chave)!.sort((a, b) => a.ordem - b.ordem || a.i - b.i).map(x => x.item),
-  }))
+  const dias = chaves.map(chave => {
+    const doDia = porDia.get(chave)!
+    const periodos = PERIODOS
+      .map(per => ({ ...per, itens: doDia.filter(x => x.periodo === per.chave).map(x => x.item) }))
+      .filter(per => per.itens.length > 0)
+    return {
+      chave,
+      rotulo: chave === 'sem_data' ? 'Sem data' : rotuloDoDia(chave, hoje),
+      atrasado: chave !== 'sem_data' && chave < hoje,
+      hoje: chave === hoje,
+      itens: periodos.flatMap(per => per.itens),
+      periodos,
+    }
+  })
   return { pool, dias }
 }

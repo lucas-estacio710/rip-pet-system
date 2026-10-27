@@ -15,7 +15,7 @@ import type { createClient } from '@/lib/supabase/client'
 import type { FotoComprimida } from '@/lib/comprimir-imagem'
 import { enviarFotoTarefa } from '@/lib/foto-tarefa'
 import { concluirTarefasOperacionais, reabrirTarefasOperacionais, registrarObservacaoContrato } from '@/lib/atribuir-tarefa'
-import { lerObsEntrega, formatarPrevisao } from '@/lib/obs-entrega'
+import { lerObsEntrega, formatarPrevisao, type PeriodoEntrega } from '@/lib/obs-entrega'
 
 type Supabase = ReturnType<typeof createClient>
 type Ator = { userId: string | null; nome: string }
@@ -94,6 +94,38 @@ export async function salvarObsEntrega(sb: Supabase, ctx: Contexto & { tarefaId:
     contratoId: ctx.contratoId,
     unidadeId: ctx.unidadeId,
     descricao: `${ctx.ator.nome} alterou o pedido da Entrega (pelo pipeline)${pedidoLegivel(ctx.obs) || ' — pedido apagado'}.`,
+    criadoPor: ctx.ator.nome,
+  })
+}
+
+/** A previsão (data + período) que o CONTRATO guarda — mig 172. Independe de tarefa. */
+export async function carregarPrevisaoEntrega(sb: Supabase, contratoId: string): Promise<{ prevData?: string; prevPeriodo?: PeriodoEntrega }> {
+  const { data, error } = await sb.from('contratos').select('entrega_prevista, entrega_periodo')
+    .eq('id', contratoId).maybeSingle() as { data: { entrega_prevista: string | null; entrega_periodo: PeriodoEntrega | null } | null; error: { message: string } | null }
+  if (error) throw new Error(error.message)
+  return { prevData: data?.entrega_prevista || undefined, prevPeriodo: data?.entrega_periodo || undefined }
+}
+
+/**
+ * Grava a previsão no CONTRATO (mig 172), com ou sem tarefa atribuída. Quem chama, se houver
+ * tarefa, também atualiza a cópia no texto dela (`salvarObsEntrega`) — é de lá que o /tarefas lê.
+ */
+export async function salvarPrevisaoEntrega(
+  sb: Supabase,
+  ctx: Contexto & { prevData: string | null; prevPeriodo: PeriodoEntrega | null; registrar: boolean },
+): Promise<void> {
+  const { error } = await sb.from('contratos')
+    .update({ entrega_prevista: ctx.prevData, entrega_periodo: ctx.prevPeriodo } as never)
+    .eq('id', ctx.contratoId)
+  if (error) throw new Error(error.message)
+  if (!ctx.registrar) return
+  const prev = formatarPrevisao({ prevData: ctx.prevData || undefined, prevPeriodo: ctx.prevPeriodo || undefined })
+  await registrarObservacaoContrato(sb, {
+    contratoId: ctx.contratoId,
+    unidadeId: ctx.unidadeId,
+    descricao: prev
+      ? `${ctx.ator.nome} marcou a previsão da Entrega para ${prev.replace('📅 ', '')} (pelo pipeline).`
+      : `${ctx.ator.nome} apagou a previsão da Entrega (pelo pipeline).`,
     criadoPor: ctx.ator.nome,
   })
 }

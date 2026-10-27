@@ -933,11 +933,12 @@ function ContratosContent() {
       .then(({ data }) => setNomeDaFonte(Object.fromEntries(((data || []) as { id: string; nome: string }[]).map(f => [f.id, f.nome]))))
   }, [encPipeline, supabase])
 
-  // 📬 Programar entrega (27/10/2026): a tarefa de entrega PENDENTE de cada contrato da etapa
-  // Entrega/Pendente — quem está com ela e a previsão. Ter tarefa = programado: o pet sai do pool
-  // e entra no dia da previsão (lib/programacao-entrega), e o farol 📬 fica feito.
-  // `undefined` = ainda carregando (a lista não se divide antes de saber).
-  const [programadas, setProgramadas] = useState<Record<string, { com: string; prevData?: string; prevPeriodo?: string }> | undefined>(undefined)
+  // 📬 Programar entrega (27/10/2026): por contrato da etapa Entrega/Pendente, quem está com a
+  // tarefa de entrega PENDENTE (`com`) e a PREVISÃO — que é do contrato (mig 172) e vale sem
+  // atribuição; o texto da tarefa só cobre contrato sem a coluna preenchida. Ter um dos dois =
+  // programado: sai do pool e entra no dia/período (lib/programacao-entrega). O farol 📬 só fica
+  // feito com `com`. `undefined` = ainda carregando (a lista não se divide antes de saber).
+  const [programadas, setProgramadas] = useState<Record<string, { com?: string; prevData?: string; prevPeriodo?: string }> | undefined>(undefined)
   const idsDaRota = encPipeline && (statusFiltro === 'retorno' || statusFiltro === 'pendente')
     ? contratos.filter(c => c.status === 'retorno' || c.status === 'pendente').map(c => c.id).sort().join(',')
     : ''
@@ -946,21 +947,36 @@ function ContratosContent() {
     // lista se juntaria e se dividiria de novo a cada atribuição.
     if (!idsDaRota) { setProgramadas(undefined); return }
     let vivo = true
+    const ids = idsDaRota.split(',')
     const linhas: { contrato_id: string; atribuido_a: string; observacao_atribuicao: string | null }[] = []
-    consultaEmLotes(
-      idsDaRota.split(','),
-      (lote, de, ate) => supabase.from('tarefas_operacionais')
-        .select('contrato_id, atribuido_a, observacao_atribuicao')
-        .eq('tipo', 'entrega').eq('status', 'pendente').in('contrato_id', lote)
-        .order('id').range(de, ate) as unknown as PromiseLike<{ data: typeof linhas | null; error: unknown }>,
-      (_ids, data) => { linhas.push(...data) },
-    ).then(async () => {
+    const prevs: { id: string; entrega_prevista: string | null; entrega_periodo: string | null }[] = []
+    Promise.all([
+      consultaEmLotes(
+        ids,
+        (lote, de, ate) => supabase.from('tarefas_operacionais')
+          .select('contrato_id, atribuido_a, observacao_atribuicao')
+          .eq('tipo', 'entrega').eq('status', 'pendente').in('contrato_id', lote)
+          .order('id').range(de, ate) as unknown as PromiseLike<{ data: typeof linhas | null; error: unknown }>,
+        (_ids, data) => { linhas.push(...data) },
+      ),
+      consultaEmLotes(
+        ids,
+        (lote, de, ate) => supabase.from('contratos')
+          .select('id, entrega_prevista, entrega_periodo')
+          .in('id', lote).or('entrega_prevista.not.is.null,entrega_periodo.not.is.null')
+          .order('id').range(de, ate) as unknown as PromiseLike<{ data: typeof prevs | null; error: unknown }>,
+        (_ids, data) => { prevs.push(...data) },
+      ),
+    ]).then(async () => {
       const nomes = await nomesDePerfis(supabase, linhas.map(l => l.atribuido_a))
       if (!vivo) return
-      const out: Record<string, { com: string; prevData?: string; prevPeriodo?: string }> = {}
+      const out: Record<string, { com?: string; prevData?: string; prevPeriodo?: string }> = {}
       for (const l of linhas) {
         const o = lerObsEntrega(l.observacao_atribuicao)
         out[l.contrato_id] = { com: nomes[l.atribuido_a] || 'alguém', prevData: o.prevData, prevPeriodo: o.prevPeriodo }
+      }
+      for (const pc of prevs) {
+        out[pc.id] = { ...out[pc.id], prevData: pc.entrega_prevista || undefined, prevPeriodo: pc.entrega_periodo || undefined }
       }
       setProgramadas(out)
     }).catch(() => { if (vivo) setProgramadas({}) })
@@ -4488,7 +4504,8 @@ ${petNome}`
         return [{
           id: 'entrega', emoji: '📬', label: 'Programar entrega',
           state: (com ? 'completed' : 'pending') as ComputedTag['state'],
-          tooltip: com ? `Com ${com}` : 'A programar',
+          // Previsão sem responsável (mig 172) segue pendente, mas diz pra quando está.
+          tooltip: com ? `Com ${com}` : prev ? `${prev.replace('📅 ', '')} · sem responsável` : 'A programar',
           sublabel: com ? [com, prev ? prev.replace('📅 ', '') : 'sem data'].join(' · ') : undefined,
         }]
       })() : []),
@@ -4515,7 +4532,7 @@ ${petNome}`
     let feitos = tags.filter(t => estadoConcluido(t.state)).length
     let pendentes = tags.filter(t => estadoPendente(t.state)).length
     if (encPipeline && c.status === 'ativo' && !c.aguardando_acolhimento) { if (c.supinda_id) feitos++; else pendentes++ }
-    if (c.status === 'retorno' || c.status === 'pendente') { if (programadas?.[c.id]) feitos++; else pendentes++ }
+    if (c.status === 'retorno' || c.status === 'pendente') { if (programadas?.[c.id]?.com) feitos++; else pendentes++ }
     return { feitos, pendentes }
   }
 
@@ -5288,14 +5305,25 @@ ${petNome}`
                   return d.length === 8 ? parseInt(d, 10) : Number.MAX_SAFE_INTEGER // sem CEP vai pro fim
                 }
                 const porRota = [...lista].sort((a, b) => cepNum(a) - cepNum(b))
-                // 27/10/2026: em cima o POOL (ninguém programou a entrega); embaixo "Programado",
-                // um sub-grupo por dia da previsão (atrasados primeiro, "Sem data" no fim).
+                // 27/10/2026: em cima o POOL (sem responsável e sem previsão); embaixo "Programado",
+                // um sub-grupo por dia da previsão (atrasados primeiro, "Sem data" no fim) e, dentro
+                // dele, um por período. Previsão sem responsável ganha o selo "sem responsável".
                 // Antes do mapa chegar (`programadas` undefined) a lista fica corrida.
                 const { pool, dias } = programadas
                   ? agruparProgramacao(porRota, c => programadas[c.id] ?? null, hojeLocal())
                   : { pool: porRota, dias: [] }
                 const nProgramados = dias.reduce((s2, d) => s2 + d.itens.length, 0)
-                const cardRota = (c: Contrato) => <div key={c.id}>{renderFn(c, renderEnderecoEntrega(c))}</div>
+                const cardRota = (c: Contrato) => {
+                  const semResp = !!programadas?.[c.id] && !programadas[c.id].com
+                  return (
+                    <div key={c.id}>{renderFn(c, semResp ? (
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="flex-none text-[11px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500">👤 sem responsável</span>
+                        <div className="min-w-0 flex-1">{renderEnderecoEntrega(c)}</div>
+                      </div>
+                    ) : renderEnderecoEntrega(c))}</div>
+                  )
+                }
                 return (
                   <div className="space-y-2">
                     {nProgramados > 0 && pool.length > 0 && (
@@ -5320,7 +5348,14 @@ ${petNome}`
                           {d.atrasado && <span className="font-semibold text-[11px] text-red-400">não concluída no sistema</span>}
                           <div className="flex-1 h-px bg-[var(--surface-200)]" />
                         </div>
-                        {d.itens.map(cardRota)}
+                        {d.periodos.map(per => (
+                          <Fragment key={per.chave}>
+                            <div className="flex items-center gap-1.5 pl-5 text-[11px] font-semibold uppercase tracking-wider text-[var(--surface-400)]">
+                              <span>{per.rotulo}</span><span>· {per.itens.length}</span>
+                            </div>
+                            {per.itens.map(cardRota)}
+                          </Fragment>
+                        ))}
                       </Fragment>
                     ))}
                   </div>

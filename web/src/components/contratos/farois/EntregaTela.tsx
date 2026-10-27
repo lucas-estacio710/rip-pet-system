@@ -23,6 +23,7 @@ import { formatarIdade } from '@/lib/atribuir-tarefa'
 import { montarObsEntrega, lerObsEntrega, type PeriodoEntrega } from '@/lib/obs-entrega'
 import {
   carregarTarefaEntrega, atribuirEntrega, salvarObsEntrega, desatribuirEntrega, concluirEntrega,
+  carregarPrevisaoEntrega, salvarPrevisaoEntrega,
   type TarefaEntrega,
 } from '@/lib/tarefa-entrega'
 
@@ -64,6 +65,8 @@ export default function EntregaTela(p: Props) {
   const [end, setEnd] = useState('')
   const [obs, setObs] = useState('')
   const [obsSalva, setObsSalva] = useState<string | null>(null)
+  // Previsão gravada no CONTRATO (mig 172) — vale com ou sem tarefa atribuída.
+  const [prevSalva, setPrevSalva] = useState<{ data: string; periodo: PeriodoEntrega | '' }>({ data: '', periodo: '' })
   // Item 7: até a 1ª leitura voltar não se sabe se a entrega já tem dono — nada de "Atribuir a…".
   const [carregando, setCarregando] = useState(p.temOperacional)
 
@@ -80,11 +83,19 @@ export default function EntregaTela(p: Props) {
   }, [supabase, p.atorNome])
 
   async function recarregar() {
-    if (!p.temOperacional) { setTarefa(null); setCarregando(false); return }
-    const t = await carregarTarefaEntrega(supabase, p.contratoId).finally(() => setCarregando(false))
+    const [t, pc] = await Promise.all([
+      p.temOperacional ? carregarTarefaEntrega(supabase, p.contratoId) : Promise.resolve(null),
+      carregarPrevisaoEntrega(supabase, p.contratoId),
+    ]).finally(() => setCarregando(false))
     setTarefa(t)
     const o = lerObsEntrega(t?.observacao_atribuicao)
-    setPrevData(o.prevData || ''); setPrevPeriodo(o.prevPeriodo || '')
+    // O contrato manda (mig 172); o texto da tarefa só cobre o que veio antes da coluna.
+    const temNoContrato = !!(pc.prevData || pc.prevPeriodo)
+    const pd = (temNoContrato ? pc.prevData : o.prevData) || ''
+    const pp = (temNoContrato ? pc.prevPeriodo : o.prevPeriodo) || ''
+    setPrevData(pd); setPrevPeriodo(pp)
+    setPrevSalva(temNoContrato ? { data: pd, periodo: pp } : { data: '', periodo: '' })
+    if (!p.temOperacional) return
     setEndAlt(!!o.endereco); setEnd(o.endereco || ''); setObs(o.texto)
     setObsSalva(t?.observacao_atribuicao ?? null)
     if (t) {
@@ -112,6 +123,21 @@ export default function EntregaTela(p: Props) {
   }), [prevData, prevPeriodo, endAlt, end, obs])
 
   const ctx = { unidadeId: p.unidadeId, contratoId: p.contratoId, petNome: p.petNome, ator }
+  const previsaoMudou = prevData !== prevSalva.data || prevPeriodo !== prevSalva.periodo
+  const pedidoMudou = !!tarefa && obsMontada !== obsSalva
+
+  // Salvar: a previsão vai pro CONTRATO; havendo tarefa, o pedido (com a cópia da previsão) vai
+  // pra ela também. Uma Observação só no contrato — a da tarefa já cita a previsão.
+  async function salvar() {
+    if (previsaoMudou) {
+      await salvarPrevisaoEntrega(supabase, { ...ctx, prevData: prevData || null, prevPeriodo: prevPeriodo || null, registrar: !pedidoMudou })
+      setPrevSalva({ data: prevData, periodo: prevPeriodo })
+    }
+    if (pedidoMudou && tarefa) {
+      await salvarObsEntrega(supabase, { ...ctx, tarefaId: tarefa.id, obs: obsMontada })
+      setObsSalva(obsMontada)
+    }
+  }
 
   async function agir(fn: () => Promise<void>, depois?: () => void) {
     if (ocupado) return
@@ -126,10 +152,40 @@ export default function EntregaTela(p: Props) {
     }
   }
 
-  const horas = tarefa ? (Date.now() - new Date(tarefa.atribuido_em).getTime()) / 36e5 : 0
-  const corIdade = horas > 48 ? '#dc2626' : horas > 24 ? '#d97706' : '#2563eb'
   const campoCls = 'w-full px-2.5 py-2 rounded-lg border outline-none text-sm'
   const campoSty = { borderColor: 'var(--surface-200)', background: 'var(--surface-50)', color: 'var(--surface-800)', fontSize: 16 }
+
+  // Previsão: data + período. Salvável sem atribuição (27/10/2026) — o pet já aparece no dia
+  // certo do pipeline, e quem pegar a entrega depois herda a previsão.
+  const blocoPrevisao = (
+    <div className="flex items-start gap-2">
+      <span className={rotulo} style={{ color: 'var(--surface-400)' }}>Previsão</span>
+      <div className="flex-1 space-y-1.5">
+        <input type="date" value={prevData} min={hojeLocal()} onChange={e => setPrevData(e.target.value)} className={campoCls} style={campoSty} />
+        <div className="flex gap-1">
+          {PERIODOS.map(x => (
+            <button key={x.v} type="button" onClick={() => setPrevPeriodo(prevPeriodo === x.v ? '' : x.v)}
+              className="flex-1 h-8 rounded-md text-[12.5px] font-semibold border"
+              style={prevPeriodo === x.v ? { background: 'rgba(124,58,237,.14)', borderColor: '#7c3aed', color: '#7c3aed' } : { borderColor: 'var(--surface-300)', color: 'var(--surface-500)' }}>
+              {x.rot}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+
+  const botaoSalvar = (rot: string) => (
+    <div className="flex justify-end">
+      <button type="button" disabled={ocupado} onClick={() => agir(salvar, p.onMudou)}
+        className="h-9 px-4 rounded-lg text-[13px] font-bold text-white" style={{ background: '#7c3aed' }}>
+        {rot}
+      </button>
+    </div>
+  )
+
+  const horas = tarefa ? (Date.now() - new Date(tarefa.atribuido_em).getTime()) / 36e5 : 0
+  const corIdade = horas > 48 ? '#dc2626' : horas > 24 ? '#d97706' : '#2563eb'
 
   return (
     <div className="space-y-3">
@@ -190,7 +246,11 @@ export default function EntregaTela(p: Props) {
           </div>
         </div>
       ) : !p.temOperacional ? (
-        <p className="text-[12.5px]" style={{ color: 'var(--surface-500)' }}>Toque no ✓ para registrar a entrega e finalizar o contrato.</p>
+        <div className="space-y-2.5">
+          {blocoPrevisao}
+          {previsaoMudou && botaoSalvar('Salvar previsão')}
+          <p className="text-[12.5px]" style={{ color: 'var(--surface-500)' }}>Toque no ✓ para registrar a entrega e finalizar o contrato.</p>
+        </div>
       ) : tarefa === undefined ? (
         <p className="text-[12.5px]" style={{ color: 'var(--surface-400)' }}>Carregando…</p>
       ) : (
@@ -224,7 +284,10 @@ export default function EntregaTela(p: Props) {
                     const id = e.target.value
                     if (!id) return
                     const nome = pessoas.find(x => x.user_id === id)?.nome || 'alguém'
-                    agir(() => atribuirEntrega(supabase, { ...ctx, atribuidoA: id, nomeAtribuido: nome, obs: obsMontada }), () => { recarregar(); p.onMudou() })
+                    agir(async () => {
+                      await atribuirEntrega(supabase, { ...ctx, atribuidoA: id, nomeAtribuido: nome, obs: obsMontada })
+                      if (previsaoMudou) await salvarPrevisaoEntrega(supabase, { ...ctx, prevData: prevData || null, prevPeriodo: prevPeriodo || null, registrar: false })
+                    }, () => { recarregar(); p.onMudou() })
                   }}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   style={{ fontSize: 16 }}
@@ -236,22 +299,7 @@ export default function EntregaTela(p: Props) {
             )}
           </div>
 
-          {/* Previsão */}
-          <div className="flex items-start gap-2">
-            <span className={rotulo} style={{ color: 'var(--surface-400)' }}>Previsão</span>
-            <div className="flex-1 space-y-1.5">
-              <input type="date" value={prevData} min={hojeLocal()} onChange={e => setPrevData(e.target.value)} className={campoCls} style={campoSty} />
-              <div className="flex gap-1">
-                {PERIODOS.map(x => (
-                  <button key={x.v} type="button" onClick={() => setPrevPeriodo(prevPeriodo === x.v ? '' : x.v)}
-                    className="flex-1 h-8 rounded-md text-[12.5px] font-semibold border"
-                    style={prevPeriodo === x.v ? { background: 'rgba(124,58,237,.14)', borderColor: '#7c3aed', color: '#7c3aed' } : { borderColor: 'var(--surface-300)', color: 'var(--surface-500)' }}>
-                    {x.rot}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
+          {blocoPrevisao}
 
           {/* Endereço */}
           <div className="flex items-start gap-2">
@@ -282,15 +330,9 @@ export default function EntregaTela(p: Props) {
             grava na observação ▸ {obsMontada || '(vazio)'}
           </p>
 
-          {tarefa && obsMontada !== obsSalva && (
-            <div className="flex justify-end">
-              <button type="button" disabled={ocupado}
-                onClick={() => agir(() => salvarObsEntrega(supabase, { ...ctx, tarefaId: tarefa.id, obs: obsMontada }), () => { setObsSalva(obsMontada); p.onMudou() })}
-                className="h-9 px-4 rounded-lg text-[13px] font-bold text-white" style={{ background: '#7c3aed' }}>
-                Salvar alterações
-              </button>
-            </div>
-          )}
+          {tarefa
+            ? (previsaoMudou || pedidoMudou) && botaoSalvar('Salvar alterações')
+            : previsaoMudou && botaoSalvar('Salvar previsão')}
         </div>
       )}
     </div>

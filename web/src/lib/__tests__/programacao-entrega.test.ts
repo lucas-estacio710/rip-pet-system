@@ -29,4 +29,6 @@ test('pool, dias em ordem cronológica e "Sem data" no fim', () => {
   assert.equal(r.dias[0].atrasado, true)
   assert.equal(r.dias[1].hoje, true)
   assert.equal(r.dias[3].rotulo, 'Sem data')
+  assert.deepEqual(r.dias[2].periodos.map(p => p.rotulo), ['Manhã', 'Tarde'])
+  assert.deepEqual(r.dias[0].periodos.map(p => p.rotulo), ['Sem período'])
 })
