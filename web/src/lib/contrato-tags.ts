@@ -25,6 +25,8 @@ export type ComputedTag = {
   tooltip: string
   count?: number
   sublabel?: string
+  /** Cor da pessoa (lib/cor-pessoa) quando o `sublabel` começa pelo nome dela — "Juliana · 28/10". */
+  pessoaCor?: string
 }
 
 /** Minimal shape of contrato data needed by tag computation */

@@ -20,6 +20,7 @@ import FotoProva from '@/components/tarefas/FotoProva'
 import type { FotoComprimida } from '@/lib/comprimir-imagem'
 import { hojeLocal } from '@/lib/date-local'
 import { formatarIdade } from '@/lib/atribuir-tarefa'
+import { corDaPessoa } from '@/lib/cor-pessoa'
 import { montarObsEntrega, lerObsEntrega, type PeriodoEntrega } from '@/lib/obs-entrega'
 import {
   carregarTarefaEntrega, atribuirEntrega, salvarObsEntrega, desatribuirEntrega, concluirEntrega,
@@ -263,7 +264,7 @@ export default function EntregaTela(p: Props) {
             ) : tarefa ? (
               <div className="flex-1 flex items-center gap-2 min-h-9">
                 <span className="flex-1 text-[13.5px] italic truncate" style={{ color: corIdade }}>
-                  👤 <b className="not-italic">{nomeTarefa || '…'}</b> · {formatarIdade(horas)}
+                  👤 <b className="not-italic" style={{ color: corDaPessoa(tarefa.atribuido_a) }}>{nomeTarefa || '…'}</b> · {formatarIdade(horas)}
                 </span>
                 <button type="button" disabled={ocupado}
                   onClick={() => { if (confirm(`Tirar a entrega de ${nomeTarefa || 'quem está com ela'}?`)) agir(() => desatribuirEntrega(supabase, { ...ctx, tarefaId: tarefa.id, nomeAtual: nomeTarefa || 'alguém' }), () => { recarregar(); p.onMudou() }) }}

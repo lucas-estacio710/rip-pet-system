@@ -70,6 +70,7 @@ import AdicionarPetsViagem from '@/components/contratos/pipeline/AdicionarPetsVi
 import { carregarTarefaEntrega } from '@/lib/tarefa-entrega'
 import { lerObsEntrega, formatarPrevisao, type PeriodoEntrega } from '@/lib/obs-entrega'
 import { agruparProgramacao } from '@/lib/programacao-entrega'
+import { corDaPessoa } from '@/lib/cor-pessoa'
 import { nomesDePerfis } from '@/lib/cache-pessoas'
 import { useToast } from '@/components/ui/Toast'
 import { usePopupHistory } from '@/hooks/usePopupHistory'
@@ -938,7 +939,7 @@ function ContratosContent() {
   // atribuição; o texto da tarefa só cobre contrato sem a coluna preenchida. Ter um dos dois =
   // programado: sai do pool e entra no dia/período (lib/programacao-entrega). O farol 📬 só fica
   // feito com `com`. `undefined` = ainda carregando (a lista não se divide antes de saber).
-  const [programadas, setProgramadas] = useState<Record<string, { com?: string; prevData?: string; prevPeriodo?: string }> | undefined>(undefined)
+  const [programadas, setProgramadas] = useState<Record<string, { com?: string; comId?: string; prevData?: string; prevPeriodo?: string }> | undefined>(undefined)
   const idsDaRota = encPipeline && (statusFiltro === 'retorno' || statusFiltro === 'pendente')
     ? contratos.filter(c => c.status === 'retorno' || c.status === 'pendente').map(c => c.id).sort().join(',')
     : ''
@@ -970,10 +971,10 @@ function ContratosContent() {
     ]).then(async () => {
       const nomes = await nomesDePerfis(supabase, linhas.map(l => l.atribuido_a))
       if (!vivo) return
-      const out: Record<string, { com?: string; prevData?: string; prevPeriodo?: string }> = {}
+      const out: Record<string, { com?: string; comId?: string; prevData?: string; prevPeriodo?: string }> = {}
       for (const l of linhas) {
         const o = lerObsEntrega(l.observacao_atribuicao)
-        out[l.contrato_id] = { com: nomes[l.atribuido_a] || 'alguém', prevData: o.prevData, prevPeriodo: o.prevPeriodo }
+        out[l.contrato_id] = { com: nomes[l.atribuido_a] || 'alguém', comId: l.atribuido_a, prevData: o.prevData, prevPeriodo: o.prevPeriodo }
       }
       for (const pc of prevs) {
         out[pc.id] = { ...out[pc.id], prevData: pc.entrega_prevista || undefined, prevPeriodo: pc.entrega_periodo || undefined }
@@ -4507,6 +4508,7 @@ ${petNome}`
           // Previsão sem responsável (mig 172) segue pendente, mas diz pra quando está.
           tooltip: com ? `Com ${com}` : prev ? `${prev.replace('📅 ', '')} · sem responsável` : 'A programar',
           sublabel: com ? [com, prev ? prev.replace('📅 ', '') : 'sem data'].join(' · ') : undefined,
+          pessoaCor: corDaPessoa(prog?.comId),
         }]
       })() : []),
     ]

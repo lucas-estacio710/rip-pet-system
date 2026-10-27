@@ -20,6 +20,8 @@ export type FarolLista = {
   tipo: 'feito' | 'nao_tem' | 'sistema' | 'pendente'
   /** Texto à direita: "Feito" não aparece (vira o ✓); os demais aparecem escritos. */
   texto: string | null
+  /** O `texto` começa pelo nome de alguém (até o 1º " · "): pintar o nome nesta cor. */
+  pessoaCor?: string
 }
 
 /** Concluída = feito ou recusado (item 6: "Não quer"/"Sem pelinho" contam como concluída). */
@@ -59,7 +61,7 @@ export function farolParaLista(tag: ComputedTag): FarolLista | null {
   if (tag.state === 'sistema') return { id: tag.id, emoji: tag.emoji, label: tag.label, tipo: 'sistema', texto: 'Finalizado pelo sistema' }
   // Concluída mostra só o ✓ — exceto o 🚐, que mostra a viagem ("ST172", item 17), e o 📬, que
   // mostra com quem e pra quando ("Juliana · 28/10 · Tarde", 27/10/2026).
-  if (tag.state === 'completed') return { id: tag.id, emoji: tag.emoji, label: tag.label, tipo: 'feito', texto: tag.id === 'encaminhamento' || tag.id === 'entrega' ? (tag.sublabel || null) : null }
+  if (tag.state === 'completed') return { id: tag.id, emoji: tag.emoji, label: tag.label, tipo: 'feito', texto: tag.id === 'encaminhamento' || tag.id === 'entrega' ? (tag.sublabel || null) : null, ...(tag.pessoaCor ? { pessoaCor: tag.pessoaCor } : {}) }
   if (tag.state === 'rejected') return { id: tag.id, emoji: tag.emoji, label: tag.label, tipo: 'nao_tem', texto: textoNaoTem(tag.id) }
   return { id: tag.id, emoji: tag.emoji, label: tag.label, tipo: 'pendente', texto: textoPendente(tag) }
 }

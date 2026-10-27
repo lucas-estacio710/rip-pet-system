@@ -154,7 +154,10 @@ export default function FarolPopup({ aberto, onFechar, tags, animar, onFarol, te
                   : f.tipo === 'feito'
                   ? <>{f.texto && (f.id === 'encaminhamento'
                       ? <span className="flex-none text-[12px] font-black px-1.5 py-0.5 rounded" style={{ background: '#ea580c', color: '#fff' }}>{f.texto}</span>
-                      : <span className="text-[12px] font-semibold text-[var(--surface-500)] truncate min-w-0">{f.texto}</span>)}<Ok animar={animar} atraso={(feitoIdx++) * 90} /></>
+                      : <span className="text-[12px] font-semibold text-[var(--surface-500)] truncate min-w-0">{f.pessoaCor ? <>
+                          {/* Nome na cor da pessoa, como em grupo de WhatsApp (lib/cor-pessoa, 27/10/2026). */}
+                          <span style={{ color: f.pessoaCor }}>{f.texto.split(' · ')[0]}</span>{f.texto.includes(' · ') ? ` · ${f.texto.split(' · ').slice(1).join(' · ')}` : ''}
+                        </> : f.texto}</span>)}<Ok animar={animar} atraso={(feitoIdx++) * 90} /></>
                   : <span className="pl-chip-nao">{f.texto}</span>}
               />
             ))}

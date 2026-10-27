@@ -19,6 +19,7 @@ import { HandHeart, PackageCheck, PawPrint, Fingerprint, Scissors, Feather, Clip
 import { createClient } from '@/lib/supabase/client'
 import { listarFotosDasTarefas, urlAssinadaFoto } from '@/lib/foto-tarefa'
 import { nomesDePerfis } from '@/lib/cache-pessoas'
+import { corDaPessoa } from '@/lib/cor-pessoa'
 import { useVoltarFecha } from '@/hooks/usePopupHistory'
 
 export type TarefaDoContrato = {
@@ -167,10 +168,10 @@ export default function TarefasAba({ tarefas, carregando }: { tarefas: TarefaDoC
                   </div>
                   <div className="text-[11px] text-slate-500 mt-0.5">
                     {cancelada
-                      ? <>Estava com <b className="text-slate-300 font-medium">{quem || '—'}</b>{g.atribuido_em ? ` desde ${dataHora(g.atribuido_em)}` : ''} — não chegou a ser feita</>
+                      ? <>Estava com <b className="text-slate-300 font-medium" style={{ color: corDaPessoa(g.atribuido_a) }}>{quem || '—'}</b>{g.atribuido_em ? ` desde ${dataHora(g.atribuido_em)}` : ''} — não chegou a ser feita</>
                       : pendente
-                      ? <>{porQuem ? `${porQuem} atribuiu a ` : 'Atribuída a '}<b className="text-slate-300 font-medium">{quem || '—'}</b>{g.atribuido_em ? ` · ${dataHora(g.atribuido_em)}` : ''}</>
-                      : <>Concluída por <b className="text-slate-300 font-medium">{quem || '—'}</b>{executou ? <> · 🚗 executado por <b className="text-slate-300 font-medium">{executou}</b></> : null}{g.concluido_em ? ` · ${dataHora(g.concluido_em)}` : ''}</>}
+                      ? <>{porQuem ? `${porQuem} atribuiu a ` : 'Atribuída a '}<b className="text-slate-300 font-medium" style={{ color: corDaPessoa(g.atribuido_a) }}>{quem || '—'}</b>{g.atribuido_em ? ` · ${dataHora(g.atribuido_em)}` : ''}</>
+                      : <>Concluída por <b className="text-slate-300 font-medium" style={{ color: corDaPessoa(g.atribuido_a) }}>{quem || '—'}</b>{executou ? <> · 🚗 executado por <b className="text-slate-300 font-medium">{executou}</b></> : null}{g.concluido_em ? ` · ${dataHora(g.concluido_em)}` : ''}</>}
                   </div>
                   {g.item_excluido_em && (
                     <div className="mt-1.5 text-xs text-red-300 bg-red-900/20 border-l-2 border-red-500/70 px-2 py-1 rounded-r">
