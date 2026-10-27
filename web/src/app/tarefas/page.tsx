@@ -241,10 +241,11 @@ function StatusBadge({ status, unidadeId }: { status: string; unidadeId?: string
   )
 }
 
-// Ordem fixa de exibição dos tipos em qualquer agrupamento (pool, minhas, em andamento,
-// concluídas) — Remoção sempre em primeiro, é sempre prioridade (decisão do Lucas, 01/09/2026).
-// `entrega_pendente` sempre por ÚLTIMO — é a fila de menor prioridade, de propósito.
-const ORDEM_TIPOS: TarefaTipo[] = ['remocao', 'ativacao_pv', 'entrega', 'molde_patinha', 'carimbo', 'pelo_extra', 'pelinho', 'entrega_pendente']
+// Ordem de exibição dos tipos em qualquer agrupamento (pool, minhas, em andamento, concluídas):
+// Remoção sempre em primeiro, é sempre prioridade (decisão do Lucas, 01/09/2026); os rescaldos
+// juntos por pet em "💎 Personalizados". `entrega_pendente` por último — menor prioridade.
+// (A const ORDEM_TIPOS saiu em 27/10/2026, quando o Em Andamento da Gestão passou a montar
+// igual a "Minhas Tarefas" — ninguém mais iterava sobre ela.)
 
 // Chave de EXIBIÇÃO (não é o `tipo` real gravado no banco) — separa "Realizar Entrega" de
 // "Realizar Entrega Pendente" pelo status do CONTRATO (contrato 'pendente' = parado, ver FLOW),
@@ -933,29 +934,16 @@ export default function TarefasPage() {
     })
   }, [supabase])
 
-  const carregouMinhasAntes = useRef(false)
-  const carregarMinhas = useCallback(async () => {
-    if (!userId) return
-    // Só mostra "Carregando..." na primeira vez — recarregar em cima de uma lista que já
-    // carregou antes (ex: depois de concluir uma tarefa) troca os dados na hora, sem colapsar
-    // a lista e sem pular a rolagem de quem tava vendo outra coisa mais embaixo na tela.
-    if (!carregouMinhasAntes.current) setLoadingMinhas(true)
-    const { data } = await supabase
-      .from('tarefas_operacionais')
-      .select('id, unidade_id, tipo, ficha_id, contrato_id, contrato_produto_id, atribuido_a, status, lacre, observacao_atribuicao, atribuido_em')
-      .eq('atribuido_a', userId)
-      .eq('status', 'pendente')
-      .order('atribuido_em', { ascending: true })
-
-    const tarefas = (data || []) as TarefaRow[]
+  // Ficha (remoção), contrato (entrega) e produto (rescaldo) de cada tarefa — é o que o popup
+  // de abrir a tarefa lê (endereço, tutor, pet, saldo). Serve "Minhas Tarefas" E o Em Andamento
+  // da Gestão: até 27/10/2026 só Minhas carregava, e o gerente abria a tarefa de outra pessoa
+  // sem tutor, pet nem endereço. Os mapas MESCLAM (as duas abas recarregam juntas depois de
+  // uma ação — substituir faria uma apagar o que a outra trouxe).
+  const carregarDetalhes = useCallback(async (tarefas: TarefaRow[]) => {
     const fichaIds = tarefas.filter(t => t.tipo === 'remocao' && t.ficha_id).map(t => t.ficha_id!) as string[]
     const contratoIds = tarefas.filter(t => t.tipo === 'entrega' && t.contrato_id).map(t => t.contrato_id!) as string[]
     const produtoIds = tarefas.filter(t => t.contrato_produto_id).map(t => t.contrato_produto_id!) as string[]
-
-    // Item 7 dos ajustes finos: tudo que depende só da lista de tarefas vai JUNTO (antes eram
-    // 4 idas em fila depois das tarefas — enriquecimento, fichas, contratos, produtos).
-    const [enriquecidas, fichasR, contratosR, produtosR] = await Promise.all([
-      resolverPetTutor(tarefas),
+    const [fichasR, contratosR, produtosR] = await Promise.all([
       fichaIds.length > 0
         ? supabase
           .from('fichas')
@@ -979,26 +967,45 @@ export default function TarefasPage() {
           .in('id', produtoIds)
         : Promise.resolve({ data: null }),
     ])
-    setMinhasTarefas(agruparTarefas(semContratoFinalizado(enriquecidas)))
-
     if (fichasR.data) {
       const map: Record<string, FichaRemocao> = {}
       for (const f of fichasR.data as FichaRemocao[]) map[f.id] = f
-      setFichasPorId(map)
+      setFichasPorId(prev => ({ ...prev, ...map }))
     }
     if (contratosR.data) {
       const map: Record<string, ContratoResumo> = {}
       for (const c of contratosR.data as ContratoResumo[]) map[c.id] = c
-      setContratosPorId(map)
+      setContratosPorId(prev => ({ ...prev, ...map }))
     }
     if (produtosR.data) {
       const map: Record<string, ContratoProdutoResumo> = {}
       for (const p of produtosR.data as unknown as ContratoProdutoResumo[]) map[p.id] = p
-      setProdutosPorId(map)
+      setProdutosPorId(prev => ({ ...prev, ...map }))
     }
+  }, [supabase])
+
+  const carregouMinhasAntes = useRef(false)
+  const carregarMinhas = useCallback(async () => {
+    if (!userId) return
+    // Só mostra "Carregando..." na primeira vez — recarregar em cima de uma lista que já
+    // carregou antes (ex: depois de concluir uma tarefa) troca os dados na hora, sem colapsar
+    // a lista e sem pular a rolagem de quem tava vendo outra coisa mais embaixo na tela.
+    if (!carregouMinhasAntes.current) setLoadingMinhas(true)
+    const { data } = await supabase
+      .from('tarefas_operacionais')
+      .select('id, unidade_id, tipo, ficha_id, contrato_id, contrato_produto_id, atribuido_a, status, lacre, observacao_atribuicao, atribuido_em')
+      .eq('atribuido_a', userId)
+      .eq('status', 'pendente')
+      .order('atribuido_em', { ascending: true })
+
+    const tarefas = (data || []) as TarefaRow[]
+    // Item 7 dos ajustes finos: tudo que depende só da lista de tarefas vai JUNTO (antes eram
+    // 4 idas em fila depois das tarefas — enriquecimento, fichas, contratos, produtos).
+    const [enriquecidas] = await Promise.all([resolverPetTutor(tarefas), carregarDetalhes(tarefas)])
+    setMinhasTarefas(agruparTarefas(semContratoFinalizado(enriquecidas)))
     carregouMinhasAntes.current = true
     setLoadingMinhas(false)
-  }, [supabase, userId, resolverPetTutor])
+  }, [supabase, userId, resolverPetTutor, carregarDetalhes])
 
   useEffect(() => { if (aba === 'minhas') carregarMinhas() }, [aba, carregarMinhas])
 
@@ -1416,10 +1423,11 @@ export default function TarefasPage() {
       .eq('status', 'pendente')
       .order('atribuido_em', { ascending: true }) as { data: TarefaRow[] | null }
 
-    setEmAndamento(agruparTarefas(semContratoFinalizado(await resolverPetTutor(data || []))))
+    const [enriquecidas] = await Promise.all([resolverPetTutor(data || []), carregarDetalhes(data || [])])
+    setEmAndamento(agruparTarefas(semContratoFinalizado(enriquecidas)))
     carregouEmAndamentoAntes.current = true
     setLoadingEmAndamento(false)
-  }, [supabase, currentUnit, podeAtribuir, resolverPetTutor])
+  }, [supabase, currentUnit, podeAtribuir, resolverPetTutor, carregarDetalhes])
 
   // Carga atual por pessoa (soma de itens físicos pendentes, não de cards agrupados) — pra não
   // empilhar tudo num só.
@@ -1984,6 +1992,7 @@ export default function TarefasPage() {
   const andamentoPorTipo = agruparPorTipo(ordenarPorAcolhimento(emAndamento), chaveExibicao)
   const concluidasPorTipo = agruparPorTipo(ordenarPorAcolhimento(concluidasRecentes), chaveExibicao)
   const concluidasPetGroups = ordenarPorAcolhimento(agruparPorPet(concluidasRecentes.filter(t => TIPOS_PERSONALIZADOS.includes(t.tipo))))
+  const andamentoPetGroups = ordenarPorAcolhimento(agruparPorPet(emAndamento.filter(t => TIPOS_PERSONALIZADOS.includes(t.tipo))))
 
   function abrirTarefaMinhas(t: TarefaGrupo) {
     setFotoProva(null)
@@ -2332,83 +2341,151 @@ export default function TarefasPage() {
               <p className="text-xs text-[var(--surface-400)] px-1 py-2">Carregando...</p>
             ) : emAndamento.length === 0 ? (
               <p className="text-xs text-[var(--surface-400)] px-1 py-2">Nada em andamento.</p>
-            ) : (
-              ORDEM_TIPOS.map(tipo => (
-                <TipoGroup key={tipo} tipo={tipo} count={(andamentoPorTipo[tipo] || []).length}>
-                  {(() => {
-                  const lista = andamentoPorTipo[tipo] || []
-                  const card = (t: (typeof lista)[number]) => {
-                    const horasParado = (Date.now() - new Date(t.atribuido_em).getTime()) / (1000 * 60 * 60)
-                    const corIdade = horasParado > 48 ? 'text-red-500' : horasParado > 24 ? 'text-amber-500' : 'text-[var(--surface-400)]'
-                    const nomeAtual = operacionais.find(o => o.user_id === t.atribuido_a)?.nome || '—'
-                    return (
-                      <div key={t.id}>
-                        <TarefaCard
-                          tipo={tipo}
-                          lacre={t.lacreContrato || t.lacre}
-                          petNome={t.petNome}
-                          tutorNome={t.tutorNome}
-                          quantidade={t.quantidade}
-                          linhaExtra={<p className="text-xs text-[var(--surface-500)] truncate mt-0.5">Com {nomeAtual} · <span className={corIdade}>{formatarIdade(horasParado)}</span></p>}
-                          onClick={() => abrirTarefaMinhas(t)}
-                          acao={
-                            <div className="flex flex-col items-stretch gap-2 shrink-0">
-                              <button
-                                onClick={e => { e.stopPropagation(); setReatribuindoId(reatribuindoId === t.id ? null : t.id) }}
-                                className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white"
-                                style={{ background: '#64748b' }}
-                              >
-                                Reatribuir
-                              </button>
-                              {/* Remoção e Ativação de PV não voltam pra pool (cancelarAtribuicao recusa) — o botão era clique morto em ativacao_pv. */}
-                              {t.tipo !== 'remocao' && t.tipo !== 'ativacao_pv' && (
-                                <button
-                                  onClick={e => { e.stopPropagation(); cancelarAtribuicao(t) }}
-                                  disabled={cancelandoId === t.id}
-                                  className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-red-600 disabled:opacity-50"
-                                  title="Volta pro pool 'Pra atribuir', sem passar pra ninguém"
-                                >
-                                  {cancelandoId === t.id ? '...' : 'Desatribuir'}
-                                </button>
-                              )}
-                            </div>
-                          }
-                        />
-                        {reatribuindoId === t.id && (
-                          <div className="mt-1.5 ml-1 flex gap-1.5" onClick={e => e.stopPropagation()}>
-                            <select
-                              value={novoOperacional[t.id] || ''}
-                              onChange={e => setNovoOperacional(prev => ({ ...prev, [t.id]: e.target.value }))}
-                              className="input text-sm flex-1"
-                            >
-                              <option value="">Passar pra quem...</option>
-                              {operacionais.filter(o => o.user_id !== t.atribuido_a).map(o => (
-                                <option key={o.user_id} value={o.user_id}>
-                                  {o.nome || 'Sem nome'} ({o.role === 'operacional' ? 'Operacional' : o.role === 'gerente' ? 'Gerente' : o.role === 'super_admin' ? 'Admin' : 'Concierge'}) — {cargaPorPessoa[o.user_id] || 0} pendente{(cargaPorPessoa[o.user_id] || 0) === 1 ? '' : 's'}
-                                </option>
-                              ))}
-                            </select>
-                            <button
-                              onClick={() => reatribuir(t)}
-                              disabled={salvandoReatribuicao || !novoOperacional[t.id]}
-                              className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-50"
-                              style={{ background: '#64748b' }}
-                            >
-                              OK
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  }
-                  // Entregas: por dia e período da previsão (27/10/2026), igual à etapa Entrega do pipeline.
-                  return tipo === 'entrega' || tipo === 'entrega_pendente'
-                    ? <ListaPorPrevisao itens={lista} previsao={t => lerObsEntrega(t.observacao_atribuicao)} render={card} />
-                    : lista.map(card)
-                  })()}
+            ) : (() => {
+              // Mesma montagem de "Minhas Tarefas" (27/10/2026, pedido do Lucas): Remoção ·
+              // 💎 Personalizados agrupados por pet · Entrega por dia/período · Ativação PV — aqui
+              // com "Com fulano · há quanto tempo" e Reatribuir/Desatribuir em cada tarefa.
+              type T = (typeof emAndamento)[number]
+              const idade = (t: T) => {
+                const horas = (Date.now() - new Date(t.atribuido_em).getTime()) / (1000 * 60 * 60)
+                const cor = horas > 48 ? 'text-red-500' : horas > 24 ? 'text-amber-500' : 'text-[var(--surface-400)]'
+                return <>Com {operacionais.find(o => o.user_id === t.atribuido_a)?.nome || '—'} · <span className={cor}>{formatarIdade(horas)}</span></>
+              }
+              const botoes = (t: T, pequeno = false) => (
+                <div className={`flex ${pequeno ? 'gap-1' : 'flex-col items-stretch gap-2'} shrink-0`}>
+                  <button
+                    onClick={e => { e.stopPropagation(); setReatribuindoId(reatribuindoId === t.id ? null : t.id) }}
+                    className={`${pequeno ? 'px-2 py-1 rounded-md text-[11px]' : 'px-2.5 py-1.5 rounded-lg text-xs'} font-semibold text-white`}
+                    style={{ background: '#64748b' }}
+                  >
+                    Reatribuir
+                  </button>
+                  {/* Remoção e Ativação de PV não voltam pra pool (cancelarAtribuicao recusa) — o botão era clique morto em ativacao_pv. */}
+                  {t.tipo !== 'remocao' && t.tipo !== 'ativacao_pv' && (
+                    <button
+                      onClick={e => { e.stopPropagation(); cancelarAtribuicao(t) }}
+                      disabled={cancelandoId === t.id}
+                      className={`${pequeno ? 'px-2 py-1 rounded-md text-[11px]' : 'px-2.5 py-1.5 rounded-lg text-xs'} font-semibold text-white bg-red-600 disabled:opacity-50`}
+                      title="Volta pro pool 'Pra atribuir', sem passar pra ninguém"
+                    >
+                      {cancelandoId === t.id ? '...' : 'Desatribuir'}
+                    </button>
+                  )}
+                </div>
+              )
+              const seletor = (t: T) => reatribuindoId === t.id && (
+                <div className="mt-1.5 ml-1 flex gap-1.5" onClick={e => e.stopPropagation()}>
+                  <select
+                    value={novoOperacional[t.id] || ''}
+                    onChange={e => setNovoOperacional(prev => ({ ...prev, [t.id]: e.target.value }))}
+                    className="input text-sm flex-1"
+                  >
+                    <option value="">Passar pra quem...</option>
+                    {operacionais.filter(o => o.user_id !== t.atribuido_a).map(o => (
+                      <option key={o.user_id} value={o.user_id}>
+                        {o.nome || 'Sem nome'} ({o.role === 'operacional' ? 'Operacional' : o.role === 'gerente' ? 'Gerente' : o.role === 'super_admin' ? 'Admin' : 'Concierge'}) — {cargaPorPessoa[o.user_id] || 0} pendente{(cargaPorPessoa[o.user_id] || 0) === 1 ? '' : 's'}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => reatribuir(t)}
+                    disabled={salvandoReatribuicao || !novoOperacional[t.id]}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-50"
+                    style={{ background: '#64748b' }}
+                  >
+                    OK
+                  </button>
+                </div>
+              )
+              const card = (t: T) => {
+                const ehEntrega = t.tipo === 'entrega'
+                const pedido = ehEntrega ? pedidoDaTarefa(t.observacao_atribuicao) : null
+                const contrato = ehEntrega && t.contrato_id ? contratosPorId[t.contrato_id] : null
+                const end = ehEntrega ? enderecoDaEntrega(contrato, t.observacao_atribuicao) : null
+                const saldo = contrato ? calcularSaldoPendente(contrato).saldoTotal : 0
+                return (
+                  <div key={t.id}>
+                    <TarefaCard
+                      tipo={chaveExibicao(t)}
+                      statusBadge={t.statusContrato}
+                      lacre={t.lacreContrato || t.lacre}
+                      petNome={t.petNome}
+                      tutorNome={t.tutorNome}
+                      quantidade={t.quantidade}
+                      linhaExtra={<>
+                        {pedido?.previsao && <p className="text-xs font-semibold text-violet-500 mt-0.5">{pedido.previsao}</p>}
+                        {end?.endereco && <p className="text-xs text-[var(--surface-500)] line-clamp-2 mt-0.5">📍 {end.endereco}{end.alterado && <span className="ml-1 font-semibold text-amber-500">(alterado)</span>}</p>}
+                        <p className="text-xs text-[var(--surface-500)] truncate mt-0.5">{idade(t)}</p>
+                      </>}
+                      onClick={() => abrirTarefaMinhas(t)}
+                      acao={<div className="flex items-start gap-1.5 shrink-0">
+                        {saldo > 0 && <span className="text-sm font-bold text-emerald-500" title={`Saldo em aberto: R$ ${saldo.toFixed(2)}`}>$</span>}
+                        {botoes(t)}
+                      </div>}
+                    />
+                    {seletor(t)}
+                  </div>
+                )
+              }
+              const entregas = (tipo: 'entrega' | 'entrega_pendente') => (
+                <TipoGroup tipo={tipo} count={(andamentoPorTipo[tipo] || []).length}>
+                  <ListaPorPrevisao itens={andamentoPorTipo[tipo] || []} previsao={t => lerObsEntrega(t.observacao_atribuicao)} render={card} />
                 </TipoGroup>
-              ))
-            )}
+              )
+              return (
+                <>
+                  <TipoGroup tipo="remocao" count={(andamentoPorTipo.remocao || []).length}>
+                    {(andamentoPorTipo.remocao || []).map(card)}
+                  </TipoGroup>
+                  <TipoGroup tipo="ativacao_pv" count={(andamentoPorTipo.ativacao_pv || []).length}>
+                    {(andamentoPorTipo.ativacao_pv || []).map(card)}
+                  </TipoGroup>
+                  <PersonalizadosGroup count={andamentoPetGroups.reduce((soma, g) => soma + g.itens.length, 0)}>
+                    {andamentoPetGroups.map(petGroup => (
+                      <div key={petGroup.contratoId} className="rounded-xl border border-[var(--surface-200)] p-3 space-y-2">
+                        <div>
+                          <p className="text-sm font-semibold text-[var(--surface-800)] truncate flex items-center gap-1.5">
+                            {petGroup.statusContrato && <StatusBadge status={petGroup.statusContrato} />}
+                            {petGroup.lacreContrato ? `${petGroup.lacreContrato} — ${petGroup.petNome}` : petGroup.petNome}
+                          </p>
+                          <p className="text-xs text-[var(--surface-500)] truncate">{petGroup.tutorNome}</p>
+                        </div>
+                        <div className="space-y-1.5">
+                          {petGroup.itens.map(t => {
+                            const info = TIPO_INFO[t.tipo]
+                            const Icon = info.icon
+                            return (
+                              <div key={t.id}>
+                                <div
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={() => abrirTarefaMinhas(t)}
+                                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrirTarefaMinhas(t) } }}
+                                  className="flex items-center gap-2 py-1.5 px-2 rounded-lg cursor-pointer"
+                                  style={{ background: info.cor + '0d' }}
+                                >
+                                  <Icon className="h-3.5 w-3.5 shrink-0" style={{ color: info.cor }} />
+                                  <div className="flex-1 min-w-0">
+                                    <span className="text-xs font-semibold truncate block" style={{ color: info.cor }}>
+                                      {info.label}{t.quantidade > 1 ? ` ×${t.quantidade}` : ''}{temPedido(t) ? ' 📝' : ''}
+                                    </span>
+                                    <span className="text-[10px] text-[var(--surface-500)] truncate block">{idade(t)}</span>
+                                  </div>
+                                  {botoes(t, true)}
+                                </div>
+                                {seletor(t)}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </PersonalizadosGroup>
+                  {entregas('entrega')}
+                  {entregas('entrega_pendente')}
+                </>
+              )
+            })()}
           </>
           )}
 
