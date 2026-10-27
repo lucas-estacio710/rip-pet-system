@@ -285,7 +285,7 @@ export default function EntregaTela(p: Props) {
           {tarefa && obsMontada !== obsSalva && (
             <div className="flex justify-end">
               <button type="button" disabled={ocupado}
-                onClick={() => agir(() => salvarObsEntrega(supabase, { ...ctx, tarefaId: tarefa.id, obs: obsMontada }), () => setObsSalva(obsMontada))}
+                onClick={() => agir(() => salvarObsEntrega(supabase, { ...ctx, tarefaId: tarefa.id, obs: obsMontada }), () => { setObsSalva(obsMontada); p.onMudou() })}
                 className="h-9 px-4 rounded-lg text-[13px] font-bold text-white" style={{ background: '#7c3aed' }}>
                 Salvar alterações
               </button>
