@@ -32,6 +32,7 @@ import type { FotoComprimida } from '@/lib/comprimir-imagem'
 import { concluirTarefasOperacionais, reabrirTarefasOperacionais, registrarObservacaoContrato, formatarIdade, atribuidoEhPosicao } from '@/lib/atribuir-tarefa'
 import { pelinhoDoAcolhimento, moverPelinhoComAcolhimento } from '@/lib/tarefas-rescaldo'
 import { lerObsEntrega, formatarPrevisao, montarObsEntrega, type PeriodoEntrega } from '@/lib/obs-entrega'
+import { corDaPessoa } from '@/lib/cor-pessoa'
 import ListaPorPrevisao from '@/components/tarefas/ListaPorPrevisao'
 import { enderecoParaNavegar, linksNavegacao } from '@/lib/card-pet'
 import { COLUNAS_ENDERECO_CLINICA, textoEnderecoClinica, linksDestino, type EnderecoClinica } from '@/lib/endereco-clinica'
@@ -678,7 +679,7 @@ function PetConcluidasCard({ petGroup, onAbrirRecibo, nomePorId, funcionarioNome
                   {info.label}{t.quantidade > 1 ? ` ×${t.quantidade}` : ''}
                 </span>
                 <span className="text-[10px] text-[var(--surface-500)]">
-                  ✅ {formatarDataHoraConclusao(t.concluido_em)}{nomePorId ? ` · ${nomePorId[t.atribuido_a] || '—'}` : ''}{t.executado_por_funcionario_id && funcionarioNomePorId?.[t.executado_por_funcionario_id] ? ` (${funcionarioNomePorId[t.executado_por_funcionario_id]})` : ''}
+                  ✅ {formatarDataHoraConclusao(t.concluido_em)}{nomePorId && <> · <span className="font-semibold" style={{ color: corDaPessoa(t.atribuido_a) }}>{nomePorId[t.atribuido_a] || '—'}</span></>}{t.executado_por_funcionario_id && funcionarioNomePorId?.[t.executado_por_funcionario_id] ? ` (${funcionarioNomePorId[t.executado_por_funcionario_id]})` : ''}
                 </span>
               </div>
             </div>
@@ -2349,7 +2350,7 @@ export default function TarefasPage() {
               const idade = (t: T) => {
                 const horas = (Date.now() - new Date(t.atribuido_em).getTime()) / (1000 * 60 * 60)
                 const cor = horas > 48 ? 'text-red-500' : horas > 24 ? 'text-amber-500' : 'text-[var(--surface-400)]'
-                return <>Com {operacionais.find(o => o.user_id === t.atribuido_a)?.nome || '—'} · <span className={cor}>{formatarIdade(horas)}</span></>
+                return <>Com <span className="font-semibold" style={{ color: corDaPessoa(t.atribuido_a) }}>{operacionais.find(o => o.user_id === t.atribuido_a)?.nome || '—'}</span> · <span className={cor}>{formatarIdade(horas)}</span></>
               }
               const botoes = (t: T, pequeno = false) => (
                 <div className={`flex ${pequeno ? 'gap-1' : 'flex-col items-stretch gap-2'} shrink-0`}>
@@ -2506,7 +2507,7 @@ export default function TarefasPage() {
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
-                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · {nomePorId[t.atribuido_a] || '—'}{colaboradorSuffix(t)}</p>}
+                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · <span className="font-semibold" style={{ color: corDaPessoa(t.atribuido_a) }}>{nomePorId[t.atribuido_a] || '—'}</span>{colaboradorSuffix(t)}</p>}
                       onClick={() => setTarefaRecibo(t)}
                     />
                   ))}
@@ -2525,7 +2526,7 @@ export default function TarefasPage() {
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
-                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · {nomePorId[t.atribuido_a] || '—'}{colaboradorSuffix(t)}</p>}
+                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · <span className="font-semibold" style={{ color: corDaPessoa(t.atribuido_a) }}>{nomePorId[t.atribuido_a] || '—'}</span>{colaboradorSuffix(t)}</p>}
                       onClick={() => setTarefaRecibo(t)}
                     />
                   ))}
@@ -2539,7 +2540,7 @@ export default function TarefasPage() {
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
-                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · {nomePorId[t.atribuido_a] || '—'}{colaboradorSuffix(t)}</p>}
+                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · <span className="font-semibold" style={{ color: corDaPessoa(t.atribuido_a) }}>{nomePorId[t.atribuido_a] || '—'}</span>{colaboradorSuffix(t)}</p>}
                       onClick={() => setTarefaRecibo(t)}
                     />
                   ))}
@@ -2552,7 +2553,7 @@ export default function TarefasPage() {
                       lacre={t.lacreContrato || t.lacre}
                       petNome={t.petNome}
                       tutorNome={t.tutorNome}
-                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · {nomePorId[t.atribuido_a] || '—'}{colaboradorSuffix(t)}</p>}
+                      linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · <span className="font-semibold" style={{ color: corDaPessoa(t.atribuido_a) }}>{nomePorId[t.atribuido_a] || '—'}</span>{colaboradorSuffix(t)}</p>}
                       onClick={() => setTarefaRecibo(t)}
                     />
                   ))}
