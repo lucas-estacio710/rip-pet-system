@@ -101,3 +101,57 @@ export function agruparProgramacao<T>(
   })
   return { pool, dias }
 }
+
+// ── 📋 Mensagem do período (28/10/2026, pedido do Lucas) ──────────────────────
+// O botão ao lado de "Manhã · 4" copia pro WhatsApp a relação do período, na ordem da tela:
+//
+//     *Entregas de hoje de manhã (28/out)*
+//     4992 - PRETO - Gonzaga, Santos
+//     4988 - OZZY
+//        📍 Av Hugo Maia 51 (endereço alterado)
+//        📝 Após as 10h
+//
+// Bairro e cidade do cadastro vêm depois do pet; com endereço ALTERADO na programação eles saem
+// e entra a linha 📍 (o bairro do cadastro já não vale).
+
+export type LinhaEntrega = {
+  lacre?: string | null
+  pet: string
+  /** "Gonzaga, Santos" — bairro e cidade do cadastro */
+  local?: string
+  /** endereço alterado na programação */
+  endereco?: string
+  obs?: string
+}
+
+const SEMANA_LONGA = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado']
+
+const PERIODO_NA_FRASE: Record<string, string> = {
+  manha: 'de manhã',
+  tarde: 'à tarde',
+  dia_todo: '(dia todo)',
+  sem_periodo: '(sem período)',
+}
+
+/** Título + uma linha por pet. `dia` = yyyy-mm-dd ou 'sem_data'. */
+export function mensagemDoPeriodo(dia: string, periodo: string, hoje: string, itens: LinhaEntrega[]): string {
+  const per = PERIODO_NA_FRASE[periodo] ?? ''
+  let titulo: string
+  if (dia === 'sem_data') titulo = ['Entregas sem data', per].filter(Boolean).join(' ')
+  else {
+    const d = new Date(Date.UTC(+dia.slice(0, 4), +dia.slice(5, 7) - 1, +dia.slice(8, 10)))
+    const curto = `${dia.slice(8, 10)}/${MESES[d.getUTCMonth()]}`
+    const n = diasEntre(hoje, dia)
+    const quando = n === 0 ? 'hoje' : n === 1 ? 'amanhã' : n === -1 ? 'ontem' : SEMANA_LONGA[d.getUTCDay()]
+    titulo = ['Entregas de', quando, per, `(${curto})`].filter(Boolean).join(' ')
+  }
+  titulo = `*${titulo}*`
+  const linhas = itens.map(i => {
+    const alterado = i.endereco?.trim() || ''
+    const out = [[String(i.lacre ?? '').trim() || 's/ lacre', i.pet.trim(), alterado ? '' : i.local?.trim()].filter(Boolean).join(' - ')]
+    if (alterado) out.push(`   📍 ${alterado} (endereço alterado)`)
+    if (i.obs?.trim()) out.push(`   📝 ${i.obs.trim()}`)
+    return out.join('\n')
+  })
+  return [titulo, ...linhas].join('\n')
+}

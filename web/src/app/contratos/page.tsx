@@ -69,7 +69,7 @@ import TrazerDaMatriz from '@/components/contratos/pipeline/TrazerDaMatriz'
 import AdicionarPetsViagem from '@/components/contratos/pipeline/AdicionarPetsViagem'
 import { carregarTarefaEntrega } from '@/lib/tarefa-entrega'
 import { lerObsEntrega, formatarPrevisao, type PeriodoEntrega } from '@/lib/obs-entrega'
-import { agruparProgramacao } from '@/lib/programacao-entrega'
+import { agruparProgramacao, mensagemDoPeriodo } from '@/lib/programacao-entrega'
 import { corDaPessoa } from '@/lib/cor-pessoa'
 import { nomesDePerfis } from '@/lib/cache-pessoas'
 import { useToast } from '@/components/ui/Toast'
@@ -939,7 +939,7 @@ function ContratosContent() {
   // atribuição; o texto da tarefa só cobre contrato sem a coluna preenchida. Ter um dos dois =
   // programado: sai do pool e entra no dia/período (lib/programacao-entrega). O farol 📬 só fica
   // feito com `com`. `undefined` = ainda carregando (a lista não se divide antes de saber).
-  const [programadas, setProgramadas] = useState<Record<string, { com?: string; comId?: string; prevData?: string; prevPeriodo?: string }> | undefined>(undefined)
+  const [programadas, setProgramadas] = useState<Record<string, { com?: string; comId?: string; prevData?: string; prevPeriodo?: string; endereco?: string; obs?: string }> | undefined>(undefined)
   const idsDaRota = encPipeline && (statusFiltro === 'retorno' || statusFiltro === 'pendente')
     ? contratos.filter(c => c.status === 'retorno' || c.status === 'pendente').map(c => c.id).sort().join(',')
     : ''
@@ -971,10 +971,10 @@ function ContratosContent() {
     ]).then(async () => {
       const nomes = await nomesDePerfis(supabase, linhas.map(l => l.atribuido_a))
       if (!vivo) return
-      const out: Record<string, { com?: string; comId?: string; prevData?: string; prevPeriodo?: string }> = {}
+      const out: Record<string, { com?: string; comId?: string; prevData?: string; prevPeriodo?: string; endereco?: string; obs?: string }> = {}
       for (const l of linhas) {
         const o = lerObsEntrega(l.observacao_atribuicao)
-        out[l.contrato_id] = { com: nomes[l.atribuido_a] || 'alguém', comId: l.atribuido_a, prevData: o.prevData, prevPeriodo: o.prevPeriodo }
+        out[l.contrato_id] = { com: nomes[l.atribuido_a] || 'alguém', comId: l.atribuido_a, prevData: o.prevData, prevPeriodo: o.prevPeriodo, endereco: o.endereco, obs: o.texto || undefined }
       }
       for (const pc of prevs) {
         out[pc.id] = { ...out[pc.id], prevData: pc.entrega_prevista || undefined, prevPeriodo: pc.entrega_periodo || undefined }
@@ -5354,6 +5354,21 @@ ${petNome}`
                           <Fragment key={per.chave}>
                             <div className="flex items-center gap-1.5 pl-5 text-[11px] font-semibold uppercase tracking-wider text-[var(--surface-400)]">
                               <span>{per.rotulo}</span><span>· {per.itens.length}</span>
+                              {/* 📋 28/10/2026: a relação do período pro WhatsApp (lib/programacao-entrega) */}
+                              <button type="button" title="Copiar a relação deste período" aria-label="Copiar a relação deste período"
+                                onClick={() => {
+                                  const msg = mensagemDoPeriodo(d.chave, per.chave, hojeLocal(), per.itens.map(c => ({
+                                    lacre: c.numero_lacre, pet: c.pet_nome || '',
+                                    local: [c.tutor?.bairro || c.tutor_bairro, c.tutor?.cidade || c.tutor_cidade].map(x => (x || '').trim()).filter(Boolean).join(', '),
+                                    endereco: programadas?.[c.id]?.endereco, obs: programadas?.[c.id]?.obs,
+                                  })))
+                                  navigator.clipboard.writeText(msg)
+                                    .then(() => toast(`Relação copiada · ${per.itens.length} ${per.itens.length === 1 ? 'pet' : 'pets'}`, 'success'))
+                                    .catch(() => toast('Não deu pra copiar', 'error'))
+                                }}
+                                className="ml-0.5 p-1 rounded-md text-[var(--surface-400)] hover:text-[#16a34a] hover:bg-[#16a34a]/10 transition-colors">
+                                <Copy className="h-3.5 w-3.5" />
+                              </button>
                             </div>
                             {per.itens.map(cardRota)}
                           </Fragment>
