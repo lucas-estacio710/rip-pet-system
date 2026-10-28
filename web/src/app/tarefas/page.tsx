@@ -27,6 +27,7 @@ import { criarContratoDeFicha, ContratoValidationError } from '@/lib/criar-contr
 import { gerarContratoPDF, contratoFilename } from '@/lib/contrato-pdf'
 import { hojeLocal, inputLocalParaIso } from '@/lib/date-local'
 import AtivacaoPVModal from '@/components/contratos/modals/AtivacaoPVModal'
+import FinalizadoraModal from '@/components/contratos/modals/FinalizadoraModal'
 import FotoProva from '@/components/tarefas/FotoProva'
 import type { FotoComprimida } from '@/lib/comprimir-imagem'
 import { concluirTarefasOperacionais, reabrirTarefasOperacionais, registrarObservacaoContrato, formatarIdade, atribuidoEhPosicao } from '@/lib/atribuir-tarefa'
@@ -390,6 +391,23 @@ function TarefaCard({ tipo, statusBadge, unidadeId, lacre, petNome, tutorNome, q
     <div className="flex items-center gap-3 p-2.5 rounded-lg border border-[var(--surface-200)]">
       {conteudo}
     </div>
+  )
+}
+
+// "FIN" do card de entrega finalizada — o mesmo selo do ActionButtons do pipeline. Fica dentro
+// do card clicável (que abre o recibo), por isso o stopPropagation.
+function BotaoFinalizadora({ carregando, onClick }: { carregando: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={e => { e.stopPropagation(); onClick() }}
+      disabled={carregando}
+      title="Finalizadora — agradecimento e avaliação do Google"
+      aria-label="Abrir a mensagem finalizadora"
+      className="shrink-0 h-8 min-w-[2.75rem] px-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center disabled:opacity-60"
+    >
+      {carregando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'FIN'}
+    </button>
   )
 }
 
@@ -1659,6 +1677,23 @@ export default function TarefasPage() {
   // Visualizar Tarefa (10/09/2026): recibo somente-leitura ao clicar num card já concluído
   // (Minhas ou Gestão) — o "Desfazer" que antes ficava solto no card mora dentro do popup.
   const [tarefaRecibo, setTarefaRecibo] = useState<TarefaGrupo | null>(null)
+  // "FIN" na entrega finalizada (28/10/2026, pedido do Lucas): a mesma Finalizadora do pipeline
+  // (agradecimento + avaliação do Google), pra mandar logo depois da entrega sem ir ao /contratos.
+  // O contrato é lido no clique — a lista não carrega telefone.
+  const [finalizadora, setFinalizadora] = useState<{ id: string; pet_nome: string; tutor_nome: string; tutor_telefone: string | null; tutor: { nome: string; telefone: string | null } | null } | null>(null)
+  const [abrindoFinalizadora, setAbrindoFinalizadora] = useState<string | null>(null)
+  async function abrirFinalizadora(contratoId: string | null) {
+    if (!contratoId || abrindoFinalizadora) return
+    setAbrindoFinalizadora(contratoId)
+    const { data, error } = await supabase
+      .from('contratos')
+      .select('id, pet_nome, tutor_nome, tutor_telefone, tutor:tutor_id ( nome, telefone )')
+      .eq('id', contratoId)
+      .maybeSingle()
+    setAbrindoFinalizadora(null)
+    if (error || !data) { toast('Não deu pra abrir a mensagem finalizadora.', 'error'); return }
+    setFinalizadora(data as unknown as NonNullable<typeof finalizadora>)
+  }
   // Foto-prova no recibo (mig 147). Busca só quando o recibo abre — carregar a foto de toda
   // tarefa concluída da lista seria egress jogado fora, já que quase nenhuma é aberta.
   const [fotoRecibo, setFotoRecibo] = useState<{ url: string; bytes: number } | null>(null)
@@ -2569,6 +2604,7 @@ export default function TarefasPage() {
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
                       linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · <span className="font-semibold" style={{ color: corDaPessoa(t.atribuido_a) }}>{nomePorId[t.atribuido_a] || '—'}</span>{colaboradorSuffix(t)}</p>}
+                      acao={<BotaoFinalizadora carregando={abrindoFinalizadora === t.contratoIdResolvido} onClick={() => abrirFinalizadora(t.contratoIdResolvido)} />}
                       onClick={() => setTarefaRecibo(t)}
                     />
                   ))}
@@ -2583,6 +2619,7 @@ export default function TarefasPage() {
                       tutorNome={t.tutorNome}
                       quantidade={t.quantidade}
                       linhaExtra={<p className="text-xs text-[var(--surface-500)] mt-0.5">✅ {formatarDataHoraConclusao(t.concluido_em)} · <span className="font-semibold" style={{ color: corDaPessoa(t.atribuido_a) }}>{nomePorId[t.atribuido_a] || '—'}</span>{colaboradorSuffix(t)}</p>}
+                      acao={<BotaoFinalizadora carregando={abrindoFinalizadora === t.contratoIdResolvido} onClick={() => abrirFinalizadora(t.contratoIdResolvido)} />}
                       onClick={() => setTarefaRecibo(t)}
                     />
                   ))}
@@ -3071,6 +3108,10 @@ export default function TarefasPage() {
             )}
           </div>
         </div>
+      )}
+
+      {finalizadora && (
+        <FinalizadoraModal isOpen onClose={() => setFinalizadora(null)} contrato={finalizadora} />
       )}
 
       {/* Recibo de tarefa Finalizada — somente leitura (Visualizar Tarefa, 10/09/2026). Todo
