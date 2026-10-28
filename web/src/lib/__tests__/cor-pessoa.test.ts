@@ -15,3 +15,8 @@ test('ids parecidos se espalham pela paleta', () => {
   for (let i = 0; i < 40; i++) cores.add(corDaPessoa(`3f1c2a9e-1111-4c4c-9d9d-0123456789${String(i).padStart(2, '0')}`)!)
   assert.ok(cores.size >= 8, `só ${cores.size} cores distintas em 40 ids`)
 })
+
+test('paleta de 40 cores, nenhuma repetida', () => {
+  assert.equal(PALETA_PESSOAS.length, 40)
+  assert.equal(new Set(PALETA_PESSOAS).size, 40)
+})
