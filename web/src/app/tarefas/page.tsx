@@ -17,7 +17,7 @@
 
 import { erroDataAcolhimento, limitesDataAcolhimento } from '@/lib/data-acolhimento'
 import { useState, useEffect, useCallback, useRef, createContext, useContext } from 'react'
-import { HandHeart, PackageCheck, PawPrint, Fingerprint, Scissors, Feather, MapPin, Navigation, FileDown, Check, CheckCheck, Loader2, ClipboardList, UserPlus, Plus, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { HandHeart, PackageCheck, PawPrint, Dog, Fingerprint, Scissors, Feather, MapPin, Navigation, FileDown, Check, CheckCheck, Loader2, ClipboardList, UserPlus, Plus, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { atribuiveis } from '@/lib/cache-pessoas'
 import { useVoltarFecha } from '@/hooks/usePopupHistory'
@@ -41,12 +41,14 @@ import { carregarExigeFoto, enviarFotoTarefa, listarFotosDasTarefas, urlAssinada
 // `entrega_pendente` NÃO é um tipo real de `tarefas_operacionais.tipo` (a constraint do banco
 // nem aceita esse valor) — é uma CHAVE DE EXIBIÇÃO só, calculada por `chaveExibicao()` a partir
 // de `tipo:'entrega'` + `statusContrato==='pendente'`. Nunca gravar isso no banco.
-type TarefaTipo = 'remocao' | 'entrega' | 'molde_patinha' | 'carimbo' | 'pelo_extra' | 'pelinho' | 'ativacao_pv' | 'entrega_pendente'
+type TarefaTipo = 'remocao' | 'entrega' | 'molde_patinha' | 'molde_focinho' | 'carimbo' | 'pelo_extra' | 'pelinho' | 'ativacao_pv' | 'entrega_pendente'
 
 const TIPO_INFO: Record<TarefaTipo, { label: string; icon: typeof HandHeart; cor: string }> = {
   remocao: { label: 'Acolhimento', icon: HandHeart, cor: '#ef4444' },
   entrega: { label: 'Realizar Entrega', icon: PackageCheck, cor: '#0ea5e9' },
   molde_patinha: { label: 'Tirar Molde', icon: PawPrint, cor: '#a855f7' },
+  // 28/10/2026: anel e pingente do focinho (prata/bronze) — eram 'outro' e não geravam tarefa.
+  molde_focinho: { label: 'Tirar Molde Focinho', icon: Dog, cor: '#6366f1' },
   carimbo: { label: 'Tirar Carimbo', icon: Fingerprint, cor: '#f59e0b' },
   pelo_extra: { label: 'Tirar Pelo Extra', icon: Scissors, cor: '#ec4899' },
   pelinho: { label: 'Tirar Pelinho', icon: Feather, cor: '#14b8a6' },
@@ -399,6 +401,7 @@ const PLACEHOLDER_PEDIDO: Record<TarefaTipo, string> = {
   entrega: 'Pedido específico (ex: Tutor pediu pra entregar na Rua das Palmeiras, 245 em vez do endereço cadastrado)...',
   remocao: 'Pedido específico...',
   molde_patinha: 'Pedido específico (ex: molde da patinha esquerda)...',
+  molde_focinho: 'Pedido específico (ex: tirar 2 moldes, um pra cada peça)...',
   carimbo: 'Pedido específico (ex: carimbo da patinha direita)...',
   pelo_extra: 'Pedido específico (ex: pelinho do pescoço)...',
   pelinho: 'Pedido específico (ex: 2 vidrinhos de pelinho)...',
@@ -414,7 +417,7 @@ type PoolItemData = { key: string; itemIds: string[]; quantidade: number; petNom
 // Lucas (01/09/2026): "agrupa por pet se tiver mais de uma atividade". Entrega fica de fora
 // (ação de conclusão diferente — pede data de entrega, não é só marcar feito) e continua no
 // próprio grupo por tipo, como antes.
-const TIPOS_PERSONALIZADOS: TarefaTipo[] = ['molde_patinha', 'carimbo', 'pelo_extra', 'pelinho']
+const TIPOS_PERSONALIZADOS: TarefaTipo[] = ['molde_patinha', 'molde_focinho', 'carimbo', 'pelo_extra', 'pelinho']
 type PetPoolGroup = {
   contratoId: string
   petNome: string
@@ -1784,7 +1787,7 @@ export default function TarefasPage() {
     // ocupados + quem pode receber (da memória da sessão); 2ª rodada os dois pools juntos.
     const [{ data: pendentesEntrega }, { data: pendentesRescaldo }, perfisAtribuiveis] = await Promise.all([
       supabase.from('tarefas_operacionais').select('contrato_id').eq('unidade_id', currentUnit.id).eq('tipo', 'entrega').eq('status', 'pendente'),
-      supabase.from('tarefas_operacionais').select('contrato_produto_id').eq('unidade_id', currentUnit.id).in('tipo', ['molde_patinha', 'carimbo', 'pelo_extra', 'pelinho']).eq('status', 'pendente'),
+      supabase.from('tarefas_operacionais').select('contrato_produto_id').eq('unidade_id', currentUnit.id).in('tipo', ['molde_patinha', 'molde_focinho', 'carimbo', 'pelo_extra', 'pelinho']).eq('status', 'pendente'),
       // Quem pode receber tarefa: Operacional de verdade OU gerente/concierge (tem unidade sem
       // motorista dedicado — aí o próprio gerente/concierge se atribui e resolve).
       atribuiveis(supabase, currentUnit.id, 'tarefas'),
@@ -1801,7 +1804,7 @@ export default function TarefasPage() {
     let qRescaldo = supabase.from('contrato_produtos')
       .select('id, contrato_id, rescaldo_feito, observacao, produto:produtos!inner(nome, rescaldo_tipo), contrato:contratos!inner(id, codigo, pet_nome, tutor_nome, unidade_id, status, numero_lacre, data_acolhimento)')
       .eq('rescaldo_feito', false)
-      .in('produto.rescaldo_tipo', ['molde_patinha', 'carimbo', 'pelo_extra', 'pelinho'])
+      .in('produto.rescaldo_tipo', ['molde_patinha', 'molde_focinho', 'carimbo', 'pelo_extra', 'pelinho'])
       .eq('contrato.unidade_id', currentUnit.id)
       .in('contrato.status', ['ativo', 'pinda', 'retorno', 'pendente'])
     if (idsRescaldoOcupados.length > 0) qRescaldo = qRescaldo.not('id', 'in', `(${idsRescaldoOcupados.join(',')})`)
@@ -1994,6 +1997,7 @@ export default function TarefasPage() {
     remocao: [],
     ativacao_pv: [],
     molde_patinha: agruparPool(poolRescaldo.filter(p => p.produto?.rescaldo_tipo === 'molde_patinha')),
+    molde_focinho: agruparPool(poolRescaldo.filter(p => p.produto?.rescaldo_tipo === 'molde_focinho')),
     carimbo: agruparPool(poolRescaldo.filter(p => p.produto?.rescaldo_tipo === 'carimbo')),
     pelo_extra: agruparPool(poolRescaldo.filter(p => p.produto?.rescaldo_tipo === 'pelo_extra')),
     pelinho: agruparPool(poolRescaldo.filter(p => p.produto?.rescaldo_tipo === 'pelinho')),

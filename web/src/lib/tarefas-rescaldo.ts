@@ -20,12 +20,13 @@ import { trocaPreservaLinha } from '@/lib/urna'
 
 type Supabase = ReturnType<typeof createClient>
 
-export type TipoRescaldo = 'pelinho' | 'molde_patinha' | 'carimbo' | 'pelo_extra'
+export type TipoRescaldo = 'pelinho' | 'molde_patinha' | 'molde_focinho' | 'carimbo' | 'pelo_extra'
 
 /** Rótulo da tarefa — o mesmo do /tarefas (TIPO_INFO). */
 export const ROTULO_TAREFA: Record<TipoRescaldo, string> = {
   pelinho: 'Tirar Pelinho',
   molde_patinha: 'Tirar Molde',
+  molde_focinho: 'Tirar Molde Focinho',
   carimbo: 'Tirar Carimbo',
   pelo_extra: 'Tirar Pelo Extra',
 }

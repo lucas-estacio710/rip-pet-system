@@ -43,6 +43,7 @@ const TIPO_COLORS: Record<string, string> = { urna: '#7c3aed', acessorio: '#3b82
 const RESCALDO_TIPO_OPCOES: { value: string; label: string }[] = [
   { value: '', label: 'Nenhum (não é rescaldo)' },
   { value: 'molde_patinha', label: '🐾 Molde de Patinha' },
+  { value: 'molde_focinho', label: '🐶 Molde de Focinho' },
   { value: 'carimbo', label: '📄 Carimbo' },
   { value: 'pelo_extra', label: '✂️ Pelo Extra' },
   { value: 'pelinho', label: '🫙 Pelinho Vidrinho' },

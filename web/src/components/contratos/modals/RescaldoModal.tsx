@@ -38,6 +38,7 @@ export type RescaldoLinha = {
 
 export const RESCALDO_TIPO_LABELS: Record<string, { label: string; icon: string }> = {
   molde_patinha: { label: 'Molde de Patinha', icon: '🐾' },
+  molde_focinho: { label: 'Molde de Focinho', icon: '🐶' },
   pelo_extra: { label: 'Pelo Extra', icon: '✂️' },
   carimbo: { label: 'Carimbo', icon: '📄' },
 }

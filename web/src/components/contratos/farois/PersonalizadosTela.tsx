@@ -57,12 +57,13 @@ type Props = {
 
 const GRUPOS: { tipo: string; titulo: string; emoji: string }[] = [
   { tipo: 'molde_patinha', titulo: 'Tirar Molde', emoji: '🐾' },
+  { tipo: 'molde_focinho', titulo: 'Tirar Molde Focinho', emoji: '🐶' },
   { tipo: 'carimbo', titulo: 'Tirar Carimbo', emoji: '📄' },
   { tipo: 'pelo_extra', titulo: 'Tirar Pelo Extra', emoji: '✂️' },
   { tipo: 'outro', titulo: 'Outros', emoji: '💎' },
 ]
-const ROTULO_CATALOGO: Record<string, string> = { molde_patinha: 'Molde de Patinha', carimbo: 'Carimbo', pelo_extra: 'Pelo Extra', outro: 'Outros' }
-const COM_TAREFA = new Set(['molde_patinha', 'carimbo', 'pelo_extra'])
+const ROTULO_CATALOGO: Record<string, string> = { molde_patinha: 'Molde de Patinha', molde_focinho: 'Molde de Focinho', carimbo: 'Carimbo', pelo_extra: 'Pelo Extra', outro: 'Outros' }
+const COM_TAREFA = new Set(['molde_patinha', 'molde_focinho', 'carimbo', 'pelo_extra'])
 
 export default function PersonalizadosTela(p: Props) {
   const chave = p.itens.map(i => `${i.id}:${i.feito ? 1 : 0}`).join(',')
@@ -187,7 +188,7 @@ export default function PersonalizadosTela(p: Props) {
             Trocar <b>{trocando.nome}</b> por: <span style={{ color: 'var(--surface-400)' }}>a tarefa, a foto e o feito continuam; o valor passa a ser o do novo modelo.</span>
           </p>
         )}
-        {['molde_patinha', 'carimbo', 'pelo_extra', 'outro'].map(tipo => {
+        {['molde_patinha', 'molde_focinho', 'carimbo', 'pelo_extra', 'outro'].map(tipo => {
           const lista = catalogoFiltrado.filter(c => (c.rescaldo_tipo || 'outro') === tipo)
           if (lista.length === 0) return null
           return (

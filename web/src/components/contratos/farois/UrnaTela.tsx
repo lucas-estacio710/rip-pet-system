@@ -51,7 +51,7 @@ type Props = {
 }
 
 const ROTULO_RESCALDO: Record<string, string> = {
-  molde_patinha: 'molde de patinha', carimbo: 'carimbo', pelo_extra: 'pelo extra', pelinho: 'pelinho', outro: 'personalizado',
+  molde_patinha: 'molde de patinha', molde_focinho: 'molde de focinho', carimbo: 'carimbo', pelo_extra: 'pelo extra', pelinho: 'pelinho', outro: 'personalizado',
 }
 const PERCENTS = [100, 50, 30, 25, 20, 10]
 const VALORES = [100, 80, 50, 30, 20]

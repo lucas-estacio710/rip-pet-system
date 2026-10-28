@@ -15,7 +15,7 @@
  * - Ordem: em andamento primeiro; depois as concluídas, a mais recente primeiro.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { HandHeart, PackageCheck, PawPrint, Fingerprint, Scissors, Feather, ClipboardList, ListChecks, ImageIcon, X } from 'lucide-react'
+import { HandHeart, PackageCheck, PawPrint, Dog, Fingerprint, Scissors, Feather, ClipboardList, ListChecks, ImageIcon, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { listarFotosDasTarefas, urlAssinadaFoto } from '@/lib/foto-tarefa'
 import { nomesDePerfis } from '@/lib/cache-pessoas'
@@ -48,12 +48,13 @@ const TIPO_INFO: Record<string, { label: string; icon: typeof HandHeart; cor: st
   remocao: { label: 'Acolhimento', icon: HandHeart, cor: '#ef4444' },
   entrega: { label: 'Realizar Entrega', icon: PackageCheck, cor: '#0ea5e9' },
   molde_patinha: { label: 'Tirar Molde', icon: PawPrint, cor: '#a855f7' },
+  molde_focinho: { label: 'Tirar Molde Focinho', icon: Dog, cor: '#6366f1' },
   carimbo: { label: 'Tirar Carimbo', icon: Fingerprint, cor: '#f59e0b' },
   pelo_extra: { label: 'Tirar Pelo Extra', icon: Scissors, cor: '#ec4899' },
   pelinho: { label: 'Tirar Pelinho', icon: Feather, cor: '#14b8a6' },
   ativacao_pv: { label: 'Acolhimento de Preventivo', icon: ClipboardList, cor: '#ec4899' },
 }
-const AGRUPA = new Set(['molde_patinha', 'carimbo', 'pelo_extra', 'pelinho'])
+const AGRUPA = new Set(['molde_patinha', 'molde_focinho', 'carimbo', 'pelo_extra', 'pelinho'])
 
 function dataHora(iso: string | null): string {
   if (!iso) return ''
