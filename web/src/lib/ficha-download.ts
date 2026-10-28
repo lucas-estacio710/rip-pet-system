@@ -261,7 +261,12 @@ export async function compartilharArquivo(arquivo: File, legenda?: string): Prom
   }
 }
 
-export async function baixarFichaPdf(el: HTMLElement, nomeBase: string): Promise<void> {
+/**
+ * `meiaA4` (28/10/2026, pedido do Lucas pro /tarefas): a ficha sai no tamanho de MEIA folha
+ * (A5, 148×210 mm) e centralizada numa A4 — o tamanho de papel da ficha impressa. Sem a opção,
+ * ocupa a A4 inteira, como a /gruposencaminhamentos sempre baixou.
+ */
+export async function baixarFichaPdf(el: HTMLElement, nomeBase: string, opcoes?: { meiaA4?: boolean }): Promise<void> {
   const canvas = await canvasDaFicha(el)
   const { default: jsPDF } = await import('jspdf')
 
@@ -288,8 +293,8 @@ export async function baixarFichaPdf(el: HTMLElement, nomeBase: string): Promise
   // só qual formato ganha depois de ligar — e aqui foi medido, não deduzido.
   const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true })
   const PAG_W = 210, PAG_H = 297, MARGEM = 12
-  const maxW = PAG_W - MARGEM * 2
-  const maxH = PAG_H - MARGEM * 2
+  const maxW = opcoes?.meiaA4 ? 148 : PAG_W - MARGEM * 2
+  const maxH = opcoes?.meiaA4 ? 210 : PAG_H - MARGEM * 2
 
   // Cabe pela largura; se estourar a altura, manda a altura. Sem distorcer a proporção.
   const razao = canvas.width / canvas.height
@@ -300,6 +305,6 @@ export async function baixarFichaPdf(el: HTMLElement, nomeBase: string): Promise
   // `escala: 3` sobre 420px de projeto dá 1260px de largura pra ~186mm impressos ≈ 172 DPI:
   // nítido na impressora dela sem inflar o arquivo. O `'SLOW'` é a compressão da IMAGEM (o
   // `compress` do construtor cuida dos outros streams) — numa página só, custa milissegundos.
-  pdf.addImage(canvas.toDataURL('image/png'), 'PNG', (PAG_W - w) / 2, MARGEM, w, h, undefined, 'SLOW')
+  pdf.addImage(canvas.toDataURL('image/png'), 'PNG', (PAG_W - w) / 2, opcoes?.meiaA4 ? (PAG_H - h) / 2 : MARGEM, w, h, undefined, 'SLOW')
   pdf.save(`${nomeBase}.pdf`)
 }

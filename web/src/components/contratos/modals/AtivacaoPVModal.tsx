@@ -11,6 +11,8 @@ import type { FotoComprimida } from '@/lib/comprimir-imagem'
 import { carregarExigeFoto, enviarFotoTarefa } from '@/lib/foto-tarefa'
 import { concluirTarefasOperacionais, reabrirTarefasOperacionais, atribuidoEhPosicao } from '@/lib/atribuir-tarefa'
 import { textoEnderecoClinica, linksDestino, type EnderecoClinica } from '@/lib/endereco-clinica'
+import { nomesDePerfis } from '@/lib/cache-pessoas'
+import BaixarFichaRemocao from '@/components/fichas/BaixarFichaRemocao'
 
 // ============================================================================
 // AtivacaoPVModal — conclusão da tarefa "Ativar Preventivo" (mig 138).
@@ -123,6 +125,7 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [gerandoPdf, setGerandoPdf] = useState(false)
+  const [nomeAtribuido, setNomeAtribuido] = useState<string | null>(null)
 
   const tutorNome = contrato.tutor?.nome || contrato.tutor_nome || ''
   const unidadeId = contrato.unidade_id || currentUnit?.id || null
@@ -140,6 +143,7 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
     setGerandoPdf(false)
 
     setAtribuidoPosicao(null)
+    setNomeAtribuido(null)
     Promise.all([
       supabase
         .from('tarefas_operacionais')
@@ -155,6 +159,8 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
       setCarregando(false)
       const uid = t?.atribuido_a || (c as { responsavel_user_id: string | null } | null)?.responsavel_user_id
       setAtribuidoPosicao(await atribuidoEhPosicao(supabase, uid))
+      // Nome de quem vai fazer, pro "Colaborador resp. acolhimento" da ficha de remoção.
+      if (uid) nomesDePerfis(supabase, [uid]).then(n => setNomeAtribuido(n[uid] || null)).catch(() => {})
     })
 
     if (unidadeId) {
@@ -404,6 +410,16 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
                 Baixar Contrato
               </button>
             )}
+
+            {/* Ficha de remoção (28/10/2026): a da /gruposencaminhamentos, em meia A4. Na posição
+                (login compartilhado) o colaborador é quem foi escolhido abaixo; sem escolha, em
+                branco pra preencher à mão — o nome do carro não serve. */}
+            <BaixarFichaRemocao
+              contratoId={contrato.id}
+              colaborador={isPosicao
+                ? (funcionarios.find(f => f.id === executadoPorFuncionarioId)?.nome || null)
+                : nomeAtribuido}
+            />
 
             <div>
               <label className="text-xs font-medium text-[var(--surface-600)] mb-1 block">Número do Lacre <span className="text-red-400">*</span></label>
