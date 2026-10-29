@@ -1765,7 +1765,7 @@ function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, fotoP
   // O ⤴ ao lado de cada ficha só existe onde o aparelho abre o menu Compartilhar com PNG
   // (celular sim; no computador depende do sistema). No servidor, `false`.
   const podeCompartilhar = useSyncExternalStore(semAssinatura, podeCompartilharPng, () => false)
-  const [fotoAberta, setFotoAberta] = useState<{ url: string; pet: string } | null>(null)
+  const [fotoAberta, setFotoAberta] = useState<{ url: string; pet: string; info: string[] } | null>(null)
   const fecharFoto = useCallback(() => setFotoAberta(null), [])
 
   return (
@@ -1872,7 +1872,7 @@ function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, fotoP
                       <FotoDoPet
                         url={fotoPorContrato[f.contratoId]}
                         largura={Math.round(DOC_W * escalaMini * 0.8)}
-                        onAbrir={url => setFotoAberta({ url, pet: f.petNome })}
+                        onAbrir={url => setFotoAberta({ url, pet: f.petNome, info: legendaDaFoto(f) })}
                       />
                     </div>
                     {/* Legenda do "anexo": LACRE · nome do pet — pedido do Lucas em 23/09/2026.
@@ -2013,9 +2013,23 @@ function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, fotoP
           })
         )}
       </div>
-      {fotoAberta && <FotoAmpliada url={fotoAberta.url} pet={fotoAberta.pet} onFechar={fecharFoto} />}
+      {fotoAberta && <FotoAmpliada url={fotoAberta.url} pet={fotoAberta.pet} info={fotoAberta.info} onFechar={fecharFoto} />}
     </div>
   )
+}
+
+const ESPECIE_ROTULO: Record<string, string> = { canina: 'Canina', felina: 'Felina', exotica: 'Exótica' }
+
+/**
+ * Legenda da foto ampliada (29/10/2026, pedido do Lucas): lacre · nome · espécie · raça · cor ·
+ * peso, pra conferir o pet da foto sem voltar à ficha. Campo vazio fica de fora.
+ */
+function legendaDaFoto(f: FichaMsg): string[] {
+  const c = f.ficha
+  const esp = c.pet_especie ? (ESPECIE_ROTULO[c.pet_especie] || c.pet_especie) : null
+  const peso = c.pet_peso ? `${c.pet_peso.toLocaleString('pt-BR')} kg` : null
+  return [f.lacre ? `Lacre ${f.lacre}` : 'Sem lacre', f.petNome, esp, c.pet_raca, c.pet_cor, peso]
+    .filter((x): x is string => !!x && !!x.trim())
 }
 
 /**
@@ -2025,7 +2039,7 @@ function Conversa({ grupo, fichas, carregando, escalaMini, obsPorContrato, fotoP
  * pinça nativa. `touch-action: none` entrega os toques pra cá; pinça amplia (1–5×), um dedo
  * arrasta quando ampliada, toque duplo alterna 1× ↔ 2,5×. Tocar fora fecha só sem gesto no meio.
  */
-function FotoAmpliada({ url, pet, onFechar }: { url: string; pet: string; onFechar: () => void }) {
+function FotoAmpliada({ url, pet, info, onFechar }: { url: string; pet: string; info: string[]; onFechar: () => void }) {
   const [aberto, setAberto] = useState(true)
   useVoltarFecha(aberto, onFechar)
   const fechar = () => setAberto(false)
@@ -2087,22 +2101,30 @@ function FotoAmpliada({ url, pet, onFechar }: { url: string; pet: string; onFech
     }
     ultimoToque.current = agora
     // Toque simples FORA da foto fecha (espera o duplo não chegar)
-    const naFoto = (e.target as HTMLElement).tagName === 'IMG'
+    const alvo = e.target as HTMLElement
+    const naFoto = alvo.tagName === 'IMG' || !!alvo.closest('[data-legenda-foto]')
     if (!naFoto && vista.s === 1) setTimeout(() => { if (ultimoToque.current === agora) fechar() }, 300)
   }
 
   return (
     <div
-      className="fixed inset-0 z-[70] bg-black/90 flex items-center justify-center overflow-hidden select-none"
+      className="fixed inset-0 z-[70] bg-black/90 flex flex-col items-center justify-center gap-3 overflow-hidden select-none"
       style={{ touchAction: 'none' }}
       onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
     >
       {/* eslint-disable-next-line @next/next/no-img-element -- url assinada do Storage */}
       <img
         src={url} alt={`Foto de ${pet}`} draggable={false}
-        className="max-w-[96vw] max-h-[86dvh] rounded-lg object-contain"
+        className="max-w-[96vw] max-h-[74dvh] rounded-lg object-contain"
         style={{ transform: `translate(${vista.x}px, ${vista.y}px) scale(${vista.s})`, transition: gesto ? 'none' : 'transform 150ms ease-out' }}
       />
+      {/* Legenda branca embaixo da foto: fica parada e por cima no zoom, e o toque
+          nela não fecha. Branco fixo de propósito, nos 2 temas: o fundo é sempre preto. */}
+      {info.length > 0 && (
+        <div data-legenda-foto className="relative z-10 max-w-[96vw] rounded-lg bg-white px-4 py-2 text-center text-sm font-semibold text-neutral-900 shadow-lg">
+          {info.join(' · ')}
+        </div>
+      )}
       {/* O X fica abaixo da área segura do celular (notch) e por cima de tudo */}
       <button
         onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()}
