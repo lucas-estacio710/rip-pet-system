@@ -6,6 +6,7 @@ import { X, MapPin, Navigation, FileDown, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnit } from '@/contexts/UnitContext'
 import { baixarContratoPDF } from '@/lib/contrato-pdf-download'
+import { baixarContratoCotacaoPDF } from '@/lib/contrato-pdf-cotacao'
 import FotoProva from '@/components/tarefas/FotoProva'
 import type { FotoComprimida } from '@/lib/comprimir-imagem'
 import { carregarExigeFoto, enviarFotoTarefa } from '@/lib/foto-tarefa'
@@ -89,9 +90,13 @@ type Props = {
   contrato: ContratoMinimal
   onSuccess?: (updated: { id: string; data_acolhimento: string; numero_lacre: string | null; aguardando_acolhimento: false }) => void
   tarefaTipo?: 'ativacao_pv' | 'remocao'
+  /** Só o /tarefas passa: o "Baixar Contrato" sai pela COTAÇÃO (ficha + op_dados), não pelo contrato
+   *  vivo — no ALF (29/10/2026) o vivo somou acessórios que eram inclusos e o tutor pagou R$ 320 a
+   *  mais. Pipeline e /contratos/[id] seguem com o vivo. Ver lib/contrato-pdf-cotacao.ts. */
+  pdfCotacao?: boolean
 }
 
-export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, tarefaTipo = 'ativacao_pv' }: Props) {
+export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, tarefaTipo = 'ativacao_pv', pdfCotacao = false }: Props) {
   const supabase = createClient()
   const { currentUnit, isPosicao: loginEhPosicao, currentRole, isSuperAdmin } = useUnit()
   // A assinatura vale pela TAREFA, não pelo login (22/10/2026): acolhimento atribuído a uma
@@ -217,7 +222,8 @@ export default function AtivacaoPVModal({ isOpen, onClose, contrato, onSuccess, 
     setGerandoPdf(true)
     setErro(null)
     try {
-      await baixarContratoPDF(supabase, contrato.id)
+      if (pdfCotacao) await baixarContratoCotacaoPDF(supabase, contrato.id, { lacre: lacre.trim() || null })
+      else await baixarContratoPDF(supabase, contrato.id)
     } catch (err) {
       console.error('Erro ao gerar PDF do contrato:', err)
       setErro(err instanceof Error ? err.message : 'Erro ao gerar PDF do contrato. Tente novamente.')

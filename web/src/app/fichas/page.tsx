@@ -13,7 +13,8 @@ import TratativaModal from '@/components/fichas/TratativaModal'
 import { useUnit } from '@/contexts/UnitContext'
 import { useFieldPermission } from '@/hooks/useFieldPermission'
 import { usePushNotification } from '@/hooks/usePushNotification'
-import { gerarContratoPDF, contratoFilename, getUnidade } from '@/lib/contrato-pdf'
+import { gerarContratoPDF, getUnidade } from '@/lib/contrato-pdf'
+import { dadosContratoDaCotacao, baixarBlobContrato } from '@/lib/contrato-pdf-cotacao'
 
 // ============================================
 // Types
@@ -423,66 +424,10 @@ export default function FichasPage() {
     const nomeUnidade = currentUnit ? `${currentUnit.cidade} - ${currentUnit.estado}` : 'Santos - SP'
 
     try {
-      // Campos provisórios ficam em branco no PDF
-      const semLacre = op.semLacre as boolean
-      const semLocal = op.semLocal as boolean
-
-      // Local normalizado
-      const opLocalColeta = op.localColeta as string | null
-      const localPdf = semLocal ? '' : opLocalColeta === 'clinica' ? ((temPadronizacaoClinicas ? (op.estabNome as string) : (op.clinicaTextoLivre as string)) || ficha.localizacao)
-        : opLocalColeta === 'outro' ? ((op.enderecoOutro as string) || ficha.localizacao_outra || '')
-        : opLocalColeta === 'residencia' ? 'Residência (Endereço de Cadastro)'
-        : opLocalColeta === 'unidade' ? 'Unidade RIP PET'
-        : ficha.localizacao
-
-      const blob = await gerarContratoPDF({
-        codigo: String(op.codigo || ''),
-        lacre: semLacre ? null : (op.lacre ? String(op.lacre) : null),
-        tutorNome: ficha.nome_completo || '',
-        tutorTelefone: ficha.telefone || '',
-        tutorCpf: ficha.cpf || '',
-        tutorEmail: ficha.email,
-        tutorEndereco: ficha.endereco ? `${ficha.endereco}, ${ficha.numero}${ficha.complemento ? ` - ${ficha.complemento}` : ''}` : null,
-        tutorEstado: ficha.estado,
-        tutorCidade: ficha.cidade,
-        tutorBairro: ficha.bairro,
-        tutorCep: ficha.cep,
-        petNome: ficha.nome_pet || '',
-        petEspecie: ficha.especie,
-        petRaca: ficha.raca,
-        petIdade: ficha.idade ? parseInt(ficha.idade) || null : null,
-        petCor: ficha.cor,
-        petGenero: ficha.genero,
-        petPeso: ficha.peso ? parseFloat(ficha.peso) || null : null,
-        localColeta: localPdf,
-        tipoCremacao: ficha.cremacao?.toLowerCase() as 'individual' | 'coletiva',
-        valorPlano: (() => {
-          const vp = op.valorPlano ? parseFloat(String(op.valorPlano)) : ficha.valor
-          if (!vp) return null
-          const dp = op.descontoPreVenda ? parseFloat(String(op.descontoPreVenda)) : 0
-          const dt = (op.descontoTipo as string) || 'valor'
-          const dr = dt === 'percentual' ? (vp * dp) / 100 : dp
-          return Math.max(vp - dr, 0)
-        })(),
-        metodoPagamento: ficha.pagamento,
-        parcelas: ficha.parcelas ? parseInt(ficha.parcelas.replace(/\D/g, '')) || null : null,
-        velorioDeseja: ficha.velorio === 'Sim' ? true : ficha.velorio === 'Não' ? false : null,
-        acompanhamentoOnline: ficha.acompanhamento?.includes('On-line') || false,
-        acompanhamentoPresencial: ficha.acompanhamento?.includes('Presencial') || false,
-        temDesconto: !!(op.descontoPreVenda && parseFloat(String(op.descontoPreVenda)) > 0),
-        dataAcolhimento: op.semDataHora ? null : (op.dataHoraAcolhimento as string) || null,
-        tipoPlano: ficha.tipo_plano === 'preventivo' ? 'preventivo' : 'emergencial',
-        dataContrato: (op.dataContrato as string) || null,
-        descricaoContrato: (op.detalhamentoPlano as string) || null,
-        assinaturaCampos: !!op.camposAssinatura,
-      }, nomeUnidade)
-
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = contratoFilename(String(op.codigo || 'FICHA'), ficha.nome_pet || 'PET')
-      a.click()
-      setTimeout(() => URL.revokeObjectURL(url), 1000) // no mesmo tick pode cancelar o download no celular
+      // Cotação (op_dados), nunca o contrato vivo — lib/contrato-pdf-cotacao.ts
+      const dados = dadosContratoDaCotacao(ficha, { temPadronizacaoClinicas })
+      const blob = await gerarContratoPDF(dados, nomeUnidade)
+      baixarBlobContrato(blob, String(op.codigo || 'FICHA'), ficha.nome_pet || 'PET')
     } catch (err) {
       console.error('Erro ao gerar PDF:', err)
     }

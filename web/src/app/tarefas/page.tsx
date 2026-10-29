@@ -24,7 +24,8 @@ import { useVoltarFecha } from '@/hooks/usePopupHistory'
 import { useUnit } from '@/contexts/UnitContext'
 import { useToast } from '@/components/ui/Toast'
 import { criarContratoDeFicha, ContratoValidationError } from '@/lib/criar-contrato-de-ficha'
-import { gerarContratoPDF, contratoFilename } from '@/lib/contrato-pdf'
+import { gerarContratoPDF } from '@/lib/contrato-pdf'
+import { dadosContratoDaCotacao, baixarBlobContrato } from '@/lib/contrato-pdf-cotacao'
 import { hojeLocal, inputLocalParaIso } from '@/lib/date-local'
 import AtivacaoPVModal from '@/components/contratos/modals/AtivacaoPVModal'
 import FinalizadoraModal from '@/components/contratos/modals/FinalizadoraModal'
@@ -1244,62 +1245,10 @@ export default function TarefasPage() {
       const unidade = unidadeDaFicha(ficha)
       const nomeUnidade = unidade ? `${unidade.cidade} - ${unidade.estado}` : 'Santos - SP'
       const temPadronizacaoClinicas = !!unidade?.modulos_ativos?.includes('cb_padronizacao_clinicas')
-      const opLocalColeta = op.localColeta as string | null
-      const localPdf = op.semLocal ? '' : opLocalColeta === 'clinica' ? ((temPadronizacaoClinicas ? (op.estabNome as string) : (op.clinicaTextoLivre as string)) || ficha.localizacao)
-        : opLocalColeta === 'outro' ? ((op.enderecoOutro as string) || ficha.localizacao_outra || '')
-        : opLocalColeta === 'residencia' ? 'Residência (Endereço de Cadastro)'
-        : opLocalColeta === 'unidade' ? 'Unidade RIP PET'
-        : ficha.localizacao
-
-      const blob = await gerarContratoPDF({
-        codigo: String(op.codigo || ''),
-        lacre: lacreRemocao.trim() || null,
-        tutorNome: ficha.nome_completo || '',
-        tutorTelefone: ficha.telefone || '',
-        tutorCpf: ficha.cpf || '',
-        tutorEmail: ficha.email,
-        tutorEndereco: ficha.endereco ? `${ficha.endereco}, ${ficha.numero}${ficha.complemento ? ` - ${ficha.complemento}` : ''}` : null,
-        tutorEstado: ficha.estado,
-        tutorCidade: ficha.cidade,
-        tutorBairro: ficha.bairro,
-        tutorCep: ficha.cep,
-        petNome: ficha.nome_pet || '',
-        petEspecie: ficha.especie,
-        petRaca: ficha.raca,
-        petIdade: ficha.idade ? parseInt(ficha.idade) || null : null,
-        petCor: ficha.cor,
-        petGenero: ficha.genero,
-        petPeso: ficha.peso ? parseFloat(ficha.peso) || null : null,
-        localColeta: localPdf,
-        tipoCremacao: ficha.cremacao?.toLowerCase() as 'individual' | 'coletiva',
-        valorPlano: (() => {
-          const vp = op.valorPlano ? parseFloat(String(op.valorPlano)) : null
-          if (!vp) return null
-          const dp = op.descontoPreVenda ? parseFloat(String(op.descontoPreVenda)) : 0
-          const dt = (op.descontoTipo as string) || 'valor'
-          const dr = dt === 'percentual' ? (vp * dp) / 100 : dp
-          return Math.max(vp - dr, 0)
-        })(),
-        // Eram `null`/`false` chumbados: o PDF emitido pela tela de Tarefas saía sem forma de
-        // pagamento, sem parcelas e sem velório, enquanto o mesmo contrato emitido pela Tratativa
-        // (TratativaModal.tsx) saía completo. Agora os dois leem a ficha.
-        metodoPagamento: ficha.pagamento || null,
-        parcelas: ficha.parcelas ? parseInt(String(ficha.parcelas).replace(/\D/g, '')) || null : null,
-        velorioDeseja: ficha.velorio === 'Sim' ? true : ficha.velorio === 'Não' ? false : null,
-        acompanhamentoOnline: /v[ií]deo|on-?line/i.test(ficha.acompanhamento || ''),
-        acompanhamentoPresencial: /presencial/i.test(ficha.acompanhamento || ''),
-        dataAcolhimento: op.semDataHora ? null : (op.dataHoraAcolhimento as string) || null,
-        tipoPlano: 'emergencial',
-        dataContrato: (op.dataContrato as string) || null,
-        descricaoContrato: (op.detalhamentoPlano as string) || null,
-      }, nomeUnidade)
-
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = contratoFilename(String(op.codigo || 'CONTRATO'), ficha.nome_pet || 'PET')
-      a.click()
-      setTimeout(() => URL.revokeObjectURL(url), 1000) // no mesmo tick pode cancelar o download no celular
+      // Cotação (op_dados), nunca o contrato vivo — lib/contrato-pdf-cotacao.ts. Remoção é EM.
+      const dados = dadosContratoDaCotacao({ ...ficha, tipo_plano: 'emergencial' }, { temPadronizacaoClinicas, lacre: lacreRemocao.trim() || null })
+      const blob = await gerarContratoPDF(dados, nomeUnidade)
+      baixarBlobContrato(blob, String(op.codigo || 'CONTRATO'), ficha.nome_pet || 'PET')
     } catch (err) {
       console.error('Erro ao gerar PDF:', err)
       toast('Erro ao gerar PDF', 'error')
@@ -2790,6 +2739,7 @@ export default function TarefasPage() {
             unidade_id: tarefaAberta.unidade_id,
           }}
           tarefaTipo={tarefaAberta.tipo === 'ativacao_pv' ? 'ativacao_pv' : 'remocao'}
+          pdfCotacao
           onSuccess={() => {
             setTarefaAberta(null)
             carregarMinhas()
