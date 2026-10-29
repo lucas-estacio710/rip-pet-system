@@ -2997,14 +2997,22 @@ ${petNome}`
               const un = allUnidades.find(u => u.id === o.unidade_id)?.codigo
               const tipo = o.tipo_plano === 'preventivo' && o.status === 'preventivo' ? 'PV' : o.tipo_cremacao === 'individual' ? 'IND' : 'COL'
               return (
+                // Duas linhas (29/10/2026): numa só, com 3 colunas no desktop, o nome do pet e a
+                // data truncavam. Em cima quem é e onde está; embaixo tipo · unidade · data.
                 <Link key={o.id} href={`/contratos/${o.id}`} className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-1.5 md:py-2 hover:bg-slate-700/40 min-w-0">
-                  <span className="font-semibold text-slate-200 truncate">{o.pet_nome || '—'}</span>
-                  {o.pet_genero && <span style={{ color: o.pet_genero === 'macho' ? '#3b82f6' : '#ec4899' }}>{o.pet_genero === 'macho' ? '♂' : '♀'}</span>}
-                  <span className={`text-[10px] font-bold px-1.5 rounded ${tipo === 'PV' ? 'bg-yellow-900/40 text-yellow-300' : tipo === 'IND' ? 'bg-green-900/40 text-green-300' : 'bg-purple-900/40 text-purple-300'}`}>{tipo}</span>
-                  {un && <span className="text-[10px] font-bold px-1 rounded bg-slate-700 text-slate-300">{un}</span>}
-                  <span className="text-xs text-slate-500 whitespace-nowrap truncate">{dataCurta(o.status === 'preventivo' ? o.data_contrato : (o.data_acolhimento || o.data_contrato))}</span>
-                  <span className="ml-auto text-[11px] font-semibold whitespace-nowrap" style={{ color: st.cor }}>{st.rot}</span>
-                  <span className="text-slate-500">›</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="font-semibold text-slate-200 truncate">{o.pet_nome || '—'}</span>
+                      {o.pet_genero && <span className="flex-none" style={{ color: o.pet_genero === 'macho' ? '#3b82f6' : '#ec4899' }}>{o.pet_genero === 'macho' ? '♂' : '♀'}</span>}
+                      <span className="ml-auto flex-none text-[11px] font-semibold whitespace-nowrap" style={{ color: st.cor }}>{st.rot}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className={`text-[10px] font-bold px-1.5 rounded ${tipo === 'PV' ? 'bg-yellow-900/40 text-yellow-300' : tipo === 'IND' ? 'bg-green-900/40 text-green-300' : 'bg-purple-900/40 text-purple-300'}`}>{tipo}</span>
+                      {un && <span className="text-[10px] font-bold px-1 rounded bg-slate-700 text-slate-300">{un}</span>}
+                      <span className="text-xs text-slate-500 whitespace-nowrap">{dataCurta(o.status === 'preventivo' ? o.data_contrato : (o.data_acolhimento || o.data_contrato))}</span>
+                    </div>
+                  </div>
+                  <span className="flex-none text-slate-500">›</span>
                 </Link>
               )
             })}
