@@ -1297,8 +1297,12 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
                 return <p className="text-xs text-[var(--surface-600)]"><strong>Local:</strong> {localLabel ? localLabel : <span className="text-amber-400">A definir</span>}</p>
               })()}
               <p className="text-xs text-[var(--surface-600)]"><strong>Responsável:</strong> {funcionarioId ? (funcionarios.find(f => f.id === funcionarioId)?.nome || '-') : responsavelUserId ? (atribuiveis.find(a => a.user_id === responsavelUserId)?.nome || '-') : <span className="text-amber-400">A definir</span>}</p>
+              {/* Com o módulo (fase 2), Data/Hora e Lacre nascem na conclusão da tarefa e nunca
+                  chegam ao op_dados — mostrar "A definir" em âmbar aqui era pendência falsa. */}
+              {!temOperacional && (<>
               <p className="text-xs text-[var(--surface-600)]"><strong>Data/Hora:</strong> {dataHoraAcolhimento ? new Date(dataHoraAcolhimento).toLocaleString('pt-BR') : <span className="text-amber-400">A definir</span>}</p>
               <p className="text-xs text-[var(--surface-600)]"><strong>Lacre:</strong> {lacre ? lacre : <span className="text-amber-400">A definir</span>}</p>
+              </>)}
               <p className="text-xs text-[var(--surface-600)]">
                 <strong>Contato ativo:</strong>{' '}
                 {telefoneConfirmado && !mostrarTelefone2 ? (
@@ -1484,7 +1488,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
           </>)}
 
           {/* Campos provisórios — editáveis (só processadas) */}
-          {!somenteLeitura && (semLocal || semResponsavel || semDataHora || semLacre) && (
+          {!somenteLeitura && (semLocal || semResponsavel || (!temOperacional && (semDataHora || semLacre))) && (
             <div className="p-4 rounded-xl space-y-3" style={{ background: 'rgba(250, 204, 21, 0.08)', border: '1px solid rgba(250, 204, 21, 0.2)' }}>
               <h4 className="text-xs font-bold text-amber-500 uppercase tracking-wider">Campos Pendentes (provisórios)</h4>
               <p className="text-[10px] text-amber-400/70">Preencha abaixo quando tiver as informações e clique em Salvar</p>
