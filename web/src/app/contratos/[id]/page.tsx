@@ -3445,6 +3445,8 @@ ${petNome}`
     { id: 'fin', rotulo: 'Financeiro', icone: DollarSign, cor: '#10b981', apagada: !isVisible(T, 'obj_financeiro'), dicaApagada: 'Sem permissão',
       sinal: fin.saldo > 0.01
         ? <span className="pl-aba-cnt" style={{ color: '#f87171' }}>{Math.round(fin.saldo).toLocaleString('pt-BR')}</span>
+        // Pago a mais (29/10/2026): âmbar com o excedente — não é ✓, é dinheiro a devolver ou valor errado.
+        : fin.saldo < -0.01 ? <span className="pl-aba-cnt" style={{ color: '#f59e0b' }} title="Pago a mais">+{Math.round(-fin.saldo).toLocaleString('pt-BR')}</span>
         : Math.abs(fin.saldo) < 0.01 && fin.total > 0 ? <span style={{ color: '#22c55e', fontWeight: 700 }}>✓</span> : null },
     { id: 'tutor', rotulo: 'Tutor', icone: User, cor: '#3b82f6' },
     { id: 'tar', rotulo: 'Tarefas', icone: ListChecks, cor: '#22d3ee', apagada: !temOperacionalContrato, dicaApagada: 'Unidade sem o módulo Operacional',

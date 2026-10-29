@@ -43,6 +43,8 @@ function textoPendente(tag: ComputedTag): string {
   // 🚐 Encaminhamento (2.13b): "Sem viagem" ou "Sem lacre" (P-13), vindo pronto no tooltip.
   if (tag.id === 'encaminhamento') return tag.tooltip || 'Sem viagem'
   if (tag.state === 'alert') return 'Em aberto'
+  // 💵 pago a mais (29/10/2026): o valor vem pronto no tooltip ("Pago a mais · R$ 100,00").
+  if (tag.id === 'pagamento' && tag.state === 'pending') return tag.tooltip || 'Pago a mais'
   if (tag.state === 'ghost') return 'A definir'   // item 3: o ❓ é pendente, não some
   if (tag.state === 'in_progress') {
     const n = tag.count ?? null

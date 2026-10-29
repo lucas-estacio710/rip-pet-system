@@ -187,15 +187,34 @@ export function computeFoto(c: ContratoTagData): ComputedTag {
   return { id: 'foto', emoji: '📷', state: 'pending', label: 'Foto', tooltip: `Foto pendente: ${fotoPendentes} de ${fotoTotal}`, count: fotoPendentes, sublabel: `${fotoPendentes}` }
 }
 
+/**
+ * Quanto foi pago ALÉM do devido (plano + acessórios, cada um contra o seu). 0 quando não há
+ * excesso. Pagar a mais não é "tudo pago": é dinheiro a devolver ou valor/desconto errado no
+ * contrato (29/10/2026, pedido do Lucas — o 💵 ficava verde).
+ */
+export function pagoAMais(contrato: Pick<ContratoTagData, 'valor_plano' | 'desconto_plano_unificado' | 'valor_acessorios' | 'desconto_acessorios' | 'desconto_acessorios_ajuste' | 'pagamentos'>): number {
+  const esperadoPlano = (contrato.valor_plano || 0) - (contrato.desconto_plano_unificado || 0)
+  const esperadoAcess = (contrato.valor_acessorios || 0) - (contrato.desconto_acessorios || 0) - (contrato.desconto_acessorios_ajuste || 0)
+  const pagos = contrato.pagamentos || []
+  const pago = (tipo: string) => pagos.filter(p => p.tipo === tipo).reduce((acc, p) => acc + (p.valor || 0), 0)
+  const excesso = Math.max(0, pago('plano') - esperadoPlano) + Math.max(0, pago('catalogo') - esperadoAcess)
+  return excesso > 0.01 ? Math.round(excesso * 100) / 100 : 0
+}
+
 export function computePagamento(c: ContratoTagData): ComputedTag {
   const { planoPendente, acessoriosPendente } = getPagamentoPendente(c)
   const temValor = (c.valor_plano || 0) > 0 || (c.valor_acessorios || 0) > 0
+  const excesso = pagoAMais(c)
 
-  if (!temValor) {
+  if (!temValor && !excesso) {
     return { id: 'pagamento', emoji: '💵', state: 'hidden', label: 'Pagamento', tooltip: '' }
   }
 
   if (!planoPendente && !acessoriosPendente) {
+    if (excesso) {
+      const valor = excesso.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+      return { id: 'pagamento', emoji: '💵', state: 'pending', label: 'Pagamento', tooltip: `Pago a mais · ${valor}`, sublabel: '+' }
+    }
     return { id: 'pagamento', emoji: '💵', state: 'completed', label: 'Pagamento', tooltip: 'Pagamento: Tudo pago' }
   }
 

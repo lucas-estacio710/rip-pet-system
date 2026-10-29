@@ -3284,6 +3284,7 @@ Gratidão eterna!
       ...linhasPelinho,
     ]
     setContratos(prev => prev.map(c => c.id === contratoId ? { ...c, contrato_produtos: mesclar(c.contrato_produtos) } : c))
+    await recarregarValoresDoContrato(contratoId)
   }
 
   // Pet Grato - abre o modal
@@ -4448,6 +4449,9 @@ ${petNome}`
     const novoProduto = data as ContratoProduto
     await ajustarEstoquePorCodigo(produto.codigo, -1, contrato.unidade_id)
     setContratos(prev => prev.map(c => c.id === contrato.id ? { ...c, contrato_produtos: [...(c.contrato_produtos || []), novoProduto] } : c))
+    // O trigger 074 recalcula valor_acessorios no banco; sem reler, o 💵 Pagamento abria com o
+    // saldo de antes do produto (29/10/2026, achado do Lucas resolvendo pendências em sequência).
+    await recarregarValoresDoContrato(contrato.id)
     return novoProduto
   }
 
@@ -4457,6 +4461,7 @@ ${petNome}`
     if (error) return false
     await ajustarEstoque(produtoId, 1, undefined, contrato.unidade_id)
     setContratos(prev => prev.map(c => c.id === contrato.id ? { ...c, contrato_produtos: (c.contrato_produtos || []).filter(cp => cp.id !== cpId) } : c))
+    await recarregarValoresDoContrato(contrato.id)
     return true
   }
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { computeRescaldo, computeAllTags, finalizarPeloSistema, estadoConcluido, estadoPendente, type ContratoTagData, type ComputedTag } from '../contrato-tags.ts'
+import { computeRescaldo, computePagamento, pagoAMais, computeAllTags, finalizarPeloSistema, estadoConcluido, estadoPendente, type ContratoTagData, type ComputedTag } from '../contrato-tags.ts'
 
 const base = (o: Partial<ContratoTagData> = {}): ContratoTagData => ({
   status: 'ativo', tipo_cremacao: 'individual', certificado_confirmado: null,
@@ -42,4 +42,21 @@ test('concluído × pendente: sistema conclui; ghost pende', () => {
   assert.equal(estadoConcluido('sistema'), true)
   assert.equal(estadoPendente('ghost'), true)
   assert.equal(estadoPendente('sistema'), false)
+})
+
+test('💵 pago a mais não fica verde: vira pendente com o valor', () => {
+  const pag = (tipo: string, valor: number) => ({ tipo, valor })
+  assert.equal(computePagamento(base({ pagamentos: [pag('plano', 1000)] })).state, 'completed')
+  const mais = base({ pagamentos: [pag('plano', 1100)] })
+  assert.equal(pagoAMais(mais), 100)
+  const t = computePagamento(mais)
+  assert.equal(t.state, 'pending')
+  assert.match(t.tooltip, /^Pago a mais · R\$\s?100,00$/)
+  // falta em um, sobra no outro: continua "em aberto" (vermelho), não "pago a mais"
+  const cruzado = base({ valor_acessorios: 200, pagamentos: [pag('plano', 1100), pag('catalogo', 100)] })
+  assert.equal(computePagamento(cruzado).state, 'alert')
+  // contrato sem valor mas com pagamento: aparece
+  assert.equal(computePagamento(base({ valor_plano: 0, pagamentos: [pag('plano', 50)] })).state, 'pending')
+  // centavo de arredondamento não acende
+  assert.equal(pagoAMais(base({ pagamentos: [pag('plano', 1000.004)] })), 0)
 })
