@@ -12,9 +12,12 @@
  *  - Entre a lista e o aviso do P: "Todos voltaram da Matriz em [data ✎]" — Hoje · Ontem ·
  *    <viagem> · Outra data…; vale para todos sem data própria. **Começa em HOJE** (P-14).
  *    Pet com data própria fica azul e a dica vira "N pet(s) com data diferente".
+ *  - "Relação" (30/10/2026): copia pro clipboard a lista do que o colaborador traz da Matriz —
+ *    individuais (cinzas + certificado) e coletivas (só certificado), por lacre e nome. Quem
+ *    está com P fica de fora: o tutor já levou tudo na Matriz.
  */
 import { useState } from 'react'
-import { Loader2, Pencil } from 'lucide-react'
+import { Check, Loader2, MessageSquare, Pencil } from 'lucide-react'
 import PopupCentral from '@/components/ui/PopupCentral'
 
 export type PetNoNichoTela = {
@@ -57,9 +60,49 @@ const ontemDe = (hoje: string) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+/** O que volta de cada pet, pelas flags do GC (coletiva não tem cinzas pra trazer). */
+function itensDoPet(x: PetNoNichoTela): string {
+  const col = x.tipo_cremacao === 'coletiva'
+  const cinzas = !col && !!x.contrato_gc?.cinzas_prontas
+  const cert = !!x.contrato_gc?.certificado_pronto
+  if (cinzas && cert) return 'cinzas e certificado'
+  if (cinzas) return 'só cinzas ⚠️ certificado não marcado'
+  if (cert) return col ? 'só certificado' : 'só certificado ⚠️ cinzas não marcadas'
+  return '⚠️ nada marcado como pronto'
+}
+
+/** Texto da "Relação", no formato do WhatsApp (*negrito*). Presenciais ficam de fora. */
+export function textoRelacao(unidadeNome: string, pets: PetNoNichoTela[], presencial: Set<string>, hoje: string): string {
+  const levar = pets.filter(x => !presencial.has(x.id))
+  const linha = (x: PetNoNichoTela) =>
+    `• ${x.numero_lacre ? `${x.numero_lacre} · ` : ''}${(x.pet_nome || 'sem nome').toUpperCase()} — ${itensDoPet(x)}`
+  const ind = levar.filter(x => x.tipo_cremacao !== 'coletiva')
+  const col = levar.filter(x => x.tipo_cremacao === 'coletiva')
+  const partes = [`*Relação para trazer da Matriz — ${unidadeNome}*`, `${dm(hoje)} · ${levar.length} pet${levar.length !== 1 ? 's' : ''}`]
+  if (ind.length) partes.push('', `*Individuais (${ind.length})*`, ...ind.map(linha))
+  if (col.length) partes.push('', `*Coletivas (${col.length})*`, ...col.map(linha))
+  const nP = pets.length - levar.length
+  if (nP > 0) partes.push('', `_${nP} presencia${nP > 1 ? 'is' : 'l'} fora da lista: o tutor já levou na Matriz._`)
+  return partes.join('\n')
+}
+
+async function copiarTexto(texto: string) {
+  try {
+    await navigator.clipboard.writeText(texto)
+  } catch {
+    const ta = document.createElement('textarea')
+    ta.value = texto
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
+  }
+}
+
 export default function TrazerDaMatriz(p: Props) {
   const [lote, setLote] = useState(p.hoje)
   const [opcoes, setOpcoes] = useState(false)
+  const [copiado, setCopiado] = useState(false)
 
   const semP = p.pets.filter(x => !p.presencial.has(x.id))
   const diferentes = semP.filter(x => (p.datas[x.id] || lote) !== lote).length
@@ -80,9 +123,26 @@ export default function TrazerDaMatriz(p: Props) {
     </button>
   )
 
+  async function copiarRelacao() {
+    await copiarTexto(textoRelacao(p.unidadeNome, p.pets, p.presencial, p.hoje))
+    setCopiado(true)
+    setTimeout(() => setCopiado(false), 2000)
+  }
+
+  const podeRelacao = !p.carregando && p.pets.some(x => !p.presencial.has(x.id))
+
   return (
     <PopupCentral aberto={p.aberto} onFechar={() => { if (!p.trazendo) p.onCancelar() }} largura={640}
-      titulo={<div className="text-[16px] font-bold" style={{ color: 'var(--surface-800)' }}>Nicho de {p.unidadeNome}</div>}
+      titulo={
+        <div className="flex items-center gap-2">
+          <div className="flex-1 min-w-0 truncate text-[16px] font-bold" style={{ color: 'var(--surface-800)' }}>Nicho de {p.unidadeNome}</div>
+          <button type="button" onClick={copiarRelacao} disabled={!podeRelacao} title="Copiar a relação do que trazer da Matriz"
+            className="flex-none inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-[12.5px] font-semibold disabled:opacity-40"
+            style={copiado ? { background: '#16a34a', borderColor: '#16a34a', color: '#fff' } : { borderColor: 'var(--surface-300)', color: 'var(--surface-600)' }}>
+            {copiado ? <Check className="h-4 w-4" /> : <MessageSquare className="h-4 w-4" />}{copiado ? 'Copiado' : 'Relação'}
+          </button>
+        </div>
+      }
       rodape={
         <div className="space-y-2">
           <div className="px-3 py-2 rounded-lg text-[12px] leading-snug" style={{ background: 'rgba(249,115,22,.12)', color: '#c2410c' }}>
