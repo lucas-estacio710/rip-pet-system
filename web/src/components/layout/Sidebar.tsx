@@ -80,7 +80,10 @@ export function Sidebar({ mode, onNavigate, dense }: Props) {
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const supabase = createClient()
   const showText = mode !== 'mini'
-  const { hasModule, isSuperAdmin, userName, currentUnit, currentRole, flsStatus } = useUnit()
+  const { hasModule, isSuperAdmin, userName, currentUnit, currentRole, flsStatus, perfilStatus } = useUnit()
+  // Menu só com perfil + FLS prontos: antes disso `hasModule` responde false (fecha na dúvida)
+  // e o menu sairia vazio — no lugar, barrinhas de carregando (ver PortaoDeCarga.tsx).
+  const menuPronto = perfilStatus === 'pronto' && flsStatus === 'pronto'
 
   // Operacional só vê Tarefas — gate duro no código (não FLS, que é permissiva por padrão e
   // deixaria todo o resto do menu aparecer). Mesmo racional do redirect em LayoutWrapper.tsx.
@@ -179,7 +182,11 @@ export function Sidebar({ mode, onNavigate, dense }: Props) {
       {/* Navigation */}
       <nav className={`flex-1 ${showText ? 'p-3' : 'p-2'}`}>
         <ul className={dense ? 'space-y-0.5' : 'space-y-1'}>
-          {visibleItems.map((item) => {
+          {!menuPronto ? Array.from({ length: 7 }, (_, i) => (
+            <li key={`carregando-${i}`} aria-hidden>
+              <div className={`${showText ? 'h-9 w-full' : 'h-10 w-10 mx-auto'} rounded-lg bg-slate-700/40 animate-pulse`} />
+            </li>
+          )) : visibleItems.map((item) => {
             const hrefPath = item.href.split('?')[0]
             const isActive = pathname === hrefPath || pathname?.startsWith(hrefPath + '/')
             const Icon = item.icon

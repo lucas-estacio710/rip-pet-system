@@ -16,6 +16,7 @@ import { UnitSelector } from './UnitSelector'
 import { UserMenu } from './UserMenu'
 import { RefreshButton } from './RefreshButton'
 import { ImpersonateBanner } from './ImpersonateBanner'
+import { PortaoDeCarga } from './PortaoDeCarga'
 import { useActivityHeartbeat } from '@/hooks/useActivityHeartbeat'
 
 function ActivityTracker() {
@@ -119,7 +120,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           <div className="px-4 pt-4 pb-20 md:px-6 md:pt-2 md:pb-6 animate-fade-in">
-            {children}
+            {/* A tela só monta com perfil + unidade + FLS prontos (PortaoDeCarga.tsx). */}
+            <PortaoDeCarga>{children}</PortaoDeCarga>
           </div>
         </main>
       </div>

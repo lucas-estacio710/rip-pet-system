@@ -27,7 +27,7 @@ const ROLE_LABELS = {
 }
 
 export function UserMenu() {
-  const { userEmail, userName, currentRole, isSuperAdmin, currentUnit, impersonating, impersonatedEmail, startImpersonating, stopImpersonating } = useUnit()
+  const { userEmail, userName, currentRole, isSuperAdmin, currentUnit, impersonating, impersonatedEmail, startImpersonating, stopImpersonating, perfilStatus } = useUnit()
   const [showImpersonate, setShowImpersonate] = useState(false)
   const { theme, setTheme } = useTheme()
   const router = useRouter()
@@ -64,6 +64,12 @@ export function UserMenu() {
   // Operacional só vê Tema/Minha Conta/Sair aqui — "Gestão"/"Administração" já ficam ocultos
   // pelas checagens de role abaixo; "Impressão de Documentos" era o único item sem gate.
   const isOperacional = currentRole === 'operacional'
+
+  // Enquanto o perfil chega, `userName` é null e o botão mostrava "Usuário"/"US" — parecia outra
+  // pessoa logada. Bolinha de carregando no lugar (mesmo tamanho, sem pular o layout).
+  if (perfilStatus === 'carregando' && !userName) {
+    return <div aria-hidden className="w-7 h-7 mx-2 my-1 rounded-full animate-pulse" style={{ background: 'var(--surface-200)' }} />
+  }
 
   return (
     <div ref={ref} className="relative">

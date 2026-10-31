@@ -22,20 +22,23 @@ type Props = {
 }
 
 export default function ModuleGuard({ module, children }: Props) {
-  const { hasModule, isLoading, currentUnit } = useUnit()
+  const { hasModule, isLoading, currentUnit, flsStatus } = useUnit()
+  // Sem o FLS pronto `hasModule` responde false (fecha na dúvida) — redirecionar aí expulsaria
+  // a pessoa da tela no meio da carga. O PortaoDeCarga já espera; isto é a segunda trava.
+  const carregando = isLoading || !currentUnit || flsStatus !== 'pronto'
   const router = useRouter()
   const pathname = usePathname()
 
   useEffect(() => {
-    if (isLoading || !currentUnit) return
+    if (carregando) return
     if (hasModule(module)) return
 
     // Encontrar primeira tela disponível pra redirecionar
     const fallback = FALLBACK_ROUTES.find(r => r.module !== module && hasModule(r.module))
     router.replace(fallback?.path || '/fichas')
-  }, [isLoading, module, hasModule, router, currentUnit])
+  }, [carregando, module, hasModule, router])
 
-  if (isLoading || !currentUnit || !hasModule(module)) {
+  if (carregando || !hasModule(module)) {
     return <div className="min-h-[50vh]" />
   }
 

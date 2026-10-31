@@ -3,7 +3,9 @@
  *
  * Usa o cache de permissões carregado pelo UnitContext.
  * - super_admin → sempre 'edit' (hardcoded)
- * - Sem row no banco → default 'edit' (permissivo)
+ * - Sem row no banco → default 'edit' (permissivo) — SÓ com o FLS carregado (`flsStatus`)
+ * - FLS carregando ou com erro → 'hidden' (fecha na dúvida, incidente de 30/10/2026: o Map
+ *   vazio da carga que falhou liberava tudo pra uma gerente — ver UnitContext)
  *
  * Uso:
  *   const { can, canEdit, isVisible } = useFieldPermission()
@@ -17,14 +19,15 @@ import { useUnit } from '@/contexts/UnitContext'
 export type PermissionLevel = 'edit' | 'read' | 'hidden'
 
 export function useFieldPermission() {
-  const { isSuperAdmin, flsPermissions } = useUnit()
+  const { isSuperAdmin, flsPermissions, flsStatus } = useUnit()
 
   /** Retorna o nível de permissão para um campo */
   const can = useCallback((_tela: string, campo: string): PermissionLevel => {
     if (isSuperAdmin) return 'edit'
+    if (flsStatus !== 'pronto') return 'hidden'
     const perm = flsPermissions.get(campo)
     return (perm as PermissionLevel) ?? 'edit'
-  }, [isSuperAdmin, flsPermissions])
+  }, [isSuperAdmin, flsPermissions, flsStatus])
 
   /** Pode editar? */
   const canEdit = useCallback((_tela: string, campo: string): boolean => {
