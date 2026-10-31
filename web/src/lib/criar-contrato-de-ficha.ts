@@ -16,6 +16,26 @@ import { enderecoDeRemocao, type LocalColeta } from '@/lib/endereco-remocao'
 
 export class ContratoValidationError extends Error {}
 
+/**
+ * A gravação pode ter acontecido ou não — a resposta não chegou (rede, tempo-limite). Não é
+ * erro de validação nem do banco: a ficha fica como estava na tela e tentar de novo é seguro
+ * (a RPC devolve o contrato que já existir).
+ */
+export class ContratoNaoConfirmadoError extends Error {
+  constructor() { super('Contrato não confirmado — verifique a conexão e tente novamente.') }
+}
+
+type ErroSupabase = { message: string; code?: string }
+
+/** Tempo máximo esperando a RPC. Passou disso, "não confirmado" — o retry é idempotente. */
+const TEMPO_LIMITE_MS = 30000
+
+// Erro do banco (PostgREST/Postgres) tem código; falha de rede/aborto chega sem código.
+function erroDeGravacao(err: ErroSupabase | null, prefixo: string): Error {
+  if (!err || !err.code) return new ContratoNaoConfirmadoError()
+  return new Error(`${prefixo}: ${err.message}`)
+}
+
 export type FichaParaContrato = {
   id: string
   nome_completo: string
@@ -78,7 +98,7 @@ export async function criarContratoDeFicha(
   // (concluirRemocao) nunca passa isso — ali o contrato só nasce na hora que lacre/data JÁ
   // foram preenchidos.
   aguardarAcolhimento = false
-): Promise<{ contratoId: string }> {
+): Promise<{ contratoId: string; jaExistia: boolean }> {
   if (ficha.contrato_id) {
     throw new ContratoValidationError('Esta ficha já virou contrato')
   }
@@ -184,33 +204,25 @@ export async function criarContratoDeFicha(
   const telSecundarioNome = hasTel2 ? (usarTelefone2ComoPrincipal ? tel1NomeVal : tel2NomeVal) : null
 
   const cpfLimpo = ficha.cpf.replace(/\D/g, '')
-  let tutorId: string | null = null
+  const cpfsBusca: string[] = []
   if ((cpfLimpo.length === 11 || cpfLimpo.length === 14) && /^\d+$/.test(cpfLimpo)) {
     const formatado = cpfLimpo.length === 11
       ? `${cpfLimpo.slice(0, 3)}.${cpfLimpo.slice(3, 6)}.${cpfLimpo.slice(6, 9)}-${cpfLimpo.slice(9)}`
       : `${cpfLimpo.slice(0, 2)}.${cpfLimpo.slice(2, 5)}.${cpfLimpo.slice(5, 8)}/${cpfLimpo.slice(8, 12)}-${cpfLimpo.slice(12)}`
-    const { data: tutorExistente } = await supabase
-      .from('tutores').select('id').or(`cpf.eq.${formatado},cpf.eq.${cpfLimpo}`).limit(1)
-      .maybeSingle() as { data: { id: string } | null }
-    tutorId = tutorExistente?.id || null
+    cpfsBusca.push(formatado, cpfLimpo)
   }
-  if (!tutorId) {
-    const { data: novoTutor, error: errTutor } = await supabase
-      .from('tutores')
-      .insert({
-        nome: ficha.nome_completo?.toUpperCase() || '',
-        cpf: ficha.cpf,
-        telefone: telPrincipal,
-        telefone2: telSecundario,
-        telefone_nome: telPrincipalNome,
-        telefone2_nome: telSecundarioNome,
-        telefone_principal: 1,
-        email: ficha.email || null,
-        cep: ficha.cep, endereco: ficha.endereco, numero: ficha.numero, complemento: ficha.complemento || null,
-        bairro: ficha.bairro, cidade: ficha.cidade, estado: ficha.estado, unidade_id: ficha.unidade_id,
-      } as never).select('id').single() as { data: { id: string } | null; error: { message: string } | null }
-    if (errTutor) throw new Error(`Erro ao criar tutor: ${errTutor.message}`)
-    tutorId = novoTutor!.id
+  // Só é gravado se o CPF não achar tutor — a busca e o insert são da RPC (mesma transação).
+  const tutorData = {
+    nome: ficha.nome_completo?.toUpperCase() || '',
+    cpf: ficha.cpf,
+    telefone: telPrincipal,
+    telefone2: telSecundario,
+    telefone_nome: telPrincipalNome,
+    telefone2_nome: telSecundarioNome,
+    telefone_principal: 1,
+    email: ficha.email || null,
+    cep: ficha.cep, endereco: ficha.endereco, numero: ficha.numero, complemento: ficha.complemento || null,
+    bairro: ficha.bairro, cidade: ficha.cidade, estado: ficha.estado, unidade_id: ficha.unidade_id,
   }
 
   // Step 2: Fontes de conhecimento (múltiplas)
@@ -226,7 +238,9 @@ export async function criarContratoDeFicha(
     }
     for (const conheceu of ficha.como_conheceu) {
       const nomeExato = fonteMap[conheceu] || conheceu
-      const { data: fonte } = await supabase.from('fontes_conhecimento').select('id').eq('nome', nomeExato).maybeSingle() as { data: { id: string } | null }
+      const { data: fonte, error: errFonte } = await supabase.from('fontes_conhecimento').select('id').eq('nome', nomeExato).maybeSingle() as { data: { id: string } | null; error: ErroSupabase | null }
+      // Leitura que falha não pode virar "sem fonte" calado — na rede ruim é o que acontecia.
+      if (errFonte) throw erroDeGravacao(errFonte, 'Erro ao ler a fonte de conhecimento')
       if (fonte) {
         fonteConhecimentoIds.push(fonte.id)
         if (!fonteConhecimentoId) fonteConhecimentoId = fonte.id
@@ -238,16 +252,15 @@ export async function criarContratoDeFicha(
   let resolvedEstabId: string | null = estabId
   const resolvedContatoId: string | null = null // normalizado depois via farol 🩺 no Pipeline/Contrato
   let clinicaColetaNome: string | null = null
+  // Clínica digitada sem cadastro: a RPC cria, na mesma transação (best-effort, como antes).
+  let estabNovoNome: string | null = null
 
   if (temPadronizacaoClinicas) {
     const AUTONOMOS_ESTAB_ID = 'b4eedcff-7ccf-4cfb-bf3a-1978eeec6382'
     if (autonomo) { resolvedEstabId = AUTONOMOS_ESTAB_ID; clinicaColetaNome = 'Autônomo' }
     else {
       clinicaColetaNome = estabNome.trim() || null
-      if (!resolvedEstabId && estabNome.trim()) {
-        const { data: novoEstab } = await supabase.from('estabelecimentos').insert({ nome: estabNome.trim(), tipo: 'clinica', unidade_id: ficha.unidade_id, endereco: '' } as never).select('id').single() as { data: { id: string } | null }
-        if (novoEstab) resolvedEstabId = novoEstab.id
-      }
+      if (!resolvedEstabId && estabNome.trim()) estabNovoNome = estabNome.trim()
     }
   } else {
     clinicaColetaNome = clinicaTextoLivre.trim() || null
@@ -259,15 +272,16 @@ export async function criarContratoDeFicha(
 
   let estabEndereco: { endereco: string; bairro: string; cidade: string; cep: string } | null = null
   if (localColeta === 'clinica' && resolvedEstabId) {
-    const { data: estabData } = await supabase
+    const { data: estabData, error: errEstab } = await supabase
       .from('estabelecimentos')
       .select('endereco, bairro, cidade, cep')
       .eq('id', resolvedEstabId)
-      .single() as { data: { endereco: string; bairro: string; cidade: string; cep: string } | null }
+      .maybeSingle() as { data: { endereco: string; bairro: string; cidade: string; cep: string } | null; error: ErroSupabase | null }
+    if (errEstab) throw erroDeGravacao(errEstab, 'Erro ao ler o endereço da clínica')
     estabEndereco = estabData
   }
 
-  // Step 5: Insert contrato
+  // Step 5: linha do contrato (o tutor_id é preenchido pela RPC)
   const contratoData = {
     codigo: codigo.trim(),
     unidade_id: ficha.unidade_id,
@@ -280,7 +294,6 @@ export async function criarContratoDeFicha(
     pet_raca: ficha.raca || null, pet_genero: ficha.genero ? ficha.genero.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase() : null,
     pet_cor: ficha.cor || null, pet_peso: ficha.peso ? parseFloat(ficha.peso) || null : null,
     pet_idade_anos: ficha.idade ? parseInt(ficha.idade) || null : null,
-    tutor_id: tutorId,
     tutor_nome: ficha.nome_completo?.toUpperCase() || '', tutor_cpf: ficha.cpf,
     tutor_telefone: telPrincipal,
     tutor_telefone2: telSecundario,
@@ -343,33 +356,12 @@ export async function criarContratoDeFicha(
     ) : {}),
   }
 
-  const { data: contrato, error: errContrato } = await supabase
-    .from('contratos').insert(contratoData as never).select('id')
-    .single() as { data: { id: string } | null; error: { message: string } | null }
-  if (errContrato) throw new Error(`Erro ao criar contrato: ${errContrato.message}`)
-
   // Pelinho Inicial (por unidade, `cb_pelinho_inicial` em modulos_ativos) — o contrato já nasce
   // com 1 pelinho em contrato_produtos, indistinguível de alguém tendo adicionado na hora pelo
-  // PelinhoModal. Farol (contrato-tags.ts) e o pool de /tarefas leem contrato_produtos direto,
-  // sem cache — não precisa de mais nada pra eles reagirem.
+  // PelinhoModal. Farol (contrato-tags.ts) e o pool de /tarefas leem contrato_produtos direto.
   // PV NÃO (22/10/2026): o pet está vivo; o pelinho do PV nasce na ativação, já atribuído a
   // quem vai acolher (`pelinhoDoAcolhimento`, chamado pelo AtivarModal).
-  if (unidade.modulos_ativos.includes('cb_pelinho_inicial') && !isPreventivo) {
-    const { data: produtoPelinho } = await supabase
-      .from('produtos').select('id, preco').eq('codigo', '0004')
-      .single() as { data: { id: string; preco: number | null } | null }
-    if (produtoPelinho) {
-      await supabase.from('contrato_produtos').insert({
-        contrato_id: contrato!.id,
-        produto_id: produtoPelinho.id,
-        quantidade: 1,
-        valor: produtoPelinho.preco || 0,
-        separado: false,
-        is_reserva_pv: false,
-        rescaldo_feito: false,
-      } as never)
-    }
-  }
+  const comPelinho = unidade.modulos_ativos.includes('cb_pelinho_inicial') && !isPreventivo
 
   const opPrev = (ficha.op_dados || {}) as Record<string, unknown>
   const opReconciliado = {
@@ -384,41 +376,27 @@ export async function criarContratoDeFicha(
     semLacre: lacre.trim() ? false : semLacre,
     lacre: lacre.trim() || opPrev.lacre,
   }
-  const { error: errLink } = await supabase.from('fichas').update({
-    contrato_id: contrato!.id,
-    processada: true,
-    processada_em: ficha.processada ? undefined : new Date().toISOString(),
-    op_dados: opReconciliado,
-  } as never).eq('id', ficha.id)
-  if (errLink) throw new Error(`Erro ao vincular ficha ao contrato: ${errLink.message}`)
 
-  // Migrar observações da ficha pra tarefas (se houver)
-  if (ficha.observacoes) {
-    const { data: tipoFicha } = await supabase.from('tarefa_tipos').select('id').eq('nome', 'Observação da Ficha').maybeSingle() as { data: { id: string } | null }
-    if (tipoFicha) {
-      await supabase.from('tarefas').insert({
-        contrato_id: contrato!.id,
-        descricao: ficha.observacoes,
-        tipo_id: tipoFicha.id,
-        unidade_id: ficha.unidade_id,
-        criado_por: 'Tutor (ficha)',
-        criado_por_email: ficha.email || null,
-      } as never)
-    }
-  }
+  // 🔴 TUDO OU NADA (mig 176, 30/10/2026). Tutor, contrato, pelinho inicial, vínculo da ficha e
+  // as 2 observações eram 6 gravações avulsas: no 4G da Juliana (CP — Kit, Joulie, Rurie) o
+  // contrato entrava e o resto não, e a retentativa duplicou a tutora. Agora é uma transação
+  // só, que trava a ficha; ficha já vinculada volta `ja_existia` (o 2º clique depois da queda).
+  // Sem resposta da RPC NÃO há sucesso: o tempo-limite vira "não confirmado", e tentar de novo
+  // é seguro porque a RPC é idempotente.
+  const { data, error } = await supabase.rpc('criar_contrato_de_ficha', {
+    p_ficha_id: ficha.id,
+    p_cpfs_busca: cpfsBusca,
+    p_tutor: tutorData,
+    p_contrato: contratoData,
+    p_estab_novo_nome: estabNovoNome,
+    p_pelinho: comPelinho,
+    p_obs_ficha: ficha.observacoes || null,
+    p_obs_ficha_email: ficha.email || null,
+    p_obs_plano: detalhamentoPlano.trim() ? `Plano: ${detalhamentoPlano.trim()}` : null,
+    p_criado_por: criadoPorNome,
+    p_op_dados: opReconciliado,
+  }).abortSignal(AbortSignal.timeout(TEMPO_LIMITE_MS)) as { data: { contrato_id: string; ja_existia: boolean } | null; error: ErroSupabase | null }
+  if (error || !data?.contrato_id) throw erroDeGravacao(error, 'Erro ao criar contrato')
 
-  if (detalhamentoPlano.trim()) {
-    const { data: tipoUnidade } = await supabase.from('tarefa_tipos').select('id').eq('nome', 'Observação da Unidade').maybeSingle() as { data: { id: string } | null }
-    if (tipoUnidade) {
-      await supabase.from('tarefas').insert({
-        contrato_id: contrato!.id,
-        descricao: `Plano: ${detalhamentoPlano.trim()}`,
-        tipo_id: tipoUnidade.id,
-        unidade_id: ficha.unidade_id,
-        criado_por: criadoPorNome,
-      } as never)
-    }
-  }
-
-  return { contratoId: contrato!.id }
+  return { contratoId: data.contrato_id, jaExistia: !!data.ja_existia }
 }

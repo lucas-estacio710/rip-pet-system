@@ -795,7 +795,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       // Lacre, que viram pergunta da CONCLUSÃO da tarefa (não desta tela).
       const aguardarAcolhimento = temOperacional && !isPreventivo
 
-      const { contratoId } = await criarContratoDeFicha(
+      const { contratoId, jaExistia } = await criarContratoDeFicha(
         supabase,
         { ...f, op_dados: opDadosParaContrato },
         {
@@ -824,7 +824,10 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
         } as never)
         // Erro conferido (B-01): antes um 23505 (já havia tarefa pendente no contrato) sumia
         // calado e ninguém recebia a remoção. O contrato já existe — avisa em vez de desfazer.
-        if (errTarefa) {
+        // Exceção: retry de um contrato que já existia (mig 176) — o 23505 é a tarefa que a 1ª
+        // tentativa já criou; segue pro pelinho (idempotente) sem avisar de novo quem acolhe.
+        const tarefaJaCriada = jaExistia && (errTarefa as { code?: string } | null)?.code === '23505'
+        if (errTarefa && !tarefaJaCriada) {
           toast(`Contrato criado, mas a tarefa de remoção NÃO foi atribuída (${errTarefa.message}). Atribua pelo /tarefas.`, 'error')
         } else {
           // Pelinho Inicial: o pelinho que o contrato acabou de ganhar vai junto pra quem acolhe.
@@ -835,7 +838,7 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
               toast(`Remoção atribuída, mas o pelinho NÃO foi (${errPelinho instanceof Error ? errPelinho.message : 'erro'}). Atribua pelo /tarefas.`, 'error')
             }
           }
-          await notificarAtribuicaoRemocao(responsavelUserId, ficha.nome_pet || 'um pet')
+          if (!tarefaJaCriada) await notificarAtribuicaoRemocao(responsavelUserId, ficha.nome_pet || 'um pet')
         }
       }
 
@@ -878,7 +881,9 @@ export default function TratativaModal({ isOpen, onClose, ficha, onSuccess, onRe
       }
 
       toast(
-        aguardarAcolhimento
+        jaExistia
+          ? 'Este contrato já tinha sido criado — está tudo certo.'
+          : aguardarAcolhimento
           ? `Contrato criado — aguardando confirmação da remoção por ${atribuiveis.find(a => a.user_id === responsavelUserId)?.nome || 'alguém'}.`
           : 'Contrato criado com sucesso!',
         'success'
