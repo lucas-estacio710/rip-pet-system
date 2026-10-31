@@ -99,3 +99,24 @@ export async function trocarUrna(cliente: unknown, p: {
   await adicionarUrna(cliente, { contratoId: p.contratoId, unidadeId: p.unidadeId, urna: p.urna, preco: p.preco, desconto: p.desconto })
   return 'recriada'
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Qualquer produto (31/10/2026) — a tela ➕ "Adicionar outro produto" dos Opcionais usa
+// `adicionarUrna`/`trocarUrna` acima pra qualquer item do catálogo (a gravação é a mesma:
+// 1 linha, preço + desconto, estoque da unidade DO CONTRATO). Faltavam editar e remover.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Muda preço e desconto de UMA linha (quantidade não se edita: 1 linha = 1 produto físico). */
+export async function ajustarValorDaLinha(cliente: unknown, p: { linhaId: string; preco: number; desconto: number }): Promise<void> {
+  const sb = cliente as Cliente
+  const { error } = await sb.from('contrato_produtos').update({ valor: p.preco, desconto: p.desconto }).eq('id', p.linhaId)
+  if (error) throw new Error('Não consegui mudar o valor: ' + error.message)
+}
+
+/** Tira UMA linha do contrato e devolve 1 ao estoque da unidade DO CONTRATO. */
+export async function removerLinhaProduto(cliente: unknown, p: { unidadeId: string | null; linha: { id: string; produto_id: string } }): Promise<void> {
+  const sb = cliente as Cliente
+  const { error } = await sb.from('contrato_produtos').delete().eq('id', p.linha.id)
+  if (error) throw new Error('Não consegui tirar o produto: ' + error.message)
+  await moverEstoque(sb, p.linha.produto_id, p.unidadeId, +1)
+}

@@ -60,6 +60,71 @@ export type ProtocoloData = {
     parcelado6: number
     parcelado12: number
   }
+  // Carimbo do salvamento (31/10/2026) — ver `carimbarProtocolo`. Protocolo salvo antes disso
+  // não tem: não dá pra saber se o contrato mudou depois.
+  _salvoEm?: string
+  _base?: AssinaturaProtocolo
+}
+
+/**
+ * "Impressão digital" do que o SISTEMA monta sozinho a partir do contrato, por assunto.
+ * Edição feita à mão no editor não entra: a comparação é sempre entre duas montagens
+ * automáticas (a do momento do salvamento × a de agora), nunca com o texto editado.
+ */
+export type AssinaturaProtocolo = Record<GrupoProtocolo, string>
+export type GrupoProtocolo = 'tutor' | 'pet' | 'produtos' | 'valores' | 'pagamento'
+
+export const ROTULO_GRUPO_PROTOCOLO: Record<GrupoProtocolo, string> = {
+  tutor: 'dados do tutor',
+  pet: 'dados do pet',
+  produtos: 'produtos',
+  valores: 'valores',
+  pagamento: 'pagamento',
+}
+
+// djb2 — só pra encurtar o texto guardado; colisão aqui custaria um aviso a menos, não dado.
+function resumoHash(s: string): string {
+  let h = 5381
+  for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0
+  return h.toString(36)
+}
+
+const n2 = (v: number | null | undefined) => (Math.round((v || 0) * 100) / 100).toFixed(2)
+
+/** Assinatura por assunto de um protocolo montado pelo sistema (`montarProtocoloData`). */
+export function assinaturaProtocolo(d: ProtocoloData): AssinaturaProtocolo {
+  const cremacao = d.produtos.find(p => p.tipo === 'cremacao')
+  // Ordem dos produtos não importa (a consulta não tem ORDER BY e empates de valor trocam de lugar).
+  const itens = d.produtos.filter(p => p.tipo !== 'cremacao')
+    .map(p => `${p.nome}=${n2(p.valor)}`).sort()
+  return {
+    tutor: resumoHash([d.tutorNome, d.tutorTelefone, d.tutorEndereco, d.tutorBairro, d.tutorCidade, d.tutorEstado, d.tutorCep].map(v => v ?? '').join('|')),
+    pet: resumoHash([d.codigo, d.tipoCremacao, d.numeroLacre, d.petNome, d.petRaca, d.petCor, d.petPeso, d.dataAcolhimento].map(v => v ?? '').join('|')),
+    produtos: resumoHash(itens.join('|')),
+    valores: resumoHash([n2(d.totalAPagar), n2(cremacao?.valor)].join('|')),
+    pagamento: resumoHash(n2(d.totalPago)),
+  }
+}
+
+/** O protocolo editado, pronto pra gravar: data/hora do salvamento + a assinatura de `atual`. */
+export function carimbarProtocolo(editado: ProtocoloData, atual: ProtocoloData, agora: Date = new Date()): ProtocoloData {
+  return { ...editado, _salvoEm: agora.toISOString(), _base: assinaturaProtocolo(atual) }
+}
+
+/**
+ * O que mudou no contrato desde o salvamento. `null` = protocolo sem carimbo (salvo antes de
+ * 31/10/2026, ou ainda não salvo) — não há com o que comparar.
+ */
+export function alteracoesDesdeOSalvamento(salvo: Pick<ProtocoloData, '_base'>, atual: ProtocoloData): GrupoProtocolo[] | null {
+  if (!salvo._base) return null
+  const agora = assinaturaProtocolo(atual)
+  return (Object.keys(ROTULO_GRUPO_PROTOCOLO) as GrupoProtocolo[]).filter(g => salvo._base![g] !== agora[g])
+}
+
+/** "produtos e pagamento" / "dados do tutor, produtos e valores". */
+export function listarAlteracoes(grupos: GrupoProtocolo[]): string {
+  const r = grupos.map(g => ROTULO_GRUPO_PROTOCOLO[g])
+  return r.length <= 1 ? (r[0] || '') : `${r.slice(0, -1).join(', ')} e ${r[r.length - 1]}`
 }
 
 /**

@@ -14,6 +14,7 @@ import { contaPadraoPara, destinoDoRecebimento, taxaDaVenda, fmtBRL, type ContaE
 /** Conta da unidade como o mega pagamento precisa dela: com nome (pra exibir) e `legado`. */
 type ContaUnidade = ContaEscolhivel & { nome: string; legado: boolean | null }
 import ProtocoloEditorModal from '@/components/protocolo/ProtocoloEditorModal'
+import { salvarProtocolo, alteracoesDoProtocolo } from '@/lib/protocolo-contrato'
 import { printProtocolos } from '@/components/protocolo/ProtocoloPrint'
 import InteractiveTags from '@/components/contratos/InteractiveTags'
 import ActionButtons from '@/components/contratos/ActionButtons'
@@ -50,6 +51,10 @@ import TopoCardPet from '@/components/contratos/pipeline/TopoCardPet'
 import TrilhoCardPet from '@/components/contratos/pipeline/TrilhoCardPet'
 import { enderecoParaNavegar, linksNavegacao } from '@/lib/card-pet'
 import FarolPopup from '@/components/contratos/farois/FarolPopup'
+import { usePendenciasIcones } from '@/hooks/usePendenciasIcones'
+import ProdutosTela from '@/components/contratos/farois/ProdutosTela'
+import ProtocoloTela from '@/components/contratos/farois/ProtocoloTela'
+import { opcionaisDoContrato } from '@/lib/farois'
 import FotoTela from '@/components/contratos/farois/FotoTela'
 import PelinhoTela from '@/components/contratos/farois/PelinhoTela'
 import PersonalizadosTela from '@/components/contratos/farois/PersonalizadosTela'
@@ -287,7 +292,7 @@ const STATUS_FLOW = [
  *   O `status` no banco continua `pinda`; muda só o rótulo.
  */
 /** Faróis que já têm tela própria no 2º nível do popup de pendências (cresce de 2.5 a 2.12). */
-const TELAS_FAROL = new Set<string>(['certificado', 'indicacao', 'foto', 'pelinho', 'entrega', 'rescaldo', 'pagamento', 'urna', 'encaminhamento'])
+const TELAS_FAROL = new Set<string>(['certificado', 'indicacao', 'foto', 'pelinho', 'entrega', 'rescaldo', 'pagamento', 'urna', 'encaminhamento', 'protocolo', 'produtos'])
 
 function etapasDoPipeline(fluxoLocal: boolean, cardNovo: boolean) {
   return STATUS_FLOW
@@ -552,14 +557,8 @@ function ContratosContent() {
   // buscar "Elizangela" mostrava 2 viagens com uma Elizangela dentro de cada, e não dava pra ver de
   // relance que achou. É MOMENTÂNEO: a escolha do agrupamento não muda; apagou a busca, volta.
   const agruparSupindaAgora = agruparSupinda && !(encPipeline && !!buscaDebounced.trim())
-  // Visão "Ícones" do placar de pendências (10/10/2026): preferência de quem olha, guardada no
-  // aparelho. Lida depois de montar — no servidor não há localStorage.
-  const [pendIcones, setPendIcones] = useState(false)
-  useEffect(() => { try { setPendIcones(localStorage.getItem('pipeline.pendencias.icones') === '1') } catch {} }, [])
-  const trocarPendIcones = (v: boolean) => {
-    setPendIcones(v)
-    try { localStorage.setItem('pipeline.pendencias.icones', v ? '1' : '0') } catch {}
-  }
+  // Visão "Ícones" do placar de pendências (10/10/2026): preferência do aparelho, a mesma do detalhe.
+  const [pendIcones, trocarPendIcones] = usePendenciasIcones()
 
   // Filtro de dificuldade de montagem (só para aba Retorno)
 
@@ -635,6 +634,21 @@ function ContratosContent() {
     }))
   }
   const popupHist = usePopupHistory()
+  // 📋 Opcionais (31/10/2026): o contrato do popup mudou depois que o protocolo foi salvo? Confere
+  // ao abrir e a cada volta pra lista (produto/pagamento podem ter mudado no 2º nível).
+  const [farolProtAlterado, setFarolProtAlterado] = useState<boolean | null>(null)
+  const farolProtBase = (() => {
+    const c = farolContratoId ? contratos.find(x => x.id === farolContratoId) : null
+    return c?.protocolo_data?._base ? JSON.stringify(c.protocolo_data._base) : ''
+  })()
+  useEffect(() => {
+    setFarolProtAlterado(null)
+    if (!farolContratoId || !farolProtBase || popupHist.nivel !== 1) return
+    let vivo = true
+    void alteracoesDoProtocolo(supabase, farolContratoId, { _base: JSON.parse(farolProtBase) })
+      .then(r => { if (vivo) setFarolProtAlterado(r ? r.length > 0 : null) })
+    return () => { vivo = false }
+  }, [farolContratoId, farolProtBase, popupHist.nivel]) // eslint-disable-line react-hooks/exhaustive-deps
   // "+ Adicionar pets" (2.13c) também fecha com o voltar do celular, em vez de sair da tela.
   const histAddPets = usePopupHistory()
   const abrirAddPets = (v: { id: string; numero: string }) => { setAddPetsViagem(v); histAddPets.abrir() }
@@ -4498,7 +4512,7 @@ ${petNome}`
         tooltip: c.supinda_id ? '' : (c.numero_lacre?.toString().trim() ? 'Sem viagem' : 'Sem lacre'),
         sublabel: c.supinda?.numero ? String(c.supinda.numero) : undefined,
       }] : []),
-      ...computeAllTags({ ...c, indicacaoFonteId, temOperacional: unidadeTemOperacional(c.unidade_id) }).filter(t => t.id !== 'protocolo'),
+      ...computeAllTags({ ...c, indicacaoFonteId, temOperacional: unidadeTemOperacional(c.unidade_id) }).filter(t => t.id !== 'protocolo' && t.id !== 'certificado'),
       // 📬 Programar entrega (2.9; ex-"Registrar entrega", renomeado em 27/10/2026): último da
       // ordem, só na Entrega/Pendente. Fora do computeAllTags de propósito (senão iria pro
       // detalhe, /tutores e PI). ATRIBUIR é o que conclui o farol — a entrega em si fecha o
@@ -4535,7 +4549,8 @@ ${petNome}`
 
   function resumoDoCard(c: Contrato): { feitos: number; pendentes: number } | null {
     if (!isVisible(T, 'btn_farois')) return null
-    const tags = computeAllTags({ ...c, indicacaoFonteId, temOperacional: unidadeTemOperacional(c.unidade_id) }).filter(t => t.id !== 'protocolo')
+    // 📜 Certificado e 📋 Protocolo são OPCIONAIS (31/10/2026): fora do placar.
+    const tags = computeAllTags({ ...c, indicacaoFonteId, temOperacional: unidadeTemOperacional(c.unidade_id) }).filter(t => t.id !== 'protocolo' && t.id !== 'certificado')
     let feitos = tags.filter(t => estadoConcluido(t.state)).length
     let pendentes = tags.filter(t => estadoPendente(t.state)).length
     if (encPipeline && c.status === 'ativo' && !c.aguardando_acolhimento) { if (c.supinda_id) feitos++; else pendentes++ }
@@ -6958,25 +6973,22 @@ ${petNome}`
             data={protocoloEditData}
             onChange={setProtocoloEditData}
             salvando={salvandoProtocolo}
+            contratoId={protocoloContrato.id}
             onSave={async () => {
               setSalvandoProtocolo(true)
-              const { error } = await supabase
-                .from('contratos')
-                .update({ protocolo_data: protocoloEditData } as never)
-                .eq('id', protocoloContrato.id)
-              if (!error) {
-                // Atualizar no array local
+              try {
+                // Com carimbo (data/hora + assinatura do contrato): o aviso "houve alterações" depende dele.
+                const gravado = await salvarProtocolo(supabase, protocoloContrato.id, protocoloEditData)
                 setContratos(prev => prev.map(c =>
-                  c.id === protocoloContrato.id ? { ...c, protocolo_data: protocoloEditData } : c
+                  c.id === protocoloContrato.id ? { ...c, protocolo_data: gravado } : c
                 ))
-                setProtocoloContrato({ ...protocoloContrato, protocolo_data: protocoloEditData })
                 setSalvandoProtocolo(false)
                 setProtocoloModal(false)
                 setProtocoloContrato(null)
                 setProtocoloEditData(null)
                 unhighlightContrato()
-              } else {
-                alert('Erro ao salvar: ' + error.message)
+              } catch (e) {
+                alert(e instanceof Error ? e.message : String(e))
                 setSalvandoProtocolo(false)
               }
             }}
@@ -8231,6 +8243,7 @@ ${petNome}`
             onFechar={popupHist.fechar}
             animar={farolAnimar}
             tags={faroisDoCard(c, farolEntregaCom)}
+            opcionais={opcionaisDoContrato(c, farolProtAlterado)}
             onFarol={id => {
               setFarolAnimar(false)
               // Farol com tela própria: 2º nível na mesma janela.
@@ -8405,9 +8418,33 @@ ${petNome}`
                   }}
                 />
               ),
+            } : popupHist.nivel >= 2 && farolTela === 'protocolo' ? {
+              emoji: '📋',
+              titulo: 'Protocolo de Entrega',
+              conteudo: (
+                <ProtocoloTela
+                  contratoId={c.id}
+                  salvo={c.protocolo_data}
+                  onSalvo={gravado => {
+                    setContratos(prev => prev.map(x => x.id === c.id ? { ...x, protocolo_data: gravado } : x))
+                    popupHist.voltar()
+                  }}
+                />
+              ),
+            } : popupHist.nivel >= 2 && farolTela === 'produtos' ? {
+              emoji: '➕',
+              titulo: 'Adicionar outro produto',
+              // Objeto VIVO: cada ação grava na hora; a página relê produtos e valores (placar, 💵).
+              conteudo: (
+                <ProdutosTela
+                  contratoId={c.id}
+                  unidadeId={c.unidade_id}
+                  onMudou={async () => { await Promise.all([recarregarProdutosDoContrato(c.id), recarregarValoresDoContrato(c.id)]) }}
+                />
+              ),
             } : popupHist.nivel >= 2 && farolTela === 'certificado' && farolTelaContrato ? {
               emoji: '📜',
-              titulo: 'Confirmar Certificado',
+              titulo: 'Conferir/Ajustar Certificado',
               conteudo: (
                 <CertificadoModal
                   embutido

@@ -18,16 +18,18 @@
  * O botão voltar do celular é do `usePopupHistory`, no /contratos — aqui só se desenha.
  */
 import type { ReactNode } from 'react'
-import { AlertTriangle, CheckCircle2, ChevronLeft } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronLeft, Sparkles } from 'lucide-react'
 import PopupCentral from '@/components/ui/PopupCentral'
 import type { ComputedTag } from '@/lib/contrato-tags'
-import { separarFarois, type FarolLista } from '@/lib/farois'
+import { separarFarois, type FarolLista, type OpcionalLista } from '@/lib/farois'
 import { pesoDoCard, especieDoCard, nomeDoCard } from '@/lib/card-pet'
 
 type Props = {
   aberto: boolean
   onFechar: () => void
   tags: ComputedTag[]
+  /** Faixa "Opcionais" (31/10/2026): benefício, não obrigação — fora do placar e das concluídas. */
+  opcionais?: OpcionalLista[]
   /** Desenha o ✓ a lápis? Só na 1ª abertura (voltar não repete). */
   animar: boolean
   onFarol: (id: string) => void
@@ -58,7 +60,7 @@ function Ok({ animar, atraso }: { animar: boolean; atraso: number }) {
   )
 }
 
-function Linha({ f, onFarol, direita }: { f: FarolLista; onFarol: (id: string) => void; direita: ReactNode }) {
+function Linha({ f, onFarol, direita }: { f: Pick<FarolLista, 'id' | 'emoji' | 'label'>; onFarol: (id: string) => void; direita: ReactNode }) {
   return (
     <button type="button" className="pl-linha" onClick={() => onFarol(f.id)}>
       <span className="pl-linha-emoji">{f.emoji}</span>
@@ -68,7 +70,7 @@ function Linha({ f, onFarol, direita }: { f: FarolLista; onFarol: (id: string) =
   )
 }
 
-export default function FarolPopup({ aberto, onFechar, tags, animar, onFarol, tela, onVoltar, pet }: Props) {
+export default function FarolPopup({ aberto, onFechar, tags, opcionais = [], animar, onFarol, tela, onVoltar, pet }: Props) {
   const { concluidas, pendentes } = separarFarois(tags)
   const peso = pesoDoCard(pet.peso)
   const esp = especieDoCard(pet.especie, pet.peso)
@@ -173,7 +175,26 @@ export default function FarolPopup({ aberto, onFechar, tags, animar, onFarol, te
             ))}
           </div>
         )}
-        {concluidas.length === 0 && pendentes.length === 0 && (
+        {opcionais.length > 0 && (
+          <div className="space-y-0.5">
+            <div className="pl-faixa" style={{ '--pl-c': '#0284c7' } as React.CSSProperties}>
+              <Sparkles className="h-3.5 w-3.5" />Opcionais
+            </div>
+            {opcionais.map(o => (
+              <Linha
+                key={o.id}
+                f={o}
+                onFarol={onFarol}
+                // ✓ verde quando feito, mas sem subir pras concluídas; senão o estado em cinza
+                // (nunca o âmbar de pendente — é benefício, não obrigação).
+                direita={o.ok
+                  ? <>{o.texto && <span className="text-[12px] font-semibold text-[var(--surface-500)] truncate min-w-0">{o.texto}</span>}<Ok animar={false} atraso={0} /></>
+                  : <span className="pl-chip-nao">{o.texto}</span>}
+              />
+            ))}
+          </div>
+        )}
+        {concluidas.length === 0 && pendentes.length === 0 && opcionais.length === 0 && (
           <p className="text-sm text-center py-4" style={{ color: 'var(--surface-400)' }}>Nenhuma pendência neste contrato.</p>
         )}
       </div>

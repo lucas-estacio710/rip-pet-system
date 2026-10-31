@@ -12,6 +12,7 @@ import { copyToClipboard } from '@/lib/clipboard'
 import Link from 'next/link'
 import { ProtocoloData, montarProtocoloData, normalizarProtocoloData } from '@/components/protocolo/protocolo-utils'
 import ProtocoloEditorModal from '@/components/protocolo/ProtocoloEditorModal'
+import { salvarProtocolo, alteracoesDoProtocolo } from '@/lib/protocolo-contrato'
 import InteractiveTags from '@/components/contratos/InteractiveTags'
 import ActionButtons from '@/components/contratos/ActionButtons'
 import EntregaModal from '@/components/contratos/modals/EntregaModal'
@@ -49,12 +50,17 @@ import TarefasAba, { SELECT_TAREFAS_DO_CONTRATO, type TarefaDoContrato } from '@
 import EsteiraGC from '@/components/contratos/pipeline/EsteiraGC'
 import { trocarModeloDoItem } from '@/lib/tarefas-rescaldo'
 import FarolPopup from '@/components/contratos/farois/FarolPopup'
+import ProdutosTela from '@/components/contratos/farois/ProdutosTela'
+import ProtocoloTela from '@/components/contratos/farois/ProtocoloTela'
+import ResumoPendencias from '@/components/contratos/pipeline/ResumoPendencias'
+import { usePendenciasIcones } from '@/hooks/usePendenciasIcones'
+import { opcionaisDoContrato } from '@/lib/farois'
 import UrnaTela from '@/components/contratos/farois/UrnaTela'
 import PagamentoTela from '@/components/contratos/farois/PagamentoTela'
 import PersonalizadosTela from '@/components/contratos/farois/PersonalizadosTela'
 import PelinhoTela from '@/components/contratos/farois/PelinhoTela'
 import FotoTela from '@/components/contratos/farois/FotoTela'
-import { computeAllTags } from '@/lib/contrato-tags'
+import { computeAllTags, estadoConcluido, estadoPendente } from '@/lib/contrato-tags'
 import { useVoltarFecha } from '@/hooks/usePopupHistory'
 import { lerVizinhosGravados, vizinhosDe } from '@/lib/vizinhos-contrato'
 
@@ -569,6 +575,22 @@ export default function ContratoDetalhe() {
 
   const supabase = createClient()
   const { hasModule, currentUnit, currentRole, isSuperAdmin, allUnidades, userName } = useUnit()
+  // Placar de pendências no lugar dos faróis (padrão novo, 31/10/2026): números ou ícones, a mesma
+  // preferência do pipeline.
+  const [pendIcones, trocarPendIcones] = usePendenciasIcones()
+  // 📋 Opcionais: o contrato mudou depois que o protocolo foi salvo? Confere ao abrir a lista do
+  // popup e a cada volta pra ela (produto/pagamento podem ter mudado numa tela do 2º nível).
+  const [protAlterado, setProtAlterado] = useState<boolean | null>(null)
+  const protBase = contrato?.protocolo_data?._base ? JSON.stringify(contrato.protocolo_data._base) : ''
+  const listaFarolAberta = !!farolDet && farolDet.tela === null
+  useEffect(() => {
+    setProtAlterado(null)
+    if (!contrato?.id || !protBase || !listaFarolAberta) return
+    let vivo = true
+    void alteracoesDoProtocolo(supabase, contrato.id, { _base: JSON.parse(protBase) })
+      .then(r => { if (vivo) setProtAlterado(r ? r.length > 0 : null) })
+    return () => { vivo = false }
+  }, [contrato?.id, protBase, listaFarolAberta]) // eslint-disable-line react-hooks/exhaustive-deps
   // cb_operacional: Responsável do acolhimento vem de perfis, não de funcionarios.
   const temOperacionalContrato = !!allUnidades.find(u => u.id === contrato?.unidade_id)?.modulos_ativos?.includes('cb_operacional')
   // P-29: o ✓ de personalizado/pelinho some pra quem não pode concluir sem foto (concierge numa
@@ -3105,7 +3127,7 @@ ${petNome}`
     }
   }
   // ── Faróis no padrão novo (pedido do Lucas, 10/10/2026): mesmas telas do pipeline ──
-  const TELAS_FAROL_DET = new Set(['urna', 'pagamento', 'rescaldo', 'pelinho', 'foto', 'indicacao', 'certificado'])
+  const TELAS_FAROL_DET = new Set(['urna', 'pagamento', 'rescaldo', 'pelinho', 'foto', 'indicacao', 'certificado', 'protocolo', 'produtos'])
   const abrirFarolDet = (id: string) => {
     if (id === 'rescaldo' && produtosRescaldo.length === 0) void carregarProdutosRescaldo()
     setFarolDet({ tela: id })
@@ -3149,6 +3171,28 @@ ${petNome}`
     indicacaoFonteId,
   }
   const voltarListaFarol = () => setFarolDet({ tela: null })
+  // 📜 Certificado e 📋 Protocolo são OPCIONAIS (31/10/2026): fora do placar e das pendências.
+  const tagsDoPlacarDet = computeAllTags(contratoParaFarois).filter(t => t.id !== 'protocolo' && t.id !== 'certificado')
+  const pendentesDet = tagsDoPlacarDet.filter(t => estadoPendente(t.state))
+  const placarDet = (
+    <div className="flex items-center gap-1.5">
+      <ResumoPendencias
+        feitos={tagsDoPlacarDet.filter(t => estadoConcluido(t.state)).length}
+        pendentes={pendentesDet.length}
+        onClick={() => setFarolDet({ tela: null })}
+        icones={pendIcones ? pendentesDet.map(t => ({ id: t.id, emoji: t.emoji, titulo: `${t.label}${t.tooltip ? ' · ' + t.tooltip : ''}` })) : undefined}
+        onIcone={id => TELAS_FAROL_DET.has(id) ? abrirFarolDet(id) : setFarolDet({ tela: null })}
+      />
+      {/* Números ou ícones — a mesma escolha do "Organizar" do pipeline. */}
+      <span className="inline-flex p-0.5 rounded-lg border" style={{ borderColor: 'var(--surface-200)', background: 'var(--surface-0)' }}>
+        {([[false, '✓⏱', 'Mostrar números'], [true, '🔔', 'Mostrar ícones']] as const).map(([v, txt, dica]) => (
+          <button key={String(v)} type="button" title={dica} aria-pressed={pendIcones === v} onClick={() => trocarPendIcones(v)}
+            className="px-2 py-0.5 text-[12px] font-semibold rounded-md"
+            style={pendIcones === v ? { background: 'rgba(168,85,247,.18)', color: '#9333ea' } : { color: 'var(--surface-400)' }}>{txt}</button>
+        ))}
+      </span>
+    </div>
+  )
   const telaFarolDet = (id: string | null): { emoji: string; titulo: string; conteudo: React.ReactNode } | null => {
     const nenhum = contratoProdutos.find(cp => cp.produto?.codigo === '0002')
     const temOp = temOperacionalContrato
@@ -3259,8 +3303,22 @@ ${petNome}`
         />
       ),
     }
+    if (id === 'protocolo') return {
+      emoji: '📋', titulo: 'Protocolo de Entrega',
+      conteudo: (
+        <ProtocoloTela
+          contratoId={contrato.id}
+          salvo={contrato.protocolo_data}
+          onSalvo={gravado => { setContrato(prev => prev ? { ...prev, protocolo_data: gravado } : prev); voltarListaFarol() }}
+        />
+      ),
+    }
+    if (id === 'produtos') return {
+      emoji: '➕', titulo: 'Adicionar outro produto',
+      conteudo: <ProdutosTela contratoId={contrato.id} unidadeId={contrato.unidade_id || null} onMudou={recarregarDoFarol} />,
+    }
     if (id === 'certificado') return {
-      emoji: '📜', titulo: 'Confirmar Certificado',
+      emoji: '📜', titulo: 'Conferir/Ajustar Certificado',
       conteudo: (
         <CertificadoModal
           embutido
@@ -3282,7 +3340,8 @@ ${petNome}`
       aberto
       onFechar={() => setFarolDet(null)}
       animar={false}
-      tags={computeAllTags(contratoParaFarois).filter(t => t.id !== 'protocolo')}
+      tags={tagsDoPlacarDet}
+      opcionais={opcionaisDoContrato(contratoParaFarois, protAlterado)}
       onFarol={id => {
         if (TELAS_FAROL_DET.has(id)) { abrirFarolDet(id); return }
         setFarolDet(null)
@@ -3966,7 +4025,8 @@ ${petNome}`
 
           {/* Row 3: Tags — no novo: placar + pendentes; código + Alterar dados à direita no desktop */}
           <div className={cardNovo ? 'mb-3 flex flex-wrap items-center gap-2' : 'mb-3'}>
-            <InteractiveTags
+            {/* Padrão novo (31/10/2026): o placar do pipeline no lugar dos faróis — tocar abre o popup. */}
+            {cardNovo ? placarDet : <InteractiveTags
               contrato={contratoParaFarois}
               handlers={{
                 // Padrão novo: as telas do popup do pipeline (farolPopupDet). Antigo: os modais de sempre.
@@ -3990,9 +4050,9 @@ ${petNome}`
                 },
                 rescaldo: cardNovo ? () => abrirFarolDet('rescaldo') : () => setRescaldoModal(true),
               }}
-              layout={cardNovo ? 'detail-novo' : 'detail'}
+              layout="detail"
               stopPropagation={false}
-            />
+            />}
             {cardNovo && <div className="hidden md:flex ml-auto items-center gap-2">{codigoEAlterarNovo}</div>}
           </div>
           {cardNovo && <div className="md:hidden flex justify-end items-center gap-2">{codigoEAlterarNovo}</div>}
@@ -6381,20 +6441,18 @@ ${petNome}`
           data={protocoloEdit}
           onChange={setProtocoloEdit}
           salvando={salvandoProtocolo}
+          contratoId={contrato.id}
           onSave={async () => {
             setSalvandoProtocolo(true)
-            const { error } = await supabase
-              .from('contratos')
-              .update({ protocolo_data: protocoloEdit } as never)
-              .eq('id', contrato.id)
-            if (!error) {
-              setContrato({ ...contrato, protocolo_data: protocoloEdit })
-              setSalvandoProtocolo(false)
+            try {
+              // Com carimbo (data/hora + assinatura do contrato): o aviso "houve alterações" depende dele.
+              const gravado = await salvarProtocolo(supabase, contrato.id, protocoloEdit)
+              setContrato({ ...contrato, protocolo_data: gravado })
               setProtocoloEdit(null)
-            } else {
-              alert('Erro ao salvar protocolo: ' + error.message)
-              setSalvandoProtocolo(false)
+            } catch (e) {
+              alert(e instanceof Error ? e.message : String(e))
             }
+            setSalvandoProtocolo(false)
           }}
           onRegenerate={() => {
             const cpProdutos = contratoProdutos.map(cp => ({

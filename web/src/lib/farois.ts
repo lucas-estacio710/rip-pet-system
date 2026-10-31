@@ -76,3 +76,56 @@ export function separarFarois(tags: ComputedTag[]): { concluidas: FarolLista[]; 
     pendentes: linhas.filter(l => l.tipo === 'pendente'),
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OPCIONAIS (31/10/2026, pedido do Lucas): o que é benefício, não obrigação. Faixa própria no
+// popup, embaixo das pendentes; NUNCA conta no placar nem vira pendente — e nem sobe pras
+// concluídas quando feito (ganha só o ✓ verde no lugar).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type OpcionalLista = {
+  id: 'certificado' | 'protocolo' | 'produtos'
+  emoji: string
+  label: string
+  /** ✓ verde (feito). Sem ✓, o `texto` aparece em cinza — nunca "pendente". */
+  ok: boolean
+  texto: string | null
+}
+
+/** Marcadores de recusa: "Nenhuma urna" (0001) e "Nenhum personalizado" (0002) não são produto. */
+const MARCADORES = new Set(['0001', '0002'])
+
+/** "Nenhum" · "Só Pelinho" · "1 produto" · "N produtos" (marcadores de recusa fora da conta). */
+export function resumoProdutosOpcional(prods: { produto?: { codigo?: string | null; rescaldo_tipo?: string | null } | null }[]): string {
+  const reais = prods.filter(cp => cp.produto && !MARCADORES.has(cp.produto.codigo || ''))
+  if (reais.length === 0) return 'Nenhum'
+  if (reais.every(cp => cp.produto?.rescaldo_tipo === 'pelinho')) return 'Só Pelinho'
+  return `${reais.length} produto${reais.length === 1 ? '' : 's'}`
+}
+
+/**
+ * As linhas dos Opcionais de um contrato. `protocoloAlterado`: o contrato mudou depois do
+ * salvamento (null = não verificado / protocolo sem carimbo → conta como em dia).
+ */
+export function opcionaisDoContrato(c: {
+  status: string
+  certificado_confirmado: boolean | null
+  protocolo_data: unknown | null
+  contrato_produtos?: { produto?: { codigo?: string | null; rescaldo_tipo?: string | null } | null }[]
+}, protocoloAlterado: boolean | null = null): OpcionalLista[] {
+  const linhas: OpcionalLista[] = []
+  // Certificado: as mesmas etapas de sempre (computeCertificado) — Ativo e Pinda.
+  if (c.status === 'ativo' || c.status === 'pinda') {
+    const ok = c.certificado_confirmado === true
+    linhas.push({ id: 'certificado', emoji: '📜', label: 'Conferir/Ajustar Certificado', ok, texto: ok ? null : 'Não conferido' })
+  }
+  // Protocolo: qualquer etapa (pedido do Lucas).
+  const salvo = !!c.protocolo_data
+  linhas.push({
+    id: 'protocolo', emoji: '📋', label: 'Protocolo de Entrega',
+    ok: salvo && !protocoloAlterado,
+    texto: !salvo ? 'Não preparado' : protocoloAlterado ? 'Salvo · com alterações' : null,
+  })
+  linhas.push({ id: 'produtos', emoji: '➕', label: 'Adicionar outro produto', ok: false, texto: resumoProdutosOpcional(c.contrato_produtos || []) })
+  return linhas
+}

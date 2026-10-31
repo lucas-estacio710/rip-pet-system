@@ -4,10 +4,13 @@
 // botão DOC) e o detalhe do contrato (/contratos/[id]). A versão do pipeline é a
 // fonte da verdade do comportamento; cada tela cuida do fetch/save e passa callbacks.
 
+import { useEffect, useMemo, useState } from 'react'
 import { X, Plus, Printer } from 'lucide-react'
 import ProtocoloEntrega from './ProtocoloEntrega'
 import { printProtocolos } from './ProtocoloPrint'
-import { formatarValor, type ProtocoloData } from './protocolo-utils'
+import { formatarValor, listarAlteracoes, type ProtocoloData, type GrupoProtocolo } from './protocolo-utils'
+import { createClient } from '@/lib/supabase/client'
+import { alteracoesDoProtocolo } from '@/lib/protocolo-contrato'
 
 type Props = {
   data: ProtocoloData
@@ -18,9 +21,51 @@ type Props = {
   onRegenerate: () => void
   regenerando?: boolean
   onClose: () => void
+  /** Pra conferir se o contrato mudou depois do salvamento (aviso no topo). */
+  contratoId?: string
+  /** Dentro do popup de pendências: sem overlay nem ✕ (o popup já tem). */
+  embutido?: boolean
 }
 
-export default function ProtocoloEditorModal({ data: pe, onChange, onSave, salvando, onRegenerate, regenerando, onClose }: Props) {
+const dataHora = (iso: string) => {
+  const d = new Date(iso)
+  return `${d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} às ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+}
+
+/**
+ * "Salvo em 30/10 às 14:32, mas depois houve alterações em produtos e pagamento" (31/10/2026).
+ * Confere uma vez por protocolo carregado; edição na tela não refaz a conta (só o `_base` vale).
+ */
+function AvisoSalvamento({ contratoId, salvoEm, base, onAtualizar, atualizando }: {
+  contratoId?: string; salvoEm?: string; base?: ProtocoloData['_base']; onAtualizar: () => void; atualizando?: boolean
+}) {
+  const supabase = useMemo(() => createClient(), [])
+  const chave = base ? JSON.stringify(base) : ''
+  // A resposta guarda a chave de que ela é: protocolo regenerado/recarregado não herda o aviso velho.
+  const [resposta, setResposta] = useState<{ chave: string; mudou: GrupoProtocolo[] | null } | null>(null)
+  const mudou = resposta && resposta.chave === chave ? resposta.mudou : null
+  useEffect(() => {
+    if (!contratoId || !chave) return
+    let vivo = true
+    void alteracoesDoProtocolo(supabase, contratoId, { _base: JSON.parse(chave) }).then(r => { if (vivo) setResposta({ chave, mudou: r }) })
+    return () => { vivo = false }
+  }, [supabase, contratoId, chave])
+  if (!salvoEm) return null
+  if (mudou && mudou.length > 0) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[13px] text-amber-800">
+        <span className="flex-1 min-w-[200px]">⚠️ Salvo em {dataHora(salvoEm)}, mas depois houve alterações em <b>{listarAlteracoes(mudou)}</b>.</span>
+        <button type="button" onClick={onAtualizar} disabled={atualizando}
+          className="px-2.5 py-1 rounded-md bg-amber-500 text-white text-xs font-semibold hover:bg-amber-600 disabled:opacity-50">
+          {atualizando ? '⏳' : '🔄'} Atualizar com os dados de agora
+        </button>
+      </div>
+    )
+  }
+  return <p className="text-[12px] text-gray-500">✓ Salvo em {dataHora(salvoEm)}</p>
+}
+
+export default function ProtocoloEditorModal({ data: pe, onChange, onSave, salvando, onRegenerate, regenerando, onClose, contratoId, embutido }: Props) {
   // Sem recálculo — pe já contém os valores editáveis
   const dadosImpressao = pe
 
@@ -47,13 +92,8 @@ export default function ProtocoloEditorModal({ data: pe, onChange, onSave, salva
     })
   }
 
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-2">
-      <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[95vh] overflow-auto border border-gray-200" onClick={e => e.stopPropagation()}>
-        {/* Header */}
-        <div className="flex items-center justify-between p-3 border-b border-gray-200 sticky top-0 bg-white z-10">
-          <h3 className="text-base font-semibold text-gray-900">📄 Protocolo — {pe.petNome}</h3>
-          <div className="flex items-center gap-2">
+  const botoes = (
+    <>
             <button
               onClick={onSave}
               disabled={salvando}
@@ -76,13 +116,12 @@ export default function ProtocoloEditorModal({ data: pe, onChange, onSave, salva
               <Printer className="h-4 w-4" />
               Imprimir
             </button>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-        </div>
+    </>
+  )
 
-        {/* Editor */}
+  const aviso = <AvisoSalvamento contratoId={contratoId} salvoEm={pe._salvoEm} base={pe._base} onAtualizar={onRegenerate} atualizando={regenerando} />
+
+  const editor = (
         <div className="p-3 space-y-3">
           <div>
             <div className="text-xs font-semibold text-gray-500 uppercase mb-1">Produtos</div>
@@ -317,6 +356,34 @@ export default function ProtocoloEditorModal({ data: pe, onChange, onSave, salva
             <ProtocoloEntrega data={dadosImpressao} />
           </div>
         </div>
+  )
+
+  // No popup de pendências: o protocolo é um "papel" branco dentro do popup, botões em cima.
+  if (embutido) {
+    return (
+      <div className="rounded-xl bg-white border border-gray-200 overflow-hidden">
+        <div className="flex flex-wrap items-center gap-2 p-3 border-b border-gray-200">{botoes}</div>
+        <div className="px-3 pt-3">{aviso}</div>
+        {editor}
+      </div>
+    )
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-2">
+      <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[95vh] overflow-auto border border-gray-200" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between p-3 border-b border-gray-200 sticky top-0 bg-white z-10">
+          <h3 className="text-base font-semibold text-gray-900">📄 Protocolo — {pe.petNome}</h3>
+          <div className="flex items-center gap-2">
+            {botoes}
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+        <div className="px-3 pt-3">{aviso}</div>
+        {editor}
       </div>
     </div>
   )
